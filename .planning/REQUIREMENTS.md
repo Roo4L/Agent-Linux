@@ -7,9 +7,9 @@
 
 ### Hero
 
-- [ ] **HERO-01**: Landing page displays AgentLinux name with tagline above the fold
-- [ ] **HERO-02**: Clear value proposition statement explaining what AgentLinux is and who it's for
-- [ ] **HERO-03**: CTA button that scrolls to email signup form
+- [x] **HERO-01**: Landing page displays AgentLinux name with tagline above the fold
+- [x] **HERO-02**: Clear value proposition statement explaining what AgentLinux is and who it's for
+- [x] **HERO-03**: CTA button that scrolls to email signup form
 
 ### Problem
 
@@ -34,9 +34,9 @@
 
 ### Design
 
-- [ ] **DSGN-01**: Terminal/hacker aesthetic — dark theme, monospace fonts, CLI visual style
+- [x] **DSGN-01**: Terminal/hacker aesthetic — dark theme, monospace fonts, CLI visual style
 - [ ] **DSGN-02**: Responsive design (mobile + desktop)
-- [ ] **DSGN-03**: Static HTML/CSS/JS — no build step, no framework
+- [x] **DSGN-03**: Static HTML/CSS/JS — no build step, no framework
 
 ### Footer
 
@@ -84,18 +84,18 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HERO-01 | Phase 1 | Pending |
-| HERO-02 | Phase 1 | Pending |
-| HERO-03 | Phase 1 | Pending |
+| HERO-01 | Phase 1 | Complete |
+| HERO-02 | Phase 1 | Complete |
+| HERO-03 | Phase 1 | Complete |
 | PROB-01 | Phase 1 | Pending |
 | FEAT-01 | Phase 1 | Pending |
 | FEAT-02 | Phase 1 | Pending |
 | COMP-01 | Phase 1 | Pending |
 | MAIL-01 | Phase 1 | Pending |
 | FAQ-01 | Phase 1 | Pending |
-| DSGN-01 | Phase 1 | Pending |
+| DSGN-01 | Phase 1 | Complete |
 | DSGN-02 | Phase 1 | Pending |
-| DSGN-03 | Phase 1 | Pending |
+| DSGN-03 | Phase 1 | Complete |
 | FOOT-01 | Phase 1 | Pending |
 | DEPL-01 | Phase 2 | Pending |
 | DEPL-02 | Phase 2 | Pending |
