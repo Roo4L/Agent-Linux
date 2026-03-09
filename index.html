@@ -239,10 +239,31 @@
       color: var(--accent);
     }
 
-    .pain-point p {
+    .pain-point-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    .pain-point-col {
+      padding: 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+
+    .pain-point-col-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+      font-weight: 500;
+    }
+
+    .pain-point-col p {
       color: var(--text-secondary);
       line-height: 1.8;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0;
     }
 
     .pain-point code {
@@ -256,6 +277,12 @@
     .pain-point .punch {
       color: var(--text-primary);
       font-style: italic;
+    }
+
+    @media (max-width: 640px) {
+      .pain-point-columns {
+        grid-template-columns: 1fr;
+      }
     }
 
     .problem-bridge {
@@ -537,7 +564,7 @@
         font-size: 1.1rem;
       }
 
-      .pain-point p {
+      .pain-point-col p {
         font-size: 0.9375rem;
       }
 
@@ -610,7 +637,7 @@
   <section id="problem" class="full-height">
     <div class="section-container">
       <h2>The problem with running agents today</h2>
-      <p class="problem-intro">You've built an agent that writes code, runs tests, and deploys services. Now you need somewhere to run it. You look at what's available and realize every option was designed for humans, not machines.</p>
+      <p class="problem-intro">You need somewhere to run your agent. Every option available was designed for humans, not machines.</p>
 
       <div class="pain-point">
         <div class="pain-point-header">
@@ -618,8 +645,16 @@
           <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
           <span class="pain-point-title">Your local machine</span>
         </div>
-        <p>The quickest path: give the agent access to your own machine. It starts running commands, installing packages, writing files alongside your own projects. For you, the engineer, this feels efficient until you realize there's no isolation. The agent's <code>npm install</code> conflicts with yours. Its background processes eat your CPU. Its file writes land in your home directory.</p>
-        <p>From the agent's perspective, it's even worse. It's walking through someone else's house, tiptoeing around config files it doesn't understand, constrained by permissions set up for a human workflow. One wrong <code>rm -rf</code> and your afternoon is gone. <span class="punch">Your machine was built for you. It was never meant to be shared with something that runs 24 hours a day and doesn't know when to stop.</span></p>
+        <div class="pain-point-columns">
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the engineer</div>
+            <p>You give the agent access to your machine and immediately face a choice: run it unrestricted and risk it wiping your <code>~/.ssh</code>, or sandbox it and spend your day approving every config file read, every <code>apt install</code>, every port binding. Either it's unsafe or it's unusable. <span class="punch">Your machine was built for you, not for a tireless process that doesn't know when to stop.</span></p>
+          </div>
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the agent</div>
+            <p>I'm walking through someone else's house. Every file I touch might be important. Every package I install might conflict with theirs. Half the time I'm blocked by permission prompts I can't dismiss. I need <code>sudo</code> for basic setup but the engineer is right not to trust me with it. <span class="punch">I need my own space, not a corner of someone else's.</span></p>
+          </div>
+        </div>
       </div>
 
       <div class="pain-point">
@@ -628,8 +663,16 @@
           <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
           <span class="pain-point-title">Docker</span>
         </div>
-        <p>Containers feel like the right answer. Isolated, reproducible, lightweight. But Docker was designed for shipping applications, not hosting residents. Your agent needs to install <code>apt</code> packages mid-session, but every install requires rebuilding the image. It needs persistent state across restarts, but volumes are an afterthought. It needs real networking, but you're debugging <code>iptables</code> rules inside a container.</p>
-        <p>The agent experiences Docker as a straitjacket. It can't <code>systemctl</code> start services. It can't modify its own environment without the whole container being rebuilt. Long-running sessions crash when the container is recycled. <span class="punch">Containers are for apps, not residents. Your agent isn't a microservice -- it's a worker that needs a real operating system.</span></p>
+        <div class="pain-point-columns">
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the engineer</div>
+            <p>Containers seem perfect until you realize your agent needs Docker inside Docker to build and test services. Now you're debugging nested daemon sockets, volume mount propagation, and network namespaces within namespaces. Every <code>apt install</code> requires rebuilding the image. <span class="punch">Containers are for shipping apps, not housing workers.</span></p>
+          </div>
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the agent</div>
+            <p>I can't <code>systemctl</code> start anything. I can't install packages without the whole container being rebuilt. My long-running sessions vanish when the container recycles. And tools like Claude Code refuse to run as <code>root</code>, but the container's default user is root. <span class="punch">I'm not a microservice — I'm a worker that needs a real OS.</span></p>
+          </div>
+        </div>
       </div>
 
       <div class="pain-point">
@@ -638,11 +681,19 @@
           <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>
           <span class="pain-point-title">Generic VMs</span>
         </div>
-        <p>So you spin up a full virtual machine. Now you have a real OS, real process isolation, real networking. But also real overhead. You're provisioning Ubuntu, configuring users, installing toolchains, setting up SSH keys, hardening security -- before the agent writes a single line of code. Every new agent instance means repeating this setup.</p>
-        <p>From the agent's side, it lands in a blank, generic Linux install that knows nothing about its workload. No pre-installed language runtimes. No agent-specific user accounts. No resource limits tuned for agent behavior. <span class="punch">You become the sysadmin for your agent, hand-configuring an environment that should have been ready on boot.</span></p>
+        <div class="pain-point-columns">
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the engineer</div>
+            <p>A full VM gives you real isolation. It also gives you a sysadmin job: provisioning Ubuntu, creating users, installing toolchains, configuring SSH, hardening security — before the agent writes one line of code. Multiply by ten agents. <span class="punch">You became the sysadmin for your agent fleet.</span></p>
+          </div>
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the agent</div>
+            <p>I land in a blank Linux install that knows nothing about my workload. No language runtimes. No non-root user for me. No resource limits tuned for how I work. Everything has to be provisioned by the engineer before I can start. <span class="punch">The environment should have been ready on boot.</span></p>
+          </div>
+        </div>
       </div>
 
-      <p class="problem-bridge">There's a better way. What if the operating system itself was designed for agents?</p>
+      <p class="problem-bridge">What if the operating system itself was designed for agents?</p>
     </div>
   </section>
 
@@ -714,27 +765,24 @@
   <section id="comparison" class="full-height">
     <div class="section-container">
       <h2>Why not just use what exists?</h2>
-      <p class="comparison-intro">Every option on the market today was built for a different job. Here's what changes when the operating system is designed around agent workloads from day one.</p>
+      <p class="comparison-intro">Every option today was built for a different job. Here's what changes when the OS is designed for agents.</p>
 
       <div class="comparison-block">
-        <h3>Local machine: isolation instead of cohabitation</h3>
-        <p>Running agents on your local machine means sharing everything -- filesystem, processes, network ports. One agent's <code>node_modules</code> collides with another's. A runaway process starves your IDE of memory. You're constantly context-switching between your work and the agent's mess.</p>
-        <p class="solution">AgentLinux gives every agent its own non-root user account with scoped permissions and isolated workspaces. The agent can't touch your files. Its processes run under resource limits. Its workspace persists independently of yours. You get isolation without the overhead of managing a separate machine.</p>
+        <h3>Local machine → isolation instead of cohabitation</h3>
+        <p class="solution">AgentLinux gives every agent its own non-root user with scoped permissions and isolated workspaces. No approval prompts. No risk to your files. The agent operates with exactly the access it needs — safely, without asking.</p>
       </div>
 
       <div class="comparison-block">
-        <h3>Docker: a full OS instead of a locked box</h3>
-        <p>Containers give you isolation, but they take away everything an agent needs to do real work. No <code>systemctl</code>. No mid-session package installs without rebuilding. No persistent state without wiring up volumes. Your agent is an application trapped in a shipping container, not a worker with a real environment.</p>
-        <p class="solution">AgentLinux is a complete operating system. Agents install packages with <code>apt</code> whenever they need them. They start services, manage processes, and maintain state across sessions. The environment adapts to the agent's workflow, not the other way around.</p>
+        <h3>Docker → a full OS instead of a locked box</h3>
+        <p class="solution">AgentLinux is a complete operating system. Agents install packages with <code>apt</code> mid-session, start services with <code>systemctl</code>, and maintain state across restarts. No docker-in-docker gymnastics. No root-only default user. A dedicated non-root agent account that tools like Claude Code actually require.</p>
       </div>
 
       <div class="comparison-block">
-        <h3>Generic VMs: ready on boot instead of manual provisioning</h3>
-        <p>A full VM gives agents a real OS, but it also gives you a full-time sysadmin job. Every new agent instance means provisioning from scratch: installing toolchains, creating user accounts, configuring SSH, setting up resource limits, hardening security. Multiply that by ten agents and you've lost your week.</p>
-        <p class="solution">AgentLinux images boot with everything pre-configured. The agent user exists. The toolchains are installed. Networking works. Resource limits are set. Snapshots are ready. Your agent gets a purpose-built environment in seconds, not hours. Zero configuration required.</p>
+        <h3>Generic VMs → ready on boot instead of provisioning</h3>
+        <p class="solution">AgentLinux images boot with everything pre-configured: agent user, toolchains, networking, resource limits, snapshots. Purpose-built environment in seconds, not hours.</p>
       </div>
 
-      <p class="comparison-closing">AgentLinux is not another general-purpose distro hoping agents will figure it out. It's a go-to Linux distro choice for running your agents -- built from the kernel config to the default shell for machines that write code, not humans who read email.</p>
+      <p class="comparison-closing">Not another general-purpose distro hoping agents will figure it out. A go-to Linux distro choice for running your agents — built from the kernel config to the default shell for machines that write code.</p>
     </div>
   </section>
 
