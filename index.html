@@ -371,6 +371,150 @@
       line-height: 1.8;
       font-weight: 500;
     }
+
+    /* Signup Section */
+    #signup {
+      background: var(--bg-secondary);
+    }
+
+    .signup-subtext {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 2.5rem;
+      line-height: 1.8;
+      max-width: 600px;
+    }
+
+    .signup-form {
+      display: flex;
+      gap: 1rem;
+      max-width: 500px;
+      width: 100%;
+    }
+
+    .signup-form input[type="email"] {
+      flex: 1;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 0.875rem 1rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .signup-form input[type="email"]::placeholder {
+      color: var(--text-muted);
+    }
+
+    .signup-form input[type="email"]:focus {
+      border-color: var(--accent);
+    }
+
+    .signup-form button {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      padding: 0.875rem 1.5rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .signup-form button:hover {
+      background: var(--accent);
+      color: var(--bg-primary);
+    }
+
+    .signup-form button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .signup-success {
+      color: var(--text-primary);
+      font-size: 1.05rem;
+      line-height: 1.8;
+    }
+
+    .signup-error {
+      color: #cc6666;
+      font-size: 0.875rem;
+      margin-top: 0.75rem;
+    }
+
+    @media (max-width: 640px) {
+      .signup-form {
+        flex-direction: column;
+      }
+
+      .signup-form input[type="email"],
+      .signup-form button {
+        width: 100%;
+      }
+    }
+
+    /* FAQ Section */
+    #faq {
+      background: var(--bg-primary);
+    }
+
+    .faq-list {
+      margin-top: 2rem;
+      max-width: 760px;
+    }
+
+    .faq-item {
+      margin-bottom: 2rem;
+    }
+
+    .faq-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .faq-question {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    .faq-answer {
+      font-size: 0.9375rem;
+      color: var(--text-secondary);
+      line-height: 1.8;
+    }
+
+    /* Footer */
+    footer {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+    }
+
+    footer .section-container {
+      padding: 2rem;
+      text-align: center;
+    }
+
+    footer p {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+
+    footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    footer a:hover {
+      color: var(--accent);
+    }
   </style>
 </head>
 <body>
@@ -528,25 +672,86 @@
     </div>
   </section>
 
-  <section id="signup" class="full-height">
+  <section id="signup">
     <div class="section-container">
-      <h2>Signup</h2>
-      <p>Signup section placeholder</p>
+      <h2>Get early access</h2>
+      <p class="signup-subtext">AgentLinux is in active development. Join the waitlist to be notified when it's ready -- and get early access to preview builds.</p>
+      <form action="https://buttondown.com/api/emails/embed-subscribe/agentlinux" method="post" class="embeddable-buttondown-form signup-form" id="signup-form">
+        <input type="email" name="email" placeholder="you@example.com" required aria-label="Email address" />
+        <input type="hidden" name="embed" value="1" />
+        <button type="submit">Join the waitlist</button>
+      </form>
     </div>
   </section>
 
   <section id="faq">
     <div class="section-container">
-      <h2>FAQ</h2>
-      <p>FAQ section placeholder</p>
+      <h2>Frequently asked questions</h2>
+      <div class="faq-list">
+        <div class="faq-item">
+          <p class="faq-question">What is AgentLinux?</p>
+          <p class="faq-answer">A Linux distribution purpose-built for running AI coding agents. Every default -- from the user accounts to the installed packages -- is configured for autonomous agent workloads, not human desktop use.</p>
+        </div>
+        <div class="faq-item">
+          <p class="faq-question">When will it be available?</p>
+          <p class="faq-answer">We're in early development. Join the waitlist to get notified when preview builds are ready.</p>
+        </div>
+        <div class="faq-item">
+          <p class="faq-question">Is it free?</p>
+          <p class="faq-answer">Yes. AgentLinux will be free and open source.</p>
+        </div>
+        <div class="faq-item">
+          <p class="faq-question">What agents does it support?</p>
+          <p class="faq-answer">Any agent that runs on Linux -- Claude Code, Codex, Aider, and more. If it can execute in a terminal, it runs on AgentLinux.</p>
+        </div>
+        <div class="faq-item">
+          <p class="faq-question">How is this different from Docker?</p>
+          <p class="faq-answer">Docker is a container runtime. AgentLinux is a full operating system. Agents get persistent state, real process management, mid-session package installs, and a dedicated environment that survives restarts.</p>
+        </div>
+      </div>
     </div>
   </section>
 
   <footer>
     <div class="section-container">
-      <p>Footer placeholder</p>
+      <p>&copy; 2026 AgentLinux</p>
     </div>
   </footer>
+
+  <script>
+    // Progressive enhancement for email signup form
+    document.getElementById('signup-form').addEventListener('submit', async function(e) {
+      // On file:// protocol, let the form POST normally (redirect)
+      if (window.location.protocol === 'file:') return;
+
+      e.preventDefault();
+      var form = e.target;
+      var button = form.querySelector('button');
+      var originalText = button.textContent;
+
+      button.textContent = 'Submitting...';
+      button.disabled = true;
+
+      try {
+        var response = await fetch(form.action, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(new FormData(form))
+        });
+
+        if (response.ok || response.redirected) {
+          form.innerHTML = '<p class="signup-success">You\'re on the list. We\'ll be in touch.</p>';
+        } else {
+          throw new Error('Submission failed');
+        }
+      } catch (err) {
+        button.textContent = originalText;
+        button.disabled = false;
+        // Fallback: submit form normally (will redirect)
+        form.submit();
+      }
+    });
+  </script>
 
 </body>
 </html>
