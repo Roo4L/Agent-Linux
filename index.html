@@ -438,15 +438,93 @@
 
   <section id="features" class="full-height">
     <div class="section-container">
-      <h2>Features</h2>
-      <p>Features section placeholder</p>
+      <h2>Built for agents from the ground up</h2>
+      <p class="features-intro">AgentLinux isn't a generic distro with a few scripts bolted on. Every design decision -- from the default user to the package manifest -- was made with autonomous agents in mind.</p>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <!-- Lucide: terminal -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+          <div class="feature-title">Non-root agent user</div>
+          <p class="feature-desc">A dedicated agent user account with scoped permissions. Your agent operates with exactly the access it needs -- no more, no less. No accidental <code>sudo rm</code> disasters.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: package -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          <div class="feature-title">Pre-configured toolchains</div>
+          <p class="feature-desc">Common agent workloads covered out of the box: <code>git</code>, build tools, language runtimes, and package managers. No more rebuilding images to <code>apt install</code> one package.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: layers -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22.54 12.43-8.58 3.91a2 2 0 0 1-1.66 0L3.46 12.5"/><path d="m22.54 16.43-8.58 3.91a2 2 0 0 1-1.66 0L3.46 16.5"/></svg>
+          <div class="feature-title">QEMU micro-VM images</div>
+          <p class="feature-desc">Lightweight VM images that boot in seconds. Spin up isolated agent environments instantly without the overhead of full virtual machine provisioning.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: hard-drive -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="22" x2="2" y1="12" y2="12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/><line x1="6" x2="6.01" y1="16" y2="16"/><line x1="10" x2="10.01" y1="16" y2="16"/></svg>
+          <div class="feature-title">Snapshot and rollback</div>
+          <p class="feature-desc">Filesystem snapshots let agents experiment safely. If a code change breaks things, roll back to the last known-good state in milliseconds.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: wifi -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>
+          <div class="feature-title">Agent-optimized networking</div>
+          <p class="feature-desc">Pre-configured network access without manual firewall rules. Agents can reach APIs, pull packages, and communicate across services without <code>iptables</code> debugging.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: folder-open -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
+          <div class="feature-title">Persistent workspaces</div>
+          <p class="feature-desc">Agent work directories survive reboots and session restarts. No more lost state when a container is recycled or a session times out.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: monitor-off (headless) -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 17H4a2 2 0 0 1-2-2V5c0-1.5 1-2 1-2"/><path d="M22 15V5a2 2 0 0 0-2-2H9"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m2 2 20 20"/></svg>
+          <div class="feature-title">Headless-first design</div>
+          <p class="feature-desc">No desktop environment overhead. Every CPU cycle and byte of memory goes to the agent's workload, not to rendering a GUI no one is looking at.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: shield -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
+          <div class="feature-title">Security boundaries</div>
+          <p class="feature-desc">Process isolation and resource limits built into the OS. Agents run in sandboxed environments with cgroup limits, preventing runaway processes from affecting the host.</p>
+        </div>
+      </div>
     </div>
   </section>
 
   <section id="comparison" class="full-height">
     <div class="section-container">
-      <h2>Comparison</h2>
-      <p>Comparison section placeholder</p>
+      <h2>Why not just use what exists?</h2>
+      <p class="comparison-intro">Every option on the market today was built for a different job. Here's what changes when the operating system is designed around agent workloads from day one.</p>
+
+      <div class="comparison-block">
+        <h3>Local machine: isolation instead of cohabitation</h3>
+        <p>Running agents on your local machine means sharing everything -- filesystem, processes, network ports. One agent's <code>node_modules</code> collides with another's. A runaway process starves your IDE of memory. You're constantly context-switching between your work and the agent's mess.</p>
+        <p class="solution">AgentLinux gives every agent its own non-root user account with scoped permissions and isolated workspaces. The agent can't touch your files. Its processes run under resource limits. Its workspace persists independently of yours. You get isolation without the overhead of managing a separate machine.</p>
+      </div>
+
+      <div class="comparison-block">
+        <h3>Docker: a full OS instead of a locked box</h3>
+        <p>Containers give you isolation, but they take away everything an agent needs to do real work. No <code>systemctl</code>. No mid-session package installs without rebuilding. No persistent state without wiring up volumes. Your agent is an application trapped in a shipping container, not a worker with a real environment.</p>
+        <p class="solution">AgentLinux is a complete operating system. Agents install packages with <code>apt</code> whenever they need them. They start services, manage processes, and maintain state across sessions. The environment adapts to the agent's workflow, not the other way around.</p>
+      </div>
+
+      <div class="comparison-block">
+        <h3>Generic VMs: ready on boot instead of manual provisioning</h3>
+        <p>A full VM gives agents a real OS, but it also gives you a full-time sysadmin job. Every new agent instance means provisioning from scratch: installing toolchains, creating user accounts, configuring SSH, setting up resource limits, hardening security. Multiply that by ten agents and you've lost your week.</p>
+        <p class="solution">AgentLinux images boot with everything pre-configured. The agent user exists. The toolchains are installed. Networking works. Resource limits are set. Snapshots are ready. Your agent gets a purpose-built environment in seconds, not hours. Zero configuration required.</p>
+      </div>
+
+      <p class="comparison-closing">AgentLinux is not another general-purpose distro hoping agents will figure it out. It's a go-to Linux distro choice for running your agents -- built from the kernel config to the default shell for machines that write code, not humans who read email.</p>
     </div>
   </section>
 
