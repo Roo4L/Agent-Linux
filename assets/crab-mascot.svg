@@ -45,32 +45,55 @@
   <rect class="w" x="25" y="11" width="1" height="1"/>
 
 
-  <!-- === TINY CLAWD (left side, small & cute) === -->
+  <!-- === CLAWD (left side, cute crab) === -->
 
-  <!-- Claw tips -->
-  <rect class="o" x="9" y="8" width="1" height="1"/>
-  <rect class="o" x="13" y="8" width="1" height="1"/>
+  <!-- Eye stalks -->
+  <rect class="o" x="8" y="5" width="1" height="1"/>
+  <rect class="o" x="12" y="5" width="1" height="1"/>
 
-  <!-- Left claw -->
-  <rect class="o" x="8" y="9" width="1" height="1"/>
-  <rect class="o" x="9" y="9" width="1" height="1"/>
+  <!-- Eyes on stalks -->
+  <rect class="e" x="8" y="6" width="1" height="1"/>
+  <rect class="e" x="12" y="6" width="1" height="1"/>
 
-  <!-- Right claw -->
-  <rect class="o" x="13" y="9" width="1" height="1"/>
-  <rect class="o" x="14" y="9" width="1" height="1"/>
+  <!-- Left claw (pincer shape) -->
+  <rect class="o" x="5" y="7" width="1" height="1"/>
+  <rect class="o" x="6" y="7" width="1" height="1"/>
+  <rect class="o" x="5" y="8" width="1" height="1"/>
+  <rect class="d" x="6" y="8" width="1" height="1"/>
 
-  <!-- Body head (5px with eyes) -->
-  <rect class="o" x="9" y="10" width="5" height="1"/>
-  <rect class="e" x="10" y="10" width="1" height="1"/>
-  <rect class="e" x="12" y="10" width="1" height="1"/>
+  <!-- Right claw (pincer shape) -->
+  <rect class="o" x="13" y="7" width="1" height="1"/>
+  <rect class="o" x="14" y="7" width="1" height="1"/>
+  <rect class="o" x="14" y="8" width="1" height="1"/>
+  <rect class="d" x="13" y="8" width="1" height="1"/>
 
-  <!-- Body (5px) -->
-  <rect class="o" x="9" y="11" width="5" height="1"/>
+  <!-- Head (7px wide) -->
+  <rect class="o" x="7" y="7" width="7" height="1"/>
 
-  <!-- Feet -->
+  <!-- Body wide (9px, wider than head = crab shape) -->
+  <rect class="o" x="6" y="8" width="9" height="1"/>
+
+  <!-- Body with shell detail -->
+  <rect class="o" x="6" y="9" width="9" height="1"/>
+  <rect class="d" x="7" y="9" width="1" height="1"/>
+  <rect class="d" x="9" y="9" width="1" height="1"/>
+  <rect class="d" x="11" y="9" width="1" height="1"/>
+  <rect class="d" x="13" y="9" width="1" height="1"/>
+
+  <!-- Body taper (7px) -->
+  <rect class="o" x="7" y="10" width="7" height="1"/>
+
+  <!-- Legs (6, spread out) -->
+  <rect class="o" x="6" y="11" width="1" height="1"/>
+  <rect class="o" x="8" y="11" width="1" height="1"/>
+  <rect class="o" x="10" y="11" width="1" height="1"/>
+  <rect class="o" x="12" y="11" width="1" height="1"/>
+
+  <!-- Feet (spread wider) -->
+  <rect class="o" x="5" y="12" width="1" height="1"/>
   <rect class="o" x="9" y="12" width="1" height="1"/>
   <rect class="o" x="11" y="12" width="1" height="1"/>
-  <rect class="o" x="13" y="12" width="1" height="1"/>
+  <rect class="o" x="15" y="12" width="1" height="1"/>
 
 
   <!-- Ground -->
