@@ -12,7 +12,7 @@ See: .planning/PROJECT.md (updated 2026-03-09)
 Phase: 1 of 2 (Complete Website)
 Plan: 0 of TBD in current phase
 Status: Ready to plan
-Last activity: 2026-03-09 -- Roadmap revised (3 phases collapsed to 2)
+Last activity: 2026-03-09 - Completed quick task 1: Debug and fix Claude Code post hooks failing with hook errors
 
 Progress: [░░░░░░░░░░] 0%
 
@@ -52,6 +52,12 @@ None yet.
 ### Blockers/Concerns
 
 None yet.
+
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 1 | Debug and fix Claude Code post hooks failing with hook errors | 2026-03-09 | 957437c | [1-debug-and-fix-claude-code-post-hooks-fai](./quick/1-debug-and-fix-claude-code-post-hooks-fai/) |
 
 ## Session Continuity
 
