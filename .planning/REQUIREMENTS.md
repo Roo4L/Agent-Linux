@@ -44,7 +44,7 @@
 
 ### Deployment
 
-- [ ] **DEPL-01**: Site hosted on GitHub Pages
+- [x] **DEPL-01**: Site hosted on GitHub Pages
 - [ ] **DEPL-02**: Custom domain agentlinux.org configured on GitHub Pages
 - [ ] **DEPL-03**: HTTPS enabled via GitHub Pages
 - [ ] **DEPL-04**: GitHub Actions workflow for automated deployment on push
@@ -97,7 +97,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DSGN-02 | Phase 1 | Pending |
 | DSGN-03 | Phase 1 | Complete |
 | FOOT-01 | Phase 1 | Pending |
-| DEPL-01 | Phase 2 | Pending |
+| DEPL-01 | Phase 2 | Complete |
 | DEPL-02 | Phase 2 | Pending |
 | DEPL-03 | Phase 2 | Pending |
 | DEPL-04 | Phase 2 | Pending |
