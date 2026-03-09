@@ -1,41 +1,161 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-  <!-- Terminal frame (home) -->
-  <rect x="40" y="95" width="120" height="75" rx="6" />
-  <line x1="40" y1="112" x2="160" y2="112" />
-  <circle cx="52" cy="103.5" r="2.5" fill="currentColor" stroke="none" />
-  <circle cx="62" cy="103.5" r="2.5" fill="currentColor" stroke="none" />
-  <circle cx="72" cy="103.5" r="2.5" fill="currentColor" stroke="none" />
-
-  <!-- Terminal prompt line -->
-  <polyline points="52,130 58,136 52,142" />
-  <line x1="64" y1="142" x2="88" y2="142" />
-
-  <!-- Crab body (sitting on top of terminal) -->
-  <ellipse cx="100" cy="82" rx="28" ry="18" />
-
-  <!-- Crab eyes -->
-  <line x1="88" y1="68" x2="85" y2="56" />
-  <line x1="112" y1="68" x2="115" y2="56" />
-  <circle cx="85" cy="53" r="4" />
-  <circle cx="115" cy="53" r="4" />
-
-  <!-- Crab claws (left) -->
-  <path d="M72,78 Q56,68 48,74" />
-  <path d="M48,74 Q42,68 38,72" />
-  <path d="M48,74 Q44,80 38,78" />
-
-  <!-- Crab claws (right) -->
-  <path d="M128,78 Q144,68 152,74" />
-  <path d="M152,74 Q158,68 162,72" />
-  <path d="M152,74 Q156,80 162,78" />
-
-  <!-- Crab legs (left side) -->
-  <path d="M76,88 Q60,94 50,90" />
-  <path d="M74,92 Q58,100 46,98" />
-  <path d="M73,96 Q58,106 44,106" />
-
-  <!-- Crab legs (right side) -->
-  <path d="M124,88 Q140,94 150,90" />
-  <path d="M126,92 Q142,100 154,98" />
-  <path d="M127,96 Q142,106 156,106" />
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="160" height="160" shape-rendering="crispEdges">
+  <style>
+    .o { fill: #d97757; }
+    .d { fill: #b5604a; }
+    .e { fill: #1a1a1a; }
+  </style>
+  <!-- Row 0: claw tips -->
+  <rect class="o" x="1" y="0" width="1" height="1"/>
+  <rect class="o" x="5" y="0" width="1" height="1"/>
+  <rect class="o" x="10" y="0" width="1" height="1"/>
+  <rect class="o" x="14" y="0" width="1" height="1"/>
+  <!-- Row 1: claws -->
+  <rect class="o" x="0" y="1" width="1" height="1"/>
+  <rect class="o" x="1" y="1" width="1" height="1"/>
+  <rect class="o" x="2" y="1" width="1" height="1"/>
+  <rect class="o" x="4" y="1" width="1" height="1"/>
+  <rect class="o" x="5" y="1" width="1" height="1"/>
+  <rect class="o" x="6" y="1" width="1" height="1"/>
+  <rect class="o" x="9" y="1" width="1" height="1"/>
+  <rect class="o" x="10" y="1" width="1" height="1"/>
+  <rect class="o" x="11" y="1" width="1" height="1"/>
+  <rect class="o" x="13" y="1" width="1" height="1"/>
+  <rect class="o" x="14" y="1" width="1" height="1"/>
+  <rect class="o" x="15" y="1" width="1" height="1"/>
+  <!-- Row 2: claw pinch -->
+  <rect class="o" x="0" y="2" width="1" height="1"/>
+  <rect class="d" x="1" y="2" width="1" height="1"/>
+  <rect class="o" x="2" y="2" width="1" height="1"/>
+  <rect class="o" x="4" y="2" width="1" height="1"/>
+  <rect class="d" x="5" y="2" width="1" height="1"/>
+  <rect class="o" x="6" y="2" width="1" height="1"/>
+  <rect class="o" x="9" y="2" width="1" height="1"/>
+  <rect class="d" x="10" y="2" width="1" height="1"/>
+  <rect class="o" x="11" y="2" width="1" height="1"/>
+  <rect class="o" x="13" y="2" width="1" height="1"/>
+  <rect class="d" x="14" y="2" width="1" height="1"/>
+  <rect class="o" x="15" y="2" width="1" height="1"/>
+  <!-- Row 3: arms -->
+  <rect class="o" x="1" y="3" width="1" height="1"/>
+  <rect class="o" x="2" y="3" width="1" height="1"/>
+  <rect class="o" x="5" y="3" width="1" height="1"/>
+  <rect class="o" x="6" y="3" width="1" height="1"/>
+  <rect class="o" x="9" y="3" width="1" height="1"/>
+  <rect class="o" x="10" y="3" width="1" height="1"/>
+  <rect class="o" x="13" y="3" width="1" height="1"/>
+  <rect class="o" x="14" y="3" width="1" height="1"/>
+  <!-- Row 4: arms converge -->
+  <rect class="o" x="2" y="4" width="1" height="1"/>
+  <rect class="o" x="3" y="4" width="1" height="1"/>
+  <rect class="o" x="5" y="4" width="1" height="1"/>
+  <rect class="o" x="10" y="4" width="1" height="1"/>
+  <rect class="o" x="12" y="4" width="1" height="1"/>
+  <rect class="o" x="13" y="4" width="1" height="1"/>
+  <!-- Row 5: head top with eyes -->
+  <rect class="o" x="3" y="5" width="1" height="1"/>
+  <rect class="o" x="4" y="5" width="1" height="1"/>
+  <rect class="e" x="5" y="5" width="1" height="1"/>
+  <rect class="o" x="6" y="5" width="1" height="1"/>
+  <rect class="o" x="7" y="5" width="1" height="1"/>
+  <rect class="o" x="8" y="5" width="1" height="1"/>
+  <rect class="o" x="9" y="5" width="1" height="1"/>
+  <rect class="e" x="10" y="5" width="1" height="1"/>
+  <rect class="o" x="11" y="5" width="1" height="1"/>
+  <rect class="o" x="12" y="5" width="1" height="1"/>
+  <!-- Row 6: head -->
+  <rect class="o" x="3" y="6" width="1" height="1"/>
+  <rect class="o" x="4" y="6" width="1" height="1"/>
+  <rect class="o" x="5" y="6" width="1" height="1"/>
+  <rect class="o" x="6" y="6" width="1" height="1"/>
+  <rect class="o" x="7" y="6" width="1" height="1"/>
+  <rect class="o" x="8" y="6" width="1" height="1"/>
+  <rect class="o" x="9" y="6" width="1" height="1"/>
+  <rect class="o" x="10" y="6" width="1" height="1"/>
+  <rect class="o" x="11" y="6" width="1" height="1"/>
+  <rect class="o" x="12" y="6" width="1" height="1"/>
+  <!-- Row 7: mouth -->
+  <rect class="o" x="4" y="7" width="1" height="1"/>
+  <rect class="o" x="5" y="7" width="1" height="1"/>
+  <rect class="d" x="6" y="7" width="1" height="1"/>
+  <rect class="d" x="7" y="7" width="1" height="1"/>
+  <rect class="d" x="8" y="7" width="1" height="1"/>
+  <rect class="d" x="9" y="7" width="1" height="1"/>
+  <rect class="o" x="10" y="7" width="1" height="1"/>
+  <rect class="o" x="11" y="7" width="1" height="1"/>
+  <!-- Row 8: body top -->
+  <rect class="o" x="3" y="8" width="1" height="1"/>
+  <rect class="o" x="4" y="8" width="1" height="1"/>
+  <rect class="o" x="5" y="8" width="1" height="1"/>
+  <rect class="o" x="6" y="8" width="1" height="1"/>
+  <rect class="o" x="7" y="8" width="1" height="1"/>
+  <rect class="o" x="8" y="8" width="1" height="1"/>
+  <rect class="o" x="9" y="8" width="1" height="1"/>
+  <rect class="o" x="10" y="8" width="1" height="1"/>
+  <rect class="o" x="11" y="8" width="1" height="1"/>
+  <rect class="o" x="12" y="8" width="1" height="1"/>
+  <!-- Row 9: body with shell detail -->
+  <rect class="o" x="3" y="9" width="1" height="1"/>
+  <rect class="d" x="4" y="9" width="1" height="1"/>
+  <rect class="o" x="5" y="9" width="1" height="1"/>
+  <rect class="d" x="6" y="9" width="1" height="1"/>
+  <rect class="o" x="7" y="9" width="1" height="1"/>
+  <rect class="o" x="8" y="9" width="1" height="1"/>
+  <rect class="d" x="9" y="9" width="1" height="1"/>
+  <rect class="o" x="10" y="9" width="1" height="1"/>
+  <rect class="d" x="11" y="9" width="1" height="1"/>
+  <rect class="o" x="12" y="9" width="1" height="1"/>
+  <!-- Row 10: body bottom -->
+  <rect class="o" x="4" y="10" width="1" height="1"/>
+  <rect class="o" x="5" y="10" width="1" height="1"/>
+  <rect class="o" x="6" y="10" width="1" height="1"/>
+  <rect class="o" x="7" y="10" width="1" height="1"/>
+  <rect class="o" x="8" y="10" width="1" height="1"/>
+  <rect class="o" x="9" y="10" width="1" height="1"/>
+  <rect class="o" x="10" y="10" width="1" height="1"/>
+  <rect class="o" x="11" y="10" width="1" height="1"/>
+  <!-- Row 11: legs top -->
+  <rect class="o" x="2" y="11" width="1" height="1"/>
+  <rect class="o" x="4" y="11" width="1" height="1"/>
+  <rect class="o" x="5" y="11" width="1" height="1"/>
+  <rect class="o" x="6" y="11" width="1" height="1"/>
+  <rect class="o" x="7" y="11" width="1" height="1"/>
+  <rect class="o" x="8" y="11" width="1" height="1"/>
+  <rect class="o" x="9" y="11" width="1" height="1"/>
+  <rect class="o" x="10" y="11" width="1" height="1"/>
+  <rect class="o" x="11" y="11" width="1" height="1"/>
+  <rect class="o" x="13" y="11" width="1" height="1"/>
+  <!-- Row 12: legs -->
+  <rect class="o" x="1" y="12" width="1" height="1"/>
+  <rect class="o" x="3" y="12" width="1" height="1"/>
+  <rect class="o" x="5" y="12" width="1" height="1"/>
+  <rect class="o" x="6" y="12" width="1" height="1"/>
+  <rect class="o" x="7" y="12" width="1" height="1"/>
+  <rect class="o" x="8" y="12" width="1" height="1"/>
+  <rect class="o" x="9" y="12" width="1" height="1"/>
+  <rect class="o" x="10" y="12" width="1" height="1"/>
+  <rect class="o" x="12" y="12" width="1" height="1"/>
+  <rect class="o" x="14" y="12" width="1" height="1"/>
+  <!-- Row 13: legs spread -->
+  <rect class="o" x="0" y="13" width="1" height="1"/>
+  <rect class="o" x="2" y="13" width="1" height="1"/>
+  <rect class="o" x="4" y="13" width="1" height="1"/>
+  <rect class="o" x="6" y="13" width="1" height="1"/>
+  <rect class="o" x="7" y="13" width="1" height="1"/>
+  <rect class="o" x="8" y="13" width="1" height="1"/>
+  <rect class="o" x="9" y="13" width="1" height="1"/>
+  <rect class="o" x="11" y="13" width="1" height="1"/>
+  <rect class="o" x="13" y="13" width="1" height="1"/>
+  <rect class="o" x="15" y="13" width="1" height="1"/>
+  <!-- Row 14: leg tips -->
+  <rect class="o" x="1" y="14" width="1" height="1"/>
+  <rect class="o" x="3" y="14" width="1" height="1"/>
+  <rect class="o" x="5" y="14" width="1" height="1"/>
+  <rect class="o" x="10" y="14" width="1" height="1"/>
+  <rect class="o" x="12" y="14" width="1" height="1"/>
+  <rect class="o" x="14" y="14" width="1" height="1"/>
+  <!-- Row 15: feet -->
+  <rect class="o" x="0" y="15" width="1" height="1"/>
+  <rect class="o" x="4" y="15" width="1" height="1"/>
+  <rect class="o" x="11" y="15" width="1" height="1"/>
+  <rect class="o" x="15" y="15" width="1" height="1"/>
 </svg>
