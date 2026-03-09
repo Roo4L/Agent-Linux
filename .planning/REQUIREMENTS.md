@@ -13,16 +13,16 @@
 
 ### Problem
 
-- [ ] **PROB-01**: Pain point section walking through current agent runtime options (local machine, sandboxing, Docker, generic VMs) with specific friction described for each
+- [x] **PROB-01**: Pain point section walking through current agent runtime options (local machine, sandboxing, Docker, generic VMs) with specific friction described for each
 
 ### Features
 
-- [ ] **FEAT-01**: Feature list showcasing planned AgentLinux capabilities with descriptions
-- [ ] **FEAT-02**: Visual icons or illustrations accompanying each feature
+- [x] **FEAT-01**: Feature list showcasing planned AgentLinux capabilities with descriptions
+- [x] **FEAT-02**: Visual icons or illustrations accompanying each feature
 
 ### Comparison
 
-- [ ] **COMP-01**: Narrative-style comparison of AgentLinux vs current alternatives (local, Docker, VMs)
+- [x] **COMP-01**: Narrative-style comparison of AgentLinux vs current alternatives (local, Docker, VMs)
 
 ### Email
 
@@ -87,10 +87,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 | HERO-01 | Phase 1 | Complete |
 | HERO-02 | Phase 1 | Complete |
 | HERO-03 | Phase 1 | Complete |
-| PROB-01 | Phase 1 | Pending |
-| FEAT-01 | Phase 1 | Pending |
-| FEAT-02 | Phase 1 | Pending |
-| COMP-01 | Phase 1 | Pending |
+| PROB-01 | Phase 1 | Complete |
+| FEAT-01 | Phase 1 | Complete |
+| FEAT-02 | Phase 1 | Complete |
+| COMP-01 | Phase 1 | Complete |
 | MAIL-01 | Phase 1 | Pending |
 | FAQ-01 | Phase 1 | Pending |
 | DSGN-01 | Phase 1 | Complete |
