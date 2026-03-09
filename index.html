@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentLinux -- Linux, for agents</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #141414;
+      --bg-tertiary: #1e1e1e;
+      --text-primary: #e0e0e0;
+      --text-secondary: #a0a0a0;
+      --text-muted: #666666;
+      --border: #2a2a2a;
+      --accent: #ffffff;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 80px;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
+      line-height: 1.6;
+      font-size: 16px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* Sticky Nav */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+    }
+
+    .nav-logo {
+      font-weight: 700;
+      font-size: 1.2rem;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      margin-left: 2rem;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent);
+    }
+
+    @media (max-width: 640px) {
+      .nav-links a {
+        margin-left: 1rem;
+        font-size: 0.75rem;
+      }
+    }
+
+    /* Section base styles */
+    .section-container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 6rem 2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    section.full-height {
+      min-height: 100vh;
+    }
+
+    section.full-height .section-container {
+      min-height: 100vh;
+    }
+
+    section h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 1rem;
+    }
+
+    section p {
+      color: var(--text-secondary);
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">AgentLinux</a>
+      <div class="nav-links">
+        <a href="#problem">Problem</a>
+        <a href="#features">Features</a>
+        <a href="#signup">Signup</a>
+        <a href="#faq">FAQ</a>
+      </div>
+    </div>
+  </nav>
+
+  <section id="hero" class="full-height">
+    <div class="section-container">
+      <h2>Hero</h2>
+      <p>Hero section placeholder</p>
+    </div>
+  </section>
+
+  <section id="problem" class="full-height">
+    <div class="section-container">
+      <h2>Problem</h2>
+      <p>Problem section placeholder</p>
+    </div>
+  </section>
+
+  <section id="features" class="full-height">
+    <div class="section-container">
+      <h2>Features</h2>
+      <p>Features section placeholder</p>
+    </div>
+  </section>
+
+  <section id="comparison" class="full-height">
+    <div class="section-container">
+      <h2>Comparison</h2>
+      <p>Comparison section placeholder</p>
+    </div>
+  </section>
+
+  <section id="signup" class="full-height">
+    <div class="section-container">
+      <h2>Signup</h2>
+      <p>Signup section placeholder</p>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="section-container">
+      <h2>FAQ</h2>
+      <p>FAQ section placeholder</p>
+    </div>
+  </section>
+
+  <footer>
+    <div class="section-container">
+      <p>Footer placeholder</p>
+    </div>
+  </footer>
+
+</body>
+</html>
