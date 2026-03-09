@@ -629,7 +629,7 @@
       <img src="assets/crab-mascot.svg" alt="AgentLinux crab mascot" class="hero-mascot">
       <h1 class="hero-title">AgentLinux</h1>
       <p class="hero-tagline">Linux, for agents</p>
-      <p class="hero-value-prop">A purpose-built Linux distribution designed as the runtime environment for AI coding agents. Built for the machines that build your software.</p>
+      <p class="hero-value-prop">A purpose-built Linux distribution that runs on a dedicated machine — virtual or physical — so your AI coding agent gets an entire OS to itself.</p>
       <a href="#signup" class="hero-cta">Join the waitlist</a>
     </div>
   </section>
@@ -700,28 +700,28 @@
   <section id="features" class="full-height">
     <div class="section-container">
       <h2>Built for agents from the ground up</h2>
-      <p class="features-intro">AgentLinux isn't a generic distro with a few scripts bolted on. Every design decision -- from the default user to the package manifest -- was made with autonomous agents in mind.</p>
+      <p class="features-intro">AgentLinux isn't a generic distro with a few scripts bolted on. It's an entire operating system where every default is configured for an agent — not a human.</p>
 
       <div class="features-grid">
         <div class="feature-card">
           <!-- Lucide: terminal -->
           <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
-          <div class="feature-title">Non-root agent user</div>
-          <p class="feature-desc">A dedicated agent user account with scoped permissions. Your agent operates with exactly the access it needs -- no more, no less. No accidental <code>sudo rm</code> disasters.</p>
+          <div class="feature-title">Non-root default user</div>
+          <p class="feature-desc">The OS boots into a non-root user account. Tools like Claude Code that refuse to run as <code>root</code> work out of the box — no user setup required.</p>
         </div>
 
         <div class="feature-card">
           <!-- Lucide: package -->
           <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
           <div class="feature-title">Pre-configured toolchains</div>
-          <p class="feature-desc">Common agent workloads covered out of the box: <code>git</code>, build tools, language runtimes, and package managers. No more rebuilding images to <code>apt install</code> one package.</p>
+          <p class="feature-desc"><code>git</code>, build tools, language runtimes, and package managers — installed and ready. The agent starts working immediately, not provisioning.</p>
         </div>
 
         <div class="feature-card">
           <!-- Lucide: layers -->
           <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22.54 12.43-8.58 3.91a2 2 0 0 1-1.66 0L3.46 12.5"/><path d="m22.54 16.43-8.58 3.91a2 2 0 0 1-1.66 0L3.46 16.5"/></svg>
           <div class="feature-title">QEMU micro-VM images</div>
-          <p class="feature-desc">Lightweight VM images that boot in seconds. Spin up isolated agent environments instantly without the overhead of full virtual machine provisioning.</p>
+          <p class="feature-desc">Lightweight VM images that boot in seconds. Give each agent its own dedicated machine without the overhead of full VM provisioning.</p>
         </div>
 
         <div class="feature-card">
@@ -735,28 +735,28 @@
           <!-- Lucide: wifi -->
           <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h.01"/><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.859a10 10 0 0 1 14 0"/><path d="M8.5 16.429a5 5 0 0 1 7 0"/></svg>
           <div class="feature-title">Agent-optimized networking</div>
-          <p class="feature-desc">Pre-configured network access without manual firewall rules. Agents can reach APIs, pull packages, and communicate across services without <code>iptables</code> debugging.</p>
+          <p class="feature-desc">Pre-configured network access. The agent can reach APIs, pull packages, and communicate across services without <code>iptables</code> debugging.</p>
         </div>
 
         <div class="feature-card">
           <!-- Lucide: folder-open -->
           <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 14 1.5-2.9A2 2 0 0 1 9.24 10H20a2 2 0 0 1 1.94 2.5l-1.54 6a2 2 0 0 1-1.95 1.5H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H18a2 2 0 0 1 2 2v2"/></svg>
-          <div class="feature-title">Persistent workspaces</div>
-          <p class="feature-desc">Agent work directories survive reboots and session restarts. No more lost state when a container is recycled or a session times out.</p>
+          <div class="feature-title">Persistent state</div>
+          <p class="feature-desc">The agent's work survives reboots and session restarts. No lost state, no ephemeral containers, no session timeouts.</p>
         </div>
 
         <div class="feature-card">
           <!-- Lucide: monitor-off (headless) -->
           <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 17H4a2 2 0 0 1-2-2V5c0-1.5 1-2 1-2"/><path d="M22 15V5a2 2 0 0 0-2-2H9"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m2 2 20 20"/></svg>
           <div class="feature-title">Headless-first design</div>
-          <p class="feature-desc">No desktop environment overhead. Every CPU cycle and byte of memory goes to the agent's workload, not to rendering a GUI no one is looking at.</p>
+          <p class="feature-desc">No desktop environment. Every CPU cycle and byte of memory goes to the agent's workload, not to rendering a GUI no one is looking at.</p>
         </div>
 
         <div class="feature-card">
-          <!-- Lucide: shield -->
-          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/></svg>
-          <div class="feature-title">Security boundaries</div>
-          <p class="feature-desc">Process isolation and resource limits built into the OS. Agents run in sandboxed environments with cgroup limits, preventing runaway processes from affecting the host.</p>
+          <!-- Lucide: box (dedicated) -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          <div class="feature-title">One agent, one machine</div>
+          <p class="feature-desc">Each AgentLinux instance is a dedicated machine — virtual or physical. No multi-tenancy, no shared resources, no noisy neighbors. The agent owns the entire OS.</p>
         </div>
       </div>
     </div>
@@ -768,18 +768,18 @@
       <p class="comparison-intro">Every option today was built for a different job. Here's what changes when the OS is designed for agents.</p>
 
       <div class="comparison-block">
-        <h3>Local machine → isolation instead of cohabitation</h3>
-        <p class="solution">AgentLinux gives every agent its own non-root user with scoped permissions and isolated workspaces. No approval prompts. No risk to your files. The agent operates with exactly the access it needs — safely, without asking.</p>
+        <h3>Local machine → a dedicated machine instead</h3>
+        <p class="solution">Instead of sharing your machine and choosing between unsafe access or endless approval prompts, give the agent its own AgentLinux instance. A separate machine — virtual or physical — where the agent has full autonomy and your files are never at risk.</p>
       </div>
 
       <div class="comparison-block">
         <h3>Docker → a full OS instead of a locked box</h3>
-        <p class="solution">AgentLinux is a complete operating system. Agents install packages with <code>apt</code> mid-session, start services with <code>systemctl</code>, and maintain state across restarts. No docker-in-docker gymnastics. No root-only default user. A dedicated non-root agent account that tools like Claude Code actually require.</p>
+        <p class="solution">AgentLinux is a complete operating system. The agent installs packages with <code>apt</code> mid-session, starts services with <code>systemctl</code>, and keeps state across restarts. No docker-in-docker gymnastics. Boots into a non-root user that tools like Claude Code require.</p>
       </div>
 
       <div class="comparison-block">
         <h3>Generic VMs → ready on boot instead of provisioning</h3>
-        <p class="solution">AgentLinux images boot with everything pre-configured: agent user, toolchains, networking, resource limits, snapshots. Purpose-built environment in seconds, not hours.</p>
+        <p class="solution">AgentLinux images boot with everything pre-configured: non-root user, toolchains, networking, resource limits, snapshots. A purpose-built environment in seconds, not hours.</p>
       </div>
 
       <p class="comparison-closing">Not another general-purpose distro hoping agents will figure it out. A go-to Linux distro choice for running your agents — built from the kernel config to the default shell for machines that write code.</p>
@@ -804,7 +804,7 @@
       <div class="faq-list">
         <div class="faq-item">
           <p class="faq-question">What is AgentLinux?</p>
-          <p class="faq-answer">A Linux distribution purpose-built for running AI coding agents. Every default -- from the user accounts to the installed packages -- is configured for autonomous agent workloads, not human desktop use.</p>
+          <p class="faq-answer">A Linux distribution purpose-built for AI coding agents. It runs on a dedicated machine — virtual or physical — where the agent gets an entire OS configured for its workload, not for human desktop use.</p>
         </div>
         <div class="faq-item">
           <p class="faq-question">When will it be available?</p>
@@ -820,7 +820,7 @@
         </div>
         <div class="faq-item">
           <p class="faq-question">How is this different from Docker?</p>
-          <p class="faq-answer">Docker is a container runtime. AgentLinux is a full operating system. Agents get persistent state, real process management, mid-session package installs, and a dedicated environment that survives restarts.</p>
+          <p class="faq-answer">Docker is a container runtime. AgentLinux is a full operating system on a dedicated machine. The agent gets persistent state, real process management, mid-session package installs, and an environment that survives restarts.</p>
         </div>
       </div>
     </div>
