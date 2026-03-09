@@ -122,6 +122,81 @@
     section p {
       color: var(--text-secondary);
     }
+
+    /* Hero Section */
+    #hero .section-container {
+      align-items: center;
+      text-align: center;
+    }
+
+    .hero-mascot {
+      width: 140px;
+      height: 140px;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+    }
+
+    .hero-title {
+      font-size: 3.5rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-tagline {
+      font-size: 1.5rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+      font-weight: 400;
+    }
+
+    .hero-value-prop {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin-bottom: 3rem;
+      line-height: 1.8;
+    }
+
+    .hero-cta {
+      display: inline-block;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent);
+      padding: 0.875rem 2.5rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .hero-cta:hover {
+      background: var(--accent);
+      color: var(--bg-primary);
+    }
+
+    @media (max-width: 640px) {
+      .hero-mascot {
+        width: 100px;
+        height: 100px;
+      }
+
+      .hero-title {
+        font-size: 2.25rem;
+      }
+
+      .hero-tagline {
+        font-size: 1.125rem;
+      }
+
+      .hero-value-prop {
+        font-size: 0.875rem;
+      }
+    }
   </style>
 </head>
 <body>
@@ -140,8 +215,11 @@
 
   <section id="hero" class="full-height">
     <div class="section-container">
-      <h2>Hero</h2>
-      <p>Hero section placeholder</p>
+      <img src="assets/crab-mascot.svg" alt="AgentLinux crab mascot" class="hero-mascot">
+      <h1 class="hero-title">AgentLinux</h1>
+      <p class="hero-tagline">Linux, for agents</p>
+      <p class="hero-value-prop">A purpose-built Linux distribution designed as the runtime environment for AI coding agents. Built for the machines that build your software.</p>
+      <a href="#signup" class="hero-cta">Join the waitlist</a>
     </div>
   </section>
 
