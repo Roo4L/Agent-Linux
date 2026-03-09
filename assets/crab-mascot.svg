@@ -58,24 +58,24 @@
   <rect class="o" x="15" y="10" width="1" height="1"/>
   <rect class="o" x="14" y="11" width="1" height="1"/>
 
-  <!-- Body top (with simple white dot eyes) -->
-  <rect class="o" x="7" y="10" width="7" height="1"/>
+  <!-- Body top (narrower, rounded entry) -->
+  <rect class="o" x="8" y="10" width="5" height="1"/>
+
+  <!-- Body with eyes (widest) -->
   <rect class="o" x="7" y="11" width="7" height="1"/>
   <rect class="w" x="8" y="11" width="1" height="1"/>
   <rect class="w" x="12" y="11" width="1" height="1"/>
 
-  <!-- Body bottom -->
+  <!-- Body middle (widest) -->
   <rect class="o" x="7" y="12" width="7" height="1"/>
-  <rect class="d" x="8" y="12" width="5" height="1"/>
 
-  <!-- Body taper -->
+  <!-- Body taper (narrower) -->
   <rect class="o" x="8" y="13" width="5" height="1"/>
 
   <!-- Feet -->
-  <rect class="o" x="7" y="14" width="1" height="1"/>
-  <rect class="o" x="9" y="14" width="1" height="1"/>
-  <rect class="o" x="11" y="14" width="1" height="1"/>
-  <rect class="o" x="13" y="14" width="1" height="1"/>
+  <rect class="o" x="8" y="14" width="1" height="1"/>
+  <rect class="o" x="10" y="14" width="1" height="1"/>
+  <rect class="o" x="12" y="14" width="1" height="1"/>
 
 
   <!-- Ground -->
