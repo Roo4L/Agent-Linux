@@ -197,6 +197,180 @@
         font-size: 0.875rem;
       }
     }
+
+    /* Problem Section */
+    #problem {
+      background: var(--bg-secondary);
+    }
+
+    .problem-intro {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 3rem;
+      line-height: 1.8;
+      max-width: 760px;
+    }
+
+    .pain-point {
+      margin-bottom: 3rem;
+    }
+
+    .pain-point:last-child {
+      margin-bottom: 2rem;
+    }
+
+    .pain-point-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .pain-point-icon {
+      width: 24px;
+      height: 24px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    .pain-point-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .pain-point p {
+      color: var(--text-secondary);
+      line-height: 1.8;
+      margin-bottom: 0.75rem;
+    }
+
+    .pain-point code {
+      background: var(--bg-tertiary);
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+      font-size: 0.9em;
+      color: var(--text-primary);
+    }
+
+    .pain-point .punch {
+      color: var(--text-primary);
+      font-style: italic;
+    }
+
+    .problem-bridge {
+      margin-top: 2rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      font-size: 1.1rem;
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    /* Features Section */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .feature-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1.5rem;
+    }
+
+    .feature-icon {
+      width: 24px;
+      height: 24px;
+      color: var(--text-secondary);
+      margin-bottom: 0.75rem;
+    }
+
+    .feature-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    .feature-desc {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .features-intro {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      line-height: 1.8;
+      max-width: 760px;
+    }
+
+    @media (max-width: 640px) {
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Comparison Section */
+    #comparison {
+      background: var(--bg-secondary);
+    }
+
+    .comparison-intro {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 3rem;
+      line-height: 1.8;
+      max-width: 760px;
+    }
+
+    .comparison-block {
+      margin-bottom: 2.5rem;
+    }
+
+    .comparison-block:last-of-type {
+      margin-bottom: 2rem;
+    }
+
+    .comparison-block h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    .comparison-block p {
+      color: var(--text-secondary);
+      line-height: 1.8;
+      margin-bottom: 0.75rem;
+    }
+
+    .comparison-block code {
+      background: var(--bg-tertiary);
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+      font-size: 0.9em;
+      color: var(--text-primary);
+    }
+
+    .comparison-block .solution {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    .comparison-closing {
+      margin-top: 2rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      font-size: 1.1rem;
+      color: var(--text-primary);
+      line-height: 1.8;
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -225,8 +399,40 @@
 
   <section id="problem" class="full-height">
     <div class="section-container">
-      <h2>Problem</h2>
-      <p>Problem section placeholder</p>
+      <h2>The problem with running agents today</h2>
+      <p class="problem-intro">You've built an agent that writes code, runs tests, and deploys services. Now you need somewhere to run it. You look at what's available and realize every option was designed for humans, not machines.</p>
+
+      <div class="pain-point">
+        <div class="pain-point-header">
+          <!-- Lucide: monitor -->
+          <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+          <span class="pain-point-title">Your local machine</span>
+        </div>
+        <p>The quickest path: give the agent access to your own machine. It starts running commands, installing packages, writing files alongside your own projects. For you, the engineer, this feels efficient until you realize there's no isolation. The agent's <code>npm install</code> conflicts with yours. Its background processes eat your CPU. Its file writes land in your home directory.</p>
+        <p>From the agent's perspective, it's even worse. It's walking through someone else's house, tiptoeing around config files it doesn't understand, constrained by permissions set up for a human workflow. One wrong <code>rm -rf</code> and your afternoon is gone. <span class="punch">Your machine was built for you. It was never meant to be shared with something that runs 24 hours a day and doesn't know when to stop.</span></p>
+      </div>
+
+      <div class="pain-point">
+        <div class="pain-point-header">
+          <!-- Lucide: box -->
+          <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          <span class="pain-point-title">Docker</span>
+        </div>
+        <p>Containers feel like the right answer. Isolated, reproducible, lightweight. But Docker was designed for shipping applications, not hosting residents. Your agent needs to install <code>apt</code> packages mid-session, but every install requires rebuilding the image. It needs persistent state across restarts, but volumes are an afterthought. It needs real networking, but you're debugging <code>iptables</code> rules inside a container.</p>
+        <p>The agent experiences Docker as a straitjacket. It can't <code>systemctl</code> start services. It can't modify its own environment without the whole container being rebuilt. Long-running sessions crash when the container is recycled. <span class="punch">Containers are for apps, not residents. Your agent isn't a microservice -- it's a worker that needs a real operating system.</span></p>
+      </div>
+
+      <div class="pain-point">
+        <div class="pain-point-header">
+          <!-- Lucide: server -->
+          <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>
+          <span class="pain-point-title">Generic VMs</span>
+        </div>
+        <p>So you spin up a full virtual machine. Now you have a real OS, real process isolation, real networking. But also real overhead. You're provisioning Ubuntu, configuring users, installing toolchains, setting up SSH keys, hardening security -- before the agent writes a single line of code. Every new agent instance means repeating this setup.</p>
+        <p>From the agent's side, it lands in a blank, generic Linux install that knows nothing about its workload. No pre-installed language runtimes. No agent-specific user accounts. No resource limits tuned for agent behavior. <span class="punch">You become the sysadmin for your agent, hand-configuring an environment that should have been ready on boot.</span></p>
+      </div>
+
+      <p class="problem-bridge">There's a better way. What if the operating system itself was designed for agents?</p>
     </div>
   </section>
 
