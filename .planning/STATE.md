@@ -71,7 +71,7 @@ Recent decisions affecting current work:
 
 ### Pending Todos
 
-None yet.
+- [ ] Add PR preview deployments for website (tooling)
 
 ### Blockers/Concerns
 
