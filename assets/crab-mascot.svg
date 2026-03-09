@@ -44,9 +44,19 @@
 
   <!-- === CLAWD (left, small cute crab near ground) === -->
 
-  <!-- Tiny claws -->
-  <rect class="o" x="6" y="10" width="1" height="2"/>
-  <rect class="o" x="14" y="10" width="1" height="2"/>
+  <!-- Left claw (raised, visible) -->
+  <rect class="o" x="4" y="9" width="1" height="1"/>
+  <rect class="o" x="6" y="9" width="1" height="1"/>
+  <rect class="o" x="5" y="10" width="1" height="1"/>
+  <rect class="o" x="6" y="10" width="1" height="1"/>
+  <rect class="o" x="6" y="11" width="1" height="1"/>
+
+  <!-- Right claw (raised, visible) -->
+  <rect class="o" x="14" y="9" width="1" height="1"/>
+  <rect class="o" x="16" y="9" width="1" height="1"/>
+  <rect class="o" x="14" y="10" width="1" height="1"/>
+  <rect class="o" x="15" y="10" width="1" height="1"/>
+  <rect class="o" x="14" y="11" width="1" height="1"/>
 
   <!-- Body top (with simple white dot eyes) -->
   <rect class="o" x="7" y="10" width="7" height="1"/>
