@@ -1,5 +1,5 @@
 ---
-status: complete
+status: resolved
 phase: 01-complete-website
 source: 01-01-SUMMARY.md, 01-02-SUMMARY.md, 01-03-SUMMARY.md
 started: 2026-03-09T11:10:00Z
@@ -70,11 +70,14 @@ skipped: 0
 ## Gaps
 
 - truth: "Feature cards stack to single column on mobile"
-  status: failed
+  status: resolved
   reason: "User reported: On mobile features don't stack, they remain in two columns."
   severity: minor
   test: 6
-  root_cause: ""
-  artifacts: []
-  missing: []
+  root_cause: "CSS source order bug: @media (max-width: 900px) rule for .features-grid came after @media (max-width: 640px) rule, so the 2-column tablet layout overrode the 1-column mobile layout"
+  artifacts:
+    - path: "index.html"
+      issue: "900px media query override order"
+  missing:
+    - "Add min-width: 641px to 900px breakpoint so it doesn't apply at mobile widths"
   debug_session: ""
