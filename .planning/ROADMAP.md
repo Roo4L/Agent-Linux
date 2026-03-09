@@ -27,11 +27,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Scrolling down reveals the problem section (agent runtime pain points), feature showcase with icons, and narrative comparison vs alternatives
   4. Email signup form is wired to Buttondown and submits successfully
   5. FAQ section answers key questions and footer with copyright closes out the page, all responsive on mobile and desktop
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] 01-01: TBD
-- [ ] 01-02: TBD
+- [ ] 01-01-PLAN.md — Page foundation, CSS design system, sticky nav, and hero section with crab mascot
+- [ ] 01-02-PLAN.md — Problem, features, and comparison content sections
+- [ ] 01-03-PLAN.md — Email signup form, FAQ, footer, and responsive polish
 
 ### Phase 2: Deploy to Public
 **Goal**: The finished site is live at agentlinux.org with HTTPS, auto-deploying on every push
@@ -53,5 +54,5 @@ Phases execute in numeric order: 1 -> 2
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Complete Website | 0/TBD | Not started | - |
+| 1. Complete Website | 0/3 | Not started | - |
 | 2. Deploy to Public | 0/TBD | Not started | - |
