@@ -84,29 +84,29 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| HERO-01 | - | Pending |
-| HERO-02 | - | Pending |
-| HERO-03 | - | Pending |
-| PROB-01 | - | Pending |
-| FEAT-01 | - | Pending |
-| FEAT-02 | - | Pending |
-| COMP-01 | - | Pending |
-| MAIL-01 | - | Pending |
-| FAQ-01 | - | Pending |
-| DSGN-01 | - | Pending |
-| DSGN-02 | - | Pending |
-| DSGN-03 | - | Pending |
-| FOOT-01 | - | Pending |
-| DEPL-01 | - | Pending |
-| DEPL-02 | - | Pending |
-| DEPL-03 | - | Pending |
-| DEPL-04 | - | Pending |
+| HERO-01 | Phase 1 | Pending |
+| HERO-02 | Phase 1 | Pending |
+| HERO-03 | Phase 1 | Pending |
+| PROB-01 | Phase 1 | Pending |
+| FEAT-01 | Phase 1 | Pending |
+| FEAT-02 | Phase 1 | Pending |
+| COMP-01 | Phase 1 | Pending |
+| MAIL-01 | Phase 1 | Pending |
+| FAQ-01 | Phase 1 | Pending |
+| DSGN-01 | Phase 1 | Pending |
+| DSGN-02 | Phase 1 | Pending |
+| DSGN-03 | Phase 1 | Pending |
+| FOOT-01 | Phase 1 | Pending |
+| DEPL-01 | Phase 2 | Pending |
+| DEPL-02 | Phase 2 | Pending |
+| DEPL-03 | Phase 2 | Pending |
+| DEPL-04 | Phase 2 | Pending |
 
 **Coverage:**
 - v1 requirements: 17 total
-- Mapped to phases: 0
-- Unmapped: 17 ⚠️
+- Mapped to phases: 17
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-09*
-*Last updated: 2026-03-09 after initial definition*
+*Last updated: 2026-03-09 after roadmap revision*
