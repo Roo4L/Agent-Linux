@@ -515,6 +515,72 @@
     footer a:hover {
       color: var(--accent);
     }
+
+    /* Responsive: Mobile (max-width: 640px) */
+    @media (max-width: 640px) {
+      .section-container {
+        padding: 4rem 1.25rem;
+      }
+
+      section h2 {
+        font-size: 1.5rem;
+      }
+
+      .problem-intro,
+      .features-intro,
+      .comparison-intro,
+      .signup-subtext {
+        font-size: 0.9375rem;
+      }
+
+      .pain-point-title {
+        font-size: 1.1rem;
+      }
+
+      .pain-point p {
+        font-size: 0.9375rem;
+      }
+
+      .problem-bridge {
+        font-size: 1rem;
+      }
+
+      .feature-card {
+        padding: 1.25rem;
+      }
+
+      .comparison-block h3 {
+        font-size: 1rem;
+      }
+
+      .comparison-block p {
+        font-size: 0.9375rem;
+      }
+
+      .comparison-closing {
+        font-size: 1rem;
+      }
+
+      .faq-question {
+        font-size: 0.9375rem;
+      }
+
+      .faq-answer {
+        font-size: 0.875rem;
+      }
+    }
+
+    /* Responsive: Tablet (max-width: 900px) */
+    @media (max-width: 900px) {
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    /* Prevent horizontal scrollbar */
+    body {
+      overflow-x: hidden;
+    }
   </style>
 </head>
 <body>
