@@ -44,29 +44,22 @@
 
   <!-- === CLAWD (left, small cute crab near ground) === -->
 
-  <!-- Eye stalks -->
-  <rect class="o" x="8" y="9" width="1" height="1"/>
-  <rect class="o" x="12" y="9" width="1" height="1"/>
-
-  <!-- Big eyes (2x2 white with pupil) -->
-  <rect class="w" x="8" y="10" width="2" height="2"/>
-  <rect class="w" x="11" y="10" width="2" height="2"/>
-  <rect class="pu" x="9" y="11" width="1" height="1"/>
-  <rect class="pu" x="12" y="11" width="1" height="1"/>
-
   <!-- Tiny claws -->
   <rect class="o" x="6" y="10" width="1" height="2"/>
   <rect class="o" x="14" y="10" width="1" height="2"/>
 
-  <!-- Face -->
-  <rect class="o" x="7" y="12" width="7" height="1"/>
-  <rect class="bl" x="7" y="12" width="1" height="1"/>
-  <rect class="bl" x="13" y="12" width="1" height="1"/>
-  <rect class="d" x="10" y="12" width="1" height="1"/>
+  <!-- Body top (with simple white dot eyes) -->
+  <rect class="o" x="7" y="10" width="7" height="1"/>
+  <rect class="o" x="7" y="11" width="7" height="1"/>
+  <rect class="w" x="8" y="11" width="1" height="1"/>
+  <rect class="w" x="12" y="11" width="1" height="1"/>
 
-  <!-- Body -->
-  <rect class="o" x="7" y="13" width="7" height="1"/>
-  <rect class="d" x="8" y="13" width="5" height="1"/>
+  <!-- Body bottom -->
+  <rect class="o" x="7" y="12" width="7" height="1"/>
+  <rect class="d" x="8" y="12" width="5" height="1"/>
+
+  <!-- Body taper -->
+  <rect class="o" x="8" y="13" width="5" height="1"/>
 
   <!-- Feet -->
   <rect class="o" x="7" y="14" width="1" height="1"/>
