@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.1.0
-milestone_name: AgentLinux Landing Page
-status: milestone_complete
-stopped_at: Milestone v0.1.0 complete
-last_updated: "2026-03-10T13:30:00.000Z"
-last_activity: 2026-03-10 - Milestone v0.1.0 archived
+milestone: v0.2.0
+milestone_name: First Distro Image
+status: defining_requirements
+stopped_at: null
+last_updated: "2026-03-10T00:00:00.000Z"
+last_activity: 2026-03-10 - Milestone v0.2.0 started
 progress:
-  total_phases: 2
-  completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -20,13 +20,15 @@ progress:
 
 See: .planning/PROJECT.md (updated 2026-03-10)
 
-**Core value:** Convince visitors that running agents on today's Linux setups is painful, and that a purpose-built distro is the right solution -- compelling enough to leave their email.
-**Current focus:** Planning next milestone
+**Core value:** An agent can boot into a Linux environment that works out of the box — no setup, no permission fights, no missing tools — with agent software available via the system package manager.
+**Current focus:** Defining requirements for v0.2.0
 
 ## Current Position
 
-Milestone v0.1.0 shipped. All phases complete.
-Next step: `/gsd:new-milestone` to define next version.
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements
+Last activity: 2026-03-10 — Milestone v0.2.0 started
 
 ## Performance Metrics
 
