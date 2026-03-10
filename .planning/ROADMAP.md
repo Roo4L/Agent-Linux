@@ -13,7 +13,7 @@ Build the complete AgentLinux landing page locally first -- every section, all c
 Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Complete Website** - Build the entire landing page with all content, design, and email form working locally
-- [ ] **Phase 2: Deploy to Public** - Ship to GitHub Pages with custom domain agentlinux.org
+- [x] **Phase 2: Deploy to Public** - Ship to GitHub Pages with custom domain agentlinux.org (completed 2026-03-10)
 
 ## Phase Details
 
@@ -45,8 +45,8 @@ Plans:
 **Plans**: 2 plans
 
 Plans:
-- [ ] 02-01-PLAN.md — Pre-launch polish: OG meta tags, favicon, GA4 analytics, robots.txt, sitemap.xml
-- [ ] 02-02-PLAN.md — GitHub Actions deployment workflow, CNAME, and DNS/Pages setup
+- [x] 02-01-PLAN.md — Pre-launch polish: OG meta tags, favicon, GA4 analytics, robots.txt, sitemap.xml
+- [x] 02-02-PLAN.md — GitHub Actions deployment workflow, CNAME, and DNS/Pages setup
 
 ## Progress
 
@@ -56,4 +56,4 @@ Phases execute in numeric order: 1 -> 2
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Complete Website | 3/3 | Complete | 2026-03-09 |
-| 2. Deploy to Public | 0/2 | Not started | - |
+| 2. Deploy to Public | 2/2 | Complete   | 2026-03-10 |

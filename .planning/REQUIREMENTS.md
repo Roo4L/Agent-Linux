@@ -45,9 +45,9 @@
 ### Deployment
 
 - [x] **DEPL-01**: Site hosted on GitHub Pages
-- [ ] **DEPL-02**: Custom domain agentlinux.org configured on GitHub Pages
-- [ ] **DEPL-03**: HTTPS enabled via GitHub Pages
-- [ ] **DEPL-04**: GitHub Actions workflow for automated deployment on push
+- [x] **DEPL-02**: Custom domain agentlinux.org configured on GitHub Pages
+- [x] **DEPL-03**: HTTPS enabled via GitHub Pages
+- [x] **DEPL-04**: GitHub Actions workflow for automated deployment on push
 
 ## v2 Requirements
 
@@ -98,9 +98,9 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DSGN-03 | Phase 1 | Complete |
 | FOOT-01 | Phase 1 | Pending |
 | DEPL-01 | Phase 2 | Complete |
-| DEPL-02 | Phase 2 | Pending |
-| DEPL-03 | Phase 2 | Pending |
-| DEPL-04 | Phase 2 | Pending |
+| DEPL-02 | Phase 2 | Complete |
+| DEPL-03 | Phase 2 | Complete |
+| DEPL-04 | Phase 2 | Complete |
 
 **Coverage:**
 - v1 requirements: 17 total
