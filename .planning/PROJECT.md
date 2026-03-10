@@ -2,7 +2,7 @@
 
 ## What This Is
 
-A landing page for AgentLinux — a Linux distribution purpose-built for running AI agents. The site pitches the concept, explains the problems with current agent runtime environments, showcases planned features, and collects email subscribers via Buttondown to validate demand before building the distro itself.
+A live landing page for AgentLinux — a Linux distribution purpose-built for running AI agents. The site is deployed at agentlinux.org, pitches the concept with a terminal-aesthetic design, explains agent runtime pain points, showcases planned features, and collects email subscribers via Buttondown.
 
 ## Core Value
 
@@ -12,63 +12,60 @@ Convince visitors that running agents on today's Linux setups is unnecessarily p
 
 ### Validated
 
-(None yet — ship to validate)
+- ✓ Landing page with terminal/hacker aesthetic (dark theme, monospace, CLI feel) — v0.1.0
+- ✓ Problem explainer section with current pain points (permissions, Docker-in-Docker, VM friction) — v0.1.0
+- ✓ Feature showcase with 8 planned AgentLinux capabilities and SVG icons — v0.1.0
+- ✓ Narrative comparison of AgentLinux vs alternatives (local, Docker, VMs) — v0.1.0
+- ✓ Email subscription form integrated with Buttondown — v0.1.0
+- ✓ Static site (HTML/CSS/JS) with no build step — v0.1.0
+- ✓ Custom domain agentlinux.org with HTTPS on GitHub Pages — v0.1.0
+- ✓ GitHub Actions auto-deploy on push to master — v0.1.0
+- ✓ FAQ accordion section — v0.1.0
+- ✓ Responsive design (mobile + desktop) — v0.1.0
+- ✓ Crab mascot SVG and favicon — v0.1.0
+- ✓ OG/Twitter meta tags for social sharing — v0.1.0
+- ✓ GA4 analytics, robots.txt, sitemap.xml — v0.1.0
 
 ### Active
 
-- [ ] Landing page with terminal/hacker aesthetic (dark theme, monospace, CLI feel)
-- [ ] Problem explainer section walking through current pain points (permissions, Docker-in-Docker, VM setup friction, bloated packages, non-agent-friendly CLI tooling)
-- [ ] Feature showcase section highlighting planned AgentLinux capabilities (minimalistic base, auto agent user setup, package groups for web/GUI dev, agent skills, agent-friendly CLI tooling, multiple distribution formats)
-- [ ] Comparison table showing AgentLinux vs current alternatives (local machine, sandboxed local, Docker, generic VMs)
-- [ ] Email subscription form integrated with Buttondown
-- [ ] Static site (HTML/CSS/JS) deployable to any hosting platform
-- [ ] Domain: agentlinux.org (Hostinger, not yet configured)
+(None — define next milestone with `/gsd:new-milestone`)
 
 ### Out of Scope
 
 - Building the actual Linux distribution — this is validation only
 - User accounts or login functionality
 - Blog or content management system
-- Community features (Discord/GitHub links) — not requested for v1
 - Mobile app
+- E-commerce / payments
 
 ## Context
 
-**The AgentLinux Vision:**
-AgentLinux is a planned Linux distro that solves the "where do I run my agent?" problem. Current options all have friction:
-1. **Local machine** — permission fights, environment pollution
-2. **Local sandboxing** — same permission problems
-3. **Docker** — Docker-in-Docker and virtualization pain
-4. **Generic VMs** — manual user setup (Claude Code can't run as root), Chrome/GUI setup, bloated default packages, CLI tools designed for humans not agents
+Shipped v0.1.0 with 1,045 LOC across HTML/CSS/JS/SVG/XML.
+Tech stack: Static HTML/CSS/JS, Buttondown API, Google Fonts (JetBrains Mono), GA4.
+Deployed: GitHub Pages with GitHub Actions, custom domain agentlinux.org via Hostinger DNS.
+Live at: https://agentlinux.org
 
-AgentLinux would ship: minimalistic base, automatic non-root agent user with correct permissions, easy package groups for web/GUI dev, skills for popular AI agents, agent-friendly CLI tooling, and distribution via ISO, QEMU images, and Docker/Podman micro-VMs.
-
-**Target audience:** Developers and teams running AI coding agents (starting with Claude Code users).
-
-**Landing page goal:** Share with friends for feedback + test internet demand via email signups.
-
-**Tech decisions:**
-- Static site (HTML/CSS/JS) — simple, fast, deploy anywhere
-- Buttondown for email collection
-- Terminal/hacker aesthetic — dark theme, monospace fonts, CLI visuals
-- Domain: agentlinux.org on Hostinger
+Known minor issue: OG image (SVG format) doesn't render on all social platforms — convert to PNG for broader support.
 
 ## Constraints
 
 - **Scope**: Landing page only — no distro work yet
 - **Stack**: Static HTML/CSS/JS — no frameworks, no build step
 - **Email**: Buttondown integration for subscriber collection
-- **Hosting**: Must be deployable to Hostinger (or any static host)
+- **Hosting**: GitHub Pages with custom domain agentlinux.org
 
 ## Key Decisions
 
 | Decision | Rationale | Outcome |
 |----------|-----------|---------|
-| Validate before building | De-risk the distro investment by testing demand first | — Pending |
-| Static site over framework | Simplicity, no build tooling, fast to ship | — Pending |
-| Buttondown for email | Simple API, good developer experience, free tier | — Pending |
-| Terminal/hacker aesthetic | Matches target audience (developers running agents) | — Pending |
-| Claude Code as first target agent | User's primary agent, natural starting point | — Pending |
+| Validate before building | De-risk the distro investment by testing demand first | ✓ Good — site shipped |
+| Static site over framework | Simplicity, no build tooling, fast to ship | ✓ Good — 1,045 LOC, 2-day build |
+| Buttondown for email | Simple API, good developer experience, free tier | ✓ Good — working form |
+| Terminal/hacker aesthetic | Matches target audience (developers running agents) | ✓ Good — cohesive dark theme |
+| SVG for OG image | Works for direct links, simpler than generating PNG | ⚠️ Revisit — doesn't render on all platforms |
+| Inline CSS (no separate stylesheet) | Single-file simplicity per static site constraint | ✓ Good — easy to maintain |
+| GitHub Pages + Actions | Free hosting, auto-deploy, HTTPS included | ✓ Good — zero-cost deployment |
+| GA4 with placeholder ID | User configures after creating GA4 property | ✓ Good — replaced with real ID |
 
 ---
-*Last updated: 2026-03-09 after initialization*
+*Last updated: 2026-03-10 after v0.1.0 milestone*
