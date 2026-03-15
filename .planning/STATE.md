@@ -2,12 +2,12 @@
 gsd_state_version: 1.0
 milestone: v0.2.0
 milestone_name: First Distro Image
-status: defining_requirements
+status: ready_to_plan
 stopped_at: null
-last_updated: "2026-03-10T00:00:00.000Z"
-last_activity: 2026-03-10 - Milestone v0.2.0 started
+last_updated: "2026-03-15T00:00:00.000Z"
+last_activity: 2026-03-15 - Roadmap created for v0.2.0
 progress:
-  total_phases: 0
+  total_phases: 3
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -21,30 +21,52 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-10)
 
 **Core value:** An agent can boot into a Linux environment that works out of the box — no setup, no permission fights, no missing tools — with agent software available via the system package manager.
-**Current focus:** Defining requirements for v0.2.0
+**Current focus:** Phase 3 — Bootable Image with Agent User
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 3 of 5 (Bootable Image with Agent User)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-03-10 — Milestone v0.2.0 started
+Status: Ready to plan
+Last activity: 2026-03-15 — Roadmap created for v0.2.0 (3 phases, 18 requirements)
+
+Progress: [░░░░░░░░░░] 0%
 
 ## Performance Metrics
 
-| Phase | Duration | Tasks | Files |
-|-------|----------|-------|-------|
-| Phase 01 P01 | 2min | 2 tasks | 2 files |
-| Phase 01 P02 | 2min | 2 tasks | 1 files |
-| Phase 01 P03 | extended | 3+ tasks | 1 files |
-| Phase 02 P01 | 1min | 2 tasks | 5 files |
-| Phase 02 P02 | 2min | 2 tasks | 2 files |
+**Velocity:**
+- Total plans completed: 5 (v0.1.0)
+- Average duration: ~2 min
+- Total execution time: ~0.2 hours
+
+**By Phase:**
+
+| Phase | Plans | Total | Avg/Plan |
+|-------|-------|-------|----------|
+| 1. Complete Website | 3 | ~6min | ~2min |
+| 2. Deploy to Public | 2 | ~3min | ~1.5min |
+
+*Updated after each plan completion*
 
 ## Accumulated Context
 
 ### Decisions
 
 Full decision log in PROJECT.md Key Decisions table.
+
+Recent:
+- Debian 12 Bookworm as base distro (research confirmed)
+- Packer + QEMU plugin for image build
+- fpm for .deb packaging (not Debian policy-compliant, pragmatic)
+- Node.js 22 LTS from NodeSource as shared runtime
+- Local apt repo in image for package distribution (no public PPA for PoC)
+
+### Key Infrastructure Details
+
+- OpenNebula API: https://api.nebula.k8s.svcs.io/RPC2
+- OpenNebula user: nivanov
+- Target network: ire_developers (ID 500)
+- Image datastore: ceph-nvme-images (ID 100)
 
 ### Pending Todos
 
@@ -53,16 +75,11 @@ Full decision log in PROJECT.md Key Decisions table.
 
 ### Blockers/Concerns
 
-None.
-
-### Quick Tasks Completed
-
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 1 | Debug and fix Claude Code post hooks failing with hook errors | 2026-03-09 | 957437c | [1-debug-and-fix-claude-code-post-hooks-fai](./quick/1-debug-and-fix-claude-code-post-hooks-fai/) |
+- Build machine must have /dev/kvm access for Packer (verify early in Phase 3)
+- Chrome DevTools MCP server: exact npm package name and entry point need confirmation
 
 ## Session Continuity
 
-Last session: 2026-03-10T13:30:00.000Z
-Stopped at: Milestone v0.1.0 archived
+Last session: 2026-03-15
+Stopped at: Roadmap created for v0.2.0
 Resume file: None

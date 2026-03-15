@@ -85,30 +85,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| IMG-01 | — | Pending |
-| IMG-02 | — | Pending |
-| ONE-01 | — | Pending |
-| ONE-02 | — | Pending |
-| USR-01 | — | Pending |
-| USR-02 | — | Pending |
-| USR-03 | — | Pending |
-| PKG-01 | — | Pending |
-| PKG-02 | — | Pending |
-| PKG-03 | — | Pending |
-| PKG-04 | — | Pending |
-| MCP-01 | — | Pending |
-| MCP-02 | — | Pending |
-| MCP-03 | — | Pending |
-| TST-01 | — | Pending |
-| TST-02 | — | Pending |
-| TST-03 | — | Pending |
-| TST-04 | — | Pending |
+| IMG-01 | Phase 3 | Pending |
+| IMG-02 | Phase 3 | Pending |
+| ONE-01 | Phase 3 | Pending |
+| ONE-02 | Phase 3 | Pending |
+| USR-01 | Phase 3 | Pending |
+| USR-02 | Phase 3 | Pending |
+| USR-03 | Phase 3 | Pending |
+| PKG-01 | Phase 4 | Pending |
+| PKG-02 | Phase 4 | Pending |
+| PKG-03 | Phase 4 | Pending |
+| PKG-04 | Phase 4 | Pending |
+| MCP-01 | Phase 4 | Pending |
+| MCP-02 | Phase 4 | Pending |
+| MCP-03 | Phase 4 | Pending |
+| TST-01 | Phase 5 | Pending |
+| TST-02 | Phase 5 | Pending |
+| TST-03 | Phase 5 | Pending |
+| TST-04 | Phase 5 | Pending |
 
 **Coverage:**
 - v0.2.0 requirements: 18 total
-- Mapped to phases: 0
-- Unmapped: 18 ⚠️
+- Mapped to phases: 18
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-03-15*
-*Last updated: 2026-03-15 after initial definition*
+*Last updated: 2026-03-15 after roadmap creation*
