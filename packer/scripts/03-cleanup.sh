@@ -2,9 +2,24 @@
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-# NOTE: packer user and sudoers cleanup moved to shutdown_command in
-# agentlinux.pkr.hcl because removing them here breaks Packer's SSH-based
-# shutdown command (packer user needs sudo to execute shutdown).
+# Schedule packer user removal for next boot via a oneshot systemd service.
+# We cannot use 'userdel' during provisioning (Packer SSH session keeps user active)
+# or in shutdown_command (same problem). The oneshot service runs before login.
+cat > /etc/systemd/system/cleanup-packer-user.service <<'UNIT'
+[Unit]
+Description=Remove packer build user
+Before=multi-user.target
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/bin/bash -c 'userdel -rf packer 2>/dev/null; rm -f /etc/sudoers.d/90-cloud-init-users; systemctl disable cleanup-packer-user.service; rm -f /etc/systemd/system/cleanup-packer-user.service'
+RemainAfterExit=false
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+systemctl enable cleanup-packer-user.service
 
 # Clean apt cache
 apt-get autoremove -y
