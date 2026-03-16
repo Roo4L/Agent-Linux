@@ -66,7 +66,8 @@ build {
   sources = ["source.qemu.agentlinux"]
 
   provisioner "shell" {
-    execute_command = "echo 'packer' | sudo -S bash -c '{{ .Vars }} {{ .Path }}'"
+    execute_command  = "echo 'packer' | sudo -S bash -c '{{ .Vars }} {{ .Path }}'"
+    environment_vars = ["ONE_CONTEXT_VERSION=${var.one_context_version}"]
     scripts = [
       "scripts/01-base.sh",
       "scripts/02-one-context.sh",
