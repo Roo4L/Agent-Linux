@@ -17,7 +17,7 @@
 
 ### v0.2.0 First Distro Image
 
-- [ ] **Phase 3: Bootable Image with Agent User** - Packer builds a Debian 12 QCOW2 that boots on KVM, contextualizes on OpenNebula, and provides SSH access to an agent user
+- [x] **Phase 3: Bootable Image with Agent User** - Packer builds a Debian 12 QCOW2 that boots on KVM, contextualizes on OpenNebula, and provides SSH access to an agent user
 - [ ] **Phase 4: Agent Tool Packages** - Claude Code, GSD, and Chrome DevTools MCP server are packaged as .debs and available via apt install from a local repository in the image
 - [ ] **Phase 5: End-to-End Validation** - Automated script deploys image to OpenNebula, verifies all agent tools work, and tears down the test VM
 
@@ -36,7 +36,7 @@
 
 Plans:
 - [x] 03-01-PLAN.md — Create Packer build infrastructure (template + provisioning scripts)
-- [ ] 03-02-PLAN.md — Build QCOW2 image and verify boot + contextualization readiness
+- [x] 03-02-PLAN.md — Build QCOW2 image and verify boot + contextualization readiness
 
 ### Phase 4: Agent Tool Packages
 **Goal**: Claude Code, GSD framework, and Chrome DevTools MCP server are each packaged as .debs with fpm, stored in a local apt repository within the image, and install cleanly via `apt install`
@@ -77,6 +77,6 @@ Phases execute in numeric order: 3 -> 4 -> 5
 |-------|-----------|----------------|--------|-----------|
 | 1. Complete Website | v0.1.0 | 3/3 | Complete | 2026-03-09 |
 | 2. Deploy to Public | v0.1.0 | 2/2 | Complete | 2026-03-10 |
-| 3. Bootable Image with Agent User | v0.2.0 | 1/2 | In Progress | - |
+| 3. Bootable Image with Agent User | v0.2.0 | 2/2 | Complete | 2026-03-16 |
 | 4. Agent Tool Packages | v0.2.0 | 0/? | Not started | - |
 | 5. End-to-End Validation | v0.2.0 | 0/? | Not started | - |

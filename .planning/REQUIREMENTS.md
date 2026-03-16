@@ -10,7 +10,7 @@ Requirements for the first distro image. Each maps to roadmap phases.
 ### Image Build
 
 - [x] **IMG-01**: Packer builds a bootable Debian 12 QCOW2 image from the official cloud base image
-- [ ] **IMG-02**: Built image boots successfully on KVM/QEMU
+- [x] **IMG-02**: Built image boots successfully on KVM/QEMU
 
 ### OpenNebula Integration
 
@@ -86,7 +86,7 @@ Which phases cover which requirements. Updated during roadmap creation.
 | Requirement | Phase | Status |
 |-------------|-------|--------|
 | IMG-01 | Phase 3 | Complete |
-| IMG-02 | Phase 3 | Pending |
+| IMG-02 | Phase 3 | Complete |
 | ONE-01 | Phase 3 | Complete |
 | ONE-02 | Phase 3 | Pending |
 | USR-01 | Phase 3 | Pending |
