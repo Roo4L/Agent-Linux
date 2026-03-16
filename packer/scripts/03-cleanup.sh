@@ -2,9 +2,9 @@
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
-# Remove the temporary packer user created by cloud-init during build
-userdel -r packer 2>/dev/null || true
-rm -f /etc/sudoers.d/90-cloud-init-users
+# NOTE: packer user and sudoers cleanup moved to shutdown_command in
+# agentlinux.pkr.hcl because removing them here breaks Packer's SSH-based
+# shutdown command (packer user needs sudo to execute shutdown).
 
 # Clean apt cache
 apt-get autoremove -y

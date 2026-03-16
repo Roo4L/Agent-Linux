@@ -1,0 +1,6 @@
+# Built image artifacts (large binaries, not for git)
+output/*.qcow2
+
+# Packer cache
+packer/.packer.d/
+packer/packer_cache/

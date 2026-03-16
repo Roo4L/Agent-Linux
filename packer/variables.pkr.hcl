@@ -15,7 +15,7 @@ variable "one_context_version" {
 
 variable "output_dir" {
   type    = string
-  default = "output"
+  default = "../output"
 }
 
 variable "vm_name" {

@@ -56,7 +56,10 @@ source "qemu" "agentlinux" {
   disk_detect_zeroes = "unmap"
   skip_compaction    = false
 
-  shutdown_command = "echo 'packer' | sudo -S shutdown -P now"
+  # Clean up build user and shutdown -- must happen here because removing the
+  # packer user or its sudoers entry in a provisioner script would break
+  # Packer's SSH-based shutdown mechanism (needs sudo to execute shutdown)
+  shutdown_command = "echo 'packer' | sudo -S bash -c 'userdel -r packer; rm -f /etc/sudoers.d/90-cloud-init-users; shutdown -P now'"
 }
 
 build {
