@@ -35,7 +35,7 @@
 **Plans**: 2 plans
 
 Plans:
-- [ ] 03-01-PLAN.md — Create Packer build infrastructure (template + provisioning scripts)
+- [x] 03-01-PLAN.md — Create Packer build infrastructure (template + provisioning scripts)
 - [ ] 03-02-PLAN.md — Build QCOW2 image and verify boot + contextualization readiness
 
 ### Phase 4: Agent Tool Packages
@@ -77,6 +77,6 @@ Phases execute in numeric order: 3 -> 4 -> 5
 |-------|-----------|----------------|--------|-----------|
 | 1. Complete Website | v0.1.0 | 3/3 | Complete | 2026-03-09 |
 | 2. Deploy to Public | v0.1.0 | 2/2 | Complete | 2026-03-10 |
-| 3. Bootable Image with Agent User | v0.2.0 | 0/2 | Planned | - |
+| 3. Bootable Image with Agent User | v0.2.0 | 1/2 | In Progress | - |
 | 4. Agent Tool Packages | v0.2.0 | 0/? | Not started | - |
 | 5. End-to-End Validation | v0.2.0 | 0/? | Not started | - |
