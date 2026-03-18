@@ -57,7 +57,7 @@ source "qemu" "agentlinux" {
   skip_compaction    = false
 
   # Packer user cleanup is handled by a oneshot systemd service on first boot
-  # (see 03-cleanup.sh) since the user cannot be deleted while Packer's SSH
+  # (see 06-cleanup.sh) since the user cannot be deleted while Packer's SSH
   # session is active.
   shutdown_command = "echo 'packer' | sudo -S shutdown -P now"
 }
@@ -71,7 +71,10 @@ build {
     scripts = [
       "scripts/01-base.sh",
       "scripts/02-one-context.sh",
-      "scripts/03-cleanup.sh",
+      "scripts/03-nodejs.sh",
+      "scripts/04-chrome.sh",
+      "scripts/05-agent-tools.sh",
+      "scripts/06-cleanup.sh",
     ]
   }
 }
