@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.1
 milestone_name: milestone
 status: completed
-stopped_at: Completed 04-01-PLAN.md
-last_updated: "2026-03-18T15:18:09.530Z"
-last_activity: 2026-03-18 — Completed Plan 04-01 (Build scripts for Node.js, .deb packages, Chrome)
+stopped_at: Completed 04-02-PLAN.md
+last_updated: "2026-03-18T15:23:15.177Z"
+last_activity: 2026-03-18 — Completed Plan 04-02 (Agent tools install script + Packer template wiring)
 progress:
   total_phases: 3
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 5
-  completed_plans: 4
-  percent: 80
+  completed_plans: 5
+  percent: 100
 ---
 
 # Project State
@@ -21,21 +21,21 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-10)
 
 **Core value:** An agent can boot into a Linux environment that works out of the box — no setup, no permission fights, no missing tools — with agent software available via the system package manager.
-**Current focus:** Phase 4 in progress (1/2 plans complete) — Agent Tool Packages
+**Current focus:** Phase 4 complete (2/2 plans) — Agent Tool Packages
 
 ## Current Position
 
-Phase: 4 of 5 (Agent Tool Packages) -- IN PROGRESS
-Plan: 1 of 2 complete
-Status: Plan 04-01 complete, ready for 04-02
-Last activity: 2026-03-18 — Completed Plan 04-01 (Build scripts for Node.js, .deb packages, Chrome)
+Phase: 4 of 5 (Agent Tool Packages) -- COMPLETE
+Plan: 2 of 2 complete
+Status: Phase 04 complete, ready for Phase 05
+Last activity: 2026-03-18 — Completed Plan 04-02 (Agent tools install script + Packer template wiring)
 
-Progress: [████████░░] 80% (Overall: 4/5 phases started)
+Progress: [██████████] 100% (Overall: 5/5 plans complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 9 (5 v0.1.0, 4 v0.2.0)
+- Total plans completed: 10 (5 v0.1.0, 5 v0.2.0)
 - Average duration: ~3 min
 - Total execution time: ~0.4 hours
 
@@ -53,6 +53,7 @@ Progress: [████████░░] 80% (Overall: 4/5 phases started)
 | Phase 03 P03 | 1min | 1 task | 1 file |
 | Phase 03 P03 | 1min | 1 tasks | 1 files |
 | Phase 04 P01 | 3min | 2 tasks | 2 files |
+| Phase 04 P02 | 2min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,8 @@ Recent:
 - [Phase 04]: npm install -g for all three packages (consistent thin wrapper, system-wide)
 - [Phase 04]: MCP config merged into ~/.claude.json via jq (not managed-mcp.json)
 - [Phase 04]: GSD integration via temp HOME + /etc/skel copy with sed path fixup for /usr/bin/node
+- [Phase 04]: fpm/ruby removal in cleanup script before apt autoremove for cascaded dependency cleanup
+- [Phase 04]: Complete 6-script provisioner chain: base -> one-context -> nodejs -> chrome -> agent-tools -> cleanup
 
 ### Key Infrastructure Details
 
@@ -94,6 +97,6 @@ Recent:
 
 ## Session Continuity
 
-Last session: 2026-03-18T15:18:09.525Z
-Stopped at: Completed 04-01-PLAN.md
+Last session: 2026-03-18T15:23:15.172Z
+Stopped at: Completed 04-02-PLAN.md
 Resume file: None

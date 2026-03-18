@@ -33,8 +33,8 @@ Requirements for the first distro image. Each maps to roadmap phases.
 ### MCP Server Demo
 
 - [x] **MCP-01**: Chrome DevTools MCP server is packaged as a .deb with Chrome as a dependency
-- [ ] **MCP-02**: MCP server is pre-configured in the agent user's Claude Code settings (via /etc/skel)
-- [ ] **MCP-03**: Agent user can launch Claude Code and use the Chrome DevTools MCP server
+- [x] **MCP-02**: MCP server is pre-configured in the agent user's Claude Code settings (via /etc/skel)
+- [x] **MCP-03**: Agent user can launch Claude Code and use the Chrome DevTools MCP server
 
 ### Automated Testing
 
@@ -97,8 +97,8 @@ Which phases cover which requirements. Updated during roadmap creation.
 | PKG-03 | Phase 4 | Complete |
 | PKG-04 | Phase 4 | Complete |
 | MCP-01 | Phase 4 | Complete |
-| MCP-02 | Phase 4 | Pending |
-| MCP-03 | Phase 4 | Pending |
+| MCP-02 | Phase 4 | Complete |
+| MCP-03 | Phase 4 | Complete |
 | TST-01 | Phase 5 | Pending |
 | TST-02 | Phase 5 | Pending |
 | TST-03 | Phase 5 | Pending |
