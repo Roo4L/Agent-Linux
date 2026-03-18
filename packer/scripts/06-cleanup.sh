@@ -2,6 +2,11 @@
 set -euxo pipefail
 export DEBIAN_FRONTEND=noninteractive
 
+# Remove build-time-only tools (fpm, ruby, build-essential) to save image space
+# These were only needed during package building in 03-nodejs.sh
+gem uninstall -x fpm 2>/dev/null || true
+apt-get purge -y ruby-dev build-essential ruby 2>/dev/null || true
+
 # Schedule packer user removal for next boot via a oneshot systemd service.
 # We cannot use 'userdel' during provisioning (Packer SSH session keeps user active)
 # or in shutdown_command (same problem). The oneshot service runs before login.
