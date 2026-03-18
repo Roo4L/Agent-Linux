@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.1
 milestone_name: milestone
 status: completed
-stopped_at: Phase 4 context gathered
-last_updated: "2026-03-16T15:56:39.868Z"
-last_activity: 2026-03-16 — Completed Plan 03-03 (Wire one_context_version variable)
+stopped_at: Completed 04-01-PLAN.md
+last_updated: "2026-03-18T15:18:09.530Z"
+last_activity: 2026-03-18 — Completed Plan 04-01 (Build scripts for Node.js, .deb packages, Chrome)
 progress:
   total_phases: 3
   completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_plans: 5
+  completed_plans: 4
+  percent: 80
 ---
 
 # Project State
@@ -21,23 +21,23 @@ progress:
 See: .planning/PROJECT.md (updated 2026-03-10)
 
 **Core value:** An agent can boot into a Linux environment that works out of the box — no setup, no permission fights, no missing tools — with agent software available via the system package manager.
-**Current focus:** Phase 3 complete (3 plans) — ready for Phase 4 (Agent Tool Packages)
+**Current focus:** Phase 4 in progress (1/2 plans complete) — Agent Tool Packages
 
 ## Current Position
 
-Phase: 3 of 5 (Bootable Image with Agent User) -- COMPLETE
-Plan: 3 of 3 complete
-Status: Phase 3 complete
-Last activity: 2026-03-16 — Completed Plan 03-03 (Wire one_context_version variable)
+Phase: 4 of 5 (Agent Tool Packages) -- IN PROGRESS
+Plan: 1 of 2 complete
+Status: Plan 04-01 complete, ready for 04-02
+Last activity: 2026-03-18 — Completed Plan 04-01 (Build scripts for Node.js, .deb packages, Chrome)
 
-Progress: [██████████] 100% (Phase 3)
+Progress: [████████░░] 80% (Overall: 4/5 phases started)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 8 (5 v0.1.0, 3 v0.2.0)
+- Total plans completed: 9 (5 v0.1.0, 4 v0.2.0)
 - Average duration: ~3 min
-- Total execution time: ~0.3 hours
+- Total execution time: ~0.4 hours
 
 **By Phase:**
 
@@ -52,6 +52,7 @@ Progress: [██████████] 100% (Phase 3)
 | Phase 03 P02 | 10min | 3 tasks | 4 files |
 | Phase 03 P03 | 1min | 1 task | 1 file |
 | Phase 03 P03 | 1min | 1 tasks | 1 files |
+| Phase 04 P01 | 3min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,9 @@ Recent:
 - Packer user cleanup via first-boot systemd oneshot service (userdel fails during SSH session)
 - OpenNebula contextualization deferred to Phase 5 end-to-end validation
 - [Phase 03]: Keep 02-one-context.sh fallback default unchanged -- defensive coding pattern preserved
+- [Phase 04]: npm install -g for all three packages (consistent thin wrapper, system-wide)
+- [Phase 04]: MCP config merged into ~/.claude.json via jq (not managed-mcp.json)
+- [Phase 04]: GSD integration via temp HOME + /etc/skel copy with sed path fixup for /usr/bin/node
 
 ### Key Infrastructure Details
 
@@ -86,10 +90,10 @@ Recent:
 ### Blockers/Concerns
 
 - ~~Build machine must have /dev/kvm access for Packer~~ (RESOLVED: /dev/kvm present, Packer 1.15.0 + QEMU 9.1.0 installed)
-- Chrome DevTools MCP server: exact npm package name and entry point need confirmation
+- ~~Chrome DevTools MCP server: exact npm package name and entry point need confirmation~~ (RESOLVED: chrome-devtools-mcp on npm, confirmed in 04-RESEARCH.md)
 
 ## Session Continuity
 
-Last session: 2026-03-16T15:56:39.863Z
-Stopped at: Phase 4 context gathered
-Resume file: .planning/phases/04-agent-tool-packages/04-CONTEXT.md
+Last session: 2026-03-18T15:18:09.525Z
+Stopped at: Completed 04-01-PLAN.md
+Resume file: None

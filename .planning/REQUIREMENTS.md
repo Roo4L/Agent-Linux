@@ -25,14 +25,14 @@ Requirements for the first distro image. Each maps to roadmap phases.
 
 ### Agent Tool Packages
 
-- [ ] **PKG-01**: Claude Code is packaged as a .deb via fpm (installs to /opt/agentlinux/, wrapper on PATH)
-- [ ] **PKG-02**: GSD framework is packaged as a .deb via fpm (same pattern)
-- [ ] **PKG-03**: Node.js 22 LTS from NodeSource is installed as shared runtime dependency
-- [ ] **PKG-04**: A local apt repository is configured in the image containing all .deb packages, and they install cleanly via `apt install`
+- [x] **PKG-01**: Claude Code is packaged as a .deb via fpm (installs to /opt/agentlinux/, wrapper on PATH)
+- [x] **PKG-02**: GSD framework is packaged as a .deb via fpm (same pattern)
+- [x] **PKG-03**: Node.js 22 LTS from NodeSource is installed as shared runtime dependency
+- [x] **PKG-04**: A local apt repository is configured in the image containing all .deb packages, and they install cleanly via `apt install`
 
 ### MCP Server Demo
 
-- [ ] **MCP-01**: Chrome DevTools MCP server is packaged as a .deb with Chrome as a dependency
+- [x] **MCP-01**: Chrome DevTools MCP server is packaged as a .deb with Chrome as a dependency
 - [ ] **MCP-02**: MCP server is pre-configured in the agent user's Claude Code settings (via /etc/skel)
 - [ ] **MCP-03**: Agent user can launch Claude Code and use the Chrome DevTools MCP server
 
@@ -92,11 +92,11 @@ Which phases cover which requirements. Updated during roadmap creation.
 | USR-01 | Phase 3 | Pending |
 | USR-02 | Phase 3 | Pending |
 | USR-03 | Phase 3 | Pending |
-| PKG-01 | Phase 4 | Pending |
-| PKG-02 | Phase 4 | Pending |
-| PKG-03 | Phase 4 | Pending |
-| PKG-04 | Phase 4 | Pending |
-| MCP-01 | Phase 4 | Pending |
+| PKG-01 | Phase 4 | Complete |
+| PKG-02 | Phase 4 | Complete |
+| PKG-03 | Phase 4 | Complete |
+| PKG-04 | Phase 4 | Complete |
+| MCP-01 | Phase 4 | Complete |
 | MCP-02 | Phase 4 | Pending |
 | MCP-03 | Phase 4 | Pending |
 | TST-01 | Phase 5 | Pending |
