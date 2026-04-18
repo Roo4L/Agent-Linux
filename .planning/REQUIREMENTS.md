@@ -31,7 +31,7 @@ Grouped by behavior area. Each `BHV-XX` is a testable, observable behavior — t
 
 Observable behaviors of the provisioned agent user. These are the contract — tests must cover every bullet.
 
-- [ ] **BHV-01**: The agent user exists after install, has a bash shell, a real home directory, and a UTF-8 locale configured (`LANG`, `LC_ALL`).
+- [x] **BHV-01**: The agent user exists after install, has a bash shell, a real home directory, and a UTF-8 locale configured (`LANG`, `LC_ALL`). (Provisioner landed 02-03; end-to-end bats verification in 02-05.)
 - [ ] **BHV-02**: The agent user can run commands over **non-interactive SSH** (`ssh agent@host '<cmd>'`) and all installed agent binaries (`claude`, `gsd`, etc.) are findable on PATH.
 - [ ] **BHV-03**: The agent user can run commands via **cron** and all installed agent binaries are findable on PATH.
 - [ ] **BHV-04**: The agent user can run commands via **systemd `User=agent`** and all installed agent binaries are findable on PATH.
@@ -98,7 +98,7 @@ The test harness is a **primary deliverable** of v0.3.0, not a supporting concer
 ### Documentation (DOC)
 
 - [ ] **DOC-01**: A README ships with the installer describing: how to install, how to verify (`agentlinux list` + one test command), how to uninstall.
-- [ ] **DOC-02**: A `CLAUDE.md` is placed in the agent user's home with guidance that the environment is correctly owned and agent tools must NOT create shim/wrapper workarounds. Prevents LLM agents from pattern-matching on past permission bugs and introducing the exact class of shim AgentLinux exists to prevent.
+- [x] **DOC-02**: A `CLAUDE.md` is placed in the agent user's home with guidance that the environment is correctly owned and agent tools must NOT create shim/wrapper workarounds. Prevents LLM agents from pattern-matching on past permission bugs and introducing the exact class of shim AgentLinux exists to prevent. (Landed 02-03 via ensure_marker_block with tag `agentlinux-doc-02`; bats grep-verification in 02-05.)
 
 ## Future Requirements (deferred to v0.4+)
 
@@ -165,13 +165,13 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | INST-01 | Phase 2 | Pending |
 | INST-02 | Phase 2 | Pending |
 | INST-05 | Phase 2 | Pending |
-| BHV-01 | Phase 2 | Pending |
+| BHV-01 | Phase 2 | ✓ Satisfied (02-03 provisioner; bats verification in 02-05) |
 | BHV-02 | Phase 2 | Pending |
 | BHV-03 | Phase 2 | Pending |
 | BHV-04 | Phase 2 | Pending |
 | BHV-05 | Phase 2 | Pending |
 | BHV-06 | Phase 2 | Pending |
-| DOC-02 | Phase 2 | Pending |
+| DOC-02 | Phase 2 | ✓ Satisfied (02-03 CLAUDE.md placement; bats grep-verification in 02-05) |
 | TST-01 | Phase 2 | Pending |
 | TST-02 | Phase 2 | Pending |
 | TST-04 | Phase 2 | Pending |

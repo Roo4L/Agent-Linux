@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: AgentLinux Plugin (Ubuntu)
 status: in_progress
-stopped_at: Plan 02-02 complete — installer entrypoint rewritten (plugin/bin/agentlinux-install, 5→194 lines). Pre-parse UX flags + log tee with deadlock-safe trap + ERR trap + four-library source order + provisioner dispatch tolerant to zero provisioners. Shellcheck + shfmt + bash -n green. Phase 1 harness still 104/104. Wave 2 continues with 02-03 (agent-user provisioner) + 02-04 (PATH wiring); 02-05 (Docker bats harness) closes Phase 2.
-last_updated: "2026-04-18T14:50:00.000Z"
-last_activity: 2026-04-18 — Plan 02-02 complete; entrypoint rewritten with 4 auto-fixed bugs (plan-skeleton ordering for --help UX, RESEARCH Pitfall 6 trap deadlock, shfmt lexer workaround, SC2155 split). One task, one commit (44208a3); ~18 min.
+stopped_at: Plan 02-03 complete — plugin/provisioner/10-agent-user.sh landed (136 lines). First dispatched provisioner: ensure_user agent + ensure_dir /home/agent 0755 + locale-gen/update-locale C.UTF-8 (with locale -a verify per RESEARCH Pitfall 5) + ensure_marker_block /home/agent/CLAUDE.md "agentlinux-doc-02" --top with all three DOC-02 anti-pattern strings. No raw state mutation. Shellcheck + shfmt + bash -n green. Marker-block round-trip byte-stable (tmp-dir smoke test). Phase 1 harness still 104/104. Wave 2 continues with 02-04 (PATH wiring, running in parallel) then 02-05 (Docker bats harness) to close Phase 2.
+last_updated: "2026-04-18T14:49:00.000Z"
+last_activity: 2026-04-18 — Plan 02-03 complete. One task (`type="auto"`), one commit (7bfa20d feat); ~3 min. Clean landing — no auto-fixes, no deviations, plan executed exactly as written. Locale folded into 10- (per RESEARCH latitude `20-locale.sh OR folded into 10-`). Review loop (bash-engineer + security-engineer + qa-engineer) applied inline (Task tool unavailable under frontmatter restriction); all three rubrics PASS, one iteration, no fix commits needed.
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 7
-  completed_plans: 7
-  percent: 21
+  total_plans: 8
+  completed_plans: 8
+  percent: 25
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 
 ## Current Position
 
-Phase: 2 of 6 (Installer Foundation + Agent User) — IN PROGRESS; Wave 1 done, Wave 2 entrypoint done
-Plan: 02-02 ✓ complete — plugin/bin/agentlinux-install rewritten (5→194 lines, shellcheck + shfmt clean)
-Status: Phase 2 in progress; Wave 2 continues — 02-03 (agent-user provisioner) and 02-04 (PATH wiring) land the first `[0-9][0-9]-*.sh` provisioners that the entrypoint dispatches; 02-05 closes Phase 2 with Docker bats harness.
-Last activity: 2026-04-18 — Plan 02-02 complete (1 task, 1 commit 44208a3, ~18 min). Installer entrypoint lands green: pre-parse fast-exit for --help/-V/--purge (UX contract — work without sudo), install -m 0644 /dev/null for root-owned log init, exec > >(tee -a) 2>&1 for single-greppable transcript, trap 'exec >&- 2>&-; wait $TEE_PID' EXIT (Pitfall 6 deadlock fix over bare RESEARCH.md pattern), trap on_error ERR, four-library source in dependency order, mapfile + compgen -G for provisioner glob (sidesteps shfmt 3.8.0 lexer bug on [0-9][0-9] array-assign). Four auto-fixed bugs documented in SUMMARY Deviations. Review loop (bash-engineer + security-engineer + qa-engineer) one iteration, no fix commits needed. bash tests/harness/run.sh still 104/104 green.
+Phase: 2 of 6 (Installer Foundation + Agent User) — IN PROGRESS; Wave 1 done, Wave 2 entrypoint + first provisioner done
+Plan: 02-03 ✓ complete — plugin/provisioner/10-agent-user.sh (136 lines; agent user + C.UTF-8 locale + DOC-02 CLAUDE.md)
+Status: Phase 2 in progress; Wave 2 continues — 02-04 (PATH wiring, running in parallel in a separate session on plugin/provisioner/40-path-wiring.sh); 02-05 closes Phase 2 with Docker bats harness.
+Last activity: 2026-04-18 — Plan 02-03 complete (1 task, 1 commit 7bfa20d, ~3 min). First dispatched provisioner lands green: ensure_user agent (no-op on re-run), ensure_dir /home/agent 0755 agent:agent (chmod+chown unconditional on existing path to correct out-of-band drift), locale step (command -v locale-gen guard + apt install locales fallback for Docker slim, `locale-gen C.UTF-8 ... || true` documented skip-path, update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8, `locale -a | grep -Eiq '^c\.utf-?8$'` verify per RESEARCH Pitfall 5, `return 1` not `exit 1` so entrypoint ERR trap fires with src:line attribution), ensure_marker_block /home/agent/CLAUDE.md "agentlinux-doc-02" --top with heredoc containing all three canonical anti-pattern strings (`usr/local/bin`, `sudo npm install -g`, `second Node.js install`), chmod 0644 + chown agent:agent after ensure_marker_block (since install -m 0644 writes root-owned). Zero raw state mutation (every change routes through ensure_* primitives; chmod/chown are metadata-only idempotent). Marker-block round-trip byte-stable verified via tmp-dir smoke test: two ensure_marker_block calls with identical body around user-added preamble + appendix → diff empty, preamble + appendix preserved, block at top. Shellcheck --severity=warning --external-sources --source-path=plugin/lib + shfmt -i 2 -ci -bn -d + bash -n all green. Plan executed exactly as written — zero deviations, zero auto-fixes. Review loop (bash-engineer + security-engineer + qa-engineer rubrics applied inline under frontmatter tools-restriction) one iteration, no actionable findings. bash tests/harness/run.sh still 104/104 green.
 
-Progress: [▓▓░░░░░░░░] 21% (7 of ~32 plans done)
+Progress: [▓▓▓░░░░░░░] 25% (8 of ~32 plans done)
 
 ## Performance Metrics
 
@@ -59,6 +59,7 @@ Progress: [▓▓░░░░░░░░] 21% (7 of ~32 plans done)
 | 01-05 Harness meta-test suite (Phase 1 acceptance gate) | 3 | 9 created | ~4 min | 62a1257, c0ae0b2, f59ba60 |
 | 02-01 Bash library primitives (log, distro_detect, as_user, idempotency) | 2 | 4 created | ~11 min | 1b26d6a, 0b103f1, 69bd859 |
 | 02-02 Installer entrypoint rewrite (pre-parse flags + log tee + ERR/EXIT traps + provisioner dispatch) | 1 | 1 modified | ~18 min | 44208a3 |
+| 02-03 Agent-user provisioner (ensure_user + C.UTF-8 locale + DOC-02 CLAUDE.md via ensure_marker_block --top) | 1 | 1 created | ~3 min | 7bfa20d |
 
 ## Accumulated Context
 
@@ -101,6 +102,16 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - Growth phases named in BOTH description and body (`## Growth plan` section). A future agent opening the skill knows immediately whether each section is a locked contract or placeholder awaiting Phase N.
 - Requirement-ID linkage in each skill's opening paragraph — the linkage the `behavior-coverage-auditor` needs at phase-close to trace "skill X → requirement Y → test Z".
 - Per-task atomic commits via raw `git add <files> && git commit --no-gpg-sign` (continuing Plans 01-01, 01-02, 01-03 pattern).
+
+**New decisions from Plan 02-03 execution:**
+- Locale folded into 10-agent-user.sh rather than split into a sibling 20-locale.sh. RESEARCH offered the split-vs-fold choice (`20-locale.sh OR folded into 10-`); folded because locale is ~10 lines, tied to user identity, and folding keeps the Phase 2 provisioner count minimal (10/40 instead of 10/20/40). Decision documented in the provisioner's header comment so it's visible at the file.
+- `return 1` (not `exit 1`) on locale-verify failure. The provisioner is sourced (`. "$step"`) by the entrypoint's run_provisioners; `return 1` trips the parent's `set -euo pipefail` which fires the on_error ERR trap with proper `src:line` attribution. `exit 1` would kill the entrypoint immediately and bypass the structured-logging failure banner.
+- Locale outcome regex `^c\.utf-?8$` with `-i`. Accepts both `C.UTF-8` (documentation canonical) AND `C.utf8` (the form Ubuntu 24.04 reports via `locale -a`). Matches RESEARCH Pitfall 5 verification pattern verbatim.
+- `ensure_marker_block --top` placement for DOC-02 (not default `--bottom`). Anti-pattern DO-NOT guidance MUST appear before any user-added sections so agent tooling reading the CLAUDE.md encounters the DO-NOT list before making install decisions. Round-trip verified: two calls with identical body around user preamble + appendix produce a byte-stable diff, preamble + appendix both preserved.
+- Stable marker tag `agentlinux-doc-02` — Phase 4/5 may extend this block with new anti-patterns but MUST reuse this exact tag. Renaming would cause the new phase's block to co-exist with the orphaned old one, breaking idempotency across versions.
+- `chmod 0644 + chown agent:agent` AFTER `ensure_marker_block`. The helper uses `install -m 0644` which leaves the file root-owned; re-asserting agent:agent ownership ensures the agent user can read + edit outside the marker block on subsequent runs.
+- Zero raw state mutation convention enforced: every filesystem / user change routes through `plugin/lib/idempotency.sh` primitives (`ensure_user`, `ensure_dir`, `ensure_marker_block`). `chmod` and `chown` appear only for post-helper ownership re-assertion (metadata-only, idempotent). Verified via `grep -En 'useradd|install -d|echo .*>>|sed -i' | grep -v '^[0-9]*:[[:space:]]*#'` returning empty.
+- Provisioner file header contract established: `#!/usr/bin/env bash` shebang (editor syntax + shellcheck), block comment naming sourced-by parent + inherited strict mode + requirement IDs satisfied, bookend `log_info "NN-name: starting/done"` calls for greppable transcript boundaries. Future provisioners (02-04, Phase 3+) follow this shape.
 
 **New decisions from Plan 02-02 execution:**
 - Pre-parse fast-exit for --help/--version/--purge added BEFORE log-file init. Plan skeleton ordered `install -m 0644 /dev/null $LOG_FILE` before `parse_args`, which meant non-root `agentlinux-install --help` hit the root-required log-init fallback and exited 64 instead of printing usage and exiting 0 — violating the CONTEXT UX lock and the plan's own acceptance criterion (line 311). Fix: `pre_parse_args` walks argv BEFORE log-init and fast-exits for -h/--help/-V/--version/--purge (all three are print-and-exit; no state mutation). --verbose and unknown-flag diagnostics still route through the post-log-init `parse_args` so they hit the tee transcript. Committed in 44208a3.
@@ -170,6 +181,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-04-18T14:50:00Z
-Stopped at: Plan 02-02 complete — plugin/bin/agentlinux-install rewritten from the Phase 1 stub (5 lines) to the real entrypoint (194 lines). Pre-parse fast-exit for --help/--version/--purge (works without sudo); `install -m 0644 /dev/null` for root-owned log-file init with plain-stderr fallback on failure; `exec > >(tee -a "$LOG_FILE") 2>&1` merging stdout+stderr into the INST-05 transcript; `trap 'exec >&- 2>&-; wait "$TEE_PID" 2>/dev/null || true' EXIT` (Pitfall 6 deadlock fix over bare RESEARCH pattern); `trap on_error ERR` with failing `src:line` + log path; four libraries sourced in log→distro_detect→idempotency→as_user order; `run_provisioners` with `mapfile -t + compgen -G` for lexical `[0-9][0-9]-*.sh` dispatch (sidesteps shfmt 3.8.0 lexer bug) that tolerates zero provisioners (log_warn, not log_error). Shellcheck --severity=warning + shfmt -i 2 -ci -bn -d + bash -n all green. All six acceptance-criterion flag paths manually verified. Review loop (bash-engineer + security-engineer + qa-engineer rubrics) produced no actionable fixes — all findings either match documented plan threat-model dispositions (T-02-01 secret leakage via argv echo, T-02-06 symlink follow on log-file init) or defer to Plan 02-05 bats tests. 4 auto-fixed bugs documented in SUMMARY Deviations (plan-skeleton --help UX ordering, RESEARCH Pitfall 6 trap deadlock, shfmt lexer workaround, SC2155 split). bash tests/harness/run.sh still 104/104 green. Summary at `.planning/phases/02-installer-foundation-agent-user/02-02-SUMMARY.md`.
-Resume file: Phase 2 in progress; next plan is `02-03-PLAN.md` (agent-user provisioner) or `02-04-PLAN.md` (PATH wiring provisioner) — either can land first since the entrypoint tolerates zero provisioners. 02-05 (Docker bats harness + CI matrix) closes Phase 2 after 02-03 and 02-04 are done.
+Last session: 2026-04-18T14:49:00Z
+Stopped at: Plan 02-03 complete — `plugin/provisioner/10-agent-user.sh` (136 lines) lands as the first dispatched provisioner. Three imperative steps (sourced-fragment; strict mode inherited from entrypoint): (1) `ensure_user agent` + `ensure_dir /home/agent 0755 agent:agent` for BHV-01 user-identity; (2) locale step — `command -v locale-gen` guard with `apt-get install -y --no-install-recommends locales` fallback for Docker slim, `locale-gen C.UTF-8 >/dev/null 2>&1 || true` (documented skip-path; glibc built-in makes this a no-op on 22.04+), `update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8`, and outcome verify via `locale -a 2>/dev/null | grep -Eiq '^c\.utf-?8$'` with `return 1` on failure (trips entrypoint ERR trap); (3) DOC-02 CLAUDE.md placement via `ensure_marker_block /home/agent/CLAUDE.md "agentlinux-doc-02" --top` with heredoc body containing all three canonical anti-pattern strings (`usr/local/bin`, `sudo npm install -g`, `second Node.js install`), followed by `chmod 0644 + chown agent:agent` to re-assert agent ownership (ensure_marker_block's `install -m 0644` writes root-owned). Zero raw state mutation verified via `grep -En 'useradd|install -d|echo .*>>|sed -i' | grep -v '^[0-9]*:[[:space:]]*#'` returning empty. Marker-block round-trip byte-stable: tmp-dir smoke test ran ensure_marker_block twice with identical body around user-added preamble + appendix → diff run1 run2 empty, preamble + appendix preserved, block placed at top. Shellcheck --severity=warning --external-sources --source-path=plugin/lib + shfmt -i 2 -ci -bn -d + bash -n all green. Plan executed exactly as written (zero deviations, zero auto-fixes, one iteration of the review loop with bash-engineer + security-engineer + qa-engineer rubrics applied inline under the frontmatter tools-restriction). bash tests/harness/run.sh still 104/104 green. Summary at `.planning/phases/02-installer-foundation-agent-user/02-03-SUMMARY.md`. One commit: `7bfa20d` (feat) + plan-metadata commit after this STATE update.
+Resume file: Phase 2 in progress; 02-04 (PATH wiring, parallel in a separate session on `plugin/provisioner/40-path-wiring.sh`) is the only remaining Wave 2 plan before 02-05 (Docker bats harness + CI matrix) closes Phase 2. 02-04 can assume the agent user exists, /home/agent is 0755 agent:agent, and C.UTF-8 is enforced system-wide.
