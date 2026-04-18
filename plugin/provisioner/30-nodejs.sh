@@ -6,11 +6,10 @@
 # /var/log/agentlinux-install.log from the entrypoint; this fragment therefore
 # MUST NOT set its own strict-mode flags.
 #
-# Requirements satisfied:
-#   RT-01 — Node.js 22 LTS installed; `node --version` returns v22.x
-#   RT-04 — ~agent/.npmrc carries `prefix=/home/agent/.npm-global`
-#           (belt-and-braces NPM_CONFIG_PREFIX env var is written by
-#           40-path-wiring.sh for systemd/cron resilience, Pitfall 5).
+# Requirements: RT-01 (Node.js 22 LTS installed, `node --version` returns
+# v22.x) and RT-04 (~agent/.npmrc carries `prefix=/home/agent/.npm-global`;
+# belt-and-braces NPM_CONFIG_PREFIX env var is written by 40-path-wiring.sh
+# for systemd/cron resilience, Pitfall 5).
 #
 # Ordering: runs AFTER 10-agent-user.sh (needs /home/agent owned by agent:agent)
 # and BEFORE 40-path-wiring.sh — numeric dispatch 10 → 30 → 40. 40-path-wiring
@@ -25,10 +24,12 @@ log_info "30-nodejs: starting"
 
 # Step 1: pre-reqs for NodeSource's setup_22.x script.
 # NodeSource's setup script installs these itself, but we pre-install for
-# installer-log visibility (per D-02 [CONTEXT Node.js Install Path] + Research
-# §Open Questions Q2 recommendation). DEBIAN_FRONTEND=noninteractive prevents
-# dpkg from prompting on any conffile change in the CI Docker harness
-# (Pitfall 6 mitigation).
+# installer-log visibility (per D-02 + Research §Open Questions Q2).
+# DEBIAN_FRONTEND=noninteractive prevents dpkg conffile prompts in CI
+# (Pitfall 6). `apt-get update` is required first on hosts whose
+# /var/lib/apt/lists is empty — Ubuntu Docker base images strip lists after
+# initial install and cloud images ship with stale lists. Idempotent.
+DEBIAN_FRONTEND=noninteractive apt-get update
 DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
   curl gnupg ca-certificates apt-transport-https
 
