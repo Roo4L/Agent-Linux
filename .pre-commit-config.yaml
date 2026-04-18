@@ -1,0 +1,46 @@
+# .pre-commit-config.yaml
+# Copied verbatim from docs/HARNESS.md §1.2 — authoritative spec.
+# Covers: bash (shellcheck + shfmt), TS/JS + JSON (biome), catalog JSON Schema.
+# Runs locally on `pre-commit run --all-files` and in .github/workflows/test.yml.
+
+default_language_version:
+  node: '22'
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-json
+      - id: check-yaml
+      - id: detect-private-key
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+
+  - repo: https://github.com/koalaman/shellcheck-precommit
+    rev: v0.10.0
+    hooks:
+      - id: shellcheck
+        args: [--severity=warning, --shell=bash, --external-sources]
+
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.9.0-1
+    hooks:
+      - id: shfmt
+        args: [-i, '2', -ci, -bn]
+
+  - repo: https://github.com/biomejs/pre-commit
+    rev: v1.9.4
+    hooks:
+      - id: biome-check
+        files: ^plugin/cli/
+
+  - repo: local
+    hooks:
+      - id: catalog-schema-validate
+        name: Validate catalog.json against schema
+        entry: node plugin/cli/scripts/validate-catalog.mjs
+        language: system
+        files: ^plugin/catalog/(catalog|agents/.*/recipe)\.json$
+        pass_filenames: false
