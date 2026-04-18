@@ -40,8 +40,17 @@ EOF
 fi
 
 echo "== harness: bats suite (via $BATS_BIN) =="
+# Enumerate .bats files with nullglob so an empty directory fails loudly
+# instead of passing the literal "tests/harness/*.bats" string to bats.
+shopt -s nullglob
+bats_files=("$HERE"/*.bats)
+shopt -u nullglob
+if [[ ${#bats_files[@]} -eq 0 ]]; then
+  echo "tests/harness/run.sh: no .bats files found in $HERE" >&2
+  exit 2
+fi
 set +e
-"$BATS_BIN" "$HERE"/*.bats
+"$BATS_BIN" "${bats_files[@]}"
 BATS_STATUS=$?
 set -e
 
