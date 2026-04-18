@@ -75,9 +75,9 @@ Per `docs/HARNESS.md`. The agent harness is a foundation deliverable shipped as 
 
 - [ ] **HRN-01**: Project layout matches `docs/HARNESS.md` §1 — `plugin/`, `tests/`, `packaging/`, `docs/`, `.claude/agents/`, `.claude/skills/` all created with their documented sub-structure.
 - [ ] **HRN-02**: A pre-commit configuration is installed and green on every commit, covering shellcheck (bash), shfmt (bash format), biome (TS lint+format), and JSON Schema validation of catalog entries.
-- [ ] **HRN-03**: A `CLAUDE.md` exists at the repo root, under 150 lines, containing the project identity, critical rules, review-loop instruction, command reference, and pointers per `docs/HARNESS.md` §6.
-- [ ] **HRN-04**: A `docs/decisions/` ADR directory exists, seeded with ADR-001..ADR-010 from `docs/HARNESS.md` §2.3.
-- [ ] **HRN-05**: All `docs/research/v0.2.0/` and `docs/research/v0.3.0/` subdirectories exist with the appropriate research files migrated out of `.planning/`.
+- [x] **HRN-03**: A `CLAUDE.md` exists at the repo root, under 150 lines, containing the project identity, critical rules, review-loop instruction, command reference, and pointers per `docs/HARNESS.md` §6. ✓ Plan 01-01 (82 lines)
+- [x] **HRN-04**: A `docs/decisions/` ADR directory exists, seeded with ADR-001..ADR-010 from `docs/HARNESS.md` §2.3. ✓ Plan 01-01
+- [x] **HRN-05**: All `docs/research/v0.2.0/` and `docs/research/v0.3.0/` subdirectories exist with the appropriate research files migrated out of `.planning/`. ✓ Plan 01-01
 - [ ] **HRN-06**: Project-scoped review subagents exist in `.claude/agents/`: bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor.
 - [ ] **HRN-07**: A `/review` skill exists in `.claude/skills/` documenting the review-feedback-loop convention from `docs/HARNESS.md` §4.
 - [ ] **HRN-08**: GitHub Actions workflows are configured: `test.yml` (pre-commit + CLI unit tests + Docker bats matrix on every PR), `nightly-qemu.yml` (QEMU release-gate suite), `nightly-mutation.yml` (stryker + bash mutator), `release.yml` (tag → tarball + .deb + sha256 → GitHub Release).
@@ -153,9 +153,9 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 |-------------|-------|--------|
 | HRN-01 | Phase 1 | Pending |
 | HRN-02 | Phase 1 | Pending |
-| HRN-03 | Phase 1 | Pending |
-| HRN-04 | Phase 1 | Pending |
-| HRN-05 | Phase 1 | Pending |
+| HRN-03 | Phase 1 | ✓ Complete (01-01) |
+| HRN-04 | Phase 1 | ✓ Complete (01-01) |
+| HRN-05 | Phase 1 | ✓ Complete (01-01) |
 | HRN-06 | Phase 1 | Pending |
 | HRN-07 | Phase 1 | Pending |
 | HRN-08 | Phase 1 | Pending |
