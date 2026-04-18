@@ -44,7 +44,12 @@ Key locked decisions honored by this roadmap:
   4. Running `/review` on a throwaway change spawns the six project-scoped review subagents (bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor) and returns feedback — HRN-06, HRN-07, TST-07.
   5. The four GitHub Actions workflows (`test.yml`, `nightly-qemu.yml`, `nightly-mutation.yml`, `release.yml`) exist and pass on an empty-plugin commit; mutation harness scaffolding (stryker for Node, bash-mutator.sh for bash) runs nightly and reports scores without blocking merge — HRN-08, TST-06.
   6. The four project-scoped skill skeletons (`agentlinux-installer`, `behavior-test-contract`, `catalog-schema`, `qemu-harness`) exist and are loadable — HRN-09.
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 01-01-PLAN.md — Project skeleton + CLAUDE.md + ADRs + research migration (HRN-01, HRN-03, HRN-04, HRN-05)
+- [ ] 01-02-PLAN.md — Pre-commit + four GH Actions workflows + mutation scaffolding (HRN-02, HRN-08, TST-06)
+- [ ] 01-03-PLAN.md — Six review subagents + /review skill (HRN-06, HRN-07, TST-07)
+- [ ] 01-04-PLAN.md — Four project-scoped skill skeletons (HRN-09)
+- [ ] 01-05-PLAN.md — Harness meta-test suite (closes Phase 1 acceptance gate)
 
 ### Phase 2: Installer Foundation + Agent User
 **Goal**: Running the installer on a clean Ubuntu 22.04 or 24.04 produces an `agent` user who can run commands — with all six BHV invocation modes working and zero EACCES / permission-denied output — even though no agents are installed yet.
@@ -115,7 +120,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Harness Setup | 0/TBD | Not started | - |
+| 1. Harness Setup | 0/5 | Not started | - |
 | 2. Installer Foundation + Agent User | 0/TBD | Not started | - |
 | 3. Node.js Runtime + Per-User npm Prefix | 0/TBD | Not started | - |
 | 4. Registry CLI + Catalog + Uninstall | 0/TBD | Not started | - |
