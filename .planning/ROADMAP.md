@@ -79,7 +79,9 @@ Key locked decisions honored by this roadmap:
   3. The agent user can `npm uninstall -g cowsay` and the binary disappears from PATH with no leftover files — RT-03.
   4. `npm config get prefix` for the agent user returns a path under the agent user's home — never `/usr`, `/usr/local`, or any root-owned path — RT-04.
   5. The Docker bats matrix from Phase 2 is extended to cover RT-01..RT-04 (one test per requirement minimum) and stays green on PR.
-**Plans**: TBD
+**Plans**: 2 plans
+- [ ] 03-01-PLAN.md — Provisioner: 30-nodejs.sh (NodeSource Node 22 LTS + per-user npm prefix) + 40-path-wiring.sh extension (.npm-global/bin prepend + NPM_CONFIG_PREFIX) (RT-01, RT-04)
+- [ ] 03-02-PLAN.md — Behavior tests: tests/bats/30-runtime.bats (RT-01..04 across six INVOKE_MODES) + assert_user_prefix_in_home helper + INST-02 sha256 set extension (RT-01, RT-02, RT-03, RT-04)
 
 ### Phase 4: Registry CLI + Catalog + Uninstall
 **Goal**: The `agentlinux` CLI is on the agent's PATH and can list / install / remove entries from a JSON-Schema-validated catalog that contains claude-code, gsd, and playwright *as available* (none installed). A symmetric uninstall path removes what the installer placed.
@@ -126,8 +128,8 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Harness Setup | 5/5 | ✓ Complete | 2026-04-18 |
-| 2. Installer Foundation + Agent User | 4/5 | In progress | - |
-| 3. Node.js Runtime + Per-User npm Prefix | 0/TBD | Not started | - |
+| 2. Installer Foundation + Agent User | 5/5 | ✓ Complete | 2026-04-18 |
+| 3. Node.js Runtime + Per-User npm Prefix | 0/2 | In progress | - |
 | 4. Registry CLI + Catalog + Uninstall | 0/TBD | Not started | - |
 | 5. Agent Installability | 0/TBD | Not started | - |
 | 6. Distribution + Release Pipeline | 0/TBD | Not started | - |
