@@ -62,7 +62,12 @@ Key locked decisions honored by this roadmap:
   4. The `agent` user can run a trivial command (e.g. `echo ok`) across all six invocation modes — interactive bash login shell, non-interactive SSH, cron, systemd `User=agent`, `sudo -u agent`, and `sudo -u agent -i` — with the correct PATH, UTF-8 locale, and bash shell each time — BHV-01..BHV-06.
   5. `/home/agent/CLAUDE.md` exists after install and instructs agent tooling against creating shim/wrapper workarounds — DOC-02.
   6. The Docker bats matrix (Ubuntu 22.04 + 24.04) runs on every PR, covers every INST-XX and BHV-XX requirement with at least one test, and failure output identifies which requirement failed, what was expected, what was observed, and where the logs live — TST-01 (partial), TST-02, TST-04.
-**Plans**: TBD
+**Plans**: 5 plans
+- [ ] 02-01-PLAN.md — Bash library primitives: log.sh, idempotency.sh, as_user.sh, distro_detect.sh (INST-01, INST-02, INST-05)
+- [ ] 02-02-PLAN.md — Installer entrypoint rewrite: root check, log tee, ERR trap, arg parsing, provisioner dispatch (INST-01, INST-02, INST-05)
+- [ ] 02-03-PLAN.md — Agent-user provisioner: ensure_user agent, locale enforcement, DOC-02 CLAUDE.md placement (BHV-01, DOC-02)
+- [ ] 02-04-PLAN.md — PATH wiring provisioner: four-file six-mode matrix (profile.d, ~agent/.bashrc, agentlinux.env, cron.d) (BHV-02, BHV-03, BHV-04, BHV-05, BHV-06)
+- [ ] 02-05-PLAN.md — Docker bats harness + bats helpers + INST/BHV/DOC test suite + CI matrix wire-up (INST-01, INST-02, INST-05, BHV-01..06, DOC-02, TST-01, TST-02, TST-04)
 
 ### Phase 3: Node.js Runtime + Per-User npm Prefix
 **Goal**: After this phase the agent user has a working Node.js LTS and a writable `npm install -g` path under their own home — proving the keystone ownership decision before any agent is installed on top.
@@ -121,7 +126,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Harness Setup | 5/5 | ✓ Complete | 2026-04-18 |
-| 2. Installer Foundation + Agent User | 0/TBD | Not started | - |
+| 2. Installer Foundation + Agent User | 0/5 | Planned | - |
 | 3. Node.js Runtime + Per-User npm Prefix | 0/TBD | Not started | - |
 | 4. Registry CLI + Catalog + Uninstall | 0/TBD | Not started | - |
 | 5. Agent Installability | 0/TBD | Not started | - |
