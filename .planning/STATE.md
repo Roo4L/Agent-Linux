@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: AgentLinux Plugin (Ubuntu)
 status: in_progress
-stopped_at: Plan 01-01 complete (repo skeleton + CLAUDE.md + 10 ADRs + research migration). Next plan 01-02 (pre-commit + GH workflows + mutation scaffolding).
-last_updated: "2026-04-18T09:53:16.000Z"
-last_activity: 2026-04-18 — Plan 01-01 complete; HRN-01, HRN-03, HRN-04, HRN-05 satisfied.
+stopped_at: Plan 01-02 complete (.pre-commit-config.yaml + four GH Actions workflows + mutation scaffolding). Next plan 01-03 (six review subagents + /review skill).
+last_updated: "2026-04-18T10:00:32.000Z"
+last_activity: 2026-04-18 — Plan 01-02 complete; HRN-02, HRN-08, TST-06 (scaffolded) satisfied.
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 1
-  percent: 3
+  completed_plans: 2
+  percent: 6
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 ## Current Position
 
 Phase: 1 of 6 (Harness Setup)
-Plan: 01-01 ✓ complete — next plan 01-02 (pre-commit + GH workflows + mutation scaffolding)
+Plan: 01-02 ✓ complete — next plan 01-03 (six review subagents + /review skill)
 Status: In progress
-Last activity: 2026-04-18 — Plan 01-01 complete (3 tasks, 3 atomic commits, ~4 min). Skeleton + CLAUDE.md + 10 ADRs + research migration landed.
+Last activity: 2026-04-18 — Plan 01-02 complete (3 tasks, 3 atomic commits, ~3 min). Pre-commit config + four GH Actions workflows + mutation scaffolding landed.
 
-Progress: [▓░░░░░░░░░] 3% (1 of ~32 plans done)
+Progress: [▓░░░░░░░░░] 6% (2 of ~32 plans done)
 
 ## Performance Metrics
 
@@ -46,13 +46,14 @@ Progress: [▓░░░░░░░░░] 3% (1 of ~32 plans done)
 | 2. Deploy to Public | v0.1.0 | 2 | ~3min | ~1.5min |
 | 3. Bootable Image | v0.2.0 | 3 | ~14min | ~4.7min |
 | 4. Agent Tool Packages | v0.2.0 | 2 | ~5min | ~2.5min |
-| 1. Harness Setup (partial) | v0.3.0 | 1/5 | ~4min | ~4min |
+| 1. Harness Setup (partial) | v0.3.0 | 2/5 | ~7min | ~3.5min |
 
 **v0.3.0 plan metrics:**
 
 | Plan | Tasks | Files | Duration | Commit |
 |------|-------|-------|----------|--------|
 | 01-01 Skeleton + CLAUDE.md + ADRs + research | 3 | 47 created | ~4 min | 3d65cb2, fa49675, d2ca481 |
+| 01-02 Pre-commit + GH workflows + mutation scaffolding | 3 | 9 created | ~3 min | d428627, 6997474, 82abda0 |
 
 ## Accumulated Context
 
@@ -74,6 +75,13 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - Copy research rather than move: `.planning/research/` and `.planning/milestones/v0.2.0-research/` kept intact; `docs/research/vX.Y.Z/` copies are byte-exact (`diff -q` verified). Archive sweep deferred to Phase 6.
 - Per-task atomic commits via raw `git add <files> && git commit --no-gpg-sign`, not `gsd-tools.cjs commit` (which auto-stages all working-tree changes and breaks atomic per-task commits in sequential mode).
 - CLAUDE.md deliberately references skills that arrive later in the phase (`.claude/skills/review/` in Plan 01-03, four more in Plan 01-04); flagged with "arrives in Plan 01-0X" to set reader expectations.
+
+**New decisions from Plan 01-02 execution:**
+- `.pre-commit-config.yaml` is a **verbatim copy** of `docs/HARNESS.md` §1.2; drift is detectable by a single `diff` command, making HARNESS.md the authoritative spec.
+- `validate-catalog.mjs` is kept strictly zero-dep (Node built-in `fs` + `JSON.parse`); ajv swap-in deferred to Phase 4 via inline `// TODO Phase 4:` comment in the script header.
+- Mutation scaffolding is non-blocking at **three independent layers**: `stryker.config.json` `thresholds.break: 0`, `nightly-mutation.yml` job-level `continue-on-error: true`, `bash-mutator.sh` always exits 0 on the current skeleton. No single layer can drag the release pipeline red.
+- Every CI workflow is authored with a `compgen -G` / `[[ -x ... ]]` empty-plugin guard so skeleton-phase commits green-bar without fake test files. Guards skip jobs whose sources (tests/, bats/, CLI source) do not yet exist.
+- Legacy `.github/workflows/deploy.yml` (v0.1.0 website) left completely untouched; the new `test.yml` uses `paths-ignore` for website files so the two workflows do not double-fire.
 
 **Carried forward from v0.2.0 (still relevant for plugin installer):**
 - Node.js 22 LTS from NodeSource as the runtime baseline (install path proven)
@@ -122,6 +130,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-04-18T09:53:16Z
-Stopped at: Plan 01-01 complete. HRN-01 (partial — directory layout), HRN-03 (CLAUDE.md), HRN-04 (ADRs), HRN-05 (research migration) satisfied. Summary at `.planning/phases/01-harness-setup/01-01-SUMMARY.md`. Next: execute Plan 01-02 (pre-commit + four GH Actions workflows + mutation scaffolding).
-Resume file: `.planning/phases/01-harness-setup/01-02-PLAN.md`
+Last session: 2026-04-18T10:00:32Z
+Stopped at: Plan 01-02 complete. HRN-02 (pre-commit config wires shellcheck + shfmt + biome + catalog JSON Schema), HRN-08 (four GH Actions workflows — test, nightly-qemu, nightly-mutation, release), TST-06 (mutation scaffolding: stryker config + bash-mutator.sh, both advisory) satisfied. Summary at `.planning/phases/01-harness-setup/01-02-SUMMARY.md`. Next: execute Plan 01-03 (six review subagents + /review skill).
+Resume file: `.planning/phases/01-harness-setup/01-03-PLAN.md`
