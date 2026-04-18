@@ -26,11 +26,14 @@ if (!catalog.version || !Array.isArray(catalog.agents)) {
   fail(`${CATALOG_PATH} missing version or agents[]`);
 }
 const namePattern = /^[a-z][a-z0-9-]*$/;
-for (const a of catalog.agents) {
+for (const [i, a] of catalog.agents.entries()) {
+  // Use a positional identifier when name is missing/invalid so later errors
+  // ("missing description") do not read as "agent undefined: missing ...".
+  const id = a.name || `<agents[${i}]>`;
   if (!a.name || !namePattern.test(a.name)) {
-    fail(`agent name "${a.name}" fails pattern ${namePattern}`);
+    fail(`agent ${id}: name fails pattern ${namePattern}`);
   }
-  if (!a.description) fail(`agent ${a.name}: missing description`);
-  if (!a.install) fail(`agent ${a.name}: missing install`);
+  if (!a.description) fail(`agent ${id}: missing description`);
+  if (!a.install) fail(`agent ${id}: missing install`);
 }
 console.log(`catalog-schema-validate: ${catalog.agents.length} entries OK`);
