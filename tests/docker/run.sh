@@ -85,15 +85,29 @@ echo "== build ${IMG} from ${DF} =="
 docker build -t "$IMG" -f "$DF" "$HERE"
 
 echo "== run systemd container from ${IMG} =="
-# --privileged + --cgroupns=host + cgroup bind + tmpfs on /run,/tmp is the
+# --privileged + --cgroupns=host + cgroup bind (rw) + tmpfs on /run,/tmp is the
 # documented recipe for PID-1-is-systemd in a container (Pitfall 3).
+#
+# Two non-obvious requirements the minimum RESEARCH §Example 5 recipe lacked
+# (learned by local smoke-test on cgroup-v2 Docker 29.x — Rule 3 auto-fix):
+#   1. `-e container=docker`: without this env var, systemd's container
+#      detection falls back to inspecting /proc/1/environ and refuses to
+#      start as PID 1 ("Trying to run as user instance, but the system has
+#      not been booted with systemd"). container=docker is the documented
+#      escape hatch for systemd-in-container (see systemd container(7)).
+#   2. `/sys/fs/cgroup:rw` (not `:ro`): systemd needs to create its own
+#      slice/scope cgroups under the bind-mounted tree. A read-only mount
+#      causes systemd to fail before emitting any journal output (container
+#      exits 255 with zero log output — the exact symptom observed locally).
+#
 # Repo is bind-mounted read-only at /workspace; the installer needs to write
 # under /etc and /home so it runs against a writable copy under /opt.
 # --rm drops the container on stop; -d lets us wait for systemd before exec.
 CID=$(docker run --rm -d \
   --privileged \
   --cgroupns=host \
-  -v /sys/fs/cgroup:/sys/fs/cgroup:ro \
+  -e container=docker \
+  -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
   --tmpfs /run --tmpfs /tmp \
   -v "$REPO_ROOT":/workspace:ro \
   -w /workspace \
