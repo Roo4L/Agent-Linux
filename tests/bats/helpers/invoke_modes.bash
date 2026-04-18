@@ -60,10 +60,14 @@ run_cron() {
   local out="/tmp/agentlinux-cron-${stamp}.out"
   local jobfile="/etc/cron.d/agentlinux-test-${stamp}"
   # PATH header at the top of a cron.d file applies to every job below it.
+  # Mirror the final PATH ordering from the installer's /etc/cron.d/agentlinux
+  # (Phase 3 extension: /home/agent/.npm-global/bin prepended FIRST so RT-02's
+  # `command -v cowsay` resolves under cron — a hardcoded Phase-2-only PATH
+  # would silently drop npm-global/bin and fail RT-02 in the cron mode only).
   # The action line uses `2>&1` to merge stderr into the output file and
   # `rm --` to delete the job file so the entry fires exactly once.
   cat <<CRONJOB >"$jobfile"
-PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
+PATH=/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
 * * * * * agent ${cmd} >${out} 2>&1; rm -- ${jobfile}
 CRONJOB
   chmod 0644 "$jobfile"
@@ -99,7 +103,15 @@ run_systemd_user() {
   # systemd-run --wait --pipe blocks until the unit completes and forwards
   # stdout/stderr to our FDs. EnvironmentFile=/etc/agentlinux.env loads the
   # PATH + locale that Plan 02-04 placed.
-  run systemd-run --wait --pipe \
+  #
+  # --quiet (-q) suppresses systemd-run's OWN "Running as unit: ... Finished
+  # with result: ..." banner which lands on stderr and would otherwise pollute
+  # $output for callers that do prefix-match assertions (RT-04's
+  # assert_user_prefix_in_home needs the observed string to START with
+  # /home/agent/; the banner prefix would cause a false negative). Phase 2
+  # substring-match assertions (assert_path_has) tolerated the banner, but
+  # Phase 3's stricter prefix-match needs it gone.
+  run systemd-run --quiet --wait --pipe \
     --uid=agent \
     --setenv=HOME=/home/agent \
     --property=EnvironmentFile=/etc/agentlinux.env \
