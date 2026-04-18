@@ -11,6 +11,8 @@
 #   BHV-04 — systemd `User=agent` (`EnvironmentFile=/etc/agentlinux.env`)
 #   BHV-05 — `sudo -u agent [-i]` (profile.d for -i; .bashrc for bash -c)
 #   BHV-06 — interactive bash login (/etc/profile → /etc/profile.d/*.sh)
+#   RT-02  — /home/agent/.npm-global/bin is on PATH in every invocation mode
+#   RT-04  — NPM_CONFIG_PREFIX env var (belt-and-braces for Pitfall 5)
 #
 # Four artefacts cover all six invocation modes (02-RESEARCH §Pattern 4):
 #   1. /etc/profile.d/agentlinux.sh  (0644 root:root)  — BHV-05 -i + BHV-06
@@ -21,8 +23,12 @@
 # Path ordering: agent-owned prefixes FIRST, system prefixes last. Only paths
 # under /home/agent are agent-owned; /usr/local/bin is root-owned standard.
 # This prevents T-02-08 path-injection by a wider-writable directory earlier
-# in PATH. Phase 3 will prepend $HOME/.npm-global/bin to all three files that
-# carry a literal PATH (profile.d case-prepend, agentlinux.env, cron.d header).
+# in PATH. Phase 3 extended this file: /home/agent/.npm-global/bin is
+# prepended in all three literal-PATH artefacts (profile.d case-stack,
+# agentlinux.env, cron.d); NPM_CONFIG_PREFIX (value: /home/agent/.npm-global)
+# ships in agentlinux.env as a belt-and-braces Pitfall 5 mitigation (env-var
+# precedence over .npmrc per npm docs, ensures systemd EnvironmentFile
+# consumers see the prefix even if ~agent/.npmrc read regresses).
 #
 # Invariants enforced by this file (the plan's acceptance greps cross-verify
 # the forbidden substrings literally do not appear anywhere in this source):
@@ -68,11 +74,19 @@ export AGENTLINUX_PROFILE_SOURCED=1
 export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 
-# Prepend /home/agent/.local/bin to PATH if not already present.
-# Phase 3 will extend this case with $HOME/.npm-global/bin.
+# Prepend in order so /home/agent/.npm-global/bin lands FIRST in the final
+# PATH (Pitfall 4 — a stray /usr/local/bin shim must lose to the agent-owned
+# binary). Case-prepend stacks LIFO: the LAST successful case-block prepends
+# in front of everything, so we put .local/bin FIRST and .npm-global/bin
+# SECOND. Case-guards prevent double-prepend on re-source (INST-02
+# idempotency). Phase 3 RT-02 + RT-04.
 case ":${PATH}:" in
   *:/home/agent/.local/bin:*) : ;;
   *) PATH="/home/agent/.local/bin:${PATH}" ;;
+esac
+case ":${PATH}:" in
+  *:/home/agent/.npm-global/bin:*) : ;;
+  *) PATH="/home/agent/.npm-global/bin:${PATH}" ;;
 esac
 export PATH
 PROFILE
@@ -116,13 +130,21 @@ log_info "wrote agentlinux-path marker block to /home/agent/.bashrc (--top)"
 # ---------------------------------------------------------------
 # Artefact 3: /etc/agentlinux.env
 # BHV-04 (systemd `User=agent` units via `EnvironmentFile=/etc/agentlinux.env`).
+# RT-02 + RT-04 (npm-global/bin prepend + NPM_CONFIG_PREFIX).
 # FORMAT: literal `KEY=VALUE` lines, NO `export`, NO shell expansion. Both
 # systemd EnvironmentFile and cron parse this shape literally (Pitfall 4);
 # `PATH=$PATH:...` would store the literal string `$PATH:...` — never a
 # runtime expansion. Fully-expanded literal PATH is the only correct form.
+# NPM_CONFIG_PREFIX is the belt-and-braces fallback (Pitfall 5): systemd
+# EnvironmentFile= consumers see the prefix even if ~agent/.npmrc read
+# regresses. T-03-03 mitigation: value MUST be byte-identical to the prefix
+# line in ~agent/.npmrc written by 30-nodejs.sh (/home/agent/.npm-global) —
+# split-brain avoidance; a future accidental divergence fails the plan's
+# cross-grep acceptance criterion.
 # ---------------------------------------------------------------
 install -m 0644 /dev/stdin /etc/agentlinux.env <<'ENVFILE'
-PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
+PATH=/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
+NPM_CONFIG_PREFIX=/home/agent/.npm-global
 LANG=C.UTF-8
 LC_ALL=C.UTF-8
 ENVFILE
@@ -143,7 +165,7 @@ install -m 0644 /dev/stdin /etc/cron.d/agentlinux <<'CRON'
 # Phase 2 ships NO default jobs. Example shape (do NOT uncomment):
 #   0 3 * * * agent /usr/bin/true
 
-PATH=/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
+PATH=/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
 LANG=C.UTF-8
 LC_ALL=C.UTF-8
 CRON
