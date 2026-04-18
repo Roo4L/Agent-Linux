@@ -1,59 +1,51 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.1
-milestone_name: milestone
-status: completed
-stopped_at: Completed 04-02-PLAN.md
-last_updated: "2026-03-18T15:26:55.544Z"
-last_activity: 2026-03-18 — Completed Plan 04-02 (Agent tools install script + Packer template wiring)
+milestone: v0.3.0
+milestone_name: AgentLinux Plugin (Ubuntu)
+status: defining_requirements
+stopped_at: Milestone v0.3.0 started — pivot from custom distro to installable plugin
+last_updated: "2026-04-18T00:00:00.000Z"
+last_activity: 2026-04-18 — Pivoted from distro to plugin; v0.3.0 milestone initialized
 progress:
-  total_phases: 3
-  completed_phases: 2
-  total_plans: 5
-  completed_plans: 5
-  percent: 100
+  total_phases: 0
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
 
 ## Project Reference
 
-See: .planning/PROJECT.md (updated 2026-03-10)
+See: .planning/PROJECT.md (updated 2026-04-18)
 
-**Core value:** An agent can boot into a Linux environment that works out of the box — no setup, no permission fights, no missing tools — with agent software available via the system package manager.
-**Current focus:** Phase 4 complete (2/2 plans) — Agent Tool Packages
+**Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights.
+**Current focus:** v0.3.0 milestone defining requirements (pivot from distro to plugin)
 
 ## Current Position
 
-Phase: 4 of 5 (Agent Tool Packages) -- COMPLETE
-Plan: 2 of 2 complete
-Status: Phase 04 complete, ready for Phase 05
-Last activity: 2026-03-18 — Completed Plan 04-02 (Agent tools install script + Packer template wiring)
-
-Progress: [██████████] 100% (Overall: 5/5 plans complete)
+Phase: Not started (defining requirements)
+Plan: —
+Status: Defining requirements for v0.3.0 (AgentLinux Plugin for Ubuntu)
+Last activity: 2026-04-18 — Pivoted from custom distro to installable plugin; v0.3.0 milestone bootstrapped
 
 ## Performance Metrics
 
 **Velocity:**
 - Total plans completed: 10 (5 v0.1.0, 5 v0.2.0)
-- Average duration: ~3 min
-- Total execution time: ~0.4 hours
+- Average duration: ~3 min per plan
 
-**By Phase:**
+**By Phase (historical):**
 
-| Phase | Plans | Total | Avg/Plan |
-|-------|-------|-------|----------|
-| 1. Complete Website | 3 | ~6min | ~2min |
-| 2. Deploy to Public | 2 | ~3min | ~1.5min |
-| 3. Bootable Image with Agent User | 3 | ~14min | ~4.7min |
+| Phase | Milestone | Plans | Total | Avg/Plan |
+|-------|-----------|-------|-------|----------|
+| 1. Complete Website | v0.1.0 | 3 | ~6min | ~2min |
+| 2. Deploy to Public | v0.1.0 | 2 | ~3min | ~1.5min |
+| 3. Bootable Image | v0.2.0 | 3 | ~14min | ~4.7min |
+| 4. Agent Tool Packages | v0.2.0 | 2 | ~5min | ~2.5min |
 
-*Updated after each plan completion*
-| Phase 03 P01 | 3min | 2 tasks | 5 files |
-| Phase 03 P02 | 10min | 3 tasks | 4 files |
-| Phase 03 P03 | 1min | 1 task | 1 file |
-| Phase 03 P03 | 1min | 1 tasks | 1 files |
-| Phase 04 P01 | 3min | 2 tasks | 2 files |
-| Phase 04 P02 | 2min | 2 tasks | 3 files |
+*v0.3.0 phases will populate as plans complete.*
 
 ## Accumulated Context
 
@@ -61,29 +53,29 @@ Progress: [██████████] 100% (Overall: 5/5 plans complete)
 
 Full decision log in PROJECT.md Key Decisions table.
 
-Recent:
-- Debian 12 Bookworm as base distro (research confirmed)
-- Packer + QEMU plugin for image build
-- fpm for .deb packaging (not Debian policy-compliant, pragmatic)
-- Node.js 22 LTS from NodeSource as shared runtime
-- Local apt repo in image for package distribution (no public PPA for PoC)
-- Symlinked /usr/libexec/qemu-kvm to /usr/local/bin/qemu-system-x86_64 for Packer compatibility on AlmaLinux 9
-- Packer validate/build must run from packer/ directory (scripts use relative paths)
-- Packer user cleanup via first-boot systemd oneshot service (userdel fails during SSH session)
-- OpenNebula contextualization deferred to Phase 5 end-to-end validation
-- [Phase 03]: Keep 02-one-context.sh fallback default unchanged -- defensive coding pattern preserved
-- [Phase 04]: npm install -g for all three packages (consistent thin wrapper, system-wide)
-- [Phase 04]: MCP config merged into ~/.claude.json via jq (not managed-mcp.json)
-- [Phase 04]: GSD integration via temp HOME + /etc/skel copy with sed path fixup for /usr/bin/node
-- [Phase 04]: fpm/ruby removal in cleanup script before apt autoremove for cascaded dependency cleanup
-- [Phase 04]: Complete 6-script provisioner chain: base -> one-context -> nodejs -> chrome -> agent-tools -> cleanup
+**Carried forward from v0.2.0 (still relevant for plugin installer):**
+- Node.js 22 LTS from NodeSource as the runtime baseline (install path proven)
+- npm install -g for Claude Code / GSD packages (thin wrapper pattern works)
+- MCP config merged into ~/.claude.json via jq (works for default-agent setup)
+- Chrome install pattern for Chrome DevTools MCP server dependency
+- Provisioner script chain pattern (base → runtime → tools → cleanup) translates to installer phases
+
+**Retired with pivot:**
+- Debian 12 Bookworm base — superseded by "target user's existing Ubuntu"
+- Packer + QEMU image build — replaced by container/QEMU test harness only
+- fpm-built `.deb`s as distribution artifacts — superseded by in-installer npm install (fpm may return as the *plugin's* own packaging)
+- Local apt repo in image — N/A
+- OpenNebula contextualization, ire_developers network, ceph-nvme-images datastore — N/A
+- one-context-based agent user creation — replaced by direct useradd in installer
+
+**New for v0.3.0:**
+- Ubuntu as initial target distro (apt-based, leverages v0.2.0 install learnings)
+- Canonical acceptance test: agent user can `claude` self-update without sudo
+- Restart phase numbering at 1 (clean break from distro era)
 
 ### Key Infrastructure Details
 
-- OpenNebula API: https://api.nebula.k8s.svcs.io/RPC2
-- OpenNebula user: nivanov
-- Target network: ire_developers (ID 500)
-- Image datastore: ceph-nvme-images (ID 100)
+OpenNebula API and target VM details from v0.2.0 are no longer load-bearing. Test infrastructure for v0.3.0 (Docker / QEMU) will be defined during research and planning.
 
 ### Pending Todos
 
@@ -92,11 +84,10 @@ Recent:
 
 ### Blockers/Concerns
 
-- ~~Build machine must have /dev/kvm access for Packer~~ (RESOLVED: /dev/kvm present, Packer 1.15.0 + QEMU 9.1.0 installed)
-- ~~Chrome DevTools MCP server: exact npm package name and entry point need confirmation~~ (RESOLVED: chrome-devtools-mcp on npm, confirmed in 04-RESEARCH.md)
+None. Pivot decision is fresh; research about to start.
 
 ## Session Continuity
 
-Last session: 2026-03-18T15:23:15.172Z
-Stopped at: Completed 04-02-PLAN.md
+Last session: 2026-04-18
+Stopped at: v0.3.0 milestone bootstrap complete; ready for research → requirements → roadmap.
 Resume file: None
