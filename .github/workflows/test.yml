@@ -60,12 +60,25 @@ jobs:
 
   bats-docker:
     runs-on: ubuntu-24.04
+    # 15 minutes comfortably covers a cold apt cache + Docker build + installer
+    # + bats suite (~2–5 min per 02-RESEARCH.md "Test Infrastructure"). A stuck
+    # systemctl is-system-running wait is the usual long-tail; this caps it.
+    timeout-minutes: 15
     strategy:
+      # Phase 2 acceptance matrix: BOTH supported Ubuntu LTS versions run on
+      # every PR. fail-fast=false so 22.04 failure still reports 24.04 (and
+      # vice versa) — Phase 6 release gate needs to see both arms.
       fail-fast: false
       matrix:
-        ubuntu: ['22.04', '24.04']
+        ubuntu:
+          - ubuntu-22.04
+          - ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      # Empty-plugin guard from Phase 1: still useful. After Phase 2 lands the
+      # tests/bats/*.bats files the guard falls through to the real run. If a
+      # future revert removes the bats suite the job short-circuits rather
+      # than fails opaquely in Docker.
       - name: Skip if no bats suite yet
         id: guard
         run: |
@@ -77,4 +90,4 @@ jobs:
           fi
       - name: Run Docker bats matrix
         if: steps.guard.outputs.has_bats == 'true'
-        run: bash tests/docker/run.sh ubuntu-${{ matrix.ubuntu }}
+        run: bash tests/docker/run.sh ${{ matrix.ubuntu }}
