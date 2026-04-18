@@ -1,0 +1,80 @@
+name: test
+on:
+  push:
+    branches-ignore: [master]
+    paths-ignore:
+      - 'index.html'
+      - 'assets/**'
+      - 'CNAME'
+      - 'sitemap.xml'
+      - 'robots.txt'
+  pull_request:
+    branches: [master]
+    paths-ignore:
+      - 'index.html'
+      - 'assets/**'
+      - 'CNAME'
+      - 'sitemap.xml'
+      - 'robots.txt'
+
+jobs:
+  pre-commit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pre-commit
+        run: pip install pre-commit==4.0.1
+      - name: Run pre-commit
+        run: pre-commit run --all-files --show-diff-on-failure
+
+  cli-unit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Skip if plugin/cli has no source yet
+        id: guard
+        run: |
+          if compgen -G "plugin/cli/test/*.test.*" > /dev/null || compgen -G "plugin/cli/test/**/*.test.*" > /dev/null; then
+            echo "has_tests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+            echo "No CLI tests yet — skipping (Phase 1 skeleton)"
+          fi
+      - name: Install deps
+        if: steps.guard.outputs.has_tests == 'true'
+        working-directory: plugin/cli
+        run: npm install --no-audit --no-fund
+      - name: Run tests
+        if: steps.guard.outputs.has_tests == 'true'
+        working-directory: plugin/cli
+        run: npm test
+
+  bats-docker:
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['22.04', '24.04']
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip if no bats suite yet
+        id: guard
+        run: |
+          if compgen -G "tests/bats/*.bats" > /dev/null; then
+            echo "has_bats=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_bats=false" >> "$GITHUB_OUTPUT"
+            echo "No bats suite yet — skipping (lands in Phase 2)"
+          fi
+      - name: Run Docker bats matrix
+        if: steps.guard.outputs.has_bats == 'true'
+        run: bash tests/docker/run.sh ubuntu-${{ matrix.ubuntu }}

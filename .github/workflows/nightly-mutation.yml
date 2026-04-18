@@ -1,0 +1,43 @@
+name: nightly-mutation
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  stryker:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Skip if CLI has no source yet
+        id: guard
+        run: |
+          if compgen -G "plugin/cli/src/*.ts" > /dev/null; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "plugin/cli/src is empty — skipping stryker (advisory)"
+          fi
+      - name: Install CLI deps
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: plugin/cli
+        run: npm install --no-audit --no-fund
+      - name: Run stryker
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: plugin/cli
+        run: npx stryker run || echo "::warning::stryker below threshold (advisory in v0.3.0)"
+
+  bash-mutator:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run bash mutator
+        run: bash tests/mutation/bash-mutator.sh || echo "::warning::bash-mutator below target (advisory in v0.3.0)"

@@ -1,0 +1,23 @@
+name: nightly-qemu
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  qemu:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip if QEMU harness not yet implemented
+        id: guard
+        run: |
+          if [[ -x tests/qemu/boot.sh ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "QEMU harness arrives in Phase 6 — skipping"
+          fi
+      - name: Run QEMU suite
+        if: steps.guard.outputs.ready == 'true'
+        run: bash tests/qemu/boot.sh
