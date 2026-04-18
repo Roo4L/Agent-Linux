@@ -25,7 +25,7 @@ Key locked decisions honored by this roadmap:
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
 - [x] **Phase 1: Harness Setup** - Project skeleton, pre-commit, CLAUDE.md, ADRs, review subagents, skills, GH Actions scaffolding — green harness before any installer code lands. ✓ 2026-04-18 (5 plans; `bash tests/harness/run.sh` green: 104/104 @tests pass)
-- [ ] **Phase 2: Installer Foundation + Agent User** - One-command installer creates a correctly-provisioned `agent` user with belt-and-braces PATH for every invocation mode (interactive shell, non-interactive SSH, cron, systemd, sudo -u); Docker bats matrix green on PR.
+- [x] **Phase 2: Installer Foundation + Agent User** - One-command installer creates a correctly-provisioned `agent` user with belt-and-braces PATH for every invocation mode (interactive shell, non-interactive SSH, cron, systemd, sudo -u); Docker bats matrix green on PR. ✓ 2026-04-18 (5 plans; 22/22 bats green on both Ubuntu 22.04 + 24.04; TST-07 gate: GREEN; one known architectural gap deferred to v0.4+ — sudo non-login + secure_path needs PAM/sudoers work out of Phase 2 scope)
 - [ ] **Phase 3: Node.js Runtime + Per-User npm Prefix** - NodeSource Node.js 22 LTS + agent's npm global prefix under home; `npm install -g` works without sudo from the agent user in every invocation mode (smoke-tested with a throwaway package).
 - [ ] **Phase 4: Registry CLI + Catalog + Uninstall** - `agentlinux list/install/remove` ships; catalog with claude-code, gsd, playwright entries is *available* (none installed by default); JSON Schema validates entries; clean uninstall path.
 - [ ] **Phase 5: Agent Installability** - Each of claude-code, gsd, playwright is installable via `agentlinux install <name>` and runs correctly for the agent user across all invocation modes. AGT-02 (Claude Code self-updates without sudo/EACCES) is the canonical acceptance test.
@@ -67,7 +67,7 @@ Key locked decisions honored by this roadmap:
 - [x] 02-02-PLAN.md — Installer entrypoint rewrite: root check, log tee, ERR trap, arg parsing, provisioner dispatch (INST-01, INST-02, INST-05) ✓ 2026-04-18
 - [x] 02-03-PLAN.md — Agent-user provisioner: ensure_user agent, locale enforcement, DOC-02 CLAUDE.md placement (BHV-01, DOC-02) ✓ 2026-04-18
 - [x] 02-04-PLAN.md — PATH wiring provisioner: four-file six-mode matrix (profile.d, ~agent/.bashrc, agentlinux.env, cron.d) (BHV-02, BHV-03, BHV-04, BHV-05, BHV-06) ✓ 2026-04-18
-- [ ] 02-05-PLAN.md — Docker bats harness + bats helpers + INST/BHV/DOC test suite + CI matrix wire-up (INST-01, INST-02, INST-05, BHV-01..06, DOC-02, TST-01, TST-02, TST-04)
+- [x] 02-05-PLAN.md — Docker bats harness + bats helpers + INST/BHV/DOC test suite + CI matrix wire-up (INST-01, INST-02, INST-05, BHV-01..06, DOC-02, TST-01 partial, TST-02, TST-04) ✓ 2026-04-18
 
 ### Phase 3: Node.js Runtime + Per-User npm Prefix
 **Goal**: After this phase the agent user has a working Node.js LTS and a writable `npm install -g` path under their own home — proving the keystone ownership decision before any agent is installed on top.
