@@ -1,0 +1,59 @@
+# tests/docker/Dockerfile.ubuntu-24.04
+# Systemd-capable Ubuntu 24.04 base for running the full BHV matrix in CI.
+# Source: docs.docker.com, ADR-007, jrei/systemd-ubuntu, 02-RESEARCH.md §Pitfall 3.
+#
+# Invariants:
+#   - PID 1 = systemd (CMD ["/sbin/init"]) so BHV-04 (systemd User=agent) is real,
+#     not vacuously skipped. Requires `--privileged --cgroupns=host` at runtime.
+#   - cron + openssh-server installed so BHV-02/BHV-03 helpers have a daemon to
+#     talk to (systemd units start them once PID 1 is up).
+#   - bats installed system-wide so `bats tests/bats/` works inside the container
+#     without a host-side install.
+#   - locales + C.UTF-8 update-locale seeded so BHV-01 locale checks fire against
+#     a real system configuration, not Docker's DEBIAN_FRONTEND env override.
+#   - sudo present so run_sudo_u / run_sudo_u_i helpers can exercise BHV-05.
+#   - --no-install-recommends keeps the image small (attack surface + pull time).
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# Core: systemd + cron + openssh + bats + sudo + locales + coreutils + shellcheck.
+# shellcheck is handy for debugging the installer inside the container but is not
+# strictly required at runtime; leaving it in the image makes `docker exec` shell
+# sessions useful for interactive investigation.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      systemd systemd-sysv \
+      cron openssh-server \
+      bats locales sudo \
+      ca-certificates bash coreutils util-linux \
+      shellcheck && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
+# Systemd inside Docker: mask units that fight with containerized PID 1
+# (logind needs real seats; resolved/networkd assume real netns ownership;
+# tmpfiles-clean clobbers the bind-mounted cgroup tree).
+RUN rm -f /lib/systemd/system/multi-user.target.wants/* && \
+    systemctl mask \
+      systemd-logind.service \
+      systemd-resolved.service \
+      systemd-networkd.service \
+      systemd-tmpfiles-setup.service \
+      systemd-tmpfiles-clean.service \
+      systemd-tmpfiles-clean.timer
+
+# SSH: generate host keys at build time (daemon is started later by systemd).
+RUN mkdir -p /run/sshd && ssh-keygen -A
+
+# Locale: C.UTF-8 is a glibc built-in on 22.04+; locale-gen is a no-op but the
+# update-locale write into /etc/default/locale is the real correctness step.
+RUN locale-gen C.UTF-8 || true && update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
+
+# cgroup bind + SIGRTMIN+3 graceful-stop required by systemd-as-PID-1 recipe.
+VOLUME /sys/fs/cgroup
+STOPSIGNAL SIGRTMIN+3
+
+# /sbin/init is systemd — Pitfall 3 mitigation.
+CMD ["/sbin/init"]
