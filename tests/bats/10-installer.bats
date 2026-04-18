@@ -41,12 +41,18 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   pre=$(mktemp)
   post=$(mktemp)
   # shellcheck disable=SC2129 # sequential > is fine; one-shot write.
+  # Phase 3 extension: added /home/agent/.npmrc and
+  # /etc/apt/sources.list.d/nodesource.sources (deb822 — modern filename per
+  # RESEARCH Pitfall 1; legacy nodesource.list is NOT added because NodeSource's
+  # 2026 setup_22.x no longer writes it). T-03-04 byte-idempotency guard.
   find \
     /etc/profile.d/agentlinux.sh \
     /etc/agentlinux.env \
     /etc/cron.d/agentlinux \
     /home/agent/.bashrc \
     /home/agent/CLAUDE.md \
+    /home/agent/.npmrc \
+    /etc/apt/sources.list.d/nodesource.sources \
     -type f -exec sha256sum {} + >"$pre" 2>/dev/null
 
   run bash "$INSTALLER"
@@ -58,6 +64,8 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     /etc/cron.d/agentlinux \
     /home/agent/.bashrc \
     /home/agent/CLAUDE.md \
+    /home/agent/.npmrc \
+    /etc/apt/sources.list.d/nodesource.sources \
     -type f -exec sha256sum {} + >"$post" 2>/dev/null
 
   if ! diff -q "$pre" "$post" >/dev/null 2>&1; then
