@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: AgentLinux Plugin (Ubuntu)
 status: in_progress
-stopped_at: Plan 02-01 complete — four bash library primitives landed under plugin/lib/ (log.sh, distro_detect.sh, as_user.sh, idempotency.sh). Wave 2 (02-02 installer entrypoint + 02-03 agent-user provisioner + 02-04 PATH wiring) can proceed next.
-last_updated: "2026-04-18T14:25:00.000Z"
-last_activity: 2026-04-18 — Plan 02-01 complete; 4 bash libs (319 lines) land green (shellcheck + shfmt clean, harness 104/104 unbroken).
+stopped_at: Plan 02-02 complete — installer entrypoint rewritten (plugin/bin/agentlinux-install, 5→194 lines). Pre-parse UX flags + log tee with deadlock-safe trap + ERR trap + four-library source order + provisioner dispatch tolerant to zero provisioners. Shellcheck + shfmt + bash -n green. Phase 1 harness still 104/104. Wave 2 continues with 02-03 (agent-user provisioner) + 02-04 (PATH wiring); 02-05 (Docker bats harness) closes Phase 2.
+last_updated: "2026-04-18T14:50:00.000Z"
+last_activity: 2026-04-18 — Plan 02-02 complete; entrypoint rewritten with 4 auto-fixed bugs (plan-skeleton ordering for --help UX, RESEARCH Pitfall 6 trap deadlock, shfmt lexer workaround, SC2155 split). One task, one commit (44208a3); ~18 min.
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 6
-  completed_plans: 6
-  percent: 18
+  total_plans: 7
+  completed_plans: 7
+  percent: 21
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 
 ## Current Position
 
-Phase: 2 of 6 (Installer Foundation + Agent User) — IN PROGRESS; Wave 1 (library primitives) done
-Plan: 02-01 ✓ complete — four bash libs under plugin/lib/ (shellcheck + shfmt clean, 319 lines)
-Status: Phase 2 in progress; Wave 2 (02-02 entrypoint + 02-03 agent-user + 02-04 PATH wiring) is the next actionable work
-Last activity: 2026-04-18 — Plan 02-01 complete (2 tasks, 3 atomic commits including 1 review-loop fix, ~11 min). log.sh + distro_detect.sh + as_user.sh + idempotency.sh landed; function surface exactly matches <interfaces>; review loop (bash-engineer + security-engineer + qa-engineer rubrics) produced one actionable finding (arg-count guards on all primitives) which was fixed in 69bd859. bash tests/harness/run.sh still 104/104 green.
+Phase: 2 of 6 (Installer Foundation + Agent User) — IN PROGRESS; Wave 1 done, Wave 2 entrypoint done
+Plan: 02-02 ✓ complete — plugin/bin/agentlinux-install rewritten (5→194 lines, shellcheck + shfmt clean)
+Status: Phase 2 in progress; Wave 2 continues — 02-03 (agent-user provisioner) and 02-04 (PATH wiring) land the first `[0-9][0-9]-*.sh` provisioners that the entrypoint dispatches; 02-05 closes Phase 2 with Docker bats harness.
+Last activity: 2026-04-18 — Plan 02-02 complete (1 task, 1 commit 44208a3, ~18 min). Installer entrypoint lands green: pre-parse fast-exit for --help/-V/--purge (UX contract — work without sudo), install -m 0644 /dev/null for root-owned log init, exec > >(tee -a) 2>&1 for single-greppable transcript, trap 'exec >&- 2>&-; wait $TEE_PID' EXIT (Pitfall 6 deadlock fix over bare RESEARCH.md pattern), trap on_error ERR, four-library source in dependency order, mapfile + compgen -G for provisioner glob (sidesteps shfmt 3.8.0 lexer bug on [0-9][0-9] array-assign). Four auto-fixed bugs documented in SUMMARY Deviations. Review loop (bash-engineer + security-engineer + qa-engineer) one iteration, no fix commits needed. bash tests/harness/run.sh still 104/104 green.
 
-Progress: [▓▓░░░░░░░░] 18% (6 of ~32 plans done)
+Progress: [▓▓░░░░░░░░] 21% (7 of ~32 plans done)
 
 ## Performance Metrics
 
@@ -58,6 +58,7 @@ Progress: [▓▓░░░░░░░░] 18% (6 of ~32 plans done)
 | 01-04 Four project-scoped skill skeletons | 2 | 4 created | ~4 min | d46f2dd, 53db3ec |
 | 01-05 Harness meta-test suite (Phase 1 acceptance gate) | 3 | 9 created | ~4 min | 62a1257, c0ae0b2, f59ba60 |
 | 02-01 Bash library primitives (log, distro_detect, as_user, idempotency) | 2 | 4 created | ~11 min | 1b26d6a, 0b103f1, 69bd859 |
+| 02-02 Installer entrypoint rewrite (pre-parse flags + log tee + ERR/EXIT traps + provisioner dispatch) | 1 | 1 modified | ~18 min | 44208a3 |
 
 ## Accumulated Context
 
@@ -100,6 +101,13 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - Growth phases named in BOTH description and body (`## Growth plan` section). A future agent opening the skill knows immediately whether each section is a locked contract or placeholder awaiting Phase N.
 - Requirement-ID linkage in each skill's opening paragraph — the linkage the `behavior-coverage-auditor` needs at phase-close to trace "skill X → requirement Y → test Z".
 - Per-task atomic commits via raw `git add <files> && git commit --no-gpg-sign` (continuing Plans 01-01, 01-02, 01-03 pattern).
+
+**New decisions from Plan 02-02 execution:**
+- Pre-parse fast-exit for --help/--version/--purge added BEFORE log-file init. Plan skeleton ordered `install -m 0644 /dev/null $LOG_FILE` before `parse_args`, which meant non-root `agentlinux-install --help` hit the root-required log-init fallback and exited 64 instead of printing usage and exiting 0 — violating the CONTEXT UX lock and the plan's own acceptance criterion (line 311). Fix: `pre_parse_args` walks argv BEFORE log-init and fast-exits for -h/--help/-V/--version/--purge (all three are print-and-exit; no state mutation). --verbose and unknown-flag diagnostics still route through the post-log-init `parse_args` so they hit the tee transcript. Committed in 44208a3.
+- `trap 'wait' EXIT` (Pitfall 6 mitigation from RESEARCH.md line 699) replaced with `trap 'exec >&- 2>&-; wait "$TEE_PID" 2>/dev/null || true' EXIT`. Discovered by reproducing locally: bare `trap wait EXIT` deadlocks because the EXIT trap runs BEFORE bash drops FD 1/2 for the caller, so the tee subshell never sees EOF on its stdin and `wait` blocks forever. Correct idiom: close FD 1+2 (delivering EOF to tee), then `wait` on the saved TEE_PID (avoids accidentally waiting on unrelated background children). RESEARCH.md gets a correction during Phase 3 — for now the fix lives in the installer plus an inline comment block (lines 86-91 of `plugin/bin/agentlinux-install`).
+- Provisioner glob uses `mapfile -t steps < <(compgen -G "$PROV_DIR/[0-9][0-9]-*.sh" || true)` instead of `steps=("$PROV_DIR"/[0-9][0-9]-*.sh)`. shfmt 3.8.0's lexer misparses `[0-9][0-9]` immediately after a word as an array subscript (`"[x]" must be followed by =`) and fails `shfmt -d`. `compgen -G` is a bash builtin that takes the pattern as a string — no lexer trip, same lexical ordering, `|| true` handles empty-match. Documented in-source at lines 167-172.
+- SC2155 split: `readonly X="$(cmdsub)"` decomposed into `X="$(cmdsub)"; readonly X` so cmdsub failures propagate to `set -e` instead of being masked by the `readonly` wrapper. Applied to BIN_DIR / LIB_DIR / PROV_DIR.
+- Function surface is a superset of plan: `pre_parse_args + parse_args + require_root + run_provisioners + main + usage + on_error`. Plan had only `parse_args + require_root + main + usage + on_error`; `pre_parse_args` is the correctness fix documented above; `run_provisioners` was pulled out of main for clarity.
 
 **New decisions from Plan 02-01 execution:**
 - Arg-count guards added to every library primitive (review-loop finding). Review loop caught that the plan's exact-shape skeletons dereference `$1`/`$2`/`$3` before checking `$#` — under the entrypoint's mandated `set -euo pipefail` (02-02), zero-arg misuse crashes with a raw `$1: unbound variable` bash diagnostic instead of routing through `log_error`. Fix: `[[ $# -lt N ]] && { log_error "usage: ..."; return 64; }` prepended to every primitive (`as_user`, `as_user_login`, `ensure_line_in_file`, `ensure_marker_block`, `ensure_user`, `ensure_dir`, `visudo_validate`). Committed in 69bd859. EX_USAGE=64 matches sysexits.h and the pre-existing `as_user foo` (no-command) branch.
@@ -162,6 +170,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-04-18T14:25:00Z
-Stopped at: Plan 02-01 complete — four shellcheck-clean bash library primitives under `plugin/lib/` (log.sh 53 LOC, distro_detect.sh 60 LOC, as_user.sh 53 LOC, idempotency.sh 153 LOC). Function surface matches the plan's `<interfaces>` block verbatim: 12 functions (log_info / log_warn / log_error / log_debug + detect_distro + as_user / as_user_login + ensure_line_in_file / ensure_marker_block / ensure_user / ensure_dir / visudo_validate). Review loop (bash-engineer + security-engineer + qa-engineer rubrics) produced one actionable finding — arg-count guards on every primitive — fixed in 69bd859. Phase 1 harness meta-tests still 104/104 green (no regression). Summary at `.planning/phases/02-installer-foundation-agent-user/02-01-SUMMARY.md`. Next: Plan 02-02 (installer entrypoint rewrite — root-check, log tee, ERR trap, arg parsing, provisioner dispatch). Wave 2 is now unblocked.
-Resume file: Phase 2 in progress; next plan is `02-02-PLAN.md`. Run `/gsd-execute-phase 02 02-02` (or similar) to continue.
+Last session: 2026-04-18T14:50:00Z
+Stopped at: Plan 02-02 complete — plugin/bin/agentlinux-install rewritten from the Phase 1 stub (5 lines) to the real entrypoint (194 lines). Pre-parse fast-exit for --help/--version/--purge (works without sudo); `install -m 0644 /dev/null` for root-owned log-file init with plain-stderr fallback on failure; `exec > >(tee -a "$LOG_FILE") 2>&1` merging stdout+stderr into the INST-05 transcript; `trap 'exec >&- 2>&-; wait "$TEE_PID" 2>/dev/null || true' EXIT` (Pitfall 6 deadlock fix over bare RESEARCH pattern); `trap on_error ERR` with failing `src:line` + log path; four libraries sourced in log→distro_detect→idempotency→as_user order; `run_provisioners` with `mapfile -t + compgen -G` for lexical `[0-9][0-9]-*.sh` dispatch (sidesteps shfmt 3.8.0 lexer bug) that tolerates zero provisioners (log_warn, not log_error). Shellcheck --severity=warning + shfmt -i 2 -ci -bn -d + bash -n all green. All six acceptance-criterion flag paths manually verified. Review loop (bash-engineer + security-engineer + qa-engineer rubrics) produced no actionable fixes — all findings either match documented plan threat-model dispositions (T-02-01 secret leakage via argv echo, T-02-06 symlink follow on log-file init) or defer to Plan 02-05 bats tests. 4 auto-fixed bugs documented in SUMMARY Deviations (plan-skeleton --help UX ordering, RESEARCH Pitfall 6 trap deadlock, shfmt lexer workaround, SC2155 split). bash tests/harness/run.sh still 104/104 green. Summary at `.planning/phases/02-installer-foundation-agent-user/02-02-SUMMARY.md`.
+Resume file: Phase 2 in progress; next plan is `02-03-PLAN.md` (agent-user provisioner) or `02-04-PLAN.md` (PATH wiring provisioner) — either can land first since the entrypoint tolerates zero provisioners. 02-05 (Docker bats harness + CI matrix) closes Phase 2 after 02-03 and 02-04 are done.
