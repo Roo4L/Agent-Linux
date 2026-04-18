@@ -40,10 +40,10 @@ Observable behaviors of the provisioned agent user. These are the contract — t
 
 ### Runtime + Global-Install Behavior (RT)
 
-- [ ] **RT-01**: The agent user has a Node.js LTS runtime available. Running `node --version` returns an LTS version number, both interactively and non-interactively.
+- [x] **RT-01**: The agent user has a Node.js LTS runtime available. Running `node --version` returns an LTS version number, both interactively and non-interactively. ✓ Plan 03-01 (Node v22.22.2 installed via NodeSource on Ubuntu 22.04 + 24.04; version gate enforces major ≥22; Docker smoke end-to-end green; observable six-mode proof lands in Plan 03-02 bats)
 - [ ] **RT-02**: The agent user can run `npm install -g <some-package>` without sudo, without `EACCES`, without creating any shim/wrapper workarounds. The resulting binary is findable on PATH in every invocation mode from BHV-02..06.
 - [ ] **RT-03**: The agent user can run `npm uninstall -g <some-package>` cleanly (no leftover files, binary disappears from PATH).
-- [ ] **RT-04**: `npm config get prefix` for the agent user returns a path under the agent user's home directory (or equivalent user-writable path) — never `/usr`, `/usr/local`, or any root-owned path.
+- [x] **RT-04**: `npm config get prefix` for the agent user returns a path under the agent user's home directory (or equivalent user-writable path) — never `/usr`, `/usr/local`, or any root-owned path. ✓ Plan 03-01 (~agent/.npmrc written with `prefix=/home/agent/.npm-global`; NPM_CONFIG_PREFIX=/home/agent/.npm-global belt-and-braces in /etc/agentlinux.env; /home/agent/.npm-global{,/bin,/lib} agent-owned 0755; observable six-mode proof lands in Plan 03-02 bats via assert_user_prefix_in_home)
 
 ### Agent-Tool Behavior (AGT)
 
@@ -175,10 +175,10 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | TST-01 | Phase 2+ | ✓ Partial (Phase 2 portion: 22 bats @tests in 10-installer.bats + 20-agent-user.bats; grows each phase until Phase 5 closes) |
 | TST-02 | Phase 2 | ✓ Complete (02-05 bats-docker matrix on Ubuntu 22.04 + 24.04; end-to-end green; fail-fast=false; timeout-minutes=15) |
 | TST-04 | Phase 2 | ✓ Complete (02-05 tests/bats/helpers/assertions.bash __fail emits four-line req-id/expected/observed/log diagnostic via stderr on every failure) |
-| RT-01 | Phase 3 | Pending |
-| RT-02 | Phase 3 | Pending |
-| RT-03 | Phase 3 | Pending |
-| RT-04 | Phase 3 | Pending |
+| RT-01 | Phase 3 | ✓ Complete installer-side (03-01: NodeSource Node 22 LTS + version gate in 30-nodejs.sh; Node v22.22.2 verified end-to-end on Ubuntu 22.04 + 24.04; observable six-mode bats proof lands in Plan 03-02) |
+| RT-02 | Phase 3 | Pending (Plan 03-02 bats — PATH wiring installer-side ready via 40-path-wiring.sh extension in 03-01) |
+| RT-03 | Phase 3 | Pending (Plan 03-02 bats) |
+| RT-04 | Phase 3 | ✓ Complete installer-side (03-01: ~agent/.npmrc `prefix=/home/agent/.npm-global` + NPM_CONFIG_PREFIX belt-and-braces in /etc/agentlinux.env; /home/agent/.npm-global agent-owned 0755; T-03-03 byte-identical split-brain avoidance; observable six-mode bats proof lands in Plan 03-02 via assert_user_prefix_in_home) |
 | CLI-01 | Phase 4 | Pending |
 | CLI-02 | Phase 4 | Pending |
 | CLI-03 | Phase 4 | Pending |
