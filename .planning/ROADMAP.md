@@ -24,7 +24,7 @@ Key locked decisions honored by this roadmap:
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Harness Setup** - Project skeleton, pre-commit, CLAUDE.md, ADRs, review subagents, skills, GH Actions scaffolding — green harness before any installer code lands.
+- [x] **Phase 1: Harness Setup** - Project skeleton, pre-commit, CLAUDE.md, ADRs, review subagents, skills, GH Actions scaffolding — green harness before any installer code lands. ✓ 2026-04-18 (5 plans; `bash tests/harness/run.sh` green: 104/104 @tests pass)
 - [ ] **Phase 2: Installer Foundation + Agent User** - One-command installer creates a correctly-provisioned `agent` user with belt-and-braces PATH for every invocation mode (interactive shell, non-interactive SSH, cron, systemd, sudo -u); Docker bats matrix green on PR.
 - [ ] **Phase 3: Node.js Runtime + Per-User npm Prefix** - NodeSource Node.js 22 LTS + agent's npm global prefix under home; `npm install -g` works without sudo from the agent user in every invocation mode (smoke-tested with a throwaway package).
 - [ ] **Phase 4: Registry CLI + Catalog + Uninstall** - `agentlinux list/install/remove` ships; catalog with claude-code, gsd, playwright entries is *available* (none installed by default); JSON Schema validates entries; clean uninstall path.
@@ -49,7 +49,7 @@ Key locked decisions honored by this roadmap:
 - [x] 01-02-PLAN.md — Pre-commit + four GH Actions workflows + mutation scaffolding (HRN-02, HRN-08, TST-06) ✓ 2026-04-18
 - [x] 01-03-PLAN.md — Six review subagents + /review skill (HRN-06, HRN-07, TST-07) ✓ 2026-04-18
 - [x] 01-04-PLAN.md — Four project-scoped skill skeletons (HRN-09) ✓ 2026-04-18
-- [ ] 01-05-PLAN.md — Harness meta-test suite (closes Phase 1 acceptance gate)
+- [x] 01-05-PLAN.md — Harness meta-test suite (closes Phase 1 acceptance gate) (HRN-01 verified, HRN-02..09 verified, TST-06 verified, TST-07 scaffold-verified) ✓ 2026-04-18
 
 ### Phase 2: Installer Foundation + Agent User
 **Goal**: Running the installer on a clean Ubuntu 22.04 or 24.04 produces an `agent` user who can run commands — with all six BHV invocation modes working and zero EACCES / permission-denied output — even though no agents are installed yet.
@@ -120,7 +120,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Harness Setup | 4/5 | In progress | - |
+| 1. Harness Setup | 5/5 | ✓ Complete | 2026-04-18 |
 | 2. Installer Foundation + Agent User | 0/TBD | Not started | - |
 | 3. Node.js Runtime + Per-User npm Prefix | 0/TBD | Not started | - |
 | 4. Registry CLI + Catalog + Uninstall | 0/TBD | Not started | - |

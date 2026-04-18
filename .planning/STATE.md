@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: AgentLinux Plugin (Ubuntu)
 status: in_progress
-stopped_at: Plan 01-04 complete (four project-scoped skill skeletons: agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness). Next plan 01-05 (harness meta-test suite — closes Phase 1 acceptance gate).
-last_updated: "2026-04-18T10:51:25.000Z"
-last_activity: 2026-04-18 — Plan 01-04 complete; HRN-09 satisfied.
+stopped_at: Plan 01-05 complete — Phase 1 CLOSED. Harness meta-test suite green (104/104 @tests). Next phase 02 (Installer Foundation + Agent User) can begin planning.
+last_updated: "2026-04-18T11:02:00.000Z"
+last_activity: 2026-04-18 — Plan 01-05 complete; Phase 1 acceptance gate GREEN (bash tests/harness/run.sh exits 0).
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 5
-  completed_plans: 4
-  percent: 12
+  completed_plans: 5
+  percent: 16
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 
 ## Current Position
 
-Phase: 1 of 6 (Harness Setup)
-Plan: 01-04 ✓ complete — next plan 01-05 (harness meta-test suite — closes Phase 1 acceptance gate)
-Status: In progress
-Last activity: 2026-04-18 — Plan 01-04 complete (2 tasks, 2 atomic commits, ~4 min). Four project-scoped skill skeletons (agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness) landed under .claude/skills/<name>/SKILL.md — each with valid Claude Code frontmatter, non-negotiable rules codified, and an explicit growth plan for the phase that absorbs it (Phase 2+/Phase 4/Phase 6). HRN-09 satisfied.
+Phase: 1 of 6 (Harness Setup) ✓ COMPLETE — next phase 02 (Installer Foundation + Agent User) can begin planning
+Plan: 01-05 ✓ complete — Phase 1 acceptance gate GREEN
+Status: Phase 1 done; Phase 2 not started
+Last activity: 2026-04-18 — Plan 01-05 complete (3 tasks, 3 atomic commits, ~4 min). Seven bats files + run.sh + README under tests/harness/ landed — `bash tests/harness/run.sh` exits 0 with 104/104 @tests passing. Every HRN-01..HRN-09, TST-06, TST-07 requirement now has at least one bats assertion verifying its deliverable. Phase 1 closed.
 
-Progress: [▓░░░░░░░░░] 12% (4 of ~32 plans done)
+Progress: [▓░░░░░░░░░] 16% (5 of ~32 plans done)
 
 ## Performance Metrics
 
@@ -46,7 +46,7 @@ Progress: [▓░░░░░░░░░] 12% (4 of ~32 plans done)
 | 2. Deploy to Public | v0.1.0 | 2 | ~3min | ~1.5min |
 | 3. Bootable Image | v0.2.0 | 3 | ~14min | ~4.7min |
 | 4. Agent Tool Packages | v0.2.0 | 2 | ~5min | ~2.5min |
-| 1. Harness Setup (partial) | v0.3.0 | 4/5 | ~45min | ~11.3min |
+| 1. Harness Setup | v0.3.0 | 5/5 | ~49min | ~9.8min |
 
 **v0.3.0 plan metrics:**
 
@@ -56,6 +56,7 @@ Progress: [▓░░░░░░░░░] 12% (4 of ~32 plans done)
 | 01-02 Pre-commit + GH workflows + mutation scaffolding | 3 | 9 created | ~3 min | d428627, 6997474, 82abda0 |
 | 01-03 Review subagents + /review skill | 2 | 7 created | ~34 min | 0da6082, f1595f8 |
 | 01-04 Four project-scoped skill skeletons | 2 | 4 created | ~4 min | d46f2dd, 53db3ec |
+| 01-05 Harness meta-test suite (Phase 1 acceptance gate) | 3 | 9 created | ~4 min | 62a1257, c0ae0b2, f59ba60 |
 
 ## Accumulated Context
 
@@ -84,6 +85,13 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - Mutation scaffolding is non-blocking at **three independent layers**: `stryker.config.json` `thresholds.break: 0`, `nightly-mutation.yml` job-level `continue-on-error: true`, `bash-mutator.sh` always exits 0 on the current skeleton. No single layer can drag the release pipeline red.
 - Every CI workflow is authored with a `compgen -G` / `[[ -x ... ]]` empty-plugin guard so skeleton-phase commits green-bar without fake test files. Guards skip jobs whose sources (tests/, bats/, CLI source) do not yet exist.
 - Legacy `.github/workflows/deploy.yml` (v0.1.0 website) left completely untouched; the new `test.yml` uses `paths-ignore` for website files so the two workflows do not double-fire.
+
+**New decisions from Plan 01-05 execution:**
+- Shipped the pre-commit smoke block inside `tests/harness/run.sh` in Task 1 instead of waiting for Task 3's run.sh rewrite. Three atomic commits (62a1257 / c0ae0b2 / f59ba60) instead of two touching run.sh. Every Task 3 acceptance-criterion grep still passes because Task 1 wrote the final shape.
+- Multi-path bats discovery in run.sh (PATH → ./node_modules/.bin/bats → ./tests/bats/bin/bats). PATH still wins when present; fallbacks only activate when PATH is empty. Supports three install paths: apt/brew/global-npm (PATH), `npm install --no-save bats` from repo root (node_modules), and vendored clone (tests/bats/).
+- Did NOT commit bats or node_modules/ to the repo. No root package.json exists — HARNESS.md §1 doesn't declare one, and adding one for a test-time dependency would force an unrelated packaging decision. Bats install guidance lives in run.sh's error message and tests/harness/README.md (5 paths: apt, brew, npm local, npm global, docker, vendored).
+- Enriched failure diagnostics: multi-item loop @tests emit `# HRN-XX: missing X` diagnostic lines on failure via `|| { echo ...; return 1; }` so TAP output identifies the exact regressed artifact. CLAUDE.md line-count test prints actual count when over budget.
+- Byte-match research-migration check uses `diff -q` (matching Plan 01-01's original verification command), not md5/sha256 — same tool, greppable pairing.
 
 **New decisions from Plan 01-04 execution:**
 - CLAUDE.md left untouched (same posture as Plan 01-03): Plan 01-01's Pointers section at lines 77-79 already lists all four skill directories; grep over each slug confirmed references resolve. Success-criterion "No overlap with /review skill from 01-03" honored — all four new skills live in their own subdirectories alongside `.claude/skills/review/`.
@@ -146,6 +154,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-04-18T10:51:25Z
-Stopped at: Plan 01-04 complete. HRN-09 (four project-scoped skill skeletons under `.claude/skills/` — `agentlinux-installer` (93 lines, bash installer conventions, grows Phase 2+), `behavior-test-contract` (104 lines, bats test authoring, grows Phase 2+), `catalog-schema` (103 lines, catalog entry format + install-recipe contract, grows Phase 4), `qemu-harness` (116 lines, QEMU release-gate flow, grows Phase 6)) satisfied. Every skeleton has valid YAML frontmatter matching its directory slug, a description engineered for Claude Code's skill auto-delegation, non-negotiable rules that will not drift (set -euo pipefail, idempotency primitives, as_user keystone, sudoers mode 0440, six-invocation-mode PATH matrix, no-EACCES contract, CAT-02 no-default-agents invariant, ADR-007 Docker-only-disqualified rationale), and an explicit growth plan. Summary at `.planning/phases/01-harness-setup/01-04-SUMMARY.md`. Next: execute Plan 01-05 (harness meta-test suite — closes Phase 1 acceptance gate).
-Resume file: `.planning/phases/01-harness-setup/01-05-PLAN.md`
+Last session: 2026-04-18T11:02:00Z
+Stopped at: Plan 01-05 complete — **Phase 1 CLOSED**. Harness meta-test suite (7 bats files + run.sh + README under tests/harness/) landed with 104/104 @tests passing. `bash tests/harness/run.sh` exits 0. Every HRN-01..HRN-09, TST-06, TST-07 requirement has verifiable bats coverage. Acceptance gate GREEN: all six ROADMAP.md §Phase 1 success criteria have at least one bats assertion behind them. Summary at `.planning/phases/01-harness-setup/01-05-SUMMARY.md`. Next: plan Phase 2 (Installer Foundation + Agent User) — `/gsd-plan-phase 2`.
+Resume file: Phase 1 closed; no resume file for Phase 1. Phase 2 planning is the next action.
