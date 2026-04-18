@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# AgentLinux installer entrypoint (stub — real provisioning lands in Phase 2+).
+set -euo pipefail
+echo "agentlinux-install: stub entrypoint (harness phase); real installer arrives in Phase 2+"
+exit 0
