@@ -26,7 +26,7 @@ Key locked decisions honored by this roadmap:
 
 - [x] **Phase 1: Harness Setup** - Project skeleton, pre-commit, CLAUDE.md, ADRs, review subagents, skills, GH Actions scaffolding — green harness before any installer code lands. ✓ 2026-04-18 (5 plans; `bash tests/harness/run.sh` green: 104/104 @tests pass)
 - [x] **Phase 2: Installer Foundation + Agent User** - One-command installer creates a correctly-provisioned `agent` user with belt-and-braces PATH for every invocation mode (interactive shell, non-interactive SSH, cron, systemd, sudo -u); Docker bats matrix green on PR. ✓ 2026-04-18 (5 plans; 22/22 bats green on both Ubuntu 22.04 + 24.04; TST-07 gate: GREEN; one known architectural gap deferred to v0.4+ — sudo non-login + secure_path needs PAM/sudoers work out of Phase 2 scope)
-- [ ] **Phase 3: Node.js Runtime + Per-User npm Prefix** - NodeSource Node.js 22 LTS + agent's npm global prefix under home; `npm install -g` works without sudo from the agent user in every invocation mode (smoke-tested with a throwaway package).
+- [x] **Phase 3: Node.js Runtime + Per-User npm Prefix** - NodeSource Node.js 22 LTS + agent's npm global prefix under home; `npm install -g` works without sudo from the agent user in every invocation mode (smoke-tested with cowsay@1.6.0). ✓ 2026-04-18 (2 plans; 27/27 bats green on both Ubuntu 22.04 + 24.04; RT-01..04 all satisfied with observable six-mode proof; TST-07 gate: GREEN; INST-02 idempotency extended to cover Phase 3 artefacts)
 - [ ] **Phase 4: Registry CLI + Catalog + Uninstall** - `agentlinux list/install/remove` ships; catalog with claude-code, gsd, playwright entries is *available* (none installed by default); JSON Schema validates entries; clean uninstall path.
 - [ ] **Phase 5: Agent Installability** - Each of claude-code, gsd, playwright is installable via `agentlinux install <name>` and runs correctly for the agent user across all invocation modes. AGT-02 (Claude Code self-updates without sudo/EACCES) is the canonical acceptance test.
 - [ ] **Phase 6: Distribution + Release Pipeline** - SHA256-verified curl-pipe-bash installer, optional `.deb` via fpm, GitHub Releases workflow, QEMU nightly + release-gate suite wired as mandatory, AGT-02 release gate enforced. Ship v0.3.0.
@@ -81,7 +81,7 @@ Key locked decisions honored by this roadmap:
   5. The Docker bats matrix from Phase 2 is extended to cover RT-01..RT-04 (one test per requirement minimum) and stays green on PR.
 **Plans**: 2 plans
 - [x] 03-01-PLAN.md — Provisioner: 30-nodejs.sh (NodeSource Node 22 LTS + per-user npm prefix) + 40-path-wiring.sh extension (.npm-global/bin prepend + NPM_CONFIG_PREFIX) (RT-01, RT-04) ✓ 2026-04-18 (4 commits: 74366a0, 1fe6a75, c6d9b41, 3dbfcff; 22/22 bats green on Ubuntu 22.04 + 24.04; Node v22.22.2 installed end-to-end)
-- [ ] 03-02-PLAN.md — Behavior tests: tests/bats/30-runtime.bats (RT-01..04 across six INVOKE_MODES) + assert_user_prefix_in_home helper + INST-02 sha256 set extension (RT-01, RT-02, RT-03, RT-04)
+- [x] 03-02-PLAN.md — Behavior tests: tests/bats/30-runtime.bats (RT-01..04 across six INVOKE_MODES) + assert_user_prefix_in_home helper + INST-02 sha256 set extension (RT-01, RT-02, RT-03, RT-04) ✓ 2026-04-18 (4 commits: 03fda88, c4c9fbf, fc78911, 2d6fdb9; 27/27 bats green on Ubuntu 22.04 + 24.04 — +5 vs Phase 2 baseline; TST-07 phase-close gate GREEN)
 
 ### Phase 4: Registry CLI + Catalog + Uninstall
 **Goal**: The `agentlinux` CLI is on the agent's PATH and can list / install / remove entries from a JSON-Schema-validated catalog that contains claude-code, gsd, and playwright *as available* (none installed). A symmetric uninstall path removes what the installer placed.
@@ -129,7 +129,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 |-------|----------------|--------|-----------|
 | 1. Harness Setup | 5/5 | ✓ Complete | 2026-04-18 |
 | 2. Installer Foundation + Agent User | 5/5 | ✓ Complete | 2026-04-18 |
-| 3. Node.js Runtime + Per-User npm Prefix | 1/2 | In progress | - |
+| 3. Node.js Runtime + Per-User npm Prefix | 2/2 | ✓ Complete | 2026-04-18 |
 | 4. Registry CLI + Catalog + Uninstall | 0/TBD | Not started | - |
 | 5. Agent Installability | 0/TBD | Not started | - |
 | 6. Distribution + Release Pipeline | 0/TBD | Not started | - |
