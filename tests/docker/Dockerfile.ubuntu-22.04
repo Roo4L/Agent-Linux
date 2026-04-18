@@ -20,11 +20,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=C.UTF-8
 
 # Core: systemd + cron + openssh + bats + sudo + locales + coreutils + shellcheck.
+# dbus is REQUIRED for BHV-04: `systemd-run --uid=agent` needs a reachable
+# system bus or it errors with "Failed to connect to bus: No such file or
+# directory" and the test fails vacuously (02-05 Rule 3 auto-fix: discovered
+# on local Docker smoke test before CI ever saw it).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       systemd systemd-sysv \
       cron openssh-server \
       bats locales sudo \
+      dbus \
       ca-certificates bash coreutils util-linux \
       shellcheck && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
