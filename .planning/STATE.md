@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: AgentLinux Plugin (Ubuntu)
 status: in_progress
-stopped_at: Plan 01-05 complete — Phase 1 CLOSED. Harness meta-test suite green (104/104 @tests). Next phase 02 (Installer Foundation + Agent User) can begin planning.
-last_updated: "2026-04-18T11:02:00.000Z"
-last_activity: 2026-04-18 — Plan 01-05 complete; Phase 1 acceptance gate GREEN (bash tests/harness/run.sh exits 0).
+stopped_at: Plan 02-01 complete — four bash library primitives landed under plugin/lib/ (log.sh, distro_detect.sh, as_user.sh, idempotency.sh). Wave 2 (02-02 installer entrypoint + 02-03 agent-user provisioner + 02-04 PATH wiring) can proceed next.
+last_updated: "2026-04-18T14:25:00.000Z"
+last_activity: 2026-04-18 — Plan 02-01 complete; 4 bash libs (319 lines) land green (shellcheck + shfmt clean, harness 104/104 unbroken).
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 5
-  completed_plans: 5
-  percent: 16
+  total_plans: 6
+  completed_plans: 6
+  percent: 18
 ---
 
 # Project State
@@ -25,12 +25,12 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 
 ## Current Position
 
-Phase: 1 of 6 (Harness Setup) ✓ COMPLETE — next phase 02 (Installer Foundation + Agent User) can begin planning
-Plan: 01-05 ✓ complete — Phase 1 acceptance gate GREEN
-Status: Phase 1 done; Phase 2 not started
-Last activity: 2026-04-18 — Plan 01-05 complete (3 tasks, 3 atomic commits, ~4 min). Seven bats files + run.sh + README under tests/harness/ landed — `bash tests/harness/run.sh` exits 0 with 104/104 @tests passing. Every HRN-01..HRN-09, TST-06, TST-07 requirement now has at least one bats assertion verifying its deliverable. Phase 1 closed.
+Phase: 2 of 6 (Installer Foundation + Agent User) — IN PROGRESS; Wave 1 (library primitives) done
+Plan: 02-01 ✓ complete — four bash libs under plugin/lib/ (shellcheck + shfmt clean, 319 lines)
+Status: Phase 2 in progress; Wave 2 (02-02 entrypoint + 02-03 agent-user + 02-04 PATH wiring) is the next actionable work
+Last activity: 2026-04-18 — Plan 02-01 complete (2 tasks, 3 atomic commits including 1 review-loop fix, ~11 min). log.sh + distro_detect.sh + as_user.sh + idempotency.sh landed; function surface exactly matches <interfaces>; review loop (bash-engineer + security-engineer + qa-engineer rubrics) produced one actionable finding (arg-count guards on all primitives) which was fixed in 69bd859. bash tests/harness/run.sh still 104/104 green.
 
-Progress: [▓░░░░░░░░░] 16% (5 of ~32 plans done)
+Progress: [▓▓░░░░░░░░] 18% (6 of ~32 plans done)
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [▓░░░░░░░░░] 16% (5 of ~32 plans done)
 | 01-03 Review subagents + /review skill | 2 | 7 created | ~34 min | 0da6082, f1595f8 |
 | 01-04 Four project-scoped skill skeletons | 2 | 4 created | ~4 min | d46f2dd, 53db3ec |
 | 01-05 Harness meta-test suite (Phase 1 acceptance gate) | 3 | 9 created | ~4 min | 62a1257, c0ae0b2, f59ba60 |
+| 02-01 Bash library primitives (log, distro_detect, as_user, idempotency) | 2 | 4 created | ~11 min | 1b26d6a, 0b103f1, 69bd859 |
 
 ## Accumulated Context
 
@@ -99,6 +100,13 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - Growth phases named in BOTH description and body (`## Growth plan` section). A future agent opening the skill knows immediately whether each section is a locked contract or placeholder awaiting Phase N.
 - Requirement-ID linkage in each skill's opening paragraph — the linkage the `behavior-coverage-auditor` needs at phase-close to trace "skill X → requirement Y → test Z".
 - Per-task atomic commits via raw `git add <files> && git commit --no-gpg-sign` (continuing Plans 01-01, 01-02, 01-03 pattern).
+
+**New decisions from Plan 02-01 execution:**
+- Arg-count guards added to every library primitive (review-loop finding). Review loop caught that the plan's exact-shape skeletons dereference `$1`/`$2`/`$3` before checking `$#` — under the entrypoint's mandated `set -euo pipefail` (02-02), zero-arg misuse crashes with a raw `$1: unbound variable` bash diagnostic instead of routing through `log_error`. Fix: `[[ $# -lt N ]] && { log_error "usage: ..."; return 64; }` prepended to every primitive (`as_user`, `as_user_login`, `ensure_line_in_file`, `ensure_marker_block`, `ensure_user`, `ensure_dir`, `visudo_validate`). Committed in 69bd859. EX_USAGE=64 matches sysexits.h and the pre-existing `as_user foo` (no-command) branch.
+- Source order locked: `log.sh → distro_detect.sh → idempotency.sh → as_user.sh`. All three downstream libs check `command -v log_error` at top and hard-fail (return 1 2>/dev/null || exit 1) if log.sh has not been sourced first. Entrypoint in 02-02 enforces the order.
+- `ensure_marker_block` hardcodes mode 0644 via `install -m 0644`. Deferred for Phase 3 — no 0600 callers in Phase 2. Phase 3 will either extend signature with a 4th mode arg or carve out `ensure_marker_block_with_mode` when `~/.npmrc` (likely 0600) gets marker-block treatment.
+- `AGENTLINUX_SKIP_DISTRO_CHECK=1` escape hatch ships in distro_detect.sh. Intended for bats unit sourcing on non-Ubuntu dev hosts; exports `AGENTLINUX_DISTRO_VERSION=unchecked` and logs a WARN. Documented as bats-only in file header.
+- pre-commit itself not installed on executor host (expected: dev workstation, not CI image). Mitigation: ran shellcheck 0.9.0 + shfmt 3.8.0 via apt with the exact args from `.pre-commit-config.yaml` (`shellcheck --severity=warning --shell=bash --external-sources` + `shfmt -i 2 -ci -bn`). Both green on all 4 files. CI will re-run the full pre-commit stack on push.
 
 **New decisions from Plan 01-03 execution:**
 - CLAUDE.md left untouched: line 46 already pointed at `.claude/skills/review/SKILL.md` (Plan 01-01's doing). Success-criterion was to verify the pointer resolves — it does, so no silent edit was made.
@@ -154,6 +162,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-04-18T11:02:00Z
-Stopped at: Plan 01-05 complete — **Phase 1 CLOSED**. Harness meta-test suite (7 bats files + run.sh + README under tests/harness/) landed with 104/104 @tests passing. `bash tests/harness/run.sh` exits 0. Every HRN-01..HRN-09, TST-06, TST-07 requirement has verifiable bats coverage. Acceptance gate GREEN: all six ROADMAP.md §Phase 1 success criteria have at least one bats assertion behind them. Summary at `.planning/phases/01-harness-setup/01-05-SUMMARY.md`. Next: plan Phase 2 (Installer Foundation + Agent User) — `/gsd-plan-phase 2`.
-Resume file: Phase 1 closed; no resume file for Phase 1. Phase 2 planning is the next action.
+Last session: 2026-04-18T14:25:00Z
+Stopped at: Plan 02-01 complete — four shellcheck-clean bash library primitives under `plugin/lib/` (log.sh 53 LOC, distro_detect.sh 60 LOC, as_user.sh 53 LOC, idempotency.sh 153 LOC). Function surface matches the plan's `<interfaces>` block verbatim: 12 functions (log_info / log_warn / log_error / log_debug + detect_distro + as_user / as_user_login + ensure_line_in_file / ensure_marker_block / ensure_user / ensure_dir / visudo_validate). Review loop (bash-engineer + security-engineer + qa-engineer rubrics) produced one actionable finding — arg-count guards on every primitive — fixed in 69bd859. Phase 1 harness meta-tests still 104/104 green (no regression). Summary at `.planning/phases/02-installer-foundation-agent-user/02-01-SUMMARY.md`. Next: Plan 02-02 (installer entrypoint rewrite — root-check, log tee, ERR trap, arg parsing, provisioner dispatch). Wave 2 is now unblocked.
+Resume file: Phase 2 in progress; next plan is `02-02-PLAN.md`. Run `/gsd-execute-phase 02 02-02` (or similar) to continue.
