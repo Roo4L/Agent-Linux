@@ -92,3 +92,40 @@ assert_exit_zero() {
       "/var/log/agentlinux-install.log"
   fi
 }
+
+# ---------------------------------------------------------------------------
+# Appended in Phase 3 (Plan 03-02).
+#
+# RT-04 gate. Input is the bats `$output` populated by a prior `run` or
+# `invoke_mode` that executed `npm config get prefix`. Passes if the prefix
+# starts with `/home/agent/` (the trailing slash is load-bearing — it
+# prevents a hypothetical `/home/agent-staging/...` path from matching).
+# Fails every other shape with a TST-04 four-line diagnostic naming the
+# expected prefix, the observed value, and the likely source the debugger
+# should read first (`~agent/.npmrc`).
+#
+# T-03-07 mitigation: catches a regression where npm resolves the prefix to
+# /usr, /usr/local, or any non-agent-owned path in any INVOKE_MODE.
+#
+# Usage (note the req-id carries the mode suffix for multi-mode loops so
+# failure diagnostics pinpoint WHICH mode regressed):
+#   invoke_mode "$mode" 'npm config get prefix'
+#   assert_user_prefix_in_home "RT-04 (${mode})"
+# ---------------------------------------------------------------------------
+assert_user_prefix_in_home() {
+  local req_id=$1
+  local observed
+  observed=$(printf '%s' "${output:-}" | tr -d '[:space:]')
+
+  case "$observed" in
+    /home/agent/*)
+      return 0
+      ;;
+    *)
+      __fail "$req_id" \
+        "npm config get prefix under /home/agent/" \
+        "observed: ${observed:-<empty>}" \
+        "~agent/.npmrc (expected: prefix=/home/agent/.npm-global)"
+      ;;
+  esac
+}
