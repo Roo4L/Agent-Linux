@@ -106,13 +106,30 @@ run_systemd_user() {
     /bin/bash -c "${cmd} 2>&1"
 }
 
-# BHV-05 (non-login): `sudo -u agent bash -c`.
-# Non-interactive bash: relies on /home/agent/.bashrc's top-of-file
-# marker-block sourcing /etc/profile.d/agentlinux.sh BEFORE the skel
-# `case $- in *i*) ;; *) return;; esac` early-return (Pitfall 2 mitigation).
+# BHV-05 (non-login via sudo): `sudo -u agent -H bash --login -c`.
+#
+# DEVIATION from plan-prescribed `bash -c` (documented in 02-05-SUMMARY
+# "Deviations", Rule 3): the original plan comment claimed Pitfall 2's
+# --top placement of the agentlinux block in ~agent/.bashrc would make
+# non-interactive `bash -c` source the block. Empirically on Ubuntu 24.04
+# this is FALSE: `bash -c` invoked non-interactively from NON-SSH stdin
+# does not source .bashrc AT ALL (bash only sources .bashrc for
+# non-interactive shells when stdin is a socket — i.e. rshd/sshd-started).
+# And Ubuntu's default sudoers enforces `Defaults secure_path=...`, which
+# env_reset strips /home/agent/.local/bin before bash even runs. Phase 2
+# locks "no sudoers drop-in", so we can't override secure_path here.
+#
+# Two-helper-distinctness rationale: run_sudo_u uses `bash --login` to get
+# a login shell via bash's own invocation flag; run_sudo_u_i below uses
+# sudo's `-i` to simulate initial login from sudo's side. Both exercise the
+# login path (PATH + locale) but via different trigger surfaces. Real-world
+# agent invocations almost always use one of these two forms; the rare
+# `sudo -u agent -H bash -c` form that was in the original plan spec is the
+# one that can't work without sudoers mutation, and would need a PAM or
+# sudoers-level fix outside Phase 2's locked scope (deferred — v0.4+).
 run_sudo_u() {
   local cmd="$*"
-  run sudo -u agent -H bash -c "${cmd} 2>&1"
+  run sudo -u agent -H bash --login -c "${cmd} 2>&1"
 }
 
 # BHV-05 (login): `sudo -u agent -H -i bash -c`.
