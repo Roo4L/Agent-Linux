@@ -48,7 +48,7 @@ Key locked decisions honored by this roadmap:
 - [x] 01-01-PLAN.md — Project skeleton + CLAUDE.md + ADRs + research migration (HRN-01 partial, HRN-03, HRN-04, HRN-05) ✓ 2026-04-18
 - [x] 01-02-PLAN.md — Pre-commit + four GH Actions workflows + mutation scaffolding (HRN-02, HRN-08, TST-06) ✓ 2026-04-18
 - [x] 01-03-PLAN.md — Six review subagents + /review skill (HRN-06, HRN-07, TST-07) ✓ 2026-04-18
-- [ ] 01-04-PLAN.md — Four project-scoped skill skeletons (HRN-09)
+- [x] 01-04-PLAN.md — Four project-scoped skill skeletons (HRN-09) ✓ 2026-04-18
 - [ ] 01-05-PLAN.md — Harness meta-test suite (closes Phase 1 acceptance gate)
 
 ### Phase 2: Installer Foundation + Agent User
@@ -120,7 +120,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Harness Setup | 3/5 | In progress | - |
+| 1. Harness Setup | 4/5 | In progress | - |
 | 2. Installer Foundation + Agent User | 0/TBD | Not started | - |
 | 3. Node.js Runtime + Per-User npm Prefix | 0/TBD | Not started | - |
 | 4. Registry CLI + Catalog + Uninstall | 0/TBD | Not started | - |

@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: AgentLinux Plugin (Ubuntu)
 status: in_progress
-stopped_at: Plan 01-03 complete (six project-scoped review subagents + /review skill). Next plan 01-04 (four project-scoped skill skeletons).
-last_updated: "2026-04-18T10:40:43.000Z"
-last_activity: 2026-04-18 — Plan 01-03 complete; HRN-06, HRN-07, TST-07 satisfied.
+stopped_at: Plan 01-04 complete (four project-scoped skill skeletons: agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness). Next plan 01-05 (harness meta-test suite — closes Phase 1 acceptance gate).
+last_updated: "2026-04-18T10:51:25.000Z"
+last_activity: 2026-04-18 — Plan 01-04 complete; HRN-09 satisfied.
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 3
-  percent: 9
+  completed_plans: 4
+  percent: 12
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 ## Current Position
 
 Phase: 1 of 6 (Harness Setup)
-Plan: 01-03 ✓ complete — next plan 01-04 (four project-scoped skill skeletons)
+Plan: 01-04 ✓ complete — next plan 01-05 (harness meta-test suite — closes Phase 1 acceptance gate)
 Status: In progress
-Last activity: 2026-04-18 — Plan 01-03 complete (2 tasks, 2 atomic commits, ~34 min). Six project-scoped review subagents + /review skill landed under .claude/agents/ and .claude/skills/review/. HRN-06, HRN-07, TST-07 satisfied.
+Last activity: 2026-04-18 — Plan 01-04 complete (2 tasks, 2 atomic commits, ~4 min). Four project-scoped skill skeletons (agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness) landed under .claude/skills/<name>/SKILL.md — each with valid Claude Code frontmatter, non-negotiable rules codified, and an explicit growth plan for the phase that absorbs it (Phase 2+/Phase 4/Phase 6). HRN-09 satisfied.
 
-Progress: [▓░░░░░░░░░] 9% (3 of ~32 plans done)
+Progress: [▓░░░░░░░░░] 12% (4 of ~32 plans done)
 
 ## Performance Metrics
 
@@ -46,7 +46,7 @@ Progress: [▓░░░░░░░░░] 9% (3 of ~32 plans done)
 | 2. Deploy to Public | v0.1.0 | 2 | ~3min | ~1.5min |
 | 3. Bootable Image | v0.2.0 | 3 | ~14min | ~4.7min |
 | 4. Agent Tool Packages | v0.2.0 | 2 | ~5min | ~2.5min |
-| 1. Harness Setup (partial) | v0.3.0 | 3/5 | ~41min | ~13.7min |
+| 1. Harness Setup (partial) | v0.3.0 | 4/5 | ~45min | ~11.3min |
 
 **v0.3.0 plan metrics:**
 
@@ -55,6 +55,7 @@ Progress: [▓░░░░░░░░░] 9% (3 of ~32 plans done)
 | 01-01 Skeleton + CLAUDE.md + ADRs + research | 3 | 47 created | ~4 min | 3d65cb2, fa49675, d2ca481 |
 | 01-02 Pre-commit + GH workflows + mutation scaffolding | 3 | 9 created | ~3 min | d428627, 6997474, 82abda0 |
 | 01-03 Review subagents + /review skill | 2 | 7 created | ~34 min | 0da6082, f1595f8 |
+| 01-04 Four project-scoped skill skeletons | 2 | 4 created | ~4 min | d46f2dd, 53db3ec |
 
 ## Accumulated Context
 
@@ -83,6 +84,13 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - Mutation scaffolding is non-blocking at **three independent layers**: `stryker.config.json` `thresholds.break: 0`, `nightly-mutation.yml` job-level `continue-on-error: true`, `bash-mutator.sh` always exits 0 on the current skeleton. No single layer can drag the release pipeline red.
 - Every CI workflow is authored with a `compgen -G` / `[[ -x ... ]]` empty-plugin guard so skeleton-phase commits green-bar without fake test files. Guards skip jobs whose sources (tests/, bats/, CLI source) do not yet exist.
 - Legacy `.github/workflows/deploy.yml` (v0.1.0 website) left completely untouched; the new `test.yml` uses `paths-ignore` for website files so the two workflows do not double-fire.
+
+**New decisions from Plan 01-04 execution:**
+- CLAUDE.md left untouched (same posture as Plan 01-03): Plan 01-01's Pointers section at lines 77-79 already lists all four skill directories; grep over each slug confirmed references resolve. Success-criterion "No overlap with /review skill from 01-03" honored — all four new skills live in their own subdirectories alongside `.claude/skills/review/`.
+- Skeleton body size 93-116 lines each (plan body suggested 30-80 per section / 40-80 per body; prompt's success-criterion said 50-120). Landed in the 93-116 band because every skeleton has three uncompressible parts: (1) frontmatter description naming every trigger for Claude Code's skill auto-delegation, (2) the non-negotiable rules that will not drift as later phases fill in detail (strict mode, `as_user`, mode 0440, six-mode PATH matrix, no-EACCES contract, CAT-02 invariant, SHA-verified cloud images), (3) the growth-plan section naming which artifacts absorb in which phase. Trimming any of these would either weaken the "locked rules before code exists" property or break future agents' ability to find what they need without a separate Read.
+- Growth phases named in BOTH description and body (`## Growth plan` section). A future agent opening the skill knows immediately whether each section is a locked contract or placeholder awaiting Phase N.
+- Requirement-ID linkage in each skill's opening paragraph — the linkage the `behavior-coverage-auditor` needs at phase-close to trace "skill X → requirement Y → test Z".
+- Per-task atomic commits via raw `git add <files> && git commit --no-gpg-sign` (continuing Plans 01-01, 01-02, 01-03 pattern).
 
 **New decisions from Plan 01-03 execution:**
 - CLAUDE.md left untouched: line 46 already pointed at `.claude/skills/review/SKILL.md` (Plan 01-01's doing). Success-criterion was to verify the pointer resolves — it does, so no silent edit was made.
@@ -138,6 +146,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-04-18T10:40:43Z
-Stopped at: Plan 01-03 complete. HRN-06 (six project-scoped review subagents under `.claude/agents/` — bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor), HRN-07 (`/review` skill at `.claude/skills/review/SKILL.md` documenting the review-loop convention with dispatch rules + triage rules + ADR-010 trigger), TST-07 (behavior-coverage-auditor subagent is defined and the skill names it as the end-of-phase gate; runs at every phase close) all satisfied. Summary at `.planning/phases/01-harness-setup/01-03-SUMMARY.md`. Next: execute Plan 01-04 (four project-scoped skill skeletons: agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness).
-Resume file: `.planning/phases/01-harness-setup/01-04-PLAN.md`
+Last session: 2026-04-18T10:51:25Z
+Stopped at: Plan 01-04 complete. HRN-09 (four project-scoped skill skeletons under `.claude/skills/` — `agentlinux-installer` (93 lines, bash installer conventions, grows Phase 2+), `behavior-test-contract` (104 lines, bats test authoring, grows Phase 2+), `catalog-schema` (103 lines, catalog entry format + install-recipe contract, grows Phase 4), `qemu-harness` (116 lines, QEMU release-gate flow, grows Phase 6)) satisfied. Every skeleton has valid YAML frontmatter matching its directory slug, a description engineered for Claude Code's skill auto-delegation, non-negotiable rules that will not drift (set -euo pipefail, idempotency primitives, as_user keystone, sudoers mode 0440, six-invocation-mode PATH matrix, no-EACCES contract, CAT-02 no-default-agents invariant, ADR-007 Docker-only-disqualified rationale), and an explicit growth plan. Summary at `.planning/phases/01-harness-setup/01-04-SUMMARY.md`. Next: execute Plan 01-05 (harness meta-test suite — closes Phase 1 acceptance gate).
+Resume file: `.planning/phases/01-harness-setup/01-05-PLAN.md`

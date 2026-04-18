@@ -81,7 +81,7 @@ Per `docs/HARNESS.md`. The agent harness is a foundation deliverable shipped as 
 - [x] **HRN-06**: Project-scoped review subagents exist in `.claude/agents/`: bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor. ✓ Plan 01-03 (all six `.md` files under `.claude/agents/` with valid Claude Code subagent frontmatter; read-only tool set `Read, Grep, Glob, Bash` per HARNESS.md §4.2 T-03-01 mitigation; rubrics copy-of-truthed from HARNESS.md §4.2.)
 - [x] **HRN-07**: A `/review` skill exists in `.claude/skills/` documenting the review-feedback-loop convention from `docs/HARNESS.md` §4. ✓ Plan 01-03 (`.claude/skills/review/SKILL.md` with dispatch rules table, triage rules, ADR-010 trigger citation, and TST-07 end-of-phase gate; CLAUDE.md line 46 already points at it.)
 - [x] **HRN-08**: GitHub Actions workflows are configured: `test.yml` (pre-commit + CLI unit tests + Docker bats matrix on every PR), `nightly-qemu.yml` (QEMU release-gate suite), `nightly-mutation.yml` (stryker + bash mutator), `release.yml` (tag → tarball + .deb + sha256 → GitHub Release). ✓ Plan 01-02 (all four YAML files parse; all authored with empty-plugin guards so Phase 1 skeleton commit green-bars; legacy `deploy.yml` untouched.)
-- [ ] **HRN-09**: Project-scoped skill skeletons exist in `.claude/skills/`: agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness.
+- [x] **HRN-09**: Project-scoped skill skeletons exist in `.claude/skills/`: agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness. ✓ Plan 01-04 (all four `SKILL.md` files under `.claude/skills/<name>/` with valid Claude Code skill frontmatter — `name` matching directory slug + `description` engineered for auto-delegation; bodies 93-116 lines each; non-negotiable rules codified — `set -euo pipefail`, idempotency primitives, `as_user` keystone, sudoers mode 0440, no-EACCES contract, six-invocation-mode matrix, CAT-02 no-default-agents invariant, ADR-007 Docker-only-disqualified rationale; every skill has an explicit growth-plan section naming the phase that absorbs it.)
 
 ### Test Harness (TST)
 
@@ -159,7 +159,7 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | HRN-06 | Phase 1 | ✓ Complete (01-03) |
 | HRN-07 | Phase 1 | ✓ Complete (01-03) |
 | HRN-08 | Phase 1 | ✓ Complete (01-02) |
-| HRN-09 | Phase 1 | Pending |
+| HRN-09 | Phase 1 | ✓ Complete (01-04) |
 | TST-06 | Phase 1 | ✓ Complete (01-02 — scaffolded) |
 | TST-07 | Phase 1 | ✓ Complete (01-03) |
 | INST-01 | Phase 2 | Pending |
