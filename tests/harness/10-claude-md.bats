@@ -16,7 +16,10 @@
 }
 
 @test "HRN-03: CLAUDE.md forbids sudo npm install -g" {
-  grep -qi "sudo npm install -g" CLAUDE.md
+  # Must appear in a prohibition context (Never / Avoid / Do not / Don't),
+  # not a recommendation. A literal substring grep would pass even if
+  # CLAUDE.md recommended the pattern — anchor to the forbidding phrasing.
+  grep -qEi "(never|avoid|do not|don't).{0,40}sudo npm install -g" CLAUDE.md
 }
 
 @test "HRN-03: CLAUDE.md references the review loop" {
