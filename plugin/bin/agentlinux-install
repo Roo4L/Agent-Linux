@@ -164,13 +164,16 @@ require_root() {
 run_provisioners() {
   local step
   local -a steps
-  # `compgen -G` expands the glob via bash's builtin, returning matches on
-  # stdout in lexical order, or exit 1 with no output when there is no match.
-  # This sidesteps shfmt 3.8.0's lexer misreading `[0-9][0-9]` in an array
-  # assignment as an array subscript ("[x]" must be followed by =). The
-  # trailing `|| true` lets the empty-match case fall through to the array
-  # length check below instead of tripping `set -e`.
-  mapfile -t steps < <(compgen -G "$PROV_DIR/[0-9][0-9]-*.sh" || true)
+  # `compgen -G` expands the glob via bash's builtin and returns matches on
+  # stdout in directory-entry order (NOT guaranteed lexical — on ext4/overlayfs
+  # the order depends on inode allocation, so a later-created `30-nodejs.sh`
+  # can precede `10-agent-user.sh`). Pipe through `sort` to enforce the
+  # numeric-dispatch contract (10 → 30 → 40 → ...). The compgen trailing
+  # `|| true` keeps the empty-match case (no provisioner files yet) from
+  # tripping `set -e` — caller's length-check below then short-circuits with
+  # a warn. Using compgen sidesteps shfmt 3.8.0's lexer misreading
+  # `[0-9][0-9]` in an array assignment as an array subscript.
+  mapfile -t steps < <(compgen -G "$PROV_DIR/[0-9][0-9]-*.sh" | sort || true)
   if [[ ${#steps[@]} -eq 0 ]]; then
     log_warn "no provisioner scripts found under ${PROV_DIR} (Phase 2 provisioners land in sibling plans)"
     return 0
