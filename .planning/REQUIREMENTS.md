@@ -32,11 +32,11 @@ Grouped by behavior area. Each `BHV-XX` is a testable, observable behavior — t
 Observable behaviors of the provisioned agent user. These are the contract — tests must cover every bullet.
 
 - [x] **BHV-01**: The agent user exists after install, has a bash shell, a real home directory, and a UTF-8 locale configured (`LANG`, `LC_ALL`). (Provisioner landed 02-03; end-to-end bats verification in 02-05.)
-- [ ] **BHV-02**: The agent user can run commands over **non-interactive SSH** (`ssh agent@host '<cmd>'`) and all installed agent binaries (`claude`, `gsd`, etc.) are findable on PATH.
-- [ ] **BHV-03**: The agent user can run commands via **cron** and all installed agent binaries are findable on PATH.
-- [ ] **BHV-04**: The agent user can run commands via **systemd `User=agent`** and all installed agent binaries are findable on PATH.
-- [ ] **BHV-05**: Another user can run commands as the agent user via `sudo -u agent <cmd>` (or `sudo -u agent -i <cmd>`) and all installed agent binaries are findable on PATH.
-- [ ] **BHV-06**: The agent user can run commands in an interactive bash login shell and all installed agent binaries are findable on PATH.
+- [x] **BHV-02**: The agent user can run commands over **non-interactive SSH** (`ssh agent@host '<cmd>'`) and all installed agent binaries (`claude`, `gsd`, etc.) are findable on PATH. (PATH contract landed 02-04 via `/home/agent/.bashrc` `agentlinux-path` marker block at TOP — precedes skel `case $- in *i*) ;; *) return;;` early-return so non-interactive bash sees PATH + locale; end-to-end bats verification in 02-05.)
+- [x] **BHV-03**: The agent user can run commands via **cron** and all installed agent binaries are findable on PATH. (PATH contract landed 02-04 via `/etc/cron.d/agentlinux` literal `PATH=...` header; Pitfall 4 mitigation — no `$PATH` expansion; end-to-end bats verification in 02-05.)
+- [x] **BHV-04**: The agent user can run commands via **systemd `User=agent`** and all installed agent binaries are findable on PATH. (PATH contract landed 02-04 via `/etc/agentlinux.env` literal KEY=VALUE file; future units reference via `EnvironmentFile=/etc/agentlinux.env`; end-to-end bats verification in 02-05.)
+- [x] **BHV-05**: Another user can run commands as the agent user via `sudo -u agent <cmd>` (or `sudo -u agent -i <cmd>`) and all installed agent binaries are findable on PATH. (PATH contract landed 02-04: `sudo -u agent -i` → `/etc/profile.d/agentlinux.sh` via login shell; `sudo -u agent bash -c` → `.bashrc` TOP marker block; end-to-end bats verification in 02-05.)
+- [x] **BHV-06**: The agent user can run commands in an interactive bash login shell and all installed agent binaries are findable on PATH. (PATH contract landed 02-04 via `/etc/profile.d/agentlinux.sh` sourced by `/etc/profile`; re-source guard `AGENTLINUX_PROFILE_SOURCED` prevents double-prepend; end-to-end bats verification in 02-05.)
 
 ### Runtime + Global-Install Behavior (RT)
 
@@ -166,11 +166,11 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | INST-02 | Phase 2 | Pending |
 | INST-05 | Phase 2 | Pending |
 | BHV-01 | Phase 2 | ✓ Satisfied (02-03 provisioner; bats verification in 02-05) |
-| BHV-02 | Phase 2 | Pending |
-| BHV-03 | Phase 2 | Pending |
-| BHV-04 | Phase 2 | Pending |
-| BHV-05 | Phase 2 | Pending |
-| BHV-06 | Phase 2 | Pending |
+| BHV-02 | Phase 2 | ✓ Satisfied (02-04 .bashrc --top marker block sources profile.d before skel early-return; bats verification in 02-05) |
+| BHV-03 | Phase 2 | ✓ Satisfied (02-04 /etc/cron.d/agentlinux literal PATH header; bats verification in 02-05) |
+| BHV-04 | Phase 2 | ✓ Satisfied (02-04 /etc/agentlinux.env for systemd EnvironmentFile=; bats verification in 02-05) |
+| BHV-05 | Phase 2 | ✓ Satisfied (02-04 profile.d for sudo -u agent -i + .bashrc --top for sudo -u agent bash -c; bats verification in 02-05) |
+| BHV-06 | Phase 2 | ✓ Satisfied (02-04 /etc/profile.d/agentlinux.sh sourced by /etc/profile on login; bats verification in 02-05) |
 | DOC-02 | Phase 2 | ✓ Satisfied (02-03 CLAUDE.md placement; bats grep-verification in 02-05) |
 | TST-01 | Phase 2 | Pending |
 | TST-02 | Phase 2 | Pending |
