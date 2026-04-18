@@ -147,61 +147,70 @@ Explicitly excluded. Documented to prevent scope creep.
 
 ## Traceability
 
-Populated by the roadmapper during phase creation.
+Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| INST-01 | TBD | Pending |
-| INST-02 | TBD | Pending |
-| INST-03 | TBD | Pending |
-| INST-04 | TBD | Pending |
-| INST-05 | TBD | Pending |
-| BHV-01 | TBD | Pending |
-| BHV-02 | TBD | Pending |
-| BHV-03 | TBD | Pending |
-| BHV-04 | TBD | Pending |
-| BHV-05 | TBD | Pending |
-| BHV-06 | TBD | Pending |
-| RT-01 | TBD | Pending |
-| RT-02 | TBD | Pending |
-| RT-03 | TBD | Pending |
-| RT-04 | TBD | Pending |
-| AGT-01 | TBD | Pending |
-| AGT-02 | TBD | Pending |
-| AGT-03 | TBD | Pending |
-| AGT-04 | TBD | Pending |
-| AGT-05 | TBD | Pending |
-| CLI-01 | TBD | Pending |
-| CLI-02 | TBD | Pending |
-| CLI-03 | TBD | Pending |
-| CLI-04 | TBD | Pending |
-| CLI-05 | TBD | Pending |
-| CAT-01 | TBD | Pending |
-| CAT-02 | TBD | Pending |
-| CAT-03 | TBD | Pending |
-| HRN-01 | TBD | Pending |
-| HRN-02 | TBD | Pending |
-| HRN-03 | TBD | Pending |
-| HRN-04 | TBD | Pending |
-| HRN-05 | TBD | Pending |
-| HRN-06 | TBD | Pending |
-| HRN-07 | TBD | Pending |
-| HRN-08 | TBD | Pending |
-| HRN-09 | TBD | Pending |
-| TST-01 | TBD | Pending |
-| TST-02 | TBD | Pending |
-| TST-03 | TBD | Pending |
-| TST-04 | TBD | Pending |
-| TST-05 | TBD | Pending |
-| TST-06 | TBD | Pending |
-| TST-07 | TBD | Pending |
-| DOC-01 | TBD | Pending |
-| DOC-02 | TBD | Pending |
+| HRN-01 | Phase 1 | Pending |
+| HRN-02 | Phase 1 | Pending |
+| HRN-03 | Phase 1 | Pending |
+| HRN-04 | Phase 1 | Pending |
+| HRN-05 | Phase 1 | Pending |
+| HRN-06 | Phase 1 | Pending |
+| HRN-07 | Phase 1 | Pending |
+| HRN-08 | Phase 1 | Pending |
+| HRN-09 | Phase 1 | Pending |
+| TST-06 | Phase 1 | Pending |
+| TST-07 | Phase 1 | Pending |
+| INST-01 | Phase 2 | Pending |
+| INST-02 | Phase 2 | Pending |
+| INST-05 | Phase 2 | Pending |
+| BHV-01 | Phase 2 | Pending |
+| BHV-02 | Phase 2 | Pending |
+| BHV-03 | Phase 2 | Pending |
+| BHV-04 | Phase 2 | Pending |
+| BHV-05 | Phase 2 | Pending |
+| BHV-06 | Phase 2 | Pending |
+| DOC-02 | Phase 2 | Pending |
+| TST-01 | Phase 2 | Pending |
+| TST-02 | Phase 2 | Pending |
+| TST-04 | Phase 2 | Pending |
+| RT-01 | Phase 3 | Pending |
+| RT-02 | Phase 3 | Pending |
+| RT-03 | Phase 3 | Pending |
+| RT-04 | Phase 3 | Pending |
+| CLI-01 | Phase 4 | Pending |
+| CLI-02 | Phase 4 | Pending |
+| CLI-03 | Phase 4 | Pending |
+| CLI-04 | Phase 4 | Pending |
+| CLI-05 | Phase 4 | Pending |
+| CAT-01 | Phase 4 | Pending |
+| CAT-02 | Phase 4 | Pending |
+| CAT-03 | Phase 4 | Pending |
+| INST-04 | Phase 4 | Pending |
+| AGT-01 | Phase 5 | Pending |
+| AGT-02 | Phase 5 | Pending |
+| AGT-03 | Phase 5 | Pending |
+| AGT-04 | Phase 5 | Pending |
+| AGT-05 | Phase 5 | Pending |
+| INST-03 | Phase 6 | Pending |
+| TST-03 | Phase 6 | Pending |
+| TST-05 | Phase 6 | Pending |
+| DOC-01 | Phase 6 | Pending |
 
 **Coverage:**
 - v0.3.0 requirements: 46 total (9 HRN + 5 INST + 6 BHV + 4 RT + 5 AGT + 5 CLI + 3 CAT + 7 TST + 2 DOC)
-- Mapped to phases: 0 (roadmapper pending)
-- Unmapped: 46
+- Mapped to phases: 46 (100%)
+- Unmapped: 0
+
+**Per-phase counts:**
+- Phase 1 (Harness Setup): 11 — HRN-01..HRN-09, TST-06, TST-07
+- Phase 2 (Installer Foundation + Agent User): 13 — INST-01, INST-02, INST-05, BHV-01..BHV-06, DOC-02, TST-01, TST-02, TST-04
+- Phase 3 (Node.js Runtime + Per-User npm Prefix): 4 — RT-01..RT-04
+- Phase 4 (Registry CLI + Catalog + Uninstall): 9 — CLI-01..CLI-05, CAT-01..CAT-03, INST-04
+- Phase 5 (Agent Installability): 5 — AGT-01..AGT-05
+- Phase 6 (Distribution + Release Pipeline): 4 — INST-03, TST-03, TST-05, DOC-01
 
 ---
 *Requirements defined: 2026-04-18 — behavior-contract framing per user direction; implementation left intentionally open.*
+*Traceability mapped: 2026-04-18 — 46/46 requirements mapped across 6 phases, 0 orphans.*
