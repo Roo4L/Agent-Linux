@@ -24,13 +24,17 @@ fi
 #   - env preserved (-E, subject to secure_path in sudoers),
 #   - sudo option parsing terminated (--), so "$@" is passed verbatim.
 # Returns the command's exit status; returns 64 (EX_USAGE) on misuse.
+#
+# Guards <user> and <cmd...> before touching $1 so `set -u` callers get a
+# friendly log_error instead of a raw `$1: unbound variable` diagnostic when
+# the function is misused with zero args.
 as_user() {
-  local user=$1
-  shift
-  if [[ $# -eq 0 ]]; then
-    log_error "as_user: no command given (usage: as_user <user> <cmd...>)"
+  if [[ $# -lt 2 ]]; then
+    log_error "as_user: missing arguments (usage: as_user <user> <cmd...>)"
     return 64
   fi
+  local user=$1
+  shift
   sudo -u "$user" -H -E -- "$@"
 }
 
@@ -39,11 +43,11 @@ as_user() {
 # when the callee depends on PATH exports set up by the six-mode PATH matrix
 # in plugin/provisioner/40-path-wiring.sh.
 as_user_login() {
-  local user=$1
-  shift
-  if [[ $# -eq 0 ]]; then
-    log_error "as_user_login: no command given (usage: as_user_login <user> <cmd...>)"
+  if [[ $# -lt 2 ]]; then
+    log_error "as_user_login: missing arguments (usage: as_user_login <user> <cmd...>)"
     return 64
   fi
+  local user=$1
+  shift
   sudo -u "$user" -H -i -- "$@"
 }

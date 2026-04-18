@@ -20,7 +20,14 @@ fi
 # Append <line> to <file> only if not already present (fixed-string
 # whole-line match). `-F` = literal string, `-x` = whole-line, `-q` = quiet,
 # `--` = terminate options so <line> can start with `-`.
+#
+# Arg-count guard precedes $1/$2 reads so `set -u` callers get a friendly
+# log_error on misuse instead of a raw `$1: unbound variable`.
 ensure_line_in_file() {
+  if [[ $# -lt 2 ]]; then
+    log_error "ensure_line_in_file: missing arguments (usage: ensure_line_in_file <line> <file>)"
+    return 64
+  fi
   local line=$1 file=$2
   if ! grep -Fxq -- "$line" "$file" 2>/dev/null; then
     printf '%s\n' "$line" >>"$file"
@@ -40,6 +47,10 @@ ensure_line_in_file() {
 # chosen placement. Uses install(1) so the final write is an atomic rename and
 # preserves mode 0644. Tmp cleanup via a function-scoped RETURN trap.
 ensure_marker_block() {
+  if [[ $# -lt 2 ]]; then
+    log_error "ensure_marker_block: missing arguments (usage: ensure_marker_block <file> <tag> [--top|--bottom])"
+    return 64
+  fi
   local file=$1 tag=$2 placement=${3:---bottom}
   local begin="# >>> ${tag} begin >>>"
   local end="# <<< ${tag} end <<<"
@@ -93,6 +104,10 @@ ensure_marker_block() {
 # ensure_user <name>
 # useradd only if absent. Creates home, bash shell, matching user-group.
 ensure_user() {
+  if [[ $# -lt 1 ]]; then
+    log_error "ensure_user: missing argument (usage: ensure_user <name>)"
+    return 64
+  fi
   local user=$1
   if id "$user" >/dev/null 2>&1; then
     log_info "user ${user} already exists (no-op)"
@@ -106,6 +121,10 @@ ensure_user() {
 # Create directory if absent; enforce mode+ownership unconditionally on
 # subsequent calls so re-runs correct any drift introduced out-of-band.
 ensure_dir() {
+  if [[ $# -lt 3 ]]; then
+    log_error "ensure_dir: missing arguments (usage: ensure_dir <path> <mode> <user:group>)"
+    return 64
+  fi
   local path=$1 mode=$2 owner=$3
   if [[ ! -d $path ]]; then
     install -d -m "$mode" -o "${owner%:*}" -g "${owner#*:}" "$path"
@@ -121,6 +140,10 @@ ensure_dir() {
 # Phase 2 ships no drop-in; the helper exists so Phase 3+ callers cannot forget
 # it (see agentlinux-installer SKILL §"Sudoers minimalism").
 visudo_validate() {
+  if [[ $# -lt 1 ]]; then
+    log_error "visudo_validate: missing argument (usage: visudo_validate <file>)"
+    return 64
+  fi
   local file=$1
   if ! visudo -cf "$file" >/dev/null; then
     log_error "sudoers syntax check failed for ${file} (visudo -cf rejected)"
