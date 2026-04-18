@@ -78,8 +78,8 @@ Per `docs/HARNESS.md`. The agent harness is a foundation deliverable shipped as 
 - [x] **HRN-03**: A `CLAUDE.md` exists at the repo root, under 150 lines, containing the project identity, critical rules, review-loop instruction, command reference, and pointers per `docs/HARNESS.md` §6. ✓ Plan 01-01 (82 lines)
 - [x] **HRN-04**: A `docs/decisions/` ADR directory exists, seeded with ADR-001..ADR-010 from `docs/HARNESS.md` §2.3. ✓ Plan 01-01
 - [x] **HRN-05**: All `docs/research/v0.2.0/` and `docs/research/v0.3.0/` subdirectories exist with the appropriate research files migrated out of `.planning/`. ✓ Plan 01-01
-- [ ] **HRN-06**: Project-scoped review subagents exist in `.claude/agents/`: bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor.
-- [ ] **HRN-07**: A `/review` skill exists in `.claude/skills/` documenting the review-feedback-loop convention from `docs/HARNESS.md` §4.
+- [x] **HRN-06**: Project-scoped review subagents exist in `.claude/agents/`: bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor. ✓ Plan 01-03 (all six `.md` files under `.claude/agents/` with valid Claude Code subagent frontmatter; read-only tool set `Read, Grep, Glob, Bash` per HARNESS.md §4.2 T-03-01 mitigation; rubrics copy-of-truthed from HARNESS.md §4.2.)
+- [x] **HRN-07**: A `/review` skill exists in `.claude/skills/` documenting the review-feedback-loop convention from `docs/HARNESS.md` §4. ✓ Plan 01-03 (`.claude/skills/review/SKILL.md` with dispatch rules table, triage rules, ADR-010 trigger citation, and TST-07 end-of-phase gate; CLAUDE.md line 46 already points at it.)
 - [x] **HRN-08**: GitHub Actions workflows are configured: `test.yml` (pre-commit + CLI unit tests + Docker bats matrix on every PR), `nightly-qemu.yml` (QEMU release-gate suite), `nightly-mutation.yml` (stryker + bash mutator), `release.yml` (tag → tarball + .deb + sha256 → GitHub Release). ✓ Plan 01-02 (all four YAML files parse; all authored with empty-plugin guards so Phase 1 skeleton commit green-bars; legacy `deploy.yml` untouched.)
 - [ ] **HRN-09**: Project-scoped skill skeletons exist in `.claude/skills/`: agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness.
 
@@ -93,7 +93,7 @@ The test harness is a **primary deliverable** of v0.3.0, not a supporting concer
 - [ ] **TST-04**: Test failures produce a clear diagnostic: which BHV/RT/AGT/CLI/CAT/INST requirement failed, what was expected, what was observed, where the logs live.
 - [ ] **TST-05**: The acceptance test `AGT-02` (agent user self-updates Claude Code without sudo/EACCES) is a blocking gate for any release.
 - [x] **TST-06**: Mutation testing runs nightly. The Node.js registry CLI uses `stryker-mutator` (target ≥ 75% mutation score, advisory in v0.3.0). Bash sources use a custom `tests/mutation/bash-mutator.sh` (target ≥ 60% mutation score, advisory in v0.3.0). Score regressions open a follow-up issue but do not block release in v0.3.0; promotion to a release gate is a v0.4 decision. ✓ Plan 01-02 (scaffolded: `plugin/cli/stryker.config.json` with `thresholds.break: 0`; `tests/mutation/bash-mutator.sh` executable, exits 0 on empty plugin; `nightly-mutation.yml` uses `continue-on-error: true`; `tests/mutation/README.md` documents advisory status. Full mutant-scoring bodies land in Phase 2+.)
-- [ ] **TST-07**: A `behavior-coverage-auditor` review subagent (per HRN-06) runs at the end of every phase to assert that every newly-added BHV/RT/AGT/CLI/CAT/INST requirement has at least one bats test.
+- [x] **TST-07**: A `behavior-coverage-auditor` review subagent (per HRN-06) runs at the end of every phase to assert that every newly-added BHV/RT/AGT/CLI/CAT/INST requirement has at least one bats test. ✓ Plan 01-03 (`.claude/agents/behavior-coverage-auditor.md` defines the subagent; `.claude/skills/review/SKILL.md` §"Relation to TST-07" names it as the "always spawn at phase close regardless of what changed" gate; emits `TST-07 gate: RED|GREEN` summary line for the main agent to decide phase close.)
 
 ### Documentation (DOC)
 
@@ -156,12 +156,12 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | HRN-03 | Phase 1 | ✓ Complete (01-01) |
 | HRN-04 | Phase 1 | ✓ Complete (01-01) |
 | HRN-05 | Phase 1 | ✓ Complete (01-01) |
-| HRN-06 | Phase 1 | Pending |
-| HRN-07 | Phase 1 | Pending |
+| HRN-06 | Phase 1 | ✓ Complete (01-03) |
+| HRN-07 | Phase 1 | ✓ Complete (01-03) |
 | HRN-08 | Phase 1 | ✓ Complete (01-02) |
 | HRN-09 | Phase 1 | Pending |
 | TST-06 | Phase 1 | ✓ Complete (01-02 — scaffolded) |
-| TST-07 | Phase 1 | Pending |
+| TST-07 | Phase 1 | ✓ Complete (01-03) |
 | INST-01 | Phase 2 | Pending |
 | INST-02 | Phase 2 | Pending |
 | INST-05 | Phase 2 | Pending |

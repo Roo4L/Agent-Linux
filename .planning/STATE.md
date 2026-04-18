@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.0
 milestone_name: AgentLinux Plugin (Ubuntu)
 status: in_progress
-stopped_at: Plan 01-02 complete (.pre-commit-config.yaml + four GH Actions workflows + mutation scaffolding). Next plan 01-03 (six review subagents + /review skill).
-last_updated: "2026-04-18T10:00:32.000Z"
-last_activity: 2026-04-18 — Plan 01-02 complete; HRN-02, HRN-08, TST-06 (scaffolded) satisfied.
+stopped_at: Plan 01-03 complete (six project-scoped review subagents + /review skill). Next plan 01-04 (four project-scoped skill skeletons).
+last_updated: "2026-04-18T10:40:43.000Z"
+last_activity: 2026-04-18 — Plan 01-03 complete; HRN-06, HRN-07, TST-07 satisfied.
 progress:
   total_phases: 6
   completed_phases: 0
   total_plans: 5
-  completed_plans: 2
-  percent: 6
+  completed_plans: 3
+  percent: 9
 ---
 
 # Project State
@@ -26,11 +26,11 @@ See: .planning/PROJECT.md (updated 2026-04-18)
 ## Current Position
 
 Phase: 1 of 6 (Harness Setup)
-Plan: 01-02 ✓ complete — next plan 01-03 (six review subagents + /review skill)
+Plan: 01-03 ✓ complete — next plan 01-04 (four project-scoped skill skeletons)
 Status: In progress
-Last activity: 2026-04-18 — Plan 01-02 complete (3 tasks, 3 atomic commits, ~3 min). Pre-commit config + four GH Actions workflows + mutation scaffolding landed.
+Last activity: 2026-04-18 — Plan 01-03 complete (2 tasks, 2 atomic commits, ~34 min). Six project-scoped review subagents + /review skill landed under .claude/agents/ and .claude/skills/review/. HRN-06, HRN-07, TST-07 satisfied.
 
-Progress: [▓░░░░░░░░░] 6% (2 of ~32 plans done)
+Progress: [▓░░░░░░░░░] 9% (3 of ~32 plans done)
 
 ## Performance Metrics
 
@@ -46,7 +46,7 @@ Progress: [▓░░░░░░░░░] 6% (2 of ~32 plans done)
 | 2. Deploy to Public | v0.1.0 | 2 | ~3min | ~1.5min |
 | 3. Bootable Image | v0.2.0 | 3 | ~14min | ~4.7min |
 | 4. Agent Tool Packages | v0.2.0 | 2 | ~5min | ~2.5min |
-| 1. Harness Setup (partial) | v0.3.0 | 2/5 | ~7min | ~3.5min |
+| 1. Harness Setup (partial) | v0.3.0 | 3/5 | ~41min | ~13.7min |
 
 **v0.3.0 plan metrics:**
 
@@ -54,6 +54,7 @@ Progress: [▓░░░░░░░░░] 6% (2 of ~32 plans done)
 |------|-------|-------|----------|--------|
 | 01-01 Skeleton + CLAUDE.md + ADRs + research | 3 | 47 created | ~4 min | 3d65cb2, fa49675, d2ca481 |
 | 01-02 Pre-commit + GH workflows + mutation scaffolding | 3 | 9 created | ~3 min | d428627, 6997474, 82abda0 |
+| 01-03 Review subagents + /review skill | 2 | 7 created | ~34 min | 0da6082, f1595f8 |
 
 ## Accumulated Context
 
@@ -82,6 +83,13 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - Mutation scaffolding is non-blocking at **three independent layers**: `stryker.config.json` `thresholds.break: 0`, `nightly-mutation.yml` job-level `continue-on-error: true`, `bash-mutator.sh` always exits 0 on the current skeleton. No single layer can drag the release pipeline red.
 - Every CI workflow is authored with a `compgen -G` / `[[ -x ... ]]` empty-plugin guard so skeleton-phase commits green-bar without fake test files. Guards skip jobs whose sources (tests/, bats/, CLI source) do not yet exist.
 - Legacy `.github/workflows/deploy.yml` (v0.1.0 website) left completely untouched; the new `test.yml` uses `paths-ignore` for website files so the two workflows do not double-fire.
+
+**New decisions from Plan 01-03 execution:**
+- CLAUDE.md left untouched: line 46 already pointed at `.claude/skills/review/SKILL.md` (Plan 01-01's doing). Success-criterion was to verify the pointer resolves — it does, so no silent edit was made.
+- All six subagents ship with read-only tool sets (`tools: Read, Grep, Glob, Bash` — no Write/Edit) per HARNESS.md §4.2 threat-register T-03-01 mitigation. Write access can be granted when spawned outside the review loop, but the file-level restriction is the belt-and-braces layer.
+- Subagent rubrics are copy-of-truth for `docs/HARNESS.md` §4.2: every rubric bullet expands a HARNESS.md §4.2 one-liner. Same pattern Plan 01-02 used for `.pre-commit-config.yaml`. Future HARNESS.md §4.2 edits require a sweep across the six subagent files — drift is detectable via diff.
+- Subagent files omit `model:` frontmatter (let Claude Code infer from parent session); the plan's `<interfaces>` example only declared `name`, `description`, `tools`. Pinning `sonnet` is a trivial one-line edit if future tuning wants it.
+- `/review` skill explicitly names `behavior-coverage-auditor` as the "always spawn at phase close regardless of what changed" TST-07 gate — the rule is in the dispatch-rules table (last row) and in a dedicated "Relation to TST-07" section, so no phase can close without the report.
 
 **Carried forward from v0.2.0 (still relevant for plugin installer):**
 - Node.js 22 LTS from NodeSource as the runtime baseline (install path proven)
@@ -130,6 +138,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-04-18T10:00:32Z
-Stopped at: Plan 01-02 complete. HRN-02 (pre-commit config wires shellcheck + shfmt + biome + catalog JSON Schema), HRN-08 (four GH Actions workflows — test, nightly-qemu, nightly-mutation, release), TST-06 (mutation scaffolding: stryker config + bash-mutator.sh, both advisory) satisfied. Summary at `.planning/phases/01-harness-setup/01-02-SUMMARY.md`. Next: execute Plan 01-03 (six review subagents + /review skill).
-Resume file: `.planning/phases/01-harness-setup/01-03-PLAN.md`
+Last session: 2026-04-18T10:40:43Z
+Stopped at: Plan 01-03 complete. HRN-06 (six project-scoped review subagents under `.claude/agents/` — bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor), HRN-07 (`/review` skill at `.claude/skills/review/SKILL.md` documenting the review-loop convention with dispatch rules + triage rules + ADR-010 trigger), TST-07 (behavior-coverage-auditor subagent is defined and the skill names it as the end-of-phase gate; runs at every phase close) all satisfied. Summary at `.planning/phases/01-harness-setup/01-03-SUMMARY.md`. Next: execute Plan 01-04 (four project-scoped skill skeletons: agentlinux-installer, behavior-test-contract, catalog-schema, qemu-harness).
+Resume file: `.planning/phases/01-harness-setup/01-04-PLAN.md`
