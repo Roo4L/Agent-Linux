@@ -66,12 +66,16 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # system bus or it errors with "Failed to connect to bus: No such file or
 # directory" and the test fails vacuously (02-05 Rule 3 auto-fix: discovered
 # on local Docker smoke test before CI ever saw it).
+# jq is REQUIRED by Phase 4's tests/bats/40-registry-cli.bats to parse
+# `agentlinux list --json` output and inspect sentinel JSON files
+# (/opt/agentlinux/state/installed.d/<id>.json). Plan 04-07 Rule 3 auto-fix.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       systemd systemd-sysv \
       cron openssh-server \
       bats locales sudo \
       dbus \
+      jq \
       ca-certificates bash coreutils util-linux \
       shellcheck && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
