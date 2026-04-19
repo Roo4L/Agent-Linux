@@ -48,6 +48,7 @@ program
   .description("Install a catalog agent at its pinned_version")
   .option("--force", "re-run install.sh even if sentinel matches")
   .option("--version <semver>", "override catalog pin with a specific version")
+  .option("--include-test", "allow installing test-only entries (hidden by default)")
   .action(async (name: string, opts) => {
     await installCmd(name, { ...program.opts(), ...opts });
   });
