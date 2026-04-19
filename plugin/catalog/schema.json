@@ -2,24 +2,78 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentlinux.org/schemas/catalog.json",
   "title": "AgentLinux Catalog",
-  "description": "Stub schema for the v0.3.0 catalog. Real entries arrive in Phase 4.",
+  "description": "Catalog of available agents. Each entry is opt-in (CAT-02). Stability-first pinning (ADR-011): every entry carries a required pinned_version.",
   "type": "object",
   "required": ["version", "agents"],
+  "additionalProperties": false,
   "properties": {
-    "version": { "type": "string" },
+    "version": {
+      "type": "string",
+      "description": "Catalog manifest version (not an agent version)"
+    },
     "agents": {
       "type": "array",
-      "items": {
-        "type": "object",
-        "required": ["name", "description", "install"],
-        "properties": {
-          "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-          "description": { "type": "string" },
-          "install": { "type": "string" }
-        },
-        "additionalProperties": false
-      }
+      "items": { "$ref": "#/$defs/agent" }
     }
   },
-  "additionalProperties": false
+  "$defs": {
+    "agent": {
+      "type": "object",
+      "required": [
+        "id",
+        "display_name",
+        "description",
+        "pinned_version",
+        "install_recipe_path",
+        "uninstall_recipe_path",
+        "source_kind"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+        "display_name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "homepage": { "type": "string", "format": "uri" },
+        "license": { "type": "string" },
+        "source_kind": { "type": "string", "enum": ["npm", "script"] },
+        "npm_package_name": {
+          "type": "string",
+          "pattern": "^(@[a-z0-9-]+/)?[a-z0-9][a-z0-9_-]*$"
+        },
+        "pinned_version": {
+          "type": "string",
+          "description": "Exact semver pinned by this catalog release (CAT-04 / ADR-011)",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        },
+        "version_constraint": {
+          "type": "string",
+          "description": "Optional semver range (e.g. '^2.1') that --all-latest upper-bounds against"
+        },
+        "install_recipe_path": {
+          "type": "string",
+          "pattern": "^[a-z0-9_./-]+\\.sh$"
+        },
+        "uninstall_recipe_path": {
+          "type": "string",
+          "pattern": "^[a-z0-9_./-]+\\.sh$"
+        },
+        "post_install_verify": {
+          "type": "string",
+          "description": "Optional shell one-liner for smoke-test"
+        },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "test_only": {
+          "type": "boolean",
+          "default": false,
+          "description": "Hide from default `list`; exercised by bats"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "source_kind": { "const": "npm" } }, "required": ["source_kind"] },
+          "then": { "required": ["npm_package_name"] }
+        }
+      ]
+    }
+  }
 }

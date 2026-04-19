@@ -1,39 +1,58 @@
 #!/usr/bin/env node
-// Phase 1 catalog-schema validator: zero-dep structural check.
-// Real ajv-based validation arrives with Phase 4 when catalog entries ship.
-// TODO Phase 4: swap in ajv once plugin/cli dependencies are bootstrapped.
-import { readFileSync, existsSync } from 'node:fs';
+// plugin/cli/scripts/validate-catalog.mjs — Phase 4 ajv-driven pre-commit wrapper.
+// Replaces the Phase 1 zero-dep scaffold; invoked by .pre-commit-config.yaml
+// on plugin/catalog/ changes. Pattern ref: 04-RESEARCH §Example 2 lines 1296-1337.
+//
+// Keeps a graceful early-exit if catalog.json does not yet exist (Wave 1 hasn't
+// shipped it — Plan 04-02). Dynamic import of ajv/ajv-formats means the script
+// is runnable even before `pnpm install` completes, yielding a clearer error
+// than a top-level import failure.
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const SCHEMA_PATH = 'plugin/catalog/schema.json';
-const CATALOG_PATH = 'plugin/catalog/catalog.json';
+const HERE = dirname(fileURLToPath(import.meta.url));
+const SCHEMA = join(HERE, "..", "..", "catalog", "schema.json");
+const CATALOG = join(HERE, "..", "..", "catalog", "catalog.json");
 
-function fail(msg) {
-  console.error(`catalog-schema-validate: ${msg}`);
+if (!existsSync(SCHEMA)) {
+  console.error(`catalog-schema-validate: missing schema at ${SCHEMA}`);
   process.exit(1);
 }
 
-if (!existsSync(SCHEMA_PATH)) fail(`missing schema at ${SCHEMA_PATH}`);
-const schema = JSON.parse(readFileSync(SCHEMA_PATH, 'utf8'));
-if (!schema.properties?.agents) fail(`schema at ${SCHEMA_PATH} is malformed`);
-
-if (!existsSync(CATALOG_PATH)) {
-  console.log('catalog-schema-validate: no catalog.json yet (Phase 1 skeleton) — skipping');
+if (!existsSync(CATALOG)) {
+  console.log("catalog-schema-validate: no catalog.json yet (Wave 1 skeleton) — skipping");
   process.exit(0);
 }
 
-const catalog = JSON.parse(readFileSync(CATALOG_PATH, 'utf8'));
-if (!catalog.version || !Array.isArray(catalog.agents)) {
-  fail(`${CATALOG_PATH} missing version or agents[]`);
+let Ajv2020;
+let addFormats;
+try {
+  ({ default: Ajv2020 } = await import("ajv/dist/2020.js"));
+  ({ default: addFormats } = await import("ajv-formats"));
+} catch (err) {
+  console.error(
+    "catalog-schema-validate: ajv not installed — run `pnpm install` in plugin/cli/ first",
+  );
+  console.error(`  reason: ${err?.message ?? err}`);
+  process.exit(1);
 }
-const namePattern = /^[a-z][a-z0-9-]*$/;
-for (const [i, a] of catalog.agents.entries()) {
-  // Use a positional identifier when name is missing/invalid so later errors
-  // ("missing description") do not read as "agent undefined: missing ...".
-  const id = a.name || `<agents[${i}]>`;
-  if (!a.name || !namePattern.test(a.name)) {
-    fail(`agent ${id}: name fails pattern ${namePattern}`);
+
+// strictRequired:false mirrors plugin/cli/src/catalog/schema.ts — the
+// allOf/then `required` clause references `npm_package_name` defined on
+// the parent $defs/agent; Ajv 2020's strict mode flags this false-positive.
+const ajv = new Ajv2020({ allErrors: true, strict: true, strictRequired: false });
+addFormats(ajv);
+const validate = ajv.compile(JSON.parse(readFileSync(SCHEMA, "utf8")));
+const catalog = JSON.parse(readFileSync(CATALOG, "utf8"));
+
+if (!validate(catalog)) {
+  console.error("catalog-schema-validate: FAILED");
+  for (const err of validate.errors ?? []) {
+    console.error(
+      `  • ${err.instancePath || "(root)"}: ${err.message} ${JSON.stringify(err.params)}`,
+    );
   }
-  if (!a.description) fail(`agent ${id}: missing description`);
-  if (!a.install) fail(`agent ${id}: missing install`);
+  process.exit(1);
 }
 console.log(`catalog-schema-validate: ${catalog.agents.length} entries OK`);

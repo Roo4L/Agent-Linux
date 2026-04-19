@@ -1,0 +1,14 @@
+{
+  "version": "0.3.0",
+  "agents": [
+    {
+      "id": "test-apt",
+      "display_name": "Test APT",
+      "description": "fixture — source_kind not in enum (CAT-03 negative)",
+      "source_kind": "apt",
+      "pinned_version": "1.2.3",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh"
+    }
+  ]
+}

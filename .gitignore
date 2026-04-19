@@ -7,3 +7,7 @@ packer/packer_cache/
 
 # Node dependencies (bats installed locally for harness tests; no root package.json)
 node_modules/
+
+# plugin/cli/ TypeScript build output + test-build tree (tsc emits, not checked in)
+plugin/cli/dist/
+plugin/cli/dist-test/
