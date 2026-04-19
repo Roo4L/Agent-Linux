@@ -377,7 +377,10 @@ describe("pin + upgrade integration sanity", () => {
       sil.restore();
     }
     const ids = recipeCalls.map((c) => c.id);
-    assert.ok(!ids.includes("foo"), "pin=latest sticky entry must be skipped by upgrade --all-latest");
+    assert.ok(
+      !ids.includes("foo"),
+      "pin=latest sticky entry must be skipped by upgrade --all-latest",
+    );
     // Post-upgrade sentinel untouched.
     const s = await readSentinel("foo");
     assert.equal(s?.source, "latest");
