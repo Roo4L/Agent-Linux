@@ -33,18 +33,40 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 }
 
 @test "INST-02: re-running the installer is byte-stable (idempotency)" {
-  # Snapshot the four PATH-wiring artefacts + DOC-02 CLAUDE.md + .bashrc
-  # BEFORE and AFTER a re-run. Byte-identical output means ensure_* helpers
-  # plus single-quoted heredocs hit the no-diff contract (Measurement Point
-  # 3 in 02-RESEARCH.md).
+  # Snapshot the PATH-wiring artefacts + DOC-02 CLAUDE.md + .bashrc +
+  # Phase 3 npmrc/nodesource + Phase 4 CLI + catalog artefacts BEFORE and
+  # AFTER a re-run. Byte-identical output means ensure_* helpers plus
+  # single-quoted heredocs plus deterministic cp -R into versioned dirs
+  # hit the no-diff contract (Measurement Point 3 in 02-RESEARCH.md).
   local pre post
   pre=$(mktemp)
   post=$(mktemp)
   # shellcheck disable=SC2129 # sequential > is fine; one-shot write.
-  # Phase 3 extension: added /home/agent/.npmrc and
-  # /etc/apt/sources.list.d/nodesource.sources (deb822 — modern filename per
-  # RESEARCH Pitfall 1; legacy nodesource.list is NOT added because NodeSource's
-  # 2026 setup_22.x no longer writes it). T-03-04 byte-idempotency guard.
+  #
+  # Phase 4 extension (Plan 04-07 Task 2): the idempotency set grows
+  # monotonically as each phase adds provisioner artefacts —
+  #   Phase 2 (5): profile.d/agentlinux.sh, agentlinux.env, cron.d/agentlinux,
+  #                /home/agent/.bashrc, /home/agent/CLAUDE.md.
+  #   Phase 3 (+2): /home/agent/.npmrc, /etc/apt/sources.list.d/nodesource.sources.
+  #   Phase 4 (+2): /opt/agentlinux/catalog/${AGENTLINUX_VERSION}/catalog.json,
+  #                 /opt/agentlinux/catalog/${AGENTLINUX_VERSION}/agents/test-dummy/install.sh.
+  #   Phase 4 (+2 SEPARATE byte-stability checks with their own __fail paths):
+  #      - symlink TARGET (readlink /home/agent/.npm-global/bin/agentlinux)
+  #      - CLI entrypoint SHEBANG (first line of /opt/agentlinux/cli/*/dist/index.js)
+  #
+  # LOCKED deterministic strategy — four Phase 4 items chosen to avoid
+  # whole-tree recursion on /opt/agentlinux/cli/ or /opt/agentlinux/catalog/.
+  # tsc output across compilations can vary in mtime / internal file
+  # ordering; a find -type f -exec sha256sum on the whole dist/ tree would
+  # be flaky. Instead we hash specific files the provisioner produces
+  # deterministically:
+  #   - catalog.json: cp -R of a checked-in JSON file → byte-stable.
+  #   - test-dummy/install.sh: cp -R of a checked-in shell script → byte-stable.
+  # And we separately verify:
+  #   - readlink target: a string, byte-stable by construction.
+  #   - first line of dist/index.js: the #!/usr/bin/env node shebang — stable
+  #     regardless of any internal tsc reordering of the generated body.
+  local version=${AGENTLINUX_VERSION:-0.3.0}
   find \
     /etc/profile.d/agentlinux.sh \
     /etc/agentlinux.env \
@@ -53,7 +75,22 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     /home/agent/CLAUDE.md \
     /home/agent/.npmrc \
     /etc/apt/sources.list.d/nodesource.sources \
+    "/opt/agentlinux/catalog/${version}/catalog.json" \
+    "/opt/agentlinux/catalog/${version}/agents/test-dummy/install.sh" \
     -type f -exec sha256sum {} + >"$pre" 2>/dev/null
+
+  # Symlink target stability — the provisioner's ln -sfn should be a no-op
+  # on re-run. A drift here means the chown -h + ln -sfn sequence raced
+  # or the target path changed (Plan 04-06 T-04-15 guard).
+  local sym_pre
+  sym_pre=$(readlink /home/agent/.npm-global/bin/agentlinux 2>/dev/null || echo MISSING)
+
+  # CLI entrypoint shebang hash — hashes ONLY the first line to avoid
+  # tsc-output-ordering false positives. A drift here means the shebang
+  # line itself rotated (which would break Node dispatch under the
+  # /usr/bin/env node convention).
+  local shebang_pre
+  shebang_pre=$(head -1 "/opt/agentlinux/cli/${version}/dist/index.js" 2>/dev/null | sha256sum)
 
   run bash "$INSTALLER"
   assert_exit_zero "INST-02"
@@ -66,15 +103,29 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     /home/agent/CLAUDE.md \
     /home/agent/.npmrc \
     /etc/apt/sources.list.d/nodesource.sources \
+    "/opt/agentlinux/catalog/${version}/catalog.json" \
+    "/opt/agentlinux/catalog/${version}/agents/test-dummy/install.sh" \
     -type f -exec sha256sum {} + >"$post" 2>/dev/null
+
+  local sym_post shebang_post
+  sym_post=$(readlink /home/agent/.npm-global/bin/agentlinux 2>/dev/null || echo MISSING)
+  shebang_post=$(head -1 "/opt/agentlinux/cli/${version}/dist/index.js" 2>/dev/null | sha256sum)
 
   if ! diff -q "$pre" "$post" >/dev/null 2>&1; then
     local delta
     delta=$(diff -u "$pre" "$post" | head -40)
     rm -f "$pre" "$post"
-    __fail "INST-02" "sha256 byte-stable across re-run" "$delta" "$LOG"
+    __fail "INST-02" "sha256 byte-stable across re-run (9-file set)" "$delta" "$LOG"
   fi
   rm -f "$pre" "$post"
+
+  [[ "$sym_pre" == "$sym_post" ]] \
+    || __fail "INST-02" "agentlinux symlink target stable across re-run" \
+         "before=${sym_pre} after=${sym_post}" "$LOG"
+
+  [[ "$shebang_pre" == "$shebang_post" ]] \
+    || __fail "INST-02" "CLI dist/index.js shebang (first line) stable across re-run" \
+         "before=${shebang_pre} after=${shebang_post}" "$LOG"
 }
 
 @test "INST-05: installer log contains no EACCES or 'permission denied' lines" {
