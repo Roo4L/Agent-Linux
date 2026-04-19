@@ -102,7 +102,7 @@ Key locked decisions honored by this roadmap:
 - [x] 04-03-PLAN.md — list/install/remove commands + shared runner.ts dispatcher (CLI-02, CLI-03, CLI-04, CLI-05) ✓ 2026-04-19
 - [x] 04-04-PLAN.md — upgrade verb with divergence classifier + npm ls/view (CLI-06) ✓ 2026-04-19 (2 commits: 01cbfff divergence+npm_ls+types+26 tests, 897c4e3 upgrade orchestrator+12 tests; 92/92 tests green; CLI-06 TypeScript-side complete; bats enforcement lands Plan 04-07)
 - [x] 04-05-PLAN.md — pin verb with sticky-override semantics (CLI-07) ✓ 2026-04-19 (2 commits: b6b8932 RED test — parsePinSpec + pinCmd + integration sanity, 55c55dc GREEN feat — pin.ts stub replaced with full impl; 112/112 tests green up from 92, +20 new pin tests; CLI-07 TypeScript-side complete; bats enforcement lands Plan 04-07)
-- [ ] 04-06-PLAN.md — 50-registry-cli.sh provisioner + --purge 7-step teardown + Docker builder stage (CLI-01 PATH, INST-04)
+- [x] 04-06-PLAN.md — 50-registry-cli.sh provisioner + --purge 7-step teardown + Docker builder stage (CLI-01 PATH, INST-04) ✓ 2026-04-19 (4 commits: 34dc39a feat provisioner, b6a6be9 feat --purge teardown, f4d76bb fix as_user caller shape + CLI bundle trio staging (Rule 1 + Rule 2 auto-fixes), 5fd4677 feat Dockerfiles multi-stage node:22-slim builder + run.sh splice; Docker smoke green on Ubuntu 22.04 + 24.04: 27/27 bats per image + agentlinux --version=0.3.0 as agent user + agentlinux list prints 3-agent table; CLI-01 + INST-04 ✓ COMPLETE installer-side; bats enforcement lands Plan 04-07)
 - [ ] 04-07-PLAN.md — bats integration tests + INST-02 extension + TST-07 phase-close audit (CLI-01..07, CAT-01..04, INST-04)
 
 ### Phase 5: Agent Installability
