@@ -70,8 +70,8 @@ Behaviors of installed agent tools. Each behavior is tested once with Claude Cod
 
 - [ ] **CAT-01**: The v0.3.0 catalog contains at least three available agents: `claude-code`, `gsd`, `playwright`. (Playwright replaces v0.2.0's chrome-devtools-mcp as the canonical browser-access tool.)
 - [ ] **CAT-02**: **None of the catalog agents is installed by default.** Fresh install produces an empty-install state; every agent is opt-in via `agentlinux install`.
-- [ ] **CAT-03**: The catalog has a documented, machine-readable schema (JSON) so new agents can be added by submitting a catalog entry + install recipe without code changes to the CLI.
-- [ ] **CAT-04**: Every catalog entry declares a `pinned_version` (required, semver) validated by JSON Schema. `agentlinux install <name>` installs exactly that version via `sudo -u agent -H npm install -g <pkg>@<pinned_version>` (or equivalent native-installer pin for agents with their own installer, e.g. Claude Code). Per ADR-011.
+- [x] **CAT-03**: The catalog has a documented, machine-readable schema (JSON) so new agents can be added by submitting a catalog entry + install recipe without code changes to the CLI. (Verified Plan 04-01: plugin/catalog/schema.json is JSON Schema 2020-12 per ADR-011; ajv validator at plugin/cli/src/catalog/schema.ts + pre-commit wrapper at plugin/cli/scripts/validate-catalog.mjs both enforce it; 6/6 unit tests exercise positive + negative + boundary cases.)
+- [x] **CAT-04**: Every catalog entry declares a `pinned_version` (required, semver) validated by JSON Schema. `agentlinux install <name>` installs exactly that version via `sudo -u agent -H npm install -g <pkg>@<pinned_version>` (or equivalent native-installer pin for agents with their own installer, e.g. Claude Code). Per ADR-011. (Verified Plan 04-01 schema-side: `required: [..., pinned_version, ...]`; pattern `^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$` accepts pre-release + build-metadata, rejects non-semver. Runtime-side install happens in Plan 04-03.)
 - [ ] **CAT-05**: Each release artifact includes a catalog snapshot at `/opt/agentlinux/catalog/<version>/catalog.json` as a sibling of the release tarball + `.sha256`. The installer stages this snapshot; `agentlinux upgrade` reads it to compute the 3-way divergence. The snapshot is what CI validates end-to-end before the release tag is published (per TST-08).
 
 ### Agent Harness (HRN)
@@ -185,7 +185,7 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | RT-02 | Phase 3 | Pending (Plan 03-02 bats — PATH wiring installer-side ready via 40-path-wiring.sh extension in 03-01) |
 | RT-03 | Phase 3 | Pending (Plan 03-02 bats) |
 | RT-04 | Phase 3 | ✓ Complete installer-side (03-01: ~agent/.npmrc `prefix=/home/agent/.npm-global` + NPM_CONFIG_PREFIX belt-and-braces in /etc/agentlinux.env; /home/agent/.npm-global agent-owned 0755; T-03-03 byte-identical split-brain avoidance; observable six-mode bats proof lands in Plan 03-02 via assert_user_prefix_in_home) |
-| CLI-01 | Phase 4 | Pending |
+| CLI-01 | Phase 4 | Partial (04-01: Commander bootstrap + `#!/usr/bin/env node` dist/index.js + `--version` = 0.3.0; full CLI-01 requires Plan 04-06 provisioner to stage dist/ + symlink under /home/agent/.npm-global/bin/) |
 | CLI-02 | Phase 4 | Pending |
 | CLI-03 | Phase 4 | Pending |
 | CLI-04 | Phase 4 | Pending |
@@ -194,8 +194,8 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | CLI-07 | Phase 4 | Pending (sticky-override `pin` verb per ADR-011) |
 | CAT-01 | Phase 4 | Pending |
 | CAT-02 | Phase 4 | Pending |
-| CAT-03 | Phase 4 | Pending |
-| CAT-04 | Phase 4 | Pending (per-entry `pinned_version` per ADR-011) |
+| CAT-03 | Phase 4 | ✓ Complete (04-01: plugin/catalog/schema.json is JSON Schema 2020-12 per ADR-011; ajv validator at src/catalog/schema.ts + pre-commit wrapper at scripts/validate-catalog.mjs; 6/6 tests green) |
+| CAT-04 | Phase 4 | ✓ Complete schema-side (04-01: required pinned_version with semver pattern accepting pre-release + build-metadata; 4 ajv tests cover positive + boundary cases; runtime install enforcement lands in Plan 04-03) |
 | CAT-05 | Phase 6 | Pending (release-time catalog snapshot sibling per ADR-011) |
 | INST-04 | Phase 4 | Pending |
 | AGT-01 | Phase 5 | Pending |
