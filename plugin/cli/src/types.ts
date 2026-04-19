@@ -51,3 +51,24 @@ export type Status =
   | "override-behind"
   | "pinned-override"
   | "drift-undeclared";
+
+// DivergenceReport — added in Plan 04-04 for `agentlinux upgrade`.
+// Extends the Plan 04-01 Status classifier with the four inputs (sentinel,
+// catalog pin, installed, optional upstream latest) reified into a single
+// per-agent record. Rendered as a table row OR emitted as JSON.
+//
+// Fields are null-vs-string rather than "-" placeholders — presentation
+// concerns live in the command layer (upgrade.ts / list.ts), not the data
+// type. `source: 'none'` is the sentinel-less fallback; lifts the Sentinel
+// 'source' enum to a narrowed string literal so the command layer can switch
+// on it exhaustively without nullable handling.
+export interface DivergenceReport {
+  id: string;
+  status: Status;
+  sentinelVersion: string | null; // null if not installed
+  installedVersion: string | null; // from npm ls / native probe
+  curatedVersion: string; // entry.pinned_version
+  latestVersion: string | null; // only populated when --check-upstream / --all-latest
+  source: Sentinel["source"] | "none";
+  sticky: boolean;
+}
