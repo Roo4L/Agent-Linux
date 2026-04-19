@@ -239,7 +239,11 @@ run_purge() {
       local recipe=/opt/agentlinux/catalog/${AGENTLINUX_VERSION}/agents/${id}/uninstall.sh
       if [[ -x $recipe ]]; then
         log_info "running uninstall.sh for ${id}"
-        as_user agent -- bash "$recipe" || log_warn "uninstall.sh for ${id} failed (continuing)"
+        # as_user's sudo line already appends `--`; passing a second `--`
+        # would resolve to `sudo -u agent -H -E -- -- bash <recipe>` and sudo
+        # would try to exec `--` ("command not found"). Pass the command
+        # verbatim without our own terminator.
+        as_user agent bash "$recipe" || log_warn "uninstall.sh for ${id} failed (continuing)"
       else
         log_warn "no uninstall.sh for ${id} at ${recipe}; skipping"
       fi

@@ -33,19 +33,35 @@ readonly STATE_DIR="/opt/agentlinux/state"
 readonly SYMLINK="/home/agent/.npm-global/bin/agentlinux"
 
 # Source directories: the installer was unpacked to a sibling of BIN_DIR
-# (BIN_DIR=plugin/bin, so plugin/ is its parent; cli/dist and catalog/ are
+# (BIN_DIR=plugin/bin, so plugin/ is its parent; cli/ and catalog/ are
 # siblings of bin/). SC2155 split so cmdsub failures propagate to ERR trap.
-CLI_SRC="$(cd "$BIN_DIR/../cli/dist" && pwd)"
-readonly CLI_SRC
+#
+# We stage three things from plugin/cli/:
+#   dist/         — tsc output (runtime JS)
+#   node_modules/ — production deps (ajv, commander, semver, ...)
+#   package.json  — ESM loader needs "type": "module"; also declares deps so
+#                   Node's resolver finds node_modules in a sibling dir.
+# All three MUST be present before the provisioner runs; builds (Docker
+# multi-stage / release tarball) are responsible for producing the bundle.
+CLI_BUNDLE_SRC="$(cd "$BIN_DIR/../cli" && pwd)"
+readonly CLI_BUNDLE_SRC
 CATALOG_SRC="$(cd "$BIN_DIR/../catalog" && pwd)"
 readonly CATALOG_SRC
 
 # Sanity: the build pipeline (Docker image build; release tarball pipeline)
-# must have populated plugin/cli/dist/ and plugin/catalog/. If not, fail
-# clearly so operators know the release artifact is malformed, not a runtime
-# bug.
-if [[ ! -f "$CLI_SRC/index.js" ]]; then
-  log_error "CLI dist/index.js missing at ${CLI_SRC} — release tarball malformed?"
+# must have populated plugin/cli/{dist,node_modules,package.json} and
+# plugin/catalog/. If not, fail clearly so operators know the release
+# artifact is malformed, not a runtime bug.
+if [[ ! -f "$CLI_BUNDLE_SRC/dist/index.js" ]]; then
+  log_error "CLI dist/index.js missing at ${CLI_BUNDLE_SRC}/dist — release tarball malformed?"
+  return 1
+fi
+if [[ ! -d "$CLI_BUNDLE_SRC/node_modules" ]]; then
+  log_error "CLI node_modules missing at ${CLI_BUNDLE_SRC}/node_modules — release tarball malformed?"
+  return 1
+fi
+if [[ ! -f "$CLI_BUNDLE_SRC/package.json" ]]; then
+  log_error "CLI package.json missing at ${CLI_BUNDLE_SRC}/package.json — release tarball malformed?"
   return 1
 fi
 if [[ ! -f "$CATALOG_SRC/catalog.json" ]]; then
@@ -54,16 +70,24 @@ if [[ ! -f "$CATALOG_SRC/catalog.json" ]]; then
 fi
 
 # Stage CLI under versioned dir (multiple versions can coexist at runtime).
+# Layout: /opt/agentlinux/cli/<ver>/{dist/,node_modules/,package.json}
+# Node ESM resolver starts at dist/index.js, walks up to find sibling
+# node_modules/, then resolves 'commander' etc. package.json's "type":
+# "module" at the versioned-dir level makes the *.js files in dist/ ESM.
 ensure_dir /opt/agentlinux 0755 root:root
 ensure_dir "$(dirname "$CLI_STAGE_DIR")" 0755 root:root
 ensure_dir "$CLI_STAGE_DIR" 0755 root:root
-# cp -R followed by chmod is simpler than rsync for our size class (<1MB).
-# The trailing /. on src avoids the "copy src/ as subdir" footgun: cp src/. dst/
-# copies contents of src directly into dst.
-cp -R "$CLI_SRC"/. "$CLI_STAGE_DIR"/
+# cp -R followed by chmod is simpler than rsync for our size class.
+# cp dist/. and node_modules/. targeting specific subdirs avoids copying
+# stray top-level files (tsconfig.test.json, biome.json, etc.).
+ensure_dir "$CLI_STAGE_DIR/dist" 0755 root:root
+ensure_dir "$CLI_STAGE_DIR/node_modules" 0755 root:root
+cp -R "$CLI_BUNDLE_SRC/dist"/. "$CLI_STAGE_DIR/dist"/
+cp -R "$CLI_BUNDLE_SRC/node_modules"/. "$CLI_STAGE_DIR/node_modules"/
+install -m 0644 -o root -g root "$CLI_BUNDLE_SRC/package.json" "$CLI_STAGE_DIR/package.json"
 chmod -R u=rwX,go=rX "$CLI_STAGE_DIR"
 # The entrypoint needs exec for all users; shebang handles node invocation.
-chmod 0755 "$CLI_STAGE_DIR/index.js"
+chmod 0755 "$CLI_STAGE_DIR/dist/index.js"
 
 # Stage catalog snapshot. In Phase 6 the release pipeline publishes
 # catalog-<version>.json as a sibling of the tarball (CAT-05) and the
@@ -90,14 +114,20 @@ ensure_dir "$STATE_DIR/installed.d" 0755 agent:agent
 # The agent's .npm-global/bin dir was created by Phase 3's 30-nodejs.sh.
 # Its presence on PATH was wired by Phase 3's 40-path-wiring.sh extension.
 ensure_dir /home/agent/.npm-global/bin 0755 agent:agent
-ln -sfn "$CLI_STAGE_DIR/index.js" "$SYMLINK"
+ln -sfn "$CLI_STAGE_DIR/dist/index.js" "$SYMLINK"
 chown -h agent:agent "$SYMLINK"
-log_info "symlinked ${SYMLINK} -> ${CLI_STAGE_DIR}/index.js"
+log_info "symlinked ${SYMLINK} -> ${CLI_STAGE_DIR}/dist/index.js"
 
 # Sanity: confirm the symlink resolves and is executable AS AGENT (T-04-15
 # mitigation: a broken symlink here would silently break CLI-01 and every
 # downstream AGT-XX test in Phase 5).
-if ! as_user agent -- test -x "$SYMLINK"; then
+#
+# NOTE on as_user invocation shape: plugin/lib/as_user.sh builds the sudo line
+# `sudo -u "$user" -H -E -- "$@"` — the `--` terminator is built in. Callers
+# MUST pass the command + args verbatim without prepending their own `--`;
+# a double-dash (`as_user agent -- test …`) resolves to `sudo … -- -- test …`,
+# which sudo parses as "command = --" → "command not found" exit 1.
+if ! as_user agent test -x "$SYMLINK"; then
   log_error "agentlinux symlink not executable as agent user (CLI-01 regression)"
   return 1
 fi
