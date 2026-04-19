@@ -1,18 +1,50 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# gsd install.sh — Phase 4 SCAFFOLD; real body lands Phase 5 (AGT-04).
+# gsd install.sh — real body (Phase 5 AGT-04).
 #
-# npm_package_name: get-shit-done-cc (verified via npm registry 2026-04-18)
-# source_kind: npm — per-user global install via Phase 3's .npm-global prefix
+# npm_package_name: get-shit-done-cc (verified 2026-04-19 via npm view).
+# source_kind: npm — per-user global install via Phase 3's .npm-global prefix.
 #
-# Phase 5 body will execute:
-#   npm install -g "get-shit-done-cc@${AGENTLINUX_PINNED_VERSION}"
-# WITHOUT privilege escalation (ADR-004 keystone); the CLI dispatcher already runs this as agent.
-# npm auto-uses NPM_CONFIG_PREFIX=/home/agent/.npm-global from /etc/agentlinux.env.
+# CRITICAL: the binary name is `get-shit-done-cc`, NOT the three-letter slug.
+# Verified: `npm view get-shit-done-cc bin` →
+#   { 'get-shit-done-cc': 'bin/install.js' }
+# AGT-04's bats test invokes `get-shit-done-cc` only. See 05-RESEARCH
+# §Open Question 1 — research-locked decision: keep the package-native name,
+# no symlink (adding a three-letter symlink would be a hidden shim in the
+# spirit of the wrapper-shim anti-pattern).
 #
-# Phase 4 invariant: THIS FILE MUST EXIT 0 WHEN INVOKED WITH A VALID
-# AGENTLINUX_PINNED_VERSION — stub dispatch-path testing only.
+# NPM_CONFIG_PREFIX=/home/agent/.npm-global is set by runner.ts (mirrors
+# /etc/agentlinux.env) — the global install lands in agent-owned territory
+# without privilege escalation (RT-02 keystone, ADR-004).
 
 : "${AGENTLINUX_PINNED_VERSION:?AGENTLINUX_PINNED_VERSION not set}"
-echo "gsd: SCAFFOLD — would install get-shit-done-cc@${AGENTLINUX_PINNED_VERSION} in Phase 5"
-exit 0
+
+echo "gsd: installing get-shit-done-cc@${AGENTLINUX_PINNED_VERSION}"
+
+# --omit=dev skips devDependencies; --no-fund / --no-audit silence npm's
+# noise for cleaner transcripts (faster, shorter logs for debugging).
+npm install -g \
+  --omit=dev \
+  --no-fund \
+  --no-audit \
+  "get-shit-done-cc@${AGENTLINUX_PINNED_VERSION}"
+
+# Post-install smoke: binary resolves on PATH AND banner reports pinned version.
+# `get-shit-done-cc --help` exits 0 and prints the banner containing
+# "Get Shit Done v1.37.1". No --version flag exists (verified via npm view).
+bin_path=$(command -v get-shit-done-cc || true)
+if [[ -z "$bin_path" ]]; then
+  echo "gsd install: get-shit-done-cc not on PATH after install" >&2
+  exit 1
+fi
+
+# banner grep — the installer prints "Get Shit Done v<version>" before any
+# subcommand logic; --help short-circuits cleanly after the banner.
+banner=$(get-shit-done-cc --help 2>&1 | head -20)
+if ! printf '%s' "$banner" | grep -q -F "v${AGENTLINUX_PINNED_VERSION}"; then
+  printf 'gsd install: pinned=%s but banner: %s\n' \
+    "${AGENTLINUX_PINNED_VERSION}" "$banner" >&2
+  exit 1
+fi
+
+echo "gsd: install complete (resolves at ${bin_path}; banner matches pin)"
