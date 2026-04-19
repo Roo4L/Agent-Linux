@@ -132,7 +132,11 @@ Key locked decisions honored by this roadmap:
   5. After `agentlinux install gsd`, the agent user can run `gsd --version` (or equivalent) successfully — AGT-04.
   6. After `agentlinux install playwright`, the agent user can run `npx playwright --version` and `npx playwright install` downloads browsers into the agent user's cache with no sudo and no EACCES — AGT-05.
   7. The Docker bats matrix is extended with AGT-01..AGT-05 + AGT-02b tests; the AGT-02 test is explicitly tagged as the release-gate acceptance test so Phase 6 can enforce it in CI.
-**Plans**: TBD
+**Plans**: 4 plans
+- [ ] 05-01-PLAN.md — Real claude-code install.sh + uninstall.sh (native installer + PIPESTATUS + AGT-02b in-recipe assert) + tests/bats/51-agt02-release-gate.bats (AGT-02 release-gate) (AGT-01, AGT-02, AGT-02b, AGT-03)
+- [ ] 05-02-PLAN.md — Real gsd install.sh + uninstall.sh (npm install -g get-shit-done-cc@$PINNED + banner-grep version-lock) (AGT-04)
+- [ ] 05-03-PLAN.md — Real playwright install.sh + uninstall.sh (npm install -g playwright + npx playwright install --with-deps chromium via ADR-012 NOPASSWD sudo + chromium cache verify) (AGT-05)
+- [ ] 05-04-PLAN.md — tests/bats/50-agents.bats (AGT-01 × 3 six-mode + AGT-02b + AGT-03 + AGT-04 + AGT-05 × 3) + TST-07 phase-close behavior-coverage-auditor gate (AGT-01..05, AGT-02b)
 
 ### Phase 6: Distribution + Release Pipeline
 **Goal**: A tagged release produces a SHA256-verified curl-pipe-bash installer (and optional `.deb`), the QEMU release-gate suite must be green before the release workflow publishes, AGT-02 is a hard blocker for any release, a user-facing README tells people how to install, verify, and uninstall, and the release artifact includes a catalog snapshot that CI validates end-to-end (pinned combo test per TST-08) before tagging — per ADR-011.
