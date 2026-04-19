@@ -26,6 +26,17 @@ LOG=/var/log/agentlinux-install.log
 CATALOG=/opt/agentlinux/catalog/0.3.0/catalog.json
 
 setup_file() {
+  # 40-registry-cli.bats's INST-04 @tests run --purge at the end of that file
+  # — filename sort puts 40-*.bats before 51-*.bats, so by the time we get
+  # here the installer has been torn down (/opt/agentlinux gone, symlink gone,
+  # agent user removed). Re-run agentlinux-install to restore state before
+  # we can `agentlinux install --force claude-code`. If the symlink is still
+  # present (e.g. this file is being run in isolation via `bats 51-*.bats`),
+  # skip the re-install to keep setup_file fast.
+  if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
+    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+  fi
+
   # Ensure claude-code is installed at the pinned version before exercising
   # the update path. If a previous 50-agents.bats run left it installed,
   # re-install with --force to guarantee we start at the pin (not at whatever
