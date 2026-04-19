@@ -25,8 +25,21 @@ const program = new Command();
 program
   .name("agentlinux")
   .description("AgentLinux registry CLI — install, upgrade, remove catalog agents")
-  .version("0.3.0", "-V, --version")
-  .option("--json", "machine-readable output where supported");
+  .version("0.3.0", "-V, --version");
+
+// Commander's `.enablePositionalOptions()` is REQUIRED so the install
+// subcommand's `--version <semver>` override (CLI-03) can shadow the
+// program-level `-V, --version` flag when placed AFTER the subcommand
+// name (`agentlinux install --version 1.2.3 foo`). Without it, Commander's
+// global option-parser intercepts `--version` first, emits "0.3.0" and
+// exits before the install action ever fires. Plan 04-07 Rule 1 auto-fix.
+//
+// Side-effect of positional options: an option registered at program level
+// (e.g. a shared `--json`) is NOT recognized when placed AFTER a subcommand
+// name. So `--json` is registered on each subcommand that actually supports
+// machine-readable output (list, upgrade) rather than once at the program
+// level.
+program.enablePositionalOptions();
 
 // CLI-05: fail fast when invoked as a non-agent user BEFORE any subcommand runs.
 // preAction hook fires after parsing but before the action handler. Commander
@@ -39,8 +52,9 @@ program
   .command("list")
   .description("List catalog agents and their install status")
   .option("--include-test", "include test-only entries (hidden by default)")
+  .option("--json", "machine-readable JSON array output")
   .action(async (opts) => {
-    await listCmd({ ...program.opts(), ...opts });
+    await listCmd(opts);
   });
 
 program
@@ -50,7 +64,7 @@ program
   .option("--version <semver>", "override catalog pin with a specific version")
   .option("--include-test", "allow installing test-only entries (hidden by default)")
   .action(async (name: string, opts) => {
-    await installCmd(name, { ...program.opts(), ...opts });
+    await installCmd(name, opts);
   });
 
 program
@@ -58,7 +72,7 @@ program
   .description("Uninstall a catalog agent")
   .option("--force", "succeed even if agent is not installed (idempotent no-op)")
   .action(async (name: string, opts) => {
-    await removeCmd(name, { ...program.opts(), ...opts });
+    await removeCmd(name, opts);
   });
 
 program
@@ -68,15 +82,16 @@ program
   .option("--respect-overrides", "install curated only for non-overridden agents")
   .option("--all-latest", "install npm latest for all (implies --check-upstream)")
   .option("--check-upstream", "query `npm view <pkg> version` for upstream latest (network)")
+  .option("--json", "machine-readable JSON array output")
   .action(async (opts) => {
-    await upgradeCmd({ ...program.opts(), ...opts });
+    await upgradeCmd(opts);
   });
 
 program
   .command("pin <spec>")
   .description("Set sticky override: <name>=curated|latest|x.y.z (CLI-07)")
   .action(async (spec: string, opts) => {
-    await pinCmd(spec, { ...program.opts(), ...opts });
+    await pinCmd(spec, opts);
   });
 
 // Async actions REQUIRE parseAsync (Pitfall 3). Top-level await requires

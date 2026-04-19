@@ -40,13 +40,31 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 //
 // Resolution order:
 //   a. AGENTLINUX_CATALOG_DIR env var (same seam loader.ts uses),
-//   b. walk up from HERE looking for plugin/catalog/schema.json,
-//   c. fail with a clear diagnostic enumerating the searched paths.
+//   b. production default: /opt/agentlinux/catalog/<AGENTLINUX_VERSION>/schema.json
+//      (matches loader.ts's defaultCatalogDir — the 50-registry-cli.sh provisioner
+//      stages schema.json there alongside catalog.json at install time),
+//   c. walk up from HERE looking for plugin/catalog/schema.json (dev/test only),
+//   d. fail with a clear diagnostic enumerating the searched paths.
+//
+// Plan 04-07 Rule 1 auto-fix: without the production-default candidate, any CLI
+// path that calls loadCatalog({validate:true}) (install/remove/upgrade/pin)
+// exits non-zero on a freshly-installed system — the schema.json the
+// provisioner staged at /opt/agentlinux/catalog/<ver>/ was never checked
+// because the walk-up pattern looked for `catalog/schema.json` (singular
+// parent) under the CLI tree at /opt/agentlinux/cli/<ver>/dist/, which is
+// not where the provisioner puts it. The provisioner's actual layout places
+// the catalog in a SEPARATE subtree at /opt/agentlinux/catalog/<ver>/,
+// mirrored by loader.ts's defaultCatalogDir(). Mirror it here so both
+// resolvers default to the same path.
 async function resolveSchemaPath(): Promise<string> {
   const envDir = process.env.AGENTLINUX_CATALOG_DIR;
   const candidates: string[] = [];
   if (envDir) candidates.push(join(envDir, "schema.json"));
-  // Walk up 6 levels; covers dist/ dist-test/src/ src/ and a couple spare.
+  // Production default — matches loader.ts's defaultCatalogDir().
+  const ver = process.env.AGENTLINUX_VERSION ?? "0.3.0";
+  candidates.push(`/opt/agentlinux/catalog/${ver}/schema.json`);
+  // Walk up 6 levels; covers dist/ dist-test/src/ src/ and a couple spare
+  // for dev/test layouts.
   for (let depth = 2; depth <= 6; depth++) {
     const up = Array(depth).fill("..");
     candidates.push(join(HERE, ...up, "catalog", "schema.json"));
