@@ -56,7 +56,8 @@ export async function asUser(
   // agent user; we're just honoring the "run as user X" contract when we're
   // already X.
   const invoker = userInfo().username;
-  const [command, ...rest] = invoker === user ? argv : ["sudo", "-u", user, "-H", "-E", "--", ...argv];
+  const [command, ...rest] =
+    invoker === user ? argv : ["sudo", "-u", user, "-H", "-E", "--", ...argv];
   try {
     const { stdout, stderr } = await pexecFile(command, rest, {
       env: opts.env,
