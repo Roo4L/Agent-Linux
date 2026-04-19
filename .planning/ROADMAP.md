@@ -29,7 +29,7 @@ Key locked decisions honored by this roadmap:
 - [x] **Phase 3: Node.js Runtime + Per-User npm Prefix** - NodeSource Node.js 22 LTS + agent's npm global prefix under home; `npm install -g` works without sudo from the agent user in every invocation mode (smoke-tested with cowsay@1.6.0). ✓ 2026-04-18 (2 plans; 27/27 bats green on both Ubuntu 22.04 + 24.04; RT-01..04 all satisfied with observable six-mode proof; TST-07 gate: GREEN; INST-02 idempotency extended to cover Phase 3 artefacts)
 - [x] **Phase 4: Registry CLI + Catalog + Uninstall** - `agentlinux list/install/remove/upgrade/pin` ships; catalog with claude-code, gsd, playwright entries is *available* (none installed by default); JSON Schema validates entries; clean uninstall path. ✓ 2026-04-19 (7 plans; 49/49 bats green on Ubuntu 22.04 + 24.04; TST-07 gate: GREEN; all 12 Phase 4 requirements — CLI-01..07, CAT-01..04, INST-04 — have ≥1 bats @test each; INST-02 extended with 4 Phase-4 artefacts via LOCKED deterministic strategy)
 - [x] **Phase 5.1 (INSERTED): Agent User Sudo Drop-In** - `/etc/sudoers.d/agentlinux` grants passwordless sudo to agent user (scope: ALL per ADR-012, overriding Phase 2's zero-sudo lock). Prerequisite for Phase 5 agent recipes needing apt/systemctl/etc. ✓ 2026-04-19 (1 plan; 56/56 bats green on Ubuntu 22.04 + 24.04, +7 sudo @tests vs. Phase 4 baseline; TST-07 gate: GREEN — INST-06 + BHV-07 both have ≥1 bats @test citing the ID; visudo-gated atomic 0440 drop-in with sha256 byte-stable re-run verified)
-- [ ] **Phase 5: Agent Installability** - Each of claude-code, gsd, playwright is installable via `agentlinux install <name>` and runs correctly for the agent user across all invocation modes. AGT-02 (Claude Code self-updates without sudo/EACCES) is the canonical acceptance test.
+- [x] **Phase 5: Agent Installability** - Each of claude-code, gsd, playwright is installable via `agentlinux install <name>` and runs correctly for the agent user across all invocation modes. AGT-02 (Claude Code self-updates without sudo/EACCES) is the canonical acceptance test. ✓ 2026-04-19 (4 plans; 66/66 bats green on Ubuntu 22.04 + 24.04, +10 AGT-XX @tests vs. Phase 5.1 baseline; TST-07 gate: GREEN — all 6 Phase 5 requirements (AGT-01, AGT-02, AGT-02b, AGT-03, AGT-04, AGT-05) have ≥1 bats @test citing the ID; three real agent recipes (claude-code native installer, get-shit-done-cc via npm, playwright + chromium via ADR-012 sudo) all ship; AGT-02 canonical acceptance test runs live `claude update` against Anthropic CDN with zero EACCES)
 - [ ] **Phase 6: Distribution + Release Pipeline** - SHA256-verified curl-pipe-bash installer, optional `.deb` via fpm, GitHub Releases workflow, QEMU nightly + release-gate suite wired as mandatory, AGT-02 release gate enforced. Ship v0.3.0.
 
 ## Phase Details
@@ -136,7 +136,7 @@ Key locked decisions honored by this roadmap:
 - [x] 05-01-PLAN.md — Real claude-code install.sh + uninstall.sh (native installer + PIPESTATUS + AGT-02b in-recipe assert) + tests/bats/51-agt02-release-gate.bats (AGT-02 release-gate) (AGT-02, AGT-02b ✓; AGT-01 + AGT-03 bats enforcement lands in 05-04) — ✓ Complete 2026-04-19
 - [x] 05-02-PLAN.md — Real gsd install.sh + uninstall.sh (npm install -g get-shit-done-cc@$PINNED + banner-grep version-lock) (AGT-04 recipe body ✓; AGT-04 bats enforcement lands in 05-04) — ✓ Complete 2026-04-19
 - [x] 05-03-PLAN.md — Real playwright install.sh + uninstall.sh (npm install -g playwright + npx playwright install --with-deps chromium via ADR-012 NOPASSWD sudo + chromium cache verify) (AGT-05 recipe body ✓; AGT-05 bats enforcement lands in 05-04) — ✓ Complete 2026-04-19
-- [ ] 05-04-PLAN.md — tests/bats/50-agents.bats (AGT-01 × 3 six-mode + AGT-02b + AGT-03 + AGT-04 + AGT-05 × 3) + TST-07 phase-close behavior-coverage-auditor gate (AGT-01..05, AGT-02b)
+- [x] 05-04-PLAN.md — tests/bats/50-agents.bats (AGT-01 × 3 six-mode + AGT-02b + AGT-03 + AGT-04 + AGT-05 × 3) + TST-07 phase-close behavior-coverage-auditor gate (AGT-01..05, AGT-02b ✓; Docker 66/66 on both Ubuntu versions; TST-07 gate GREEN) — ✓ Complete 2026-04-19
 
 ### Phase 6: Distribution + Release Pipeline
 **Goal**: A tagged release produces a SHA256-verified curl-pipe-bash installer (and optional `.deb`), the QEMU release-gate suite must be green before the release workflow publishes, AGT-02 is a hard blocker for any release, a user-facing README tells people how to install, verify, and uninstall, and the release artifact includes a catalog snapshot that CI validates end-to-end (pinned combo test per TST-08) before tagging — per ADR-011.
@@ -163,7 +163,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Node.js Runtime + Per-User npm Prefix | 2/2 | ✓ Complete | 2026-04-18 |
 | 4. Registry CLI + Catalog + Uninstall | 7/7 | ✓ Complete | 2026-04-19 |
 | 5.1 (INSERTED). Agent User Sudo Drop-In | 1/1 | ✓ Complete | 2026-04-19 |
-| 5. Agent Installability | 3/4 | In progress | 2026-04-19 (Plan 05-01 ✓, 05-02 ✓, 05-03 ✓) |
+| 5. Agent Installability | 4/4 | ✓ Complete | 2026-04-19 (all 4 plans complete; TST-07 gate: GREEN; 66/66 bats green on Ubuntu 22.04 + 24.04) |
 | 6. Distribution + Release Pipeline | 0/TBD | Not started | - |
 
 ## Coverage Summary
