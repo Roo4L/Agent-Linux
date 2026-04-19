@@ -50,7 +50,8 @@ Observable behaviors of the provisioned agent user. These are the contract — t
 Behaviors of installed agent tools. Each behavior is tested once with Claude Code as the canonical example; equivalent tests apply to any catalog tool.
 
 - [ ] **AGT-01**: After `agentlinux install claude-code`, the agent user can run `claude --version` successfully (from interactive shell, non-interactive SSH, cron, systemd, and `sudo -u agent`).
-- [ ] **AGT-02**: After `agentlinux install claude-code`, the agent user can self-update Claude Code to a newer version without sudo, without `EACCES`, and without manual intervention (this is the **canonical acceptance test** for v0.3.0).
+- [ ] **AGT-02**: After `agentlinux install claude-code`, the agent user can self-update Claude Code to a newer version without sudo, without `EACCES`, and without manual intervention (this is the **canonical acceptance test** for v0.3.0). AGT-02 is a permission invariant: the self-update path succeeds regardless of the version produced.
+- [ ] **AGT-02b**: Installing Claude Code via `agentlinux install claude-code` produces exactly `pinned_version` on disk — `claude --version` matches the catalog's `pinned_version` field — verifying the version-lock mechanism from ADR-011 works end-to-end. Companion test to AGT-02 (which is version-agnostic).
 - [ ] **AGT-03**: `claude doctor` (or equivalent diagnostic) reports a clean state for the agent user after install.
 - [ ] **AGT-04**: After `agentlinux install gsd`, the agent user can run `gsd --version` (or equivalent) successfully.
 - [ ] **AGT-05**: After `agentlinux install playwright`, the agent user can run `npx playwright --version` and `npx playwright install` (downloads browsers into the agent user's cache, no sudo, no EACCES). Playwright is the canonical browser-access tool for agents (replaces v0.2.0's chrome-devtools-mcp).
@@ -62,12 +63,16 @@ Behaviors of installed agent tools. Each behavior is tested once with Claude Cod
 - [ ] **CLI-03**: `agentlinux install <name>` installs a catalog agent as the agent user, non-interactively, idempotently.
 - [ ] **CLI-04**: `agentlinux remove <name>` cleanly uninstalls a catalog agent (binary gone, config restored/removed).
 - [ ] **CLI-05**: `agentlinux` commands fail fast with a clear error when run as a non-agent user who lacks permission, and succeed without sudo when run as the agent user.
+- [ ] **CLI-06**: `agentlinux upgrade` detects per-agent divergence (`synced`, `override-ahead`, `override-behind`) between the installed version, the release's curated pin, and upstream latest; offers per-agent 3-way reconcile ([keep override] / [accept curated] / [accept upstream latest]) or bulk flags (`--reset-all-curated`, `--respect-overrides`, `--all-latest`). Drives the stability-first model per ADR-011.
+- [ ] **CLI-07**: `agentlinux pin <name>=<curated|latest|x.y.z>` sets sticky override semantics — power-users who ran ahead of the curated set are not re-nagged on subsequent releases; `pin <name>=curated` clears the override. Precedent: Homebrew `brew pin`.
 
 ### Catalog (CAT)
 
 - [ ] **CAT-01**: The v0.3.0 catalog contains at least three available agents: `claude-code`, `gsd`, `playwright`. (Playwright replaces v0.2.0's chrome-devtools-mcp as the canonical browser-access tool.)
 - [ ] **CAT-02**: **None of the catalog agents is installed by default.** Fresh install produces an empty-install state; every agent is opt-in via `agentlinux install`.
 - [ ] **CAT-03**: The catalog has a documented, machine-readable schema (JSON) so new agents can be added by submitting a catalog entry + install recipe without code changes to the CLI.
+- [ ] **CAT-04**: Every catalog entry declares a `pinned_version` (required, semver) validated by JSON Schema. `agentlinux install <name>` installs exactly that version via `sudo -u agent -H npm install -g <pkg>@<pinned_version>` (or equivalent native-installer pin for agents with their own installer, e.g. Claude Code). Per ADR-011.
+- [ ] **CAT-05**: Each release artifact includes a catalog snapshot at `/opt/agentlinux/catalog/<version>/catalog.json` as a sibling of the release tarball + `.sha256`. The installer stages this snapshot; `agentlinux upgrade` reads it to compute the 3-way divergence. The snapshot is what CI validates end-to-end before the release tag is published (per TST-08).
 
 ### Agent Harness (HRN)
 
@@ -94,6 +99,7 @@ The test harness is a **primary deliverable** of v0.3.0, not a supporting concer
 - [ ] **TST-05**: The acceptance test `AGT-02` (agent user self-updates Claude Code without sudo/EACCES) is a blocking gate for any release.
 - [x] **TST-06**: Mutation testing runs nightly. The Node.js registry CLI uses `stryker-mutator` (target ≥ 75% mutation score, advisory in v0.3.0). Bash sources use a custom `tests/mutation/bash-mutator.sh` (target ≥ 60% mutation score, advisory in v0.3.0). Score regressions open a follow-up issue but do not block release in v0.3.0; promotion to a release gate is a v0.4 decision. ✓ Plan 01-02 (scaffolded: `plugin/cli/stryker.config.json` with `thresholds.break: 0`; `tests/mutation/bash-mutator.sh` executable, exits 0 on empty plugin; `nightly-mutation.yml` uses `continue-on-error: true`; `tests/mutation/README.md` documents advisory status. Full mutant-scoring bodies land in Phase 2+.) + Plan 01-05 (9 @tests in `tests/harness/60-mutation-scaffolding.bats` assert the scaffolding stays runnable and advisory).
 - [x] **TST-07**: A `behavior-coverage-auditor` review subagent (per HRN-06) runs at the end of every phase to assert that every newly-added BHV/RT/AGT/CLI/CAT/INST requirement has at least one bats test. ✓ Plan 01-03 (`.claude/agents/behavior-coverage-auditor.md` defines the subagent; `.claude/skills/review/SKILL.md` §"Relation to TST-07" names it as the "always spawn at phase close regardless of what changed" gate; emits `TST-07 gate: RED|GREEN` summary line for the main agent to decide phase close.)
+- [ ] **TST-08**: CI installs the pinned catalog combo (every agent at its `pinned_version` per CAT-04) and runs the full bats suite against it before the release tag is published (Phase 6 release-gate). Ensures we never ship a curated combo that was not end-to-end validated together. A red run of this gate blocks the release workflow. Per ADR-011.
 
 ### Documentation (DOC)
 
@@ -116,11 +122,11 @@ Tracked but not in v0.3.0 scope.
 - **INF-04**: Auto-update daemon (opt-in)
 
 ### Registry Power-Ups
-- **CAT-04**: Remote-fetch catalog with embedded fallback
-- **CAT-05**: Multiple install backends per catalog entry (npm / apt / binary download / pipx)
-- **CLI-06**: `agentlinux info <name>` — detailed info per agent
-- **CLI-07**: `agentlinux update <name>` — delegates to the agent's own self-update
-- **CLI-08**: `agentlinux doctor` — system-wide health check
+- **CAT-06**: Remote-fetch catalog with embedded fallback (renumbered from CAT-04; v0.3.0 now uses CAT-04 for per-entry `pinned_version` per ADR-011)
+- **CAT-07**: Multiple install backends per catalog entry (npm / apt / binary download / pipx) (renumbered from CAT-05)
+- **CLI-08**: `agentlinux info <name>` — detailed info per agent (renumbered from CLI-06)
+- **CLI-09**: `agentlinux update <name>` — delegates to the agent's own self-update (distinct from CLI-06 `agentlinux upgrade`, which reconciles against the curated catalog pin; CLI-09 would invoke the agent's native updater, e.g. `claude update`) (renumbered from CLI-07)
+- **CLI-10**: `agentlinux doctor` — system-wide health check (renumbered from CLI-08)
 
 ### Advanced Agent User
 - **USR-04**: Multiple agent users per host (multi-tenant provisioning)
@@ -184,33 +190,40 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | CLI-03 | Phase 4 | Pending |
 | CLI-04 | Phase 4 | Pending |
 | CLI-05 | Phase 4 | Pending |
+| CLI-06 | Phase 4 | Pending (stability-first `upgrade` verb per ADR-011) |
+| CLI-07 | Phase 4 | Pending (sticky-override `pin` verb per ADR-011) |
 | CAT-01 | Phase 4 | Pending |
 | CAT-02 | Phase 4 | Pending |
 | CAT-03 | Phase 4 | Pending |
+| CAT-04 | Phase 4 | Pending (per-entry `pinned_version` per ADR-011) |
+| CAT-05 | Phase 6 | Pending (release-time catalog snapshot sibling per ADR-011) |
 | INST-04 | Phase 4 | Pending |
 | AGT-01 | Phase 5 | Pending |
 | AGT-02 | Phase 5 | Pending |
+| AGT-02b | Phase 5 | Pending (pinned-version companion to AGT-02 per ADR-011) |
 | AGT-03 | Phase 5 | Pending |
 | AGT-04 | Phase 5 | Pending |
 | AGT-05 | Phase 5 | Pending |
 | INST-03 | Phase 6 | Pending |
 | TST-03 | Phase 6 | Pending |
 | TST-05 | Phase 6 | Pending |
+| TST-08 | Phase 6 | Pending (release-gate pinned-combo CI per ADR-011) |
 | DOC-01 | Phase 6 | Pending |
 
 **Coverage:**
-- v0.3.0 requirements: 46 total (9 HRN + 5 INST + 6 BHV + 4 RT + 5 AGT + 5 CLI + 3 CAT + 7 TST + 2 DOC)
-- Mapped to phases: 46 (100%)
+- v0.3.0 requirements: 52 total (9 HRN + 5 INST + 6 BHV + 4 RT + 6 AGT + 7 CLI + 5 CAT + 8 TST + 2 DOC) — grew from 46 with ADR-011 additions (CAT-04, CAT-05, CLI-06, CLI-07, TST-08, AGT-02b) on 2026-04-19
+- Mapped to phases: 52 (100%)
 - Unmapped: 0
 
 **Per-phase counts:**
 - Phase 1 (Harness Setup): 11 — HRN-01..HRN-09, TST-06, TST-07
 - Phase 2 (Installer Foundation + Agent User): 13 — INST-01, INST-02, INST-05, BHV-01..BHV-06, DOC-02, TST-01, TST-02, TST-04
 - Phase 3 (Node.js Runtime + Per-User npm Prefix): 4 — RT-01..RT-04
-- Phase 4 (Registry CLI + Catalog + Uninstall): 9 — CLI-01..CLI-05, CAT-01..CAT-03, INST-04
-- Phase 5 (Agent Installability): 5 — AGT-01..AGT-05
-- Phase 6 (Distribution + Release Pipeline): 4 — INST-03, TST-03, TST-05, DOC-01
+- Phase 4 (Registry CLI + Catalog + Uninstall): 12 — CLI-01..CLI-07, CAT-01..CAT-04, INST-04 (grew from 9 with CLI-06, CLI-07, CAT-04 added per ADR-011)
+- Phase 5 (Agent Installability): 6 — AGT-01, AGT-02, AGT-02b, AGT-03..AGT-05 (grew from 5 with AGT-02b added per ADR-011)
+- Phase 6 (Distribution + Release Pipeline): 6 — INST-03, TST-03, TST-05, TST-08, CAT-05, DOC-01 (grew from 4 with TST-08 + CAT-05 added per ADR-011)
 
 ---
 *Requirements defined: 2026-04-18 — behavior-contract framing per user direction; implementation left intentionally open.*
 *Traceability mapped: 2026-04-18 — 46/46 requirements mapped across 6 phases, 0 orphans.*
+*ADR-011 update: 2026-04-19 — 6 new requirements added for stability-first version pinning (CAT-04, CAT-05, CLI-06, CLI-07, TST-08, AGT-02b); v0.4+ placeholder IDs renumbered (CAT-04→06, CAT-05→07, CLI-06→08, CLI-07→09, CLI-08→10). Now 52/52 mapped across 6 phases.*

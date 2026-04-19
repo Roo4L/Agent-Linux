@@ -84,40 +84,45 @@ Key locked decisions honored by this roadmap:
 - [x] 03-02-PLAN.md — Behavior tests: tests/bats/30-runtime.bats (RT-01..04 across six INVOKE_MODES) + assert_user_prefix_in_home helper + INST-02 sha256 set extension (RT-01, RT-02, RT-03, RT-04) ✓ 2026-04-18 (4 commits: 03fda88, c4c9fbf, fc78911, 2d6fdb9; 27/27 bats green on Ubuntu 22.04 + 24.04 — +5 vs Phase 2 baseline; TST-07 phase-close gate GREEN)
 
 ### Phase 4: Registry CLI + Catalog + Uninstall
-**Goal**: The `agentlinux` CLI is on the agent's PATH and can list / install / remove entries from a JSON-Schema-validated catalog that contains claude-code, gsd, and playwright *as available* (none installed). A symmetric uninstall path removes what the installer placed.
+**Goal**: The `agentlinux` CLI is on the agent's PATH and can list / install / remove entries from a JSON-Schema-validated catalog that contains claude-code, gsd, and playwright *as available* (none installed), at specific `pinned_version` values curated and CI-tested by AgentLinux. Users can `agentlinux upgrade` to reconcile installed versions against the release's curated set (per-agent 3-way diff: keep-override / accept-curated / accept-upstream-latest) and `agentlinux pin` to set sticky overrides. A symmetric uninstall path removes what the installer placed. Stability-first per ADR-011.
 **Depends on**: Phase 3
-**Requirements**: CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, CAT-01, CAT-02, CAT-03, INST-04
+**Requirements**: CLI-01, CLI-02, CLI-03, CLI-04, CLI-05, CLI-06, CLI-07, CAT-01, CAT-02, CAT-03, CAT-04, INST-04
 **Success Criteria** (what must be TRUE):
   1. `agentlinux --version` works as the agent user with no sudo and no path fiddling, in every invocation mode — CLI-01, CLI-05.
-  2. `agentlinux list` shows claude-code, gsd, and playwright with a "not installed" indicator on a fresh system — CLI-02, CAT-01, CAT-02.
-  3. A new catalog entry can be added by submitting only a JSON catalog entry plus a per-agent install recipe (no edits to the CLI source); `agentlinux list` validates every entry against the published JSON Schema and refuses malformed entries — CAT-03.
-  4. Running `agentlinux remove` on an entry that was installed cleans up the binary and any config additions the install placed; running the installer's `--purge` uninstall path removes the agent user's home, Node.js binaries owned by the install, sudoers drop-ins, and all installer-placed files — CLI-04, INST-04.
-  5. The Docker bats matrix is extended to cover CLI-01..CLI-05, CAT-01..CAT-03, and INST-04 end-to-end (including "install + remove + install again is idempotent") and stays green on PR.
-**Plans**: TBD
+  2. `agentlinux list` shows claude-code, gsd, and playwright with a "not installed" indicator on a fresh system, and shows `pinned_version` per entry — CLI-02, CAT-01, CAT-02, CAT-04.
+  3. A new catalog entry can be added by submitting only a JSON catalog entry (with `pinned_version`) plus a per-agent install recipe (no edits to the CLI source); `agentlinux list` validates every entry against the published JSON Schema and refuses malformed entries — CAT-03, CAT-04.
+  4. `agentlinux install <name>` installs exactly `pinned_version` (e.g. `sudo -u agent -H npm install -g <pkg>@<pinned_version>`), writes a sentinel at `/opt/agentlinux/state/installed.json` recording `{version, source}`, and is idempotent — CLI-03, CAT-04.
+  5. `agentlinux upgrade` detects per-agent divergence (`synced` / `override-ahead` / `override-behind`) between the installed version, the current release's curated pin, and upstream latest; offers 3-way reconcile per agent or bulk flags (`--reset-all-curated` / `--respect-overrides` / `--all-latest`) — CLI-06.
+  6. `agentlinux pin <name>=<curated|latest|x.y.z>` sets sticky-override semantics; a user who ran ahead via `claude update` is not re-nagged every release until `pin <name>=curated` clears the flag — CLI-07.
+  7. Running `agentlinux remove` on an entry that was installed cleans up the binary, sentinel, and any config additions the install placed; running the installer's `--purge` uninstall path removes the agent user's home, Node.js binaries owned by the install, sudoers drop-ins, and all installer-placed files — CLI-04, INST-04.
+  8. The Docker bats matrix is extended to cover CLI-01..CLI-07, CAT-01..CAT-04, and INST-04 end-to-end (including "install + remove + install again is idempotent" and "upgrade detects divergence correctly") and stays green on PR.
+**Plans**: 7 plans (grew from 5 with ADR-011 additions: `upgrade` verb + `pin` verb)
 
 ### Phase 5: Agent Installability
-**Goal**: Each of the three catalog agents can be installed via `agentlinux install <name>` and runs correctly for the agent user across all six BHV invocation modes — and AGT-02 (Claude Code self-updates without sudo/EACCES) passes as the canonical acceptance test.
+**Goal**: Each of the three catalog agents can be installed via `agentlinux install <name>` and runs correctly for the agent user across all six BHV invocation modes — and AGT-02 (Claude Code self-updates without sudo/EACCES) passes as the canonical acceptance test. AGT-02b verifies the stability-first pin mechanism produces exactly `pinned_version` on disk.
 **Depends on**: Phase 4
-**Requirements**: AGT-01, AGT-02, AGT-03, AGT-04, AGT-05
+**Requirements**: AGT-01, AGT-02, AGT-02b, AGT-03, AGT-04, AGT-05
 **Success Criteria** (what must be TRUE):
   1. After `agentlinux install claude-code`, the agent user can run `claude --version` successfully from an interactive shell, non-interactive SSH, cron, systemd `User=agent`, and `sudo -u agent` — AGT-01.
-  2. **Canonical acceptance test (release gate):** After `agentlinux install claude-code`, the agent user can self-update Claude Code to a newer version (or dry-run-equivalent) without sudo, without any line containing `EACCES` or `permission denied` on stdout or stderr, and without manual intervention — AGT-02.
-  3. `claude doctor` (or equivalent diagnostic) reports a clean state for the agent user after install — AGT-03.
-  4. After `agentlinux install gsd`, the agent user can run `gsd --version` (or equivalent) successfully — AGT-04.
-  5. After `agentlinux install playwright`, the agent user can run `npx playwright --version` and `npx playwright install` downloads browsers into the agent user's cache with no sudo and no EACCES — AGT-05.
-  6. The Docker bats matrix is extended with AGT-01..AGT-05 tests; the AGT-02 test is explicitly tagged as the release-gate acceptance test so Phase 6 can enforce it in CI.
+  2. **Canonical acceptance test (release gate):** After `agentlinux install claude-code`, the agent user can self-update Claude Code to a newer version (or dry-run-equivalent) without sudo, without any line containing `EACCES` or `permission denied` on stdout or stderr, and without manual intervention — AGT-02. (Permission invariant, version-agnostic.)
+  3. **Version-lock acceptance test:** After `agentlinux install claude-code`, `claude --version` returns exactly the catalog's `pinned_version` — verifying the stability-first mechanism from ADR-011 works end-to-end — AGT-02b.
+  4. `claude doctor` (or equivalent diagnostic) reports a clean state for the agent user after install — AGT-03.
+  5. After `agentlinux install gsd`, the agent user can run `gsd --version` (or equivalent) successfully — AGT-04.
+  6. After `agentlinux install playwright`, the agent user can run `npx playwright --version` and `npx playwright install` downloads browsers into the agent user's cache with no sudo and no EACCES — AGT-05.
+  7. The Docker bats matrix is extended with AGT-01..AGT-05 + AGT-02b tests; the AGT-02 test is explicitly tagged as the release-gate acceptance test so Phase 6 can enforce it in CI.
 **Plans**: TBD
 
 ### Phase 6: Distribution + Release Pipeline
-**Goal**: A tagged release produces a SHA256-verified curl-pipe-bash installer (and optional `.deb`), the QEMU release-gate suite must be green before the release workflow publishes, AGT-02 is a hard blocker for any release, and a user-facing README tells people how to install, verify, and uninstall.
+**Goal**: A tagged release produces a SHA256-verified curl-pipe-bash installer (and optional `.deb`), the QEMU release-gate suite must be green before the release workflow publishes, AGT-02 is a hard blocker for any release, a user-facing README tells people how to install, verify, and uninstall, and the release artifact includes a catalog snapshot that CI validates end-to-end (pinned combo test per TST-08) before tagging — per ADR-011.
 **Depends on**: Phase 5
-**Requirements**: INST-03, TST-03, TST-05, DOC-01
+**Requirements**: INST-03, TST-03, TST-05, TST-08, CAT-05, DOC-01
 **Success Criteria** (what must be TRUE):
   1. A user on a fresh Ubuntu 22.04 or 24.04 cloud image can run a single `curl -fsSL ... | bash` command published on agentlinux.org, and the installer verifies the release tarball's SHA256 before executing it — INST-03.
   2. Every tagged release is gated on a green QEMU suite against a fresh Ubuntu cloud image; a red QEMU run blocks the release workflow — TST-03.
   3. The release workflow refuses to publish a tag if the AGT-02 acceptance test (agent user self-updates Claude Code without sudo/EACCES) is not green in both the Docker matrix and the QEMU release-gate run — TST-05.
-  4. A user can find a README shipping with the installer that tells them exactly how to install (one command), how to verify the install (`agentlinux list` + one agent-invocation command), and how to uninstall (`agentlinux` uninstall entrypoint + `--purge` semantics) — DOC-01.
-  5. Tagging `v0.3.0` produces a GitHub Release with the release tarball, its `.sha256` sibling, and (optionally) a `.deb` built via fpm, with the curl-installer pointing at that release.
+  4. **Pinned-combo gate:** The release workflow installs the pinned catalog combo (every catalog agent at its `pinned_version`) and runs the full bats suite against it before tagging; a red run blocks the release — TST-08. The workflow also publishes `catalog-<version>.json` as a sibling of the release tarball + `.sha256` — CAT-05.
+  5. A user can find a README shipping with the installer that tells them exactly how to install (one command), how to verify the install (`agentlinux list` + one agent-invocation command), and how to uninstall (`agentlinux` uninstall entrypoint + `--purge` semantics) — DOC-01.
+  6. Tagging `v0.3.0` produces a GitHub Release with the release tarball, its `.sha256` sibling, the catalog snapshot `catalog-v0.3.0.json` (per CAT-05), and (optionally) a `.deb` built via fpm, with the curl-installer pointing at that release.
 **Plans**: TBD
 
 ## Progress
@@ -130,14 +135,14 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Harness Setup | 5/5 | ✓ Complete | 2026-04-18 |
 | 2. Installer Foundation + Agent User | 5/5 | ✓ Complete | 2026-04-18 |
 | 3. Node.js Runtime + Per-User npm Prefix | 2/2 | ✓ Complete | 2026-04-18 |
-| 4. Registry CLI + Catalog + Uninstall | 0/TBD | Not started | - |
+| 4. Registry CLI + Catalog + Uninstall | 0/7 | Not started | - |
 | 5. Agent Installability | 0/TBD | Not started | - |
 | 6. Distribution + Release Pipeline | 0/TBD | Not started | - |
 
 ## Coverage Summary
 
-**Total v0.3.0 requirements:** 46 (9 HRN + 5 INST + 6 BHV + 4 RT + 5 AGT + 5 CLI + 3 CAT + 7 TST + 2 DOC)
-**Mapped:** 46 / 46
+**Total v0.3.0 requirements:** 52 (9 HRN + 5 INST + 6 BHV + 4 RT + 6 AGT + 7 CLI + 5 CAT + 8 TST + 2 DOC) — grew from 46 with ADR-011 additions on 2026-04-19 (CAT-04, CAT-05, CLI-06, CLI-07, TST-08, AGT-02b)
+**Mapped:** 52 / 52
 **Orphaned:** 0
 
 Requirement allocation per phase:
@@ -147,10 +152,10 @@ Requirement allocation per phase:
 | 1 Harness Setup | HRN-01..HRN-09, TST-06, TST-07 | 11 |
 | 2 Installer Foundation + Agent User | INST-01, INST-02, INST-05, BHV-01..BHV-06, DOC-02, TST-01, TST-02, TST-04 | 13 |
 | 3 Node.js Runtime + Per-User npm Prefix | RT-01..RT-04 | 4 |
-| 4 Registry CLI + Catalog + Uninstall | CLI-01..CLI-05, CAT-01..CAT-03, INST-04 | 9 |
-| 5 Agent Installability | AGT-01..AGT-05 | 5 |
-| 6 Distribution + Release Pipeline | INST-03, TST-03, TST-05, DOC-01 | 4 |
-| **Total** | | **46** |
+| 4 Registry CLI + Catalog + Uninstall | CLI-01..CLI-07, CAT-01..CAT-04, INST-04 | 12 |
+| 5 Agent Installability | AGT-01, AGT-02, AGT-02b, AGT-03..AGT-05 | 6 |
+| 6 Distribution + Release Pipeline | INST-03, TST-03, TST-05, TST-08, CAT-05, DOC-01 | 6 |
+| **Total** | | **52** |
 
 **Notes on TST-XX placement:**
 - TST-01 (full behavior-test suite coverage) is introduced in Phase 2 and *grows with each phase* — every phase from 2 onward must add its own bats coverage before the phase closes (enforced by the behavior-coverage-auditor from HRN-06, running at end of every phase per TST-07).
@@ -160,3 +165,4 @@ Requirement allocation per phase:
 - TST-05 (AGT-02 as blocking release gate) is enforced in Phase 6's release workflow; the test itself is authored in Phase 5 (where AGT-02 lives).
 - TST-06 (nightly mutation testing, advisory) is scaffolded in Phase 1 via HRN-08's `nightly-mutation.yml` workflow. Promotion to release gate is a v0.4 decision — explicitly not a v0.3.0 release blocker.
 - TST-07 (behavior-coverage-auditor runs at end of every phase) is operationalized in Phase 1 when the auditor subagent is created (HRN-06); it becomes the gating check at every subsequent phase transition.
+- TST-08 (pinned-combo release gate per ADR-011) is enforced by Phase 6's release workflow, which installs the catalog's `pinned_version` for every entry and runs the full bats suite before tagging. Red run blocks release.
