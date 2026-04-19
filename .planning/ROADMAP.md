@@ -134,7 +134,7 @@ Key locked decisions honored by this roadmap:
   7. The Docker bats matrix is extended with AGT-01..AGT-05 + AGT-02b tests; the AGT-02 test is explicitly tagged as the release-gate acceptance test so Phase 6 can enforce it in CI.
 **Plans**: 4 plans
 - [x] 05-01-PLAN.md — Real claude-code install.sh + uninstall.sh (native installer + PIPESTATUS + AGT-02b in-recipe assert) + tests/bats/51-agt02-release-gate.bats (AGT-02 release-gate) (AGT-02, AGT-02b ✓; AGT-01 + AGT-03 bats enforcement lands in 05-04) — ✓ Complete 2026-04-19
-- [ ] 05-02-PLAN.md — Real gsd install.sh + uninstall.sh (npm install -g get-shit-done-cc@$PINNED + banner-grep version-lock) (AGT-04)
+- [x] 05-02-PLAN.md — Real gsd install.sh + uninstall.sh (npm install -g get-shit-done-cc@$PINNED + banner-grep version-lock) (AGT-04 recipe body ✓; AGT-04 bats enforcement lands in 05-04) — ✓ Complete 2026-04-19
 - [ ] 05-03-PLAN.md — Real playwright install.sh + uninstall.sh (npm install -g playwright + npx playwright install --with-deps chromium via ADR-012 NOPASSWD sudo + chromium cache verify) (AGT-05)
 - [ ] 05-04-PLAN.md — tests/bats/50-agents.bats (AGT-01 × 3 six-mode + AGT-02b + AGT-03 + AGT-04 + AGT-05 × 3) + TST-07 phase-close behavior-coverage-auditor gate (AGT-01..05, AGT-02b)
 
@@ -163,7 +163,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 3. Node.js Runtime + Per-User npm Prefix | 2/2 | ✓ Complete | 2026-04-18 |
 | 4. Registry CLI + Catalog + Uninstall | 7/7 | ✓ Complete | 2026-04-19 |
 | 5.1 (INSERTED). Agent User Sudo Drop-In | 1/1 | ✓ Complete | 2026-04-19 |
-| 5. Agent Installability | 1/4 | In progress | 2026-04-19 (Plan 05-01 ✓) |
+| 5. Agent Installability | 2/4 | In progress | 2026-04-19 (Plan 05-01 ✓, 05-02 ✓) |
 | 6. Distribution + Release Pipeline | 0/TBD | Not started | - |
 
 ## Coverage Summary
