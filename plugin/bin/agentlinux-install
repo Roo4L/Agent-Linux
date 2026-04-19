@@ -27,26 +27,31 @@ agentlinux-install v${AGENTLINUX_VERSION} — provision an agent user and enviro
 Usage: agentlinux-install [OPTIONS]
 
 Options:
-  -h, --help       Show this help and exit
-  -V, --version    Print version and exit
-      --verbose    Enable DEBUG-level logging
-      --purge      (Phase 4 stub) remove the agent user and installer state
+  -h, --help            Show this help and exit
+  -V, --version         Print version and exit
+      --verbose         Enable DEBUG-level logging
+      --purge           Remove the agent user, /opt/agentlinux/, and all
+                        installer-placed files (requires root; destructive)
+      --remove-nodejs   Used WITH --purge: also apt-get purge nodejs. Other
+                        users may depend on Node.js, so this is NOT the
+                        default purge behavior.
 
 The installer must run as root. Supported hosts: Ubuntu 22.04 and 24.04.
 Transcript: ${LOG_FILE}
 EOF
 }
 
-# pre_parse_args — handle the three print-and-exit flags (--help, --version,
-# --purge) BEFORE the log-file / tee / require_root machinery kicks in. These
-# flags mutate no state, so running them without root is part of the UX
-# contract (CONTEXT.md "Installer UX & Logging", PLAN acceptance criterion
-# "parse_args runs BEFORE require_root so --help / --version work without
-# sudo"). --purge likewise must be usable without root for the deliberate
-# no-op warning path in Phase 2 (real wire-up lands in Phase 4).
+# pre_parse_args — handle the two print-and-exit flags (--help, --version)
+# BEFORE the log-file / tee / require_root machinery kicks in. These flags
+# mutate no state, so running them without root is part of the UX contract
+# (CONTEXT.md "Installer UX & Logging", PLAN acceptance criterion "parse_args
+# runs BEFORE require_root so --help / --version work without sudo").
 #
-# --verbose and unknown flags fall through to parse_args (run after log-init)
-# so their diagnostics are captured by the tee transcript.
+# --purge was handled here in Phase 2 as a print-and-exit stub. Phase 4 Plan
+# 04-06 moves --purge to parse_args + main() so it runs AFTER require_root
+# (--purge is destructive and requires EUID=0). --verbose and unknown flags
+# fall through to parse_args (run after log-init) so their diagnostics are
+# captured by the tee transcript.
 pre_parse_args() {
   local arg
   for arg in "$@"; do
@@ -57,10 +62,6 @@ pre_parse_args() {
         ;;
       -V | --version)
         printf '%s\n' "$AGENTLINUX_VERSION"
-        exit 0
-        ;;
-      --purge)
-        printf 'agentlinux-install: --purge is a Phase 4 stub; no action taken in v0.3.0 Phase 2\n' >&2
         exit 0
         ;;
     esac
@@ -118,12 +119,18 @@ trap on_error ERR
 # shellcheck source=../lib/as_user.sh
 . "$LIB_DIR/as_user.sh"
 
-# parse_args — handle flags that either mutate installer state (--verbose) or
-# need the log transcript for diagnostics (unknown-flag rejection). Runs after
-# log-init so every message routes through the tee.
+# Global flag state set by parse_args; main() consults these AFTER require_root
+# to branch into run_purge vs the normal provisioner flow.
+PURGE_REQUESTED=false
+REMOVE_NODEJS_REQUESTED=false
+
+# parse_args — handle flags that either mutate installer state (--verbose,
+# --purge, --remove-nodejs) or need the log transcript for diagnostics
+# (unknown-flag rejection). Runs after log-init so every message routes
+# through the tee.
 #
-# --help / --version / --purge are handled by pre_parse_args above and never
-# reach this function; they are kept in this case-match only as a defensive
+# --help / --version are handled by pre_parse_args above and never reach
+# this function; they are kept in this case-match only as a defensive
 # fallthrough (should pre_parse_args be refactored).
 parse_args() {
   while [[ $# -gt 0 ]]; do
@@ -141,8 +148,10 @@ parse_args() {
         log_debug "verbose logging enabled"
         ;;
       --purge)
-        log_warn "--purge is a Phase 4 stub; no action taken in v0.3.0 Phase 2"
-        exit 0
+        PURGE_REQUESTED=true
+        ;;
+      --remove-nodejs)
+        REMOVE_NODEJS_REQUESTED=true
         ;;
       *)
         log_error "unknown argument: $1"
@@ -185,9 +194,110 @@ run_provisioners() {
   done
 }
 
+# run_purge [remove_nodejs_flag]
+#
+# INST-04 wire-up — replaces the Phase 2 stub. Ordered 7-step teardown; every
+# step is idempotent (rm -f no-op on missing, userdel guarded by id check,
+# pkill -u guarded by true).
+#
+# Ordering contract (Pitfall 7 + security-engineer rubric):
+#   1. per-agent uninstall.sh (REQUIRES /opt/agentlinux/catalog/ still present)
+#   2. rm /opt/agentlinux                          (literal absolute path)
+#   3. PATH artefacts (profile.d, agentlinux.env, cron.d)
+#   4. NodeSource apt repo files
+#   5. (optional) apt-get purge nodejs when $1 == true
+#   6. userdel -r agent (pkill first to avoid "user is logged in" refusal)
+#   7. LAST — rm /var/log/agentlinux-install.log (the tee is still writing
+#      to this file during our run; the EXIT trap at the top of this script
+#      closes FD 1+2, delivering EOF to tee. We do the rm LAST so any
+#      post-unlink writes land in the unlinked inode that is GC'd after exit.
+#      Per Pitfall 7, sequencing log removal LAST avoids mid-invocation FD
+#      write-into-/dev/null footguns.)
+#
+# Security invariants (T-04-16):
+#   - Every rm target is a LITERAL absolute path (no $VAR in rm -rf).
+#   - Recipe paths derive from $AGENTLINUX_VERSION (controlled by entrypoint,
+#     not user input) and the sentinel filename (basename -- NO file-contents
+#     grep/eval on agent-writable sentinel JSON).
+#   - --remove-nodejs is opt-in (T-04-17); default leaves Node installed.
+run_purge() {
+  local remove_nodejs=${1:-false}
+
+  log_info "running --purge (destructive)"
+
+  # Step 1: per-agent uninstall.sh for every sentinel.
+  # Look up recipe paths from the catalog snapshot keyed by sentinel id —
+  # DO NOT trust paths from sentinel JSON contents (a tampered sentinel
+  # shouldn't pick arbitrary scripts to execute as agent).
+  local state_dir=/opt/agentlinux/state/installed.d
+  if [[ -d $state_dir ]]; then
+    local f
+    for f in "$state_dir"/*.json; do
+      [[ -f $f ]] || continue
+      local id
+      id=$(basename "$f" .json)
+      local recipe=/opt/agentlinux/catalog/${AGENTLINUX_VERSION}/agents/${id}/uninstall.sh
+      if [[ -x $recipe ]]; then
+        log_info "running uninstall.sh for ${id}"
+        as_user agent -- bash "$recipe" || log_warn "uninstall.sh for ${id} failed (continuing)"
+      else
+        log_warn "no uninstall.sh for ${id} at ${recipe}; skipping"
+      fi
+      rm -f -- "$f"
+    done
+  fi
+
+  # Step 2: remove /opt/agentlinux (CLI dist, catalog snapshot, state).
+  # Literal absolute path — security-engineer rubric flags any $VAR in rm -rf.
+  rm -rf /opt/agentlinux/
+
+  # Step 3: PATH artefacts placed by 40-path-wiring.sh.
+  rm -f /etc/profile.d/agentlinux.sh
+  rm -f /etc/agentlinux.env
+  rm -f /etc/cron.d/agentlinux
+
+  # Step 4: NodeSource apt repo files placed by 30-nodejs.sh.
+  # Both filenames (deb822 + legacy) handled — setup_22.x may have created
+  # either depending on Ubuntu version / prior partial migrations.
+  rm -f /etc/apt/sources.list.d/nodesource.sources
+  rm -f /etc/apt/sources.list.d/nodesource.list
+  rm -f /etc/apt/preferences.d/nodejs
+
+  # Step 5: optionally apt-remove nodejs. Explicit opt-in (T-04-17) — other
+  # users on this host may depend on Node installed by this installer.
+  if [[ $remove_nodejs == true ]]; then
+    log_info "removing nodejs (apt-get purge -y nodejs)"
+    DEBIAN_FRONTEND=noninteractive apt-get purge -y nodejs || log_warn "apt purge nodejs failed"
+    DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true
+  fi
+
+  # Step 6: remove agent user + /home/agent.
+  # pkill -u agent first to avoid "user is logged in" from userdel when an
+  # SSH session or systemd-run scope is live. pkill returns non-zero if no
+  # matches; that is fine — ignore.
+  if id agent >/dev/null 2>&1; then
+    pkill -u agent 2>/dev/null || true
+    sleep 1
+    if ! userdel -r agent 2>/dev/null; then
+      log_warn "userdel -r agent failed; trying userdel -rf"
+      userdel -rf agent 2>/dev/null || log_error "could not remove agent user"
+    fi
+  fi
+
+  # Step 7: LAST — remove the install log. See ordering contract above.
+  # Pitfall 7 mitigation: sequence LAST so the tee child sees EOF naturally
+  # on script exit (EXIT trap closes FDs; unlinked inode is GC'd).
+  log_info "--purge complete"
+  rm -f /var/log/agentlinux-install.log
+}
+
 main() {
   parse_args "$@"
   require_root
+  if [[ $PURGE_REQUESTED == true ]]; then
+    run_purge "$REMOVE_NODEJS_REQUESTED"
+    exit 0
+  fi
   log_info "agentlinux-install v${AGENTLINUX_VERSION} starting"
   detect_distro
   run_provisioners
