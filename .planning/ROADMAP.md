@@ -28,7 +28,7 @@ Key locked decisions honored by this roadmap:
 - [x] **Phase 2: Installer Foundation + Agent User** - One-command installer creates a correctly-provisioned `agent` user with belt-and-braces PATH for every invocation mode (interactive shell, non-interactive SSH, cron, systemd, sudo -u); Docker bats matrix green on PR. ✓ 2026-04-18 (5 plans; 22/22 bats green on both Ubuntu 22.04 + 24.04; TST-07 gate: GREEN; one known architectural gap deferred to v0.4+ — sudo non-login + secure_path needs PAM/sudoers work out of Phase 2 scope)
 - [x] **Phase 3: Node.js Runtime + Per-User npm Prefix** - NodeSource Node.js 22 LTS + agent's npm global prefix under home; `npm install -g` works without sudo from the agent user in every invocation mode (smoke-tested with cowsay@1.6.0). ✓ 2026-04-18 (2 plans; 27/27 bats green on both Ubuntu 22.04 + 24.04; RT-01..04 all satisfied with observable six-mode proof; TST-07 gate: GREEN; INST-02 idempotency extended to cover Phase 3 artefacts)
 - [x] **Phase 4: Registry CLI + Catalog + Uninstall** - `agentlinux list/install/remove/upgrade/pin` ships; catalog with claude-code, gsd, playwright entries is *available* (none installed by default); JSON Schema validates entries; clean uninstall path. ✓ 2026-04-19 (7 plans; 49/49 bats green on Ubuntu 22.04 + 24.04; TST-07 gate: GREEN; all 12 Phase 4 requirements — CLI-01..07, CAT-01..04, INST-04 — have ≥1 bats @test each; INST-02 extended with 4 Phase-4 artefacts via LOCKED deterministic strategy)
-- [ ] **Phase 5.1 (INSERTED): Agent User Sudo Drop-In** - `/etc/sudoers.d/agentlinux` grants passwordless sudo to agent user (scope: ALL per ADR-012, overriding Phase 2's zero-sudo lock). Prerequisite for Phase 5 agent recipes needing apt/systemctl/etc.
+- [x] **Phase 5.1 (INSERTED): Agent User Sudo Drop-In** - `/etc/sudoers.d/agentlinux` grants passwordless sudo to agent user (scope: ALL per ADR-012, overriding Phase 2's zero-sudo lock). Prerequisite for Phase 5 agent recipes needing apt/systemctl/etc. ✓ 2026-04-19 (1 plan; 56/56 bats green on Ubuntu 22.04 + 24.04, +7 sudo @tests vs. Phase 4 baseline; TST-07 gate: GREEN — INST-06 + BHV-07 both have ≥1 bats @test citing the ID; visudo-gated atomic 0440 drop-in with sha256 byte-stable re-run verified)
 - [ ] **Phase 5: Agent Installability** - Each of claude-code, gsd, playwright is installable via `agentlinux install <name>` and runs correctly for the agent user across all invocation modes. AGT-02 (Claude Code self-updates without sudo/EACCES) is the canonical acceptance test.
 - [ ] **Phase 6: Distribution + Release Pipeline** - SHA256-verified curl-pipe-bash installer, optional `.deb` via fpm, GitHub Releases workflow, QEMU nightly + release-gate suite wired as mandatory, AGT-02 release gate enforced. Ship v0.3.0.
 
@@ -117,7 +117,8 @@ Key locked decisions honored by this roadmap:
   3. `visudo -cf /etc/sudoers.d/agentlinux` exit 0 — the drop-in passes syntax validation.
   4. Re-running the installer produces a byte-identical drop-in (idempotent) — INST-02 extended.
   5. `agentlinux-install --purge` removes the drop-in symmetrically (INST-04 extended verification).
-**Plans**: TBD
+**Plans**: 1 plan
+- [x] 05.1-01-PLAN.md — Sudoers drop-in provisioner (`plugin/provisioner/20-sudoers.sh`) + bats coverage (`tests/bats/22-agent-sudo.bats`) closing INST-06 + BHV-07 per ADR-012 ✓ 2026-04-19 (2 commits: 9d4ea32 feat provisioner, edae58a test bats; ~12 min; visudo -cf gated + atomic 0440 install + RETURN-trap tmpfile cleanup; 7 @tests — 4 BHV-07 file-integrity, 2 INST-06 functional, 1 BHV-07 idempotency; TST-07 gate: GREEN)
 
 ### Phase 5: Agent Installability
 **Goal**: Each of the three catalog agents can be installed via `agentlinux install <name>` and runs correctly for the agent user across all six BHV invocation modes — and AGT-02 (Claude Code self-updates without sudo/EACCES) passes as the canonical acceptance test. AGT-02b verifies the stability-first pin mechanism produces exactly `pinned_version` on disk.
@@ -157,7 +158,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 2. Installer Foundation + Agent User | 5/5 | ✓ Complete | 2026-04-18 |
 | 3. Node.js Runtime + Per-User npm Prefix | 2/2 | ✓ Complete | 2026-04-18 |
 | 4. Registry CLI + Catalog + Uninstall | 7/7 | ✓ Complete | 2026-04-19 |
-| 5.1 (INSERTED). Agent User Sudo Drop-In | 0/TBD | Not started | - |
+| 5.1 (INSERTED). Agent User Sudo Drop-In | 1/1 | ✓ Complete | 2026-04-19 |
 | 5. Agent Installability | 0/TBD | Not started | - |
 | 6. Distribution + Release Pipeline | 0/TBD | Not started | - |
 
