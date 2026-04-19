@@ -80,9 +80,14 @@ final_banner() {
 trap final_banner EXIT
 
 echo "== build ${IMG} from ${DF} =="
-# Build context is tests/docker/ — the installer sources live elsewhere and are
-# bind-mounted at run time, so the image stays small and rebuildable.
-docker build -t "$IMG" -f "$DF" "$HERE"
+# Build context is the repo root. Phase 4 Plan 04-06 added a multi-stage
+# `cli-builder` stage to each Dockerfile that runs `pnpm install + pnpm run
+# build` against `plugin/cli/`, so the build context needs to include the
+# plugin/ tree. The final image is still small: only the compiled dist/ is
+# copied from the builder stage (COPY --from=cli-builder) into the Ubuntu
+# test image at /opt/cli-prebuilt/dist; source + node_modules stay in the
+# throwaway builder layer.
+docker build -t "$IMG" -f "$DF" "$REPO_ROOT"
 
 echo "== run systemd container from ${IMG} =="
 # --privileged + --cgroupns=host + cgroup bind (rw) + tmpfs on /run,/tmp is the
@@ -143,6 +148,25 @@ done
 # repo root on the host, and we don't want container writes leaking back.
 echo "== stage sources into container =="
 docker exec "$CID" bash -c 'cp -R /workspace /opt/agentlinux-src'
+
+# Phase 4 Plan 04-06: splice the pre-built CLI bundle from the image's
+# builder stage (staged at /opt/cli-prebuilt/{dist,node_modules,package.json})
+# into the staged source tree. The host's plugin/cli/dist/ and
+# plugin/cli/node_modules/ are gitignored (tsc output + pnpm install output,
+# not checked in), so without this splice the 50-registry-cli.sh provisioner
+# would fail the "CLI dist/index.js missing" sanity check, or the CLI would
+# fail at runtime with ERR_MODULE_NOT_FOUND on `import 'commander'`. The
+# splice is idempotent — it runs once per container startup against a
+# freshly-copied /opt/agentlinux-src.
+echo "== splice pre-built CLI bundle (dist/ + node_modules/ + package.json) into staged sources =="
+docker exec "$CID" bash -c '
+  set -euo pipefail
+  mkdir -p /opt/agentlinux-src/plugin/cli/dist
+  mkdir -p /opt/agentlinux-src/plugin/cli/node_modules
+  cp -R /opt/cli-prebuilt/dist/. /opt/agentlinux-src/plugin/cli/dist/
+  cp -R /opt/cli-prebuilt/node_modules/. /opt/agentlinux-src/plugin/cli/node_modules/
+  cp /opt/cli-prebuilt/package.json /opt/agentlinux-src/plugin/cli/package.json
+'
 
 echo "== run installer (agentlinux-install) =="
 docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install

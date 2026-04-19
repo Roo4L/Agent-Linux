@@ -13,6 +13,48 @@
 #     a real system configuration, not Docker's DEBIAN_FRONTEND env override.
 #   - sudo present so run_sudo_u / run_sudo_u_i helpers can exercise BHV-05.
 #   - --no-install-recommends keeps the image small (attack surface + pull time).
+#
+# Phase 4 (Plan 04-06) extension:
+#   - Multi-stage builder (node:22-slim) compiles plugin/cli/ via pnpm at image
+#     build time. The compiled dist/ is copied into the final image at
+#     /opt/cli-prebuilt/dist; tests/docker/run.sh splices it into the staged
+#     source tree at /opt/agentlinux-src/plugin/cli/dist/ before invoking
+#     agentlinux-install, so the 50-registry-cli.sh provisioner finds the
+#     compiled CLI entrypoint. plugin/cli/dist/ is gitignored — this is how
+#     the installer's runtime CLI lands in the test image without relying on
+#     the host having run `pnpm run build` first.
+#   - The final test image remains Ubuntu 22.04 (faithful test substrate); the
+#     installer's OWN NodeSource setup runs at runtime during the test — that
+#     is part of what is under test, not a build-time dependency.
+
+# ---------------------------------------------------------------
+# Stage 1: cli-builder — compile plugin/cli/ via pnpm on node:22-slim.
+# node:22-slim ships Node + npm + corepack, so there is no NodeSource apt
+# touchpoint at Docker-build time (Docker-build hermeticity). Copies ONLY
+# plugin/cli/ into the builder so the build cache keys on CLI sources, not
+# the full repo. Build context for this Dockerfile is the repo root (set by
+# tests/docker/run.sh).
+# ---------------------------------------------------------------
+FROM node:22-slim AS cli-builder
+WORKDIR /build/cli
+# Copy package manifests first for Docker-layer cache hit on source-only edits.
+COPY plugin/cli/package.json plugin/cli/pnpm-lock.yaml ./
+COPY plugin/cli/tsconfig.json ./
+COPY plugin/cli/src ./src
+# corepack ships with node 22+; activate pnpm (version pinned by package.json
+# engines/packageManager if present, else latest 9.x from the corepack channel).
+# --frozen-lockfile = fail if lockfile drift; --prod would skip devDeps but
+# tsc is a devDep, so we need the full install here, then prune devDeps after
+# build to minimize the node_modules/ we ship into the final image.
+RUN corepack enable \
+    && corepack prepare pnpm@latest --activate \
+    && pnpm install --frozen-lockfile \
+    && pnpm run build \
+    && pnpm prune --prod
+
+# ---------------------------------------------------------------
+# Stage 2: final test image — Ubuntu 22.04 + systemd-in-docker.
+# ---------------------------------------------------------------
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive \
@@ -50,6 +92,17 @@ RUN mkdir -p /run/sshd && ssh-keygen -A
 # Locale: C.UTF-8 is a glibc built-in on 22.04+; locale-gen is a no-op but the
 # update-locale write into /etc/default/locale is the real correctness step.
 RUN locale-gen C.UTF-8 || true && update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
+
+# Phase 4 Plan 04-06: copy the pre-built CLI dist/ + production-pruned
+# node_modules/ + package.json from the builder stage. tests/docker/run.sh
+# splices the TRIO into /opt/agentlinux-src/plugin/cli/ after staging the
+# bind-mounted /workspace copy, so the 50-registry-cli.sh provisioner finds
+# a runnable CLI bundle at install time. node_modules/ is required because
+# dist/index.js contains ESM `import … from 'commander'` — Node's module
+# resolver walks up from dist/ and finds deps in a sibling node_modules/.
+COPY --from=cli-builder /build/cli/dist /opt/cli-prebuilt/dist
+COPY --from=cli-builder /build/cli/node_modules /opt/cli-prebuilt/node_modules
+COPY --from=cli-builder /build/cli/package.json /opt/cli-prebuilt/package.json
 
 # cgroup bind + SIGRTMIN+3 graceful-stop required by systemd-as-PID-1 recipe.
 VOLUME /sys/fs/cgroup
