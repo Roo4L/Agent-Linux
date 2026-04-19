@@ -70,6 +70,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # jq is REQUIRED by Phase 4's tests/bats/40-registry-cli.bats to parse
 # `agentlinux list --json` output and inspect sentinel JSON files
 # (/opt/agentlinux/state/installed.d/<id>.json). Plan 04-07 Rule 3 auto-fix.
+# curl is REQUIRED by Phase 5's claude-code install.sh recipe (AGT-02 path):
+# `curl -fsSL https://claude.ai/install.sh | bash -s $PINNED` fetches the
+# native-installer bootstrap. Ubuntu 24.04 minimal does NOT ship curl by
+# default — without this, the release-gate bats file's setup_file fails at
+# `agentlinux install --force claude-code`. Plan 05-01 Rule 3 auto-fix.
 # shellcheck is handy for debugging the installer inside the container but is not
 # strictly required at runtime; leaving it in the image makes `docker exec` shell
 # sessions useful for interactive investigation.
@@ -80,6 +85,7 @@ RUN apt-get update && \
       bats locales sudo \
       dbus \
       jq \
+      curl \
       ca-certificates bash coreutils util-linux \
       shellcheck && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
