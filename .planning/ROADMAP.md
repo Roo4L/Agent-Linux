@@ -98,7 +98,7 @@ Key locked decisions honored by this roadmap:
   8. The Docker bats matrix is extended to cover CLI-01..CLI-07, CAT-01..CAT-04, and INST-04 end-to-end (including "install + remove + install again is idempotent" and "upgrade detects divergence correctly") and stays green on PR.
 **Plans**: 7 plans (grew from 5 with ADR-011 additions: `upgrade` verb + `pin` verb)
 - [x] 04-01-PLAN.md — CLI scaffold + ajv catalog validator + interface surface + Commander bootstrap (CLI-01 scaffold, CAT-03, CAT-04) ✓ 2026-04-19
-- [ ] 04-02-PLAN.md — catalog.json (4 entries) + install.sh/uninstall.sh recipes (CAT-01, CAT-02, CAT-03)
+- [x] 04-02-PLAN.md — catalog.json (4 entries) + install.sh/uninstall.sh recipes (CAT-01, CAT-02, CAT-03) ✓ 2026-04-19
 - [ ] 04-03-PLAN.md — list/install/remove commands + shared runner.ts dispatcher (CLI-02, CLI-03, CLI-04, CLI-05)
 - [ ] 04-04-PLAN.md — upgrade verb with divergence classifier + npm ls/view (CLI-06)
 - [ ] 04-05-PLAN.md — pin verb with sticky-override semantics (CLI-07)
@@ -142,7 +142,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Harness Setup | 5/5 | ✓ Complete | 2026-04-18 |
 | 2. Installer Foundation + Agent User | 5/5 | ✓ Complete | 2026-04-18 |
 | 3. Node.js Runtime + Per-User npm Prefix | 2/2 | ✓ Complete | 2026-04-18 |
-| 4. Registry CLI + Catalog + Uninstall | 1/7 | In progress | - |
+| 4. Registry CLI + Catalog + Uninstall | 2/7 | In progress | - |
 | 5. Agent Installability | 0/TBD | Not started | - |
 | 6. Distribution + Release Pipeline | 0/TBD | Not started | - |
 

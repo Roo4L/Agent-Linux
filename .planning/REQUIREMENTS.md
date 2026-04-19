@@ -68,8 +68,8 @@ Behaviors of installed agent tools. Each behavior is tested once with Claude Cod
 
 ### Catalog (CAT)
 
-- [ ] **CAT-01**: The v0.3.0 catalog contains at least three available agents: `claude-code`, `gsd`, `playwright`. (Playwright replaces v0.2.0's chrome-devtools-mcp as the canonical browser-access tool.)
-- [ ] **CAT-02**: **None of the catalog agents is installed by default.** Fresh install produces an empty-install state; every agent is opt-in via `agentlinux install`.
+- [x] **CAT-01**: The v0.3.0 catalog contains at least three available agents: `claude-code`, `gsd`, `playwright`. (Playwright replaces v0.2.0's chrome-devtools-mcp as the canonical browser-access tool.) ✓ Plan 04-02 (plugin/catalog/catalog.json ships exactly 4 entries: claude-code 2.1.98 script, gsd 1.37.1 npm→get-shit-done-cc, playwright 1.59.1 npm, test-dummy 0.0.1 script/test_only; ajv-validated: `node plugin/cli/scripts/validate-catalog.mjs` → "4 entries OK"; `jq '.agents | length'` → 4).
+- [x] **CAT-02**: **None of the catalog agents is installed by default.** Fresh install produces an empty-install state; every agent is opt-in via `agentlinux install`. ✓ Plan 04-02 catalog-side (no provisioner references any recipe; zero `installed_by_default` fields in catalog.json; test-dummy carries `test_only: true` filtering it from default `agentlinux list`. Runtime-side bats assertion — empty installed.d/ after fresh install + test-dummy hidden unless `--include-test` — lands Plan 04-07 per phase TST-07 gate.)
 - [x] **CAT-03**: The catalog has a documented, machine-readable schema (JSON) so new agents can be added by submitting a catalog entry + install recipe without code changes to the CLI. (Verified Plan 04-01: plugin/catalog/schema.json is JSON Schema 2020-12 per ADR-011; ajv validator at plugin/cli/src/catalog/schema.ts + pre-commit wrapper at plugin/cli/scripts/validate-catalog.mjs both enforce it; 6/6 unit tests exercise positive + negative + boundary cases.)
 - [x] **CAT-04**: Every catalog entry declares a `pinned_version` (required, semver) validated by JSON Schema. `agentlinux install <name>` installs exactly that version via `sudo -u agent -H npm install -g <pkg>@<pinned_version>` (or equivalent native-installer pin for agents with their own installer, e.g. Claude Code). Per ADR-011. (Verified Plan 04-01 schema-side: `required: [..., pinned_version, ...]`; pattern `^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$` accepts pre-release + build-metadata, rejects non-semver. Runtime-side install happens in Plan 04-03.)
 - [ ] **CAT-05**: Each release artifact includes a catalog snapshot at `/opt/agentlinux/catalog/<version>/catalog.json` as a sibling of the release tarball + `.sha256`. The installer stages this snapshot; `agentlinux upgrade` reads it to compute the 3-way divergence. The snapshot is what CI validates end-to-end before the release tag is published (per TST-08).
@@ -192,9 +192,9 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | CLI-05 | Phase 4 | Pending |
 | CLI-06 | Phase 4 | Pending (stability-first `upgrade` verb per ADR-011) |
 | CLI-07 | Phase 4 | Pending (sticky-override `pin` verb per ADR-011) |
-| CAT-01 | Phase 4 | Pending |
-| CAT-02 | Phase 4 | Pending |
-| CAT-03 | Phase 4 | ✓ Complete (04-01: plugin/catalog/schema.json is JSON Schema 2020-12 per ADR-011; ajv validator at src/catalog/schema.ts + pre-commit wrapper at scripts/validate-catalog.mjs; 6/6 tests green) |
+| CAT-01 | Phase 4 | ✓ Complete (04-02: plugin/catalog/catalog.json ships 4 entries — claude-code, gsd, playwright, test-dummy — ajv-validated as "4 entries OK") |
+| CAT-02 | Phase 4 | ✓ Complete catalog-side (04-02: no provisioner invokes a recipe; test-dummy `test_only:true` filters from default list; runtime bats assertion of empty installed.d/ lands Plan 04-07) |
+| CAT-03 | Phase 4 | ✓ Complete (04-01 schema-side + 04-02 recipe-side: plugin/catalog/schema.json is JSON Schema 2020-12 per ADR-011; ajv validator + pre-commit wrapper enforce it; adding a new agent = catalog.json edit + recipe drop-in at `plugin/catalog/agents/<id>/install.sh + uninstall.sh` with no CLI source change — exercised by 4 live entries at 2026-04-19) |
 | CAT-04 | Phase 4 | ✓ Complete schema-side (04-01: required pinned_version with semver pattern accepting pre-release + build-metadata; 4 ajv tests cover positive + boundary cases; runtime install enforcement lands in Plan 04-03) |
 | CAT-05 | Phase 6 | Pending (release-time catalog snapshot sibling per ADR-011) |
 | INST-04 | Phase 4 | Pending |
