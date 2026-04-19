@@ -97,6 +97,13 @@ Key locked decisions honored by this roadmap:
   7. Running `agentlinux remove` on an entry that was installed cleans up the binary, sentinel, and any config additions the install placed; running the installer's `--purge` uninstall path removes the agent user's home, Node.js binaries owned by the install, sudoers drop-ins, and all installer-placed files — CLI-04, INST-04.
   8. The Docker bats matrix is extended to cover CLI-01..CLI-07, CAT-01..CAT-04, and INST-04 end-to-end (including "install + remove + install again is idempotent" and "upgrade detects divergence correctly") and stays green on PR.
 **Plans**: 7 plans (grew from 5 with ADR-011 additions: `upgrade` verb + `pin` verb)
+- [ ] 04-01-PLAN.md — CLI scaffold + ajv catalog validator + interface surface + Commander bootstrap (CLI-01 scaffold, CAT-03, CAT-04)
+- [ ] 04-02-PLAN.md — catalog.json (4 entries) + install.sh/uninstall.sh recipes (CAT-01, CAT-02, CAT-03)
+- [ ] 04-03-PLAN.md — list/install/remove commands + shared runner.ts dispatcher (CLI-02, CLI-03, CLI-04, CLI-05)
+- [ ] 04-04-PLAN.md — upgrade verb with divergence classifier + npm ls/view (CLI-06)
+- [ ] 04-05-PLAN.md — pin verb with sticky-override semantics (CLI-07)
+- [ ] 04-06-PLAN.md — 50-registry-cli.sh provisioner + --purge 7-step teardown + Docker builder stage (CLI-01 PATH, INST-04)
+- [ ] 04-07-PLAN.md — bats integration tests + INST-02 extension + TST-07 phase-close audit (CLI-01..07, CAT-01..04, INST-04)
 
 ### Phase 5: Agent Installability
 **Goal**: Each of the three catalog agents can be installed via `agentlinux install <name>` and runs correctly for the agent user across all six BHV invocation modes — and AGT-02 (Claude Code self-updates without sudo/EACCES) passes as the canonical acceptance test. AGT-02b verifies the stability-first pin mechanism produces exactly `pinned_version` on disk.
