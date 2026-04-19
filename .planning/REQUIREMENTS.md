@@ -26,6 +26,7 @@ Grouped by behavior area. Each `BHV-XX` is a testable, observable behavior — t
 - [ ] **INST-03**: The installer is distributable via curl-pipe-bash (primary) and verifies release tarball integrity via SHA256 before execution.
 - [x] **INST-04**: The installer supports uninstall that removes the agent user, home, Node.js binaries owned by the install, and any files the installer placed on the system (with a `--purge` flag for destructive home-dir removal). (Verified 04-06 Docker smoke: agentlinux-install --purge replaces Phase 2 stub with 7-step ordered idempotent teardown: per-agent uninstall.sh via as_user; rm -rf /opt/agentlinux; /etc/profile.d/agentlinux.sh + /etc/agentlinux.env + /etc/cron.d/agentlinux; NodeSource apt files; optional apt-purge nodejs gated on --remove-nodejs (default: leave Node); pkill + userdel -r agent with -rf fallback; log-file removal LAST (Pitfall 7 tee-EOF sequencing). All rm targets literal absolute paths — security-engineer T-04-16 mitigation. Bats enforcement lands Plan 04-07.)
 - [x] **INST-05**: No invocation of the installer produces a line containing `EACCES` or `permission denied` on stdout or stderr. (Verified 02-05 bats: `INST-05: installer log contains no EACCES or 'permission denied' lines` — grep against /var/log/agentlinux-install.log returns 0 matches on a green run; installer entrypoint tees stdout+stderr merged to the log via `exec > >(tee -a $LOG) 2>&1` per Pitfall 6 mitigation.)
+- [ ] **INST-06**: After install, `sudo -u agent sudo -n true` returns exit 0 — the agent user has passwordless sudo via `/etc/sudoers.d/agentlinux` (scope: ALL commands, per ADR-012). Enables agent workflows requiring `apt install`, `systemctl restart`, etc. Lands in Phase 5.1 (INSERTED).
 
 ### Agent User Behavior (BHV)
 
@@ -37,6 +38,7 @@ Observable behaviors of the provisioned agent user. These are the contract — t
 - [x] **BHV-04**: The agent user can run commands via **systemd `User=agent`** and all installed agent binaries are findable on PATH. (PATH contract landed 02-04 via `/etc/agentlinux.env` literal KEY=VALUE file; future units reference via `EnvironmentFile=/etc/agentlinux.env`; verified 02-05 bats: 2 @tests via `run_systemd_user` helper using `systemd-run --wait --pipe --uid=agent --property=EnvironmentFile=/etc/agentlinux.env`. Requires dbus in the image — added to both Dockerfiles in commit badd877.)
 - [x] **BHV-05**: Another user can run commands as the agent user via `sudo -u agent <cmd>` (or `sudo -u agent -i <cmd>`) and all installed agent binaries are findable on PATH. (PATH contract landed 02-04; verified 02-05 bats: 3 @tests via `run_sudo_u` [bash --login -c] and `run_sudo_u_i` [sudo -u agent -H -i bash -c]. NOTE: plan-spec'd `sudo -u agent -H bash -c` [no login] does NOT work under Ubuntu's default `Defaults secure_path=...` because sudo env_reset strips PATH before bash runs AND `bash -c` non-interactive non-login does not source .bashrc; fixing this requires a sudoers drop-in which Phase 2 CONTEXT explicitly locks — DEFERRED to v0.4+ as a PAM/sudoers architectural enhancement. The login variants exercised by the two helpers cover BHV-05's observable behavior contract.)
 - [x] **BHV-06**: The agent user can run commands in an interactive bash login shell and all installed agent binaries are findable on PATH. (PATH contract landed 02-04 via `/etc/profile.d/agentlinux.sh` sourced by `/etc/profile`; re-source guard `AGENTLINUX_PROFILE_SOURCED` prevents double-prepend; verified 02-05 bats: 2 @tests via `run_interactive` helper using `su - agent -c`.)
+- [ ] **BHV-07**: `/etc/sudoers.d/agentlinux` exists after install with mode `0440`, owner `root:root`, passes `visudo -cf` validation, and contains exactly the line `agent ALL=(ALL) NOPASSWD: ALL`. File is idempotent across installer re-runs (byte-stable). Per ADR-012. Lands in Phase 5.1 (INSERTED).
 
 ### Runtime + Global-Install Behavior (RT)
 
@@ -198,6 +200,8 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | CAT-04 | Phase 4 | ✓ Complete (04-01 schema + 04-07 bats: 1 @test in 40-registry-cli.bats asserts every list row has a non-empty pinned_version AND spot-checks claude-code=2.1.98, gsd=1.37.1, playwright=1.59.1, test-dummy=0.0.1) |
 | CAT-05 | Phase 6 | Pending (release-time catalog snapshot sibling per ADR-011) |
 | INST-04 | Phase 4 | ✓ Complete (04-06 installer + 04-07 bats: 2 @tests in tests/bats/40-registry-cli.bats — (1) `--purge` removes /opt/agentlinux + agent user + PATH artefacts + NodeSource apt files + install log (step 7, LAST) while keeping Node (no --remove-nodejs default); uninstall.sh ran before /opt removal (marker cleared); (2) second `--purge` run is idempotent (exit 0 with nothing to clean). T-04-16 + T-04-17 mitigations enforced.) |
+| INST-06 | Phase 5.1 (INSERTED) | Pending (agent user passwordless sudo per ADR-012) |
+| BHV-07 | Phase 5.1 (INSERTED) | Pending (`/etc/sudoers.d/agentlinux` 0440 root:root `agent ALL=(ALL) NOPASSWD: ALL` per ADR-012) |
 | AGT-01 | Phase 5 | Pending |
 | AGT-02 | Phase 5 | Pending |
 | AGT-02b | Phase 5 | Pending (pinned-version companion to AGT-02 per ADR-011) |
@@ -211,8 +215,8 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | DOC-01 | Phase 6 | Pending |
 
 **Coverage:**
-- v0.3.0 requirements: 52 total (9 HRN + 5 INST + 6 BHV + 4 RT + 6 AGT + 7 CLI + 5 CAT + 8 TST + 2 DOC) — grew from 46 with ADR-011 additions (CAT-04, CAT-05, CLI-06, CLI-07, TST-08, AGT-02b) on 2026-04-19
-- Mapped to phases: 52 (100%)
+- v0.3.0 requirements: 54 total (9 HRN + 6 INST + 7 BHV + 4 RT + 6 AGT + 7 CLI + 5 CAT + 8 TST + 2 DOC) — grew from 52 with ADR-012 additions (INST-06, BHV-07) on 2026-04-19
+- Mapped to phases: 54 (100%)
 - Unmapped: 0
 
 **Per-phase counts:**
