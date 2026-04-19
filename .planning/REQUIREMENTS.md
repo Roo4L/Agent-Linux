@@ -59,10 +59,10 @@ Behaviors of installed agent tools. Each behavior is tested once with Claude Cod
 ### Registry CLI (CLI)
 
 - [ ] **CLI-01**: The `agentlinux` command is available on PATH for the agent user after install.
-- [ ] **CLI-02**: `agentlinux list` shows all agents in the catalog with an installed/not-installed indicator.
-- [ ] **CLI-03**: `agentlinux install <name>` installs a catalog agent as the agent user, non-interactively, idempotently.
-- [ ] **CLI-04**: `agentlinux remove <name>` cleanly uninstalls a catalog agent (binary gone, config restored/removed).
-- [ ] **CLI-05**: `agentlinux` commands fail fast with a clear error when run as a non-agent user who lacks permission, and succeed without sudo when run as the agent user.
+- [x] **CLI-02**: `agentlinux list` shows all agents in the catalog with an installed/not-installed indicator.
+- [x] **CLI-03**: `agentlinux install <name>` installs a catalog agent as the agent user, non-interactively, idempotently.
+- [x] **CLI-04**: `agentlinux remove <name>` cleanly uninstalls a catalog agent (binary gone, config restored/removed).
+- [x] **CLI-05**: `agentlinux` commands fail fast with a clear error when run as a non-agent user who lacks permission, and succeed without sudo when run as the agent user.
 - [ ] **CLI-06**: `agentlinux upgrade` detects per-agent divergence (`synced`, `override-ahead`, `override-behind`) between the installed version, the release's curated pin, and upstream latest; offers per-agent 3-way reconcile ([keep override] / [accept curated] / [accept upstream latest]) or bulk flags (`--reset-all-curated`, `--respect-overrides`, `--all-latest`). Drives the stability-first model per ADR-011.
 - [ ] **CLI-07**: `agentlinux pin <name>=<curated|latest|x.y.z>` sets sticky override semantics — power-users who ran ahead of the curated set are not re-nagged on subsequent releases; `pin <name>=curated` clears the override. Precedent: Homebrew `brew pin`.
 
@@ -186,10 +186,10 @@ Mapped by roadmapper on 2026-04-18. See `.planning/ROADMAP.md` for phase details
 | RT-03 | Phase 3 | Pending (Plan 03-02 bats) |
 | RT-04 | Phase 3 | ✓ Complete installer-side (03-01: ~agent/.npmrc `prefix=/home/agent/.npm-global` + NPM_CONFIG_PREFIX belt-and-braces in /etc/agentlinux.env; /home/agent/.npm-global agent-owned 0755; T-03-03 byte-identical split-brain avoidance; observable six-mode bats proof lands in Plan 03-02 via assert_user_prefix_in_home) |
 | CLI-01 | Phase 4 | Partial (04-01: Commander bootstrap + `#!/usr/bin/env node` dist/index.js + `--version` = 0.3.0; full CLI-01 requires Plan 04-06 provisioner to stage dist/ + symlink under /home/agent/.npm-global/bin/) |
-| CLI-02 | Phase 4 | Pending |
-| CLI-03 | Phase 4 | Pending |
-| CLI-04 | Phase 4 | Pending |
-| CLI-05 | Phase 4 | Pending |
+| CLI-02 | Phase 4 | ✓ Complete TS-side (04-03: listCmd reads catalog+sentinels, classify() per entry, renders NAME/STATUS/CURATED/INSTALLED/DESCRIPTION text table or --json array; filters test_only unless --include-test; bats integration lands Plan 04-07) |
+| CLI-03 | Phase 4 | ✓ Complete TS-side (04-03: installCmd with idempotent short-circuit `semver.eq(existing.version, decision.version) && !force`; dispatches install.sh via runner.ts with AGENTLINUX_PINNED_VERSION env; writes atomic sentinel with source=curated/override/pinned; --force re-runs; --version <semver> overrides catalog pin; bats integration lands Plan 04-07) |
+| CLI-04 | Phase 4 | ✓ Complete TS-side (04-03: removeCmd requires sentinel unless --force; dispatches uninstall.sh via runner.ts; deleteSentinel on success; non-zero recipe exit propagates + keeps sentinel for retry; bats integration lands Plan 04-07) |
+| CLI-05 | Phase 4 | ✓ Complete TS-side (04-01 preAction hook + 04-03 end-to-end smoke: `agentlinux` run by non-agent user exits 64 before any action fires via `guardAgentUser(actionCommand.name())` in index.ts; bats integration lands Plan 04-07) |
 | CLI-06 | Phase 4 | Pending (stability-first `upgrade` verb per ADR-011) |
 | CLI-07 | Phase 4 | Pending (sticky-override `pin` verb per ADR-011) |
 | CAT-01 | Phase 4 | ✓ Complete (04-02: plugin/catalog/catalog.json ships 4 entries — claude-code, gsd, playwright, test-dummy — ajv-validated as "4 entries OK") |

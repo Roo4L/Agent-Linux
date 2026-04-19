@@ -99,7 +99,7 @@ Key locked decisions honored by this roadmap:
 **Plans**: 7 plans (grew from 5 with ADR-011 additions: `upgrade` verb + `pin` verb)
 - [x] 04-01-PLAN.md — CLI scaffold + ajv catalog validator + interface surface + Commander bootstrap (CLI-01 scaffold, CAT-03, CAT-04) ✓ 2026-04-19
 - [x] 04-02-PLAN.md — catalog.json (4 entries) + install.sh/uninstall.sh recipes (CAT-01, CAT-02, CAT-03) ✓ 2026-04-19
-- [ ] 04-03-PLAN.md — list/install/remove commands + shared runner.ts dispatcher (CLI-02, CLI-03, CLI-04, CLI-05)
+- [x] 04-03-PLAN.md — list/install/remove commands + shared runner.ts dispatcher (CLI-02, CLI-03, CLI-04, CLI-05) ✓ 2026-04-19
 - [ ] 04-04-PLAN.md — upgrade verb with divergence classifier + npm ls/view (CLI-06)
 - [ ] 04-05-PLAN.md — pin verb with sticky-override semantics (CLI-07)
 - [ ] 04-06-PLAN.md — 50-registry-cli.sh provisioner + --purge 7-step teardown + Docker builder stage (CLI-01 PATH, INST-04)
@@ -142,7 +142,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 1. Harness Setup | 5/5 | ✓ Complete | 2026-04-18 |
 | 2. Installer Foundation + Agent User | 5/5 | ✓ Complete | 2026-04-18 |
 | 3. Node.js Runtime + Per-User npm Prefix | 2/2 | ✓ Complete | 2026-04-18 |
-| 4. Registry CLI + Catalog + Uninstall | 2/7 | In progress | - |
+| 4. Registry CLI + Catalog + Uninstall | 3/7 | In progress | - |
 | 5. Agent Installability | 0/TBD | Not started | - |
 | 6. Distribution + Release Pipeline | 0/TBD | Not started | - |
 
