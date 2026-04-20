@@ -1,4 +1,23 @@
 name: release
+# Phase 6 Plan 06-04 — full 4-gate release pipeline + build + publish.
+# Replaces the Phase 1 single-job scaffold. See 06-RESEARCH.md Pattern 6 and
+# .planning/phases/06-distribution-release-pipeline/06-04-PLAN.md for the
+# authoritative design. Gate sequence is enforced by `needs:` — any red gate
+# short-circuits the pipeline before publish.
+#
+# Gates in order:
+#   gate-1-precommit       (pre-commit + CLI unit tests — cheapest/fastest)
+#   gate-2-docker          (tests/docker/run.sh × {ubuntu-22.04, ubuntu-24.04}
+#                           — includes 51-*.bats → TST-05 inside Docker)
+#   gate-3-qemu            (tests/qemu/boot.sh × {22.04, 24.04} with /dev/kvm
+#                           — includes 51-*.bats → TST-05 inside QEMU)
+#   gate-4-pinned-combo    (tests/docker/run.sh ubuntu-24.04 with pinned catalog
+#                           combo — 50-agents.bats + 51-*.bats → TST-08)
+#   build                  (scripts/build-release.sh <tag> — tarball + .sha256
+#                           + catalog snapshot + optional .deb; uploads dist/)
+#   publish                (softprops/action-gh-release@v2.6.2 — Node-20 pin;
+#                           only runs on tag push, skipped on workflow_dispatch)
+
 on:
   push:
     tags:
@@ -6,54 +25,269 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Release tag (e.g. v0.3.0)
+        description: 'Release tag (e.g. v0.3.0). Dry-runs skip the publish job.'
         required: true
 
+# Pitfall 9 mitigation — never cancel an in-progress release. A second tag push
+# queues behind the first; both runs complete and re-publish byte-identical
+# artifacts (reproducible build in Plan 06-01). cancel-in-progress would risk a
+# half-uploaded Release page.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Default read-only for all jobs; publish overrides to contents: write.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  # Gate 0 — resolve the tag from either push (refs/tags/vX.Y.Z) or
+  # workflow_dispatch input. Validates the vX.Y.Z[-suffix] shape once so
+  # every downstream job inherits the same canonical value.
+  resolve:
     runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.tag.outputs.value }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve and validate tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          tag="${INPUT_TAG:-${GITHUB_REF##*/}}"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
+            echo "::error::invalid tag '$tag' — must match vX.Y.Z[-suffix]"
+            exit 1
+          fi
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
+          echo "resolved release tag: $tag"
+
+  # Gate 1 — pre-commit + CLI unit tests. Fastest gate; fails cheapest on
+  # trivial drift (formatting, lint, schema). Mirrors test.yml's pre-commit +
+  # cli-unit jobs but inlined here so a tag push is self-contained and does
+  # not race with a branch-triggered test.yml.
+  gate-1-precommit:
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install pre-commit
+        run: pip install pre-commit==4.0.1
+      - name: Run pre-commit on all files
+        run: pre-commit run --all-files --show-diff-on-failure
+      - name: CLI unit tests
+        working-directory: plugin/cli
+        run: |
+          set -euo pipefail
+          if compgen -G "test/*.test.*" > /dev/null || compgen -G "test/**/*.test.*" > /dev/null; then
+            npm install --no-audit --no-fund
+            npm test
+          else
+            echo "no CLI tests yet — skipping"
+          fi
+
+  # Gate 2 — Docker matrix. Runs tests/docker/run.sh on both Ubuntu LTS
+  # images. The Docker harness executes the full tests/bats/ suite INCLUDING
+  # tests/bats/51-agt02-release-gate.bats — this satisfies TST-05's
+  # "AGT-02 inside Docker" half. fail-fast:false so a 22.04 red still shows
+  # the 24.04 signal (and vice versa) for faster triage.
+  gate-2-docker:
+    needs: gate-1-precommit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)
+        run: bash tests/docker/run.sh ${{ matrix.ubuntu }}
+
+  # Gate 3 — QEMU matrix. Release-gate-only (ADR-007 — Docker alone is
+  # disqualified). Mirrors nightly-qemu.yml's KVM udev + image-cache pattern.
+  # boot.sh runs the full bats suite inside the guest INCLUDING
+  # tests/bats/51-*.bats — satisfies the "AGT-02 inside QEMU" half of TST-05.
+  gate-3-qemu:
+    needs: gate-2-docker
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['22.04', '24.04']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Resolve tag
-        id: tag
-        env:
-          INPUT_TAG: ${{ inputs.tag }}
+
+      # Pitfall 4 mitigation: ubuntu-24.04 runners ship /dev/kvm but the runner
+      # user is NOT in the kvm group. A udev rule with MODE=0666 exposes the
+      # device without group membership. Fail fast if the device is still
+      # inaccessible — TCG fallback would silently blow past the timeout.
+      - name: Enable /dev/kvm access (Pitfall 4)
         run: |
-          if [[ -n "$INPUT_TAG" ]]; then
-            echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
-          else
-            echo "value=${GITHUB_REF##*/}" >> "$GITHUB_OUTPUT"
-          fi
-      - name: Build release tarball
-        id: build
-        env:
-          TAG: ${{ steps.tag.outputs.value }}
-        run: |
-          if [[ ! "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$ ]]; then
-            echo "::error::Refusing to build: tag '$TAG' does not match vX.Y.Z[-suffix]"
+          set -euo pipefail
+          sudo bash -c 'echo "KERNEL==\"kvm\", GROUP=\"kvm\", MODE=\"0666\"" > /etc/udev/rules.d/99-kvm.rules'
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            echo "::error::/dev/kvm not accessible after udev rule — KVM required"
+            ls -la /dev/kvm || true
             exit 1
           fi
-          if [[ -x scripts/build-release.sh ]]; then
-            bash scripts/build-release.sh "$TAG"
-          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            echo "::error::scripts/build-release.sh missing on a tag build — refusing to publish placeholder"
-            exit 1
-          else
-            echo "Non-tag build and no build script — emitting empty placeholder for dry-run (Phase 6 lands the real build)."
-            mkdir -p dist
-            : > "dist/agentlinux-${TAG}.tar.gz"
-            sha256sum "dist/agentlinux-${TAG}.tar.gz" > "dist/agentlinux-${TAG}.tar.gz.sha256"
-          fi
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
+
+      - name: Install QEMU + cloud-image-utils
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 \
+            cloud-image-utils \
+            netcat-openbsd \
+            jq
+
+      # Cache keyed on tests/qemu/cloud-images.txt so rotating an upstream
+      # image URL forces a fresh fetch. boot.sh ALSO re-verifies sha256 against
+      # upstream SHA256SUMS on every run (Pitfall 10 — belt-and-suspenders:
+      # cache poisoning is rejected even if the cache key hash collided).
+      - name: Cache Ubuntu cloud images
+        uses: actions/cache@v4
         with:
+          path: ~/.cache/agentlinux/qemu
+          key: cloud-image-${{ matrix.ubuntu }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
+          restore-keys: |
+            cloud-image-${{ matrix.ubuntu }}-
+
+      - name: QEMU boot + installer + bats (incl. 51-*.bats — TST-05 inside QEMU)
+        run: bash tests/qemu/boot.sh ${{ matrix.ubuntu }}
+
+      # Artifacts on failure only — serial.log is the primary diagnostic when
+      # cloud-init or the installer hangs. 14-day retention keeps storage
+      # bounded; preserving green-run logs wastes storage and hides signal.
+      - name: Upload QEMU artifacts on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-artifacts-${{ matrix.ubuntu }}
+          path: tests/qemu/artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Gate 4 — pinned-combo (TST-08). Exercises the full pinned catalog on
+  # Ubuntu 24.04 Docker (our pinned dev env): every catalog agent installed at
+  # its pinned_version + tests/bats/50-agents.bats + tests/bats/51-*.bats.
+  # tests/docker/run.sh already drives this end-to-end (Phase 4+5 provisioners
+  # install the pinned combo). Re-running it here as a named gate makes the
+  # TST-08 signal observable as a distinct green box in the Actions UI.
+  gate-4-pinned-combo:
+    needs: gate-3-qemu
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pinned catalog combo + 50-agents.bats + 51-*.bats (TST-08)
+        run: bash tests/docker/run.sh ubuntu-24.04
+
+  # Build — only after all 4 gates green. Reproducible tarball + sha256 sidecar
+  # + catalog snapshot + optional .deb (SKIP_DEB=1 if fpm install fails).
+  # Uploads dist/ as an Actions artifact so the publish job can download it
+  # without re-running the build (matches download-artifact@v4 major).
+  build:
+    needs: [resolve, gate-4-pinned-combo]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # fpm is optional per ADR-006 — .deb is a nice-to-have for v0.3.0, not a
+      # release-blocker. Install failure falls back to SKIP_DEB=1 with a
+      # ::warning so the build proceeds with just the tarball + sha256 +
+      # catalog snapshot. build-release.sh honors SKIP_DEB.
+      - name: Install fpm (optional .deb — ADR-006, Pitfall 6)
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ruby-dev build-essential
+          if ! sudo gem install --no-document fpm; then
+            echo "::warning::fpm install failed — proceeding with SKIP_DEB=1 (.deb will not be published)"
+            echo "SKIP_DEB=1" >> "$GITHUB_ENV"
+          fi
+
+      - name: Build release artifacts
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: bash scripts/build-release.sh "$TAG"
+
+      # T-06-08 mitigation: explicit verify step. The release MUST have its
+      # .sha256 sibling; the catalog snapshot MUST exist. sha256sum -c round-
+      # trips the tarball against its sidecar before upload, so a corrupted
+      # write is caught here, not by a user running curl | bash.
+      - name: Verify release artifact assembly (T-06-08, Pitfall 8)
+        env:
+          TAG: ${{ needs.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          if [[ ! -s "dist/agentlinux-${TAG}.tar.gz" ]] \
+            || [[ ! -s "dist/agentlinux-${TAG}.tar.gz.sha256" ]] \
+            || [[ ! -s "dist/catalog-${TAG}.json" ]]; then
+            echo "::error::release artifact assembly failed — missing required files in dist/"
+            ls -la dist/ || true
+            exit 1
+          fi
+          ( cd dist && sha256sum -c "agentlinux-${TAG}.tar.gz.sha256" )
+
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  # Publish — only on tag push (not workflow_dispatch). softprops/
+  # action-gh-release@v2.6.2 is the last Node-20-compatible release per
+  # 06-RESEARCH.md Standard Stack; v3 requires Node-24 and will be the next
+  # upgrade after Actions' Node-24 migration completes.
+  #
+  # The files glob uploads every asset type produced by the build:
+  #   - agentlinux-*.tar.gz            (canonical distribution tarball)
+  #   - agentlinux-*.tar.gz.sha256     (INST-03 — required sibling for curl-installer)
+  #   - catalog-*.json                 (CAT-05 — versioned catalog snapshot)
+  #   - agentlinux_*.deb               (optional — absent if SKIP_DEB=1; glob tolerates)
+  publish:
+    needs: [resolve, build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: release-artifacts
+          path: dist/
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2.6.2
+        with:
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: false
           files: |
             dist/agentlinux-*.tar.gz
             dist/agentlinux-*.tar.gz.sha256
+            dist/catalog-*.json
+            dist/agentlinux_*.deb
