@@ -1,23 +1,118 @@
 name: nightly-qemu
+# Phase 6 Plan 06-03 Task 3. Nightly QEMU release-gate harness (TST-03).
+# Replaces the Phase 1 empty-guard scaffold with a real matrix run against
+# both supported Ubuntu LTS images. Docker (test.yml) runs every PR; this
+# workflow runs nightly + workflow_dispatch and is the release-gate-adjacent
+# "Docker-alone is disqualified" (ADR-007) signal.
+
 on:
   schedule:
-    - cron: '0 3 * * *'
-  workflow_dispatch: {}
+    - cron: '0 3 * * *'  # 03:00 UTC daily
+  workflow_dispatch:
+    inputs:
+      ubuntu:
+        description: 'Ubuntu version(s) to run (22.04 / 24.04 / both)'
+        required: false
+        default: both
+        type: choice
+        options:
+          - both
+          - '22.04'
+          - '24.04'
+
+permissions:
+  contents: read
 
 jobs:
   qemu:
+    name: qemu (${{ matrix.ubuntu }})
     runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        ubuntu: ['22.04', '24.04']
     steps:
       - uses: actions/checkout@v4
-      - name: Skip if QEMU harness not yet implemented
-        id: guard
+
+      # Skip the matrix leg when workflow_dispatch targeted a single version.
+      # Cron runs (github.event_name == 'schedule') always exercise both.
+      - name: Decide whether to run this matrix leg
+        id: decide
         run: |
-          if [[ -x tests/qemu/boot.sh ]]; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
+          dispatched='${{ github.event.inputs.ubuntu }}'
+          if [[ -z "$dispatched" || "$dispatched" == 'both' ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif [[ "$dispatched" == '${{ matrix.ubuntu }}' ]]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
           else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "QEMU harness arrives in Phase 6 — skipping"
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "workflow_dispatch skipped ${{ matrix.ubuntu }}"
           fi
-      - name: Run QEMU suite
-        if: steps.guard.outputs.ready == 'true'
-        run: bash tests/qemu/boot.sh
+
+      # Node 22 ships corepack; scripts/build-release.sh activates pnpm via
+      # corepack on-demand. No separate pnpm/action-setup step needed here —
+      # mirrors the pattern in tests/docker/Dockerfile.ubuntu-24.04 cli-builder.
+      - uses: actions/setup-node@v4
+        if: steps.decide.outputs.run == 'true'
+        with:
+          node-version: '22'
+
+      # Pitfall 4 mitigation: the runner user must have read+write access to
+      # /dev/kvm. Ubuntu-24.04 runners ship KVM but the runner user is not in
+      # the kvm group; a udev rule with MODE=0666 exposes it without group
+      # membership. The fail-fast check below refuses to proceed if /dev/kvm
+      # is still inaccessible, avoiding a 45-minute silent TCG-fallback stall.
+      - name: Enable /dev/kvm access
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          sudo bash -c 'echo "KERNEL==\"kvm\", GROUP=\"kvm\", MODE=\"0666\"" > /etc/udev/rules.d/99-kvm.rules'
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+            echo "::error::/dev/kvm not accessible after udev rule — KVM required (TCG fallback would blow past timeout)"
+            ls -la /dev/kvm || true
+            exit 1
+          fi
+
+      - name: Install QEMU + cloud-image-utils
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            qemu-system-x86 \
+            cloud-image-utils \
+            netcat-openbsd \
+            jq
+
+      # Cache the downloaded cloud image. The cache key includes
+      # hashFiles('tests/qemu/cloud-images.txt'), so rotating an image URL in
+      # that manifest forces a fresh fetch. boot.sh ALSO re-verifies the sha256
+      # against the upstream SHA256SUMS on every run (Pitfall 10 belt-and-
+      # suspenders — cache poisoning is rejected even if the cache key hash
+      # collided).
+      - name: Cache Ubuntu cloud images
+        if: steps.decide.outputs.run == 'true'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/agentlinux/qemu
+          key: cloud-image-${{ matrix.ubuntu }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
+          restore-keys: |
+            cloud-image-${{ matrix.ubuntu }}-
+
+      - name: QEMU boot + installer + bats
+        if: steps.decide.outputs.run == 'true'
+        run: bash tests/qemu/boot.sh ${{ matrix.ubuntu }}
+
+      # Artifacts on failure only (Pitfall: preserving green-run serial logs
+      # wastes storage and hides signal). serial.log is the primary diagnostic
+      # when cloud-init or the installer hangs. 14-day retention keeps the
+      # storage cost bounded.
+      - name: Upload QEMU artifacts on failure
+        if: failure() && steps.decide.outputs.run == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qemu-artifacts-${{ matrix.ubuntu }}
+          path: tests/qemu/artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
