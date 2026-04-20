@@ -150,10 +150,10 @@ Key locked decisions honored by this roadmap:
   5. A user can find a README shipping with the installer that tells them exactly how to install (one command), how to verify the install (`agentlinux list` + one agent-invocation command), and how to uninstall (`agentlinux` uninstall entrypoint + `--purge` semantics) — DOC-01.
   6. Tagging `v0.3.0` produces a GitHub Release with the release tarball, its `.sha256` sibling, the catalog snapshot `catalog-v0.3.0.json` (per CAT-05), and (optionally) a `.deb` built via fpm, with the curl-installer pointing at that release.
 **Plans**: 5 plans
-- [ ] 06-01-PLAN.md — scripts/build-release.sh reproducible tarball + SHA256 + catalog snapshot + optional .deb (INST-03, CAT-05)
-- [ ] 06-02-PLAN.md — packaging/curl-installer/install.sh hardened curl-pipe-bash + tests/bats/60-curl-installer.bats (INST-03)
+- [x] 06-01-PLAN.md — scripts/build-release.sh reproducible tarball + SHA256 + catalog snapshot + optional .deb (INST-03, CAT-05)
+- [x] 06-02-PLAN.md — packaging/curl-installer/install.sh hardened curl-pipe-bash + tests/bats/60-curl-installer.bats (INST-03)
 - [x] 06-03-PLAN.md — tests/qemu/boot.sh + cloud-init templates + nightly-qemu.yml matrix (TST-03)
-- [ ] 06-04-PLAN.md — release.yml 4-gate pipeline + deploy.yml install.sh staging (TST-05, TST-08, INST-03, CAT-05)
+- [x] 06-04-PLAN.md — release.yml 4-gate pipeline + deploy.yml install.sh staging (TST-05, TST-08, INST-03, CAT-05)
 - [ ] 06-05-PLAN.md — README.md + docs/STABILITY-MODEL.md + TST-07 phase-close behavior-coverage-auditor (DOC-01)
 
 ## Progress
@@ -169,7 +169,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6
 | 4. Registry CLI + Catalog + Uninstall | 7/7 | ✓ Complete | 2026-04-19 |
 | 5.1 (INSERTED). Agent User Sudo Drop-In | 1/1 | ✓ Complete | 2026-04-19 |
 | 5. Agent Installability | 4/4 | ✓ Complete | 2026-04-19 (all 4 plans complete; TST-07 gate: GREEN; 66/66 bats green on Ubuntu 22.04 + 24.04) |
-| 6. Distribution + Release Pipeline | 3/5 | In progress | - |
+| 6. Distribution + Release Pipeline | 4/5 | In progress | - |
 
 ## Coverage Summary
 
