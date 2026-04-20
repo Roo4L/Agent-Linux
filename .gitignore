@@ -11,3 +11,6 @@ node_modules/
 # plugin/cli/ TypeScript build output + test-build tree (tsc emits, not checked in)
 plugin/cli/dist/
 plugin/cli/dist-test/
+
+# Phase 6: release build output (scripts/build-release.sh produces tarball + sha256 + catalog snapshot + optional .deb here)
+dist/
