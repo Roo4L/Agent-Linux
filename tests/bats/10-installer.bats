@@ -160,3 +160,56 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   grep -Eq 'second Node(\.js)? install' /home/agent/CLAUDE.md \
     || __fail "DOC-02" "contains 'second Node install' anti-pattern" "missing" "$LOG"
 }
+
+# ---------------------------------------------------------------------------
+# CAT-05 — catalog snapshot contract (Plan 06-01 Task 3).
+#
+# Two @tests enforce the Phase 6 anti-drift mechanism (06-RESEARCH.md Pitfall
+# 8). The release pipeline ships `catalog-v<ver>.json` as a sibling of the
+# tarball; scripts/build-release.sh produces it via `cp` (byte-for-byte). The
+# tarball's /opt/agentlinux/catalog/<ver>/catalog.json must match that source
+# bit-for-bit — otherwise `agentlinux upgrade` would read divergent data from
+# the two places the catalog lives.
+#
+# Source of the staged file: plugin/provisioner/50-registry-cli.sh (CAT-01).
+# Source of the tarball content: scripts/build-release.sh §7 (reproducible tar).
+# This test locks the contract between the two at install-time.
+# ---------------------------------------------------------------------------
+
+@test "CAT-05: catalog snapshot staged at /opt/agentlinux/catalog/<version>/catalog.json" {
+  # Resolve the version from the source-of-truth (plugin/cli/package.json) so
+  # this @test does not hardcode v0.3.0 — a v0.3.1 bump rebuilds the image and
+  # this test tracks automatically. The source is available via the bind-mount
+  # at /opt/agentlinux-src (see tests/docker/run.sh line 150).
+  local pkg_version
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  local staged="/opt/agentlinux/catalog/${pkg_version}/catalog.json"
+  if [[ ! -s "$staged" ]]; then
+    __fail "CAT-05" \
+      "staged catalog at $staged (non-empty regular file)" \
+      "missing or empty" \
+      "$LOG"
+  fi
+}
+
+@test "CAT-05: staged catalog is byte-stable against tarball source (Pitfall 8 anti-drift)" {
+  # Phase 6 research §Pitfall 8: the release-sibling catalog-<tag>.json and
+  # the installer-staged /opt/agentlinux/catalog/<ver>/catalog.json MUST be
+  # byte-identical to plugin/catalog/catalog.json. `cp` (not `jq .`) in
+  # scripts/build-release.sh §9 preserves formatting; this @test verifies the
+  # provisioner side of that contract (50-registry-cli.sh uses `cp -R` too,
+  # so a drift here means either provisioner or release-script regressed).
+  local pkg_version
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  local staged="/opt/agentlinux/catalog/${pkg_version}/catalog.json"
+  local source="/opt/agentlinux-src/plugin/catalog/catalog.json"
+  local sha_source sha_staged
+  sha_source=$(sha256sum "$source" | awk '{print $1}')
+  sha_staged=$(sha256sum "$staged" | awk '{print $1}')
+  if [[ "$sha_source" != "$sha_staged" ]]; then
+    __fail "CAT-05" \
+      "sha256 match: source=${sha_source} staged=${sha_staged}" \
+      "DRIFT: source=${sha_source} staged=${sha_staged}" \
+      "$staged"
+  fi
+}
