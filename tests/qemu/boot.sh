@@ -341,23 +341,27 @@ scp "${SCP_OPTS[@]}" "$TESTS_TAR" "root@localhost:/tmp/tests.tar.gz"
 
 # ---------------------------------------------------------------------------
 # 11. Install AgentLinux in-guest (over SSH).
+#     `ssh ... bash -s -- "$TAG"` sends the remote script over stdin so we
+#     never have to quote-escape the script body through two shells. The
+#     positional arg "$TAG" becomes $1 inside the remote script.
 # ---------------------------------------------------------------------------
 printf 'running plugin/bin/agentlinux-install inside the guest\n'
-ssh "${SSH_OPTS[@]}" root@localhost bash -c "'
+ssh "${SSH_OPTS[@]}" root@localhost bash -s -- "$TAG" <<'REMOTE_INSTALL'
 set -euo pipefail
+TAG=$1
 mkdir -p /opt/agentlinux-src
 cd /opt/agentlinux-src
-tar -xzf /tmp/agentlinux-${TAG}.tar.gz
+tar -xzf "/tmp/agentlinux-${TAG}.tar.gz"
 tar -xzf /tmp/tests.tar.gz
 bash plugin/bin/agentlinux-install
-'"
+REMOTE_INSTALL
 
 # ---------------------------------------------------------------------------
 # 12. Run bats in-guest (full suite — includes AGT-02 release gate 51-*.bats).
 # ---------------------------------------------------------------------------
 printf 'running bats tests/bats/ inside the guest\n'
 BATS_STATUS=0
-ssh "${SSH_OPTS[@]}" root@localhost bash -c "'
+ssh "${SSH_OPTS[@]}" root@localhost bash -s <<'REMOTE_BATS' || BATS_STATUS=$?
 set -euo pipefail
 cd /opt/agentlinux-src
 if [[ -x node_modules/bats/bin/bats ]]; then
@@ -365,7 +369,7 @@ if [[ -x node_modules/bats/bin/bats ]]; then
 else
   bats tests/bats/
 fi
-'" || BATS_STATUS=$?
+REMOTE_BATS
 
 # ---------------------------------------------------------------------------
 # 13. Artifacts on failure — copy serial.log into tests/qemu/artifacts/.
