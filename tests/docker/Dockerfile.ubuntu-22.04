@@ -74,6 +74,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # native-installer bootstrap. Ubuntu 22.04 minimal does NOT ship curl by
 # default — without this, the release-gate bats file's setup_file fails at
 # `agentlinux install --force claude-code`. Plan 05-01 Rule 3 auto-fix.
+# python3 is REQUIRED by Phase 6's tests/bats/60-curl-installer.bats: the
+# INST-03 fixture runs `python3 -m http.server` in setup_file to serve a
+# local fake tarball + .sha256 — no live network in CI. Plan 06-02 addition.
+# `file` is REQUIRED by packaging/curl-installer/install.sh Pitfall-2 gzip
+# magic sanity check (see install.sh line ~155). Plan 06-02 addition.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       systemd systemd-sysv \
@@ -82,6 +87,8 @@ RUN apt-get update && \
       dbus \
       jq \
       curl \
+      python3 \
+      file \
       ca-certificates bash coreutils util-linux \
       shellcheck && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
