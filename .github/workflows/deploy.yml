@@ -23,6 +23,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      # Pattern 5 (Pitfall 7 anti-drift) — the canonical curl-installer lives
+      # at packaging/curl-installer/install.sh (Plan 06-02). Pages must serve
+      # those exact bytes at agentlinux.org/install.sh so the documented
+      # `curl https://agentlinux.org/install.sh | sudo bash` UX works. A
+      # sync-on-deploy `cp` avoids two maintained copies (the repo-root copy
+      # is gitignored and CI-generated on every Pages deploy).
+      - name: Stage install.sh for GH Pages (Pattern 5 — Pitfall 7 anti-drift)
+        run: cp packaging/curl-installer/install.sh install.sh
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
