@@ -22,7 +22,6 @@
 load 'helpers/invoke_modes'
 load 'helpers/assertions'
 
-LOG=/var/log/agentlinux-install.log
 CATALOG=/opt/agentlinux/catalog/0.3.0/catalog.json
 
 setup_file() {

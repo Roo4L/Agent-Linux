@@ -37,6 +37,10 @@ repos:
     hooks:
       - id: biome-check
         files: ^plugin/cli/
+        # Biome searches for biome.json from CWD upward. Pre-commit runs from
+        # the repo root, so without --config-path biome would not find the
+        # nested plugin/cli/biome.json and would fall back to defaults (tabs).
+        args: [--config-path=plugin/cli]
 
   - repo: local
     hooks:

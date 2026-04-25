@@ -54,8 +54,7 @@ setup_file() {
       /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
     systemctl start ssh >/dev/null 2>&1 || true
     # Wait up to 5s for sshd to accept connections (mirrors 20-*.bats setup).
-    local i
-    for i in $(seq 1 5); do
+    for _ in $(seq 1 5); do
       if ss -lnt 2>/dev/null | grep -q ':22 '; then break; fi
       sleep 1
     done

@@ -55,8 +55,7 @@ STUB
     && nohup python3 -m http.server "$FIXTURE_PORT" >/dev/null 2>&1 &
   echo $! > "$FIXTURE_TMP/server.pid")
   # Poll port-ready. Up to 5s (10 * 0.5s) — python3 -m http.server starts fast.
-  local i
-  for i in 1 2 3 4 5 6 7 8 9 10; do
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
     if curl -fsS "http://127.0.0.1:${FIXTURE_PORT}/${FIXTURE_TAG}/${tarball}" \
       -o /dev/null 2>/dev/null; then
       break

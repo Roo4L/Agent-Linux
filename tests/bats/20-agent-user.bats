@@ -36,8 +36,7 @@ setup() {
     # BHV-02 tests will then observe ssh connection errors and diagnose.
     systemctl start ssh >/dev/null 2>&1 || true
     # Wait up to 5s for sshd to accept connections.
-    local i
-    for i in $(seq 1 5); do
+    for _ in $(seq 1 5); do
       if ss -lnt 2>/dev/null | grep -q ':22 '; then break; fi
       sleep 1
     done

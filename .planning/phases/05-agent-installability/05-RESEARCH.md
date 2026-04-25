@@ -174,9 +174,9 @@ All three pinned versions **VERIFIED as of 2026-04-19**:
 │        AGENTLINUX_AGENT_HOME=/home/agent                                    │
 │        PATH=/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/...     │
 └────────────────┬───────────────────────────────────────────────────────────┘
-                 │                                                             
-  ┌──────────────┼──────────────────────────┬──────────────────────────────┐  
-  ▼              ▼                          ▼                              ▼  
+                 │
+  ┌──────────────┼──────────────────────────┬──────────────────────────────┐
+  ▼              ▼                          ▼                              ▼
 ┌─────────────────┐  ┌─────────────────────┐  ┌─────────────────────────────┐
 │ claude-code/     │  │ gsd/                 │  │ playwright/                 │
 │ install.sh       │  │ install.sh           │  │ install.sh                  │
@@ -189,36 +189,36 @@ All three pinned versions **VERIFIED as of 2026-04-19**:
 │                  │  │                      │  │   ADR-012 sudoers drop-in   │
 │                  │  │                      │  │   grants NOPASSWD: ALL)     │
 └────────┬─────────┘  └────────┬─────────────┘  └──────────┬──────────────────┘
-         │                     │                            │                   
-         ▼                     ▼                            ▼                   
- /home/agent/.local/   /home/agent/.npm-global/    /home/agent/.npm-global/    
-   bin/claude             bin/get-shit-done-cc        bin/playwright            
- /home/agent/.claude/   (lib/node_modules/…)        /home/agent/.cache/         
-   downloads/                                         ms-playwright/chromium-…  
-                                                                                
-                                                                                
-AGT-02 self-update path (canonical acceptance test):                           
-                                                                                
- $ claude update                                                                
-         │                                                                      
-         ▼                                                                      
-   fetches new binary from downloads.claude.ai                                 
-         │                                                                      
-         ▼                                                                      
-   writes to /home/agent/.local/bin/claude (user-owned)                        
-         │                                                                      
-         ▼                                                                      
-   NEVER touches /usr, /opt, /etc — pure user-owned ops — no sudo needed      
-         │                                                                      
-         ▼                                                                      
-   bats assertion: transcript contains zero /EACCES|permission denied/        
-                                                                                
-AGT-02b version-lock test:                                                     
-                                                                                
- $ claude --version  →  "2.1.98 (Claude Code)" or "2.1.98"                    
-         │                                                                      
-         ▼                                                                      
-   exact-string match against catalog.json#/.agents/0/pinned_version          
+         │                     │                            │
+         ▼                     ▼                            ▼
+ /home/agent/.local/   /home/agent/.npm-global/    /home/agent/.npm-global/
+   bin/claude             bin/get-shit-done-cc        bin/playwright
+ /home/agent/.claude/   (lib/node_modules/…)        /home/agent/.cache/
+   downloads/                                         ms-playwright/chromium-…
+
+
+AGT-02 self-update path (canonical acceptance test):
+
+ $ claude update
+         │
+         ▼
+   fetches new binary from downloads.claude.ai
+         │
+         ▼
+   writes to /home/agent/.local/bin/claude (user-owned)
+         │
+         ▼
+   NEVER touches /usr, /opt, /etc — pure user-owned ops — no sudo needed
+         │
+         ▼
+   bats assertion: transcript contains zero /EACCES|permission denied/
+
+AGT-02b version-lock test:
+
+ $ claude --version  →  "2.1.98 (Claude Code)" or "2.1.98"
+         │
+         ▼
+   exact-string match against catalog.json#/.agents/0/pinned_version
 ```
 
 ### Component Responsibilities
@@ -853,7 +853,7 @@ Phase 5 is NOT a rename/refactor, but installing three real agents creates runti
 
 **Why it happens:** Per CHANGELOG 2.1.113, "Changed the CLI to spawn a native Claude Code binary (via a per-platform optional dependency) instead of bundled JavaScript." The native installer (`claude.ai/install.sh`) has always delivered native binaries; the CHANGE is in the npm package shape. Since we use the native installer, **this doesn't affect our install path directly**, but if a user runs `claude update`, the binary shape in place after the update differs from what the fresh install placed. Sentinels store only `version`, not shape.
 
-**How to avoid:** 
+**How to avoid:**
 - Use the native installer consistently (locked decision ✓).
 - AGT-02b asserts version-match by string, not by binary signature — tolerant of shape change.
 - After `claude update` in AGT-02, if AGT-02b runs next and the version has advanced, AGT-02b FAILS (correct — the pin was escaped). The test ordering in our bats files puts AGT-02b BEFORE AGT-02 so AGT-02b observes the just-installed pin.
@@ -866,7 +866,7 @@ Phase 5 is NOT a rename/refactor, but installing three real agents creates runti
 
 **Why it happens:** Documented by Anthropic: "Claude Code requires at least 4 GB of available RAM." The install step scans the current directory (under `/` this scans everything). GitHub Actions `ubuntu-latest` runners have 7 GB memory — safe. But if the test Dockerfile runs the install from `/`, the scan thrashes.
 
-**How to avoid:** 
+**How to avoid:**
 - Docs advise `WORKDIR /tmp` before running the installer. Our test Dockerfiles don't do this explicitly, but the bats test runs through `sudo -u agent -H bash --login -c ...`, which starts from `~agent/`, bounding the scan.
 - Document in the install.sh comment that 4 GB RAM is an upstream requirement.
 - If CI OOMs are observed: add `cd ~ &&` prefix inside the recipe, or set `ulimit -v` appropriately.
@@ -879,7 +879,7 @@ Phase 5 is NOT a rename/refactor, but installing three real agents creates runti
 
 **Why it happens:** Playwright's registry/dependencies.ts constructs commands as `sudo apt-get install -y <packages>` when the process UID is non-zero. The `--with-deps` path delegates to this. Without NOPASSWD, interactive or failure — neither produces a clean exit code.
 
-**How to avoid:** 
+**How to avoid:**
 - ADR-012 is now in place (Phase 5.1 ✓). Verify `/etc/sudoers.d/agentlinux` contains `NOPASSWD: ALL` on any host running the recipe.
 - Install recipe's `timeout 120s` bounds any hang.
 - Integration test: Phase 5.1's `22-agent-sudo.bats` already asserts `sudo -n true` exits 0 — if that goes red, Playwright install fails deterministically.
@@ -892,7 +892,7 @@ Phase 5 is NOT a rename/refactor, but installing three real agents creates runti
 
 **Why it happens:** Native binary writes diagnostic output to stderr, progress lines to stdout; `2>&1` merges them but the stdio buffering inside the binary is not line-synced with bash's redirection.
 
-**How to avoid:** 
+**How to avoid:**
 - Use a dedicated file for the transcript: `claude update >"$transcript" 2>&1` (NOT the bats `$output` variable alone).
 - `assert_no_eacces "$req_id" "$transcript"` — the helper handles file-path form.
 - Bats's `run` subshell has its own buffer; combining `run bash -c "..."` with redirection inside gives us the cleanest capture.
@@ -905,7 +905,7 @@ Phase 5 is NOT a rename/refactor, but installing three real agents creates runti
 
 **Why it happens:** npx 7+ prompts before auto-installing. In our case `playwright` is ALREADY installed globally at `/home/agent/.npm-global`, so npx should skip the prompt — but if `$PATH` is wrong or npm's prefix resolution fails, npx falls through to the install-prompt branch.
 
-**How to avoid:** 
+**How to avoid:**
 - Always pass `--yes` to `npx` in recipes and tests: `npx --yes playwright install`, `npx --yes playwright --version`.
 - Verify PATH includes `.npm-global/bin` BEFORE the `.npm-global/lib/node_modules/.bin`; this is the Phase 3 default, confirmed by runner.ts AGENT_PATH.
 
@@ -917,7 +917,7 @@ Phase 5 is NOT a rename/refactor, but installing three real agents creates runti
 
 **Why it happens:** Claude Code's `--version` flag is not documented with a stable format guarantee. The CLI-reference table just says "Output the version number."
 
-**How to avoid:** 
+**How to avoid:**
 - Use **substring match** (not equality): `grep -q -F -- "$pinned"` — tolerates format changes, catches wrong-version installs.
 - `head -1` the output to defend against multi-line version banners.
 - If Anthropic introduces a `--json` flag later, switch to structured parsing in a future plan.
@@ -930,7 +930,7 @@ Phase 5 is NOT a rename/refactor, but installing three real agents creates runti
 
 **Why it happens:** `playwright`'s `dependencies` in its package.json pins `playwright-core: 1.59.1` exactly (verified `[VERIFIED: npm view playwright dependencies]`). That's good — no floating dep. But tests should only assert on `playwright`, not `playwright-core`.
 
-**How to avoid:** 
+**How to avoid:**
 - Assertions target `playwright`, the catalog-pinned package name.
 - Sentinel records `{version: 1.59.1, source: curated}` for `playwright` only.
 
@@ -942,7 +942,7 @@ Phase 5 is NOT a rename/refactor, but installing three real agents creates runti
 
 **Why it happens:** Our test Dockerfiles explicitly set `ENV DEBIAN_FRONTEND=noninteractive` (verified in Dockerfile.ubuntu-24.04); in a production environment where a user runs the recipe on a non-hardened host, this isn't set.
 
-**How to avoid:** 
+**How to avoid:**
 - Set `DEBIAN_FRONTEND=noninteractive` in the recipe itself (belt-and-braces):
   ```bash
   export DEBIAN_FRONTEND=noninteractive
@@ -1096,7 +1096,7 @@ All assumed claims are tagged `[ASSUMED]` in the recipe code comments OR in §Op
 | Network to `playwright.azureedge.net` + downloads | Playwright browser download | Unknown — but Playwright is widely used in GH Actions CI → high confidence available | HTTPS 443 | None; AGT-05 would regress |
 | 4 GB+ RAM | Claude Code install | ✓ for `ubuntu-latest` GHA (7 GB) | — | `cd ~` to bound FS scan; swap space on low-mem hosts (documented) |
 
-**Missing dependencies with no fallback:** 
+**Missing dependencies with no fallback:**
 - None — all five network endpoints are expected to work in the PR Docker matrix (Phase 4 proved npm, Phase 5 uses the same posture for Anthropic CDN + Playwright).
 
 **Missing dependencies with fallback:**

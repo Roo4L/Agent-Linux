@@ -6,9 +6,11 @@
 }
 
 @test "HRN-03: CLAUDE.md is strictly under 150 lines" {
-  lines=$(wc -l < CLAUDE.md)
+  # Note: avoid the name 'lines' — it collides with bats' magic array.
+  local line_count
+  line_count=$(wc -l < CLAUDE.md)
   # Fail-loud message if over budget.
-  [ "$lines" -lt 150 ] || { echo "# HRN-03: CLAUDE.md must be < 150 lines; got: $lines"; return 1; }
+  [ "$line_count" -lt 150 ] || { echo "# HRN-03: CLAUDE.md must be < 150 lines; got: $line_count"; return 1; }
 }
 
 @test "HRN-03: CLAUDE.md mentions project identity (AgentLinux v0.3.0)" {
