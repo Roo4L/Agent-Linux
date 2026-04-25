@@ -93,13 +93,14 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Run pre-commit on all files
         run: pre-commit run --all-files --show-diff-on-failure
+      # Use pnpm (canonical lockfile); deps already installed in the step above.
+      # CLAUDE.md convention is `cd plugin/cli && pnpm test`.
       - name: CLI unit tests
         working-directory: plugin/cli
         run: |
           set -euo pipefail
           if compgen -G "test/*.test.*" > /dev/null || compgen -G "test/**/*.test.*" > /dev/null; then
-            npm install --no-audit --no-fund
-            npm test
+            pnpm test
           else
             echo "no CLI tests yet — skipping"
           fi

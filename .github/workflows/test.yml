@@ -57,14 +57,17 @@ jobs:
             echo "has_tests=false" >> "$GITHUB_OUTPUT"
             echo "No CLI tests yet — skipping (Phase 1 skeleton)"
           fi
+      - name: Enable pnpm via corepack
+        if: steps.guard.outputs.has_tests == 'true'
+        run: corepack enable
       - name: Install deps
         if: steps.guard.outputs.has_tests == 'true'
         working-directory: plugin/cli
-        run: npm install --no-audit --no-fund
+        run: pnpm install --frozen-lockfile
       - name: Run tests
         if: steps.guard.outputs.has_tests == 'true'
         working-directory: plugin/cli
-        run: npm test
+        run: pnpm test
 
   bats-docker:
     runs-on: ubuntu-24.04
