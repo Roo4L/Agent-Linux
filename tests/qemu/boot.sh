@@ -264,6 +264,13 @@ printf 'booting QEMU (Ubuntu %s / %s; mem=%s smp=%s port=%s)\n' \
 ## (Pitfall 10 defense-in-depth, plus reproducible cache hits).
 qemu-img create -q -f qcow2 -F qcow2 -b "${IMG}" "${RUN_DIR}/disk.qcow2"
 
+## Grow the overlay's virtual size so cloud-init's growpart can resize
+## the root filesystem to fit Node.js, npm, claude-code, gsd, playwright,
+## chromium (~ 281 MB), and apt cache. Default cloud images are sized for
+## minimal install (~ 2 GB usable on 22.04) — too tight for our matrix.
+## resize is metadata-only on qcow2; no I/O cost until the guest writes.
+qemu-img resize -q "${RUN_DIR}/disk.qcow2" 12G
+
 ## -cdrom is the canonical idiom for an attached read-only ISO (cloud-init
 ## seed). QEMU 8.2 chokes on `-drive ...,format=raw,readonly=on` for the
 ## seed.iso with "Block node is read-only" — switching to -cdrom is more
@@ -353,11 +360,16 @@ fi
 #     bats suite lives under tests/bats/ and is shipped as a second tarball
 #     so the in-guest bats run has the tests next to the installed plugin.
 # ---------------------------------------------------------------------------
+## tests/bats/60-curl-installer.bats hardcodes
+## /opt/agentlinux-src/packaging/curl-installer/install.sh — that file is NOT
+## in the plugin/ release tarball (06-01 locked decision: tarball ships
+## ONLY plugin/). Bundle packaging/ alongside tests/ so the in-guest layout
+## matches what the bats helper expects.
 TESTS_TAR="${RUN_DIR}/tests.tar.gz"
 tar --create --gzip --file="$TESTS_TAR" -C "$REPO_ROOT" \
-  tests/bats \
+  tests/bats packaging \
   node_modules/bats 2>/dev/null || tar --create --gzip --file="$TESTS_TAR" \
-  -C "$REPO_ROOT" tests/bats
+  -C "$REPO_ROOT" tests/bats packaging
 
 printf 'scp-ing release tarball + tests into the guest\n'
 scp "${SCP_OPTS[@]}" "$TARBALL" "root@localhost:/tmp/"
