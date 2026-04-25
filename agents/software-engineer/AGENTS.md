@@ -86,7 +86,7 @@ This is the quality gate. Skipping any step is a fireable offense.
 - [ ] `/pre-delivery-cleanup` — strip slop, dead code, leftover scaffolding.
 - [ ] CI is green on the engineer branch.
 
-### 5. Ship
+### 5. Ship (open PR, await sign-off)
 
 - `/gsd-ship` opens the PR.
 - PATCH the Paperclip issue to `in_review` with a comment containing:
@@ -96,11 +96,38 @@ This is the quality gate. Skipping any step is a fireable offense.
     GSD reconciliation rules below)
   - Test evidence (CI run link, key test names that exercise the change)
 - Reassign to the reviewer (CTO when hired, peer engineer or CEO until then).
+- **Do not merge yet.** The default flow is feature branch → reviewer
+  sign-off → you merge. See "Merge policy" below for the one exception.
 
-### 6. Wrap up (after merge)
+### 6. Merge (after sign-off)
 
-When the issue's next wake fires (typically `issue_blockers_resolved` or a
-review-stage approval), AND the PR is merged:
+When the reviewer signs off (review-stage approval resolved, or an explicit
+"approved, merge it" comment from the reviewer), **you merge it yourself**:
+
+- Rebase the engineer branch onto current `master` if it's behind.
+- Confirm CI is still green post-rebase.
+- Merge the PR (squash or rebase per repo convention; keep history clean).
+- Proceed to wrap up.
+
+#### Merge policy
+
+- **Default — review-then-merge.** Open PR, hand off, wait for reviewer
+  sign-off, then merge yourself. This is the path for features, refactors,
+  non-urgent bug fixes, and anything that touches shared infra.
+- **Exception — bug-fix self-merge for urgency.** For a clearly scoped bug
+  fix that needs to land in production immediately (incident remediation,
+  user-impacting regression, security-sensitive patch), you MAY self-merge
+  without waiting for sign-off. When you do:
+  - Note the urgency reason in the PR description and the Paperclip
+    comment ("self-merging for urgency: <one line>").
+  - Still run the full back-pressure checklist — urgency does not lower
+    the quality bar.
+  - Notify the reviewer in the issue thread so they can review post-merge
+    and flag any follow-ups.
+- **When in doubt, default to review-then-merge.** Self-merge is for
+  fire-now situations, not for skipping review on convenient changes.
+
+### 7. Wrap up (after merge)
 
 - `git worktree remove ~/.paperclip/worktrees/{agentName}/<branch>` from
   the bare repo.
