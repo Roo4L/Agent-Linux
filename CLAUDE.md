@@ -21,6 +21,9 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
 - `.claude/agents/` — project-scoped review subagents (Plan 01-03)
 - `.claude/skills/` — project-scoped skills (Plan 01-04)
 - `.github/workflows/` — CI (test, nightly-qemu, nightly-mutation, release)
+- `agents/software-engineer/AGENTS.md` — Paperclip SoftwareEngineer agent type
+  contract (per-issue lifecycle, back-pressure checklist, GSD reconciliation
+  rules). Read by every engineer worktree on wake. Edits ride in normal PRs.
 
 ## Critical Rules (non-obvious)
 
