@@ -132,14 +132,19 @@ fi
 CLI_V=$(jq -r .version plugin/cli/package.json)
 CAT_V=$(jq -r .version plugin/catalog/catalog.json)
 
-if [[ "$CLI_V" != "$VERSION" ]]; then
-  printf 'version mismatch: plugin/cli/package.json .version=%s ≠ tag=%s (%s)\n' \
-    "$CLI_V" "$VERSION" "$TAG" >&2
+# Pre-release tags (e.g. v0.3.0-rc1) ship the SAME code as the eventual
+# v0.3.0 — package.json + catalog.json track the base semver, not the rc
+# suffix. Strip the suffix from $VERSION before comparing.
+BASE_VERSION=${VERSION%%-*}
+
+if [[ "$CLI_V" != "$BASE_VERSION" ]]; then
+  printf 'version mismatch: plugin/cli/package.json .version=%s ≠ tag=%s (base=%s)\n' \
+    "$CLI_V" "$TAG" "$BASE_VERSION" >&2
   exit 1
 fi
-if [[ "$CAT_V" != "$VERSION" ]]; then
-  printf 'version mismatch: plugin/catalog/catalog.json .version=%s ≠ tag=%s (%s)\n' \
-    "$CAT_V" "$VERSION" "$TAG" >&2
+if [[ "$CAT_V" != "$BASE_VERSION" ]]; then
+  printf 'version mismatch: plugin/catalog/catalog.json .version=%s ≠ tag=%s (base=%s)\n' \
+    "$CAT_V" "$TAG" "$BASE_VERSION" >&2
   exit 1
 fi
 
