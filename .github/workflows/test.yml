@@ -68,10 +68,12 @@ jobs:
         if: steps.guard.outputs.has_tests == 'true'
         working-directory: plugin/cli
         run: pnpm exec tsc -p tsconfig.test.json
+      # Use explicit *.test.js glob — see release.yml for rationale.
       - name: Run tests
         if: steps.guard.outputs.has_tests == 'true'
         working-directory: plugin/cli
-        run: pnpm exec node --test dist-test/test/
+        shell: bash
+        run: pnpm exec node --test dist-test/test/*.test.js
 
   bats-docker:
     runs-on: ubuntu-24.04

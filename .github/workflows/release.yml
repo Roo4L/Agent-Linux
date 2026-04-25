@@ -109,9 +109,14 @@ jobs:
             exit 1
           fi
           ls dist-test/test/
+      # Use explicit *.test.js glob — Node v22+ does not auto-discover test
+      # files when given a bare directory path; it tries to resolve the dir as
+      # a module and fails with MODULE_NOT_FOUND. Glob expansion at the shell
+      # level passes explicit file args, which works universally.
       - name: Run CLI unit tests
         working-directory: plugin/cli
-        run: pnpm exec node --test dist-test/test/
+        shell: bash
+        run: pnpm exec node --test dist-test/test/*.test.js
 
   # Gate 2 — Docker matrix. Runs tests/docker/run.sh on both Ubuntu LTS
   # images. The Docker harness executes the full tests/bats/ suite INCLUDING
