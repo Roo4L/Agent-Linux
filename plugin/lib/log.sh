@@ -9,7 +9,6 @@
 # `EACCES|permission denied` without stripping escape codes.
 #
 # smoke: Engineer-Alpha @ 2026-04-25T16:31:21Z
-# smoke: Engineer-Beta @ 2026-04-25T16:35:00Z
 # Source-once guard: safe to `. log.sh` repeatedly across library files.
 [[ -n "${AGENTLINUX_LOG_SH_SOURCED:-}" ]] && return 0
 readonly AGENTLINUX_LOG_SH_SOURCED=1
