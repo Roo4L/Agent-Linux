@@ -195,6 +195,12 @@ RUN_DIR=$(mktemp -d -t agentlinux-qemu.XXXXXX)
 chmod 0700 "$RUN_DIR"
 
 QEMU_PID=""
+# Public artifacts dir (CI workflow upload-artifact reads from here on
+# failure). Mirrors RUN_DIR contents on cleanup so logs survive RUN_DIR
+# teardown. Local runs: empty unless boot.sh exited non-zero.
+ARTIFACTS_DIR="${SCRIPT_DIR}/artifacts"
+mkdir -p "$ARTIFACTS_DIR"
+
 # shellcheck disable=SC2317  # body is invoked via `trap` — shellcheck can't see it
 cleanup() {
   local rc=$?
@@ -207,6 +213,12 @@ cleanup() {
     done
     kill -KILL "$QEMU_PID" 2>/dev/null || true
     wait "$QEMU_PID" 2>/dev/null || true
+  fi
+  # On failure: copy logs to public artifacts dir so CI's upload-artifact
+  # step can find them. On success: skip (don't pollute artifacts/).
+  if [[ "$rc" -ne 0 && -d "$RUN_DIR" ]]; then
+    cp -f "${RUN_DIR}/serial.log" "$ARTIFACTS_DIR/serial.log" 2>/dev/null || true
+    cp -f "${RUN_DIR}/user-data" "$ARTIFACTS_DIR/user-data" 2>/dev/null || true
   fi
   rm -rf "$RUN_DIR"
   return "$rc"
@@ -252,11 +264,15 @@ printf 'booting QEMU (Ubuntu %s / %s; mem=%s smp=%s port=%s)\n' \
 ## (Pitfall 10 defense-in-depth, plus reproducible cache hits).
 qemu-img create -q -f qcow2 -F qcow2 -b "${IMG}" "${RUN_DIR}/disk.qcow2"
 
+## -cdrom is the canonical idiom for an attached read-only ISO (cloud-init
+## seed). QEMU 8.2 chokes on `-drive ...,format=raw,readonly=on` for the
+## seed.iso with "Block node is read-only" — switching to -cdrom is more
+## portable and what cloud-init docs recommend.
 qemu-system-x86_64 \
   -cpu host -enable-kvm \
   -m "$QEMU_MEM" -smp "$QEMU_SMP" \
   -drive "file=${RUN_DIR}/disk.qcow2,if=virtio,format=qcow2" \
-  -drive "file=${RUN_DIR}/seed.iso,format=raw,readonly=on" \
+  -cdrom "${RUN_DIR}/seed.iso" \
   -netdev "user,id=n0,hostfwd=tcp::${QEMU_PORT}-:22" \
   -device virtio-net,netdev=n0 \
   -nographic -serial "file:${RUN_DIR}/serial.log" \
