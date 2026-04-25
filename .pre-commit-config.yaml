@@ -4,7 +4,9 @@
 # Runs locally on `pre-commit run --all-files` and in .github/workflows/test.yml.
 
 default_language_version:
-  node: '22'
+  # Pinned to a specific patch (not bare '22') because Ubuntu's nodeenv 0.13.4
+  # does not resolve major-only versions and would request /dist/v22/ which 404s.
+  node: '22.22.2'
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
