@@ -69,6 +69,14 @@ jobs:
           sudo bash -c 'echo "KERNEL==\"kvm\", GROUP=\"kvm\", MODE=\"0666\"" > /etc/udev/rules.d/99-kvm.rules'
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+          # udevadm trigger is async — wait for settle, then poll up to 5s.
+          sudo udevadm settle --timeout=10 || true
+          for _ in 1 2 3 4 5 6 7 8 9 10; do
+            if [[ -r /dev/kvm && -w /dev/kvm ]]; then
+              break
+            fi
+            sleep 0.5
+          done
           if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
             echo "::error::/dev/kvm not accessible after udev rule — KVM required (TCG fallback would blow past timeout)"
             ls -la /dev/kvm || true
