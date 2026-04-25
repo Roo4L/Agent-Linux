@@ -64,10 +64,14 @@ jobs:
         if: steps.guard.outputs.has_tests == 'true'
         working-directory: plugin/cli
         run: pnpm install --frozen-lockfile
+      - name: Compile CLI tests
+        if: steps.guard.outputs.has_tests == 'true'
+        working-directory: plugin/cli
+        run: pnpm exec tsc -p tsconfig.test.json
       - name: Run tests
         if: steps.guard.outputs.has_tests == 'true'
         working-directory: plugin/cli
-        run: pnpm test
+        run: pnpm exec node --test dist-test/test/
 
   bats-docker:
     runs-on: ubuntu-24.04

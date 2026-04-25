@@ -94,16 +94,24 @@ jobs:
       - name: Run pre-commit on all files
         run: pre-commit run --all-files --show-diff-on-failure
       # Use pnpm (canonical lockfile); deps already installed in the step above.
-      # CLAUDE.md convention is `cd plugin/cli && pnpm test`.
-      - name: CLI unit tests
+      # CLAUDE.md convention is `cd plugin/cli && pnpm test`. Steps are split so
+      # tsc compile errors are visible separately from test execution failures.
+      - name: Compile CLI tests
+        working-directory: plugin/cli
+        run: pnpm exec tsc -p tsconfig.test.json
+      - name: Verify test compilation
         working-directory: plugin/cli
         run: |
-          set -euo pipefail
-          if compgen -G "test/*.test.*" > /dev/null || compgen -G "test/**/*.test.*" > /dev/null; then
-            pnpm test
-          else
-            echo "no CLI tests yet — skipping"
+          set -euxo pipefail
+          if [ ! -d dist-test/test ] || [ -z "$(ls -A dist-test/test 2>/dev/null)" ]; then
+            echo "::error::dist-test/test missing or empty after tsc compile"
+            ls -la dist-test 2>/dev/null || echo "(dist-test does not exist)"
+            exit 1
           fi
+          ls dist-test/test/
+      - name: Run CLI unit tests
+        working-directory: plugin/cli
+        run: pnpm exec node --test dist-test/test/
 
   # Gate 2 — Docker matrix. Runs tests/docker/run.sh on both Ubuntu LTS
   # images. The Docker harness executes the full tests/bats/ suite INCLUDING
