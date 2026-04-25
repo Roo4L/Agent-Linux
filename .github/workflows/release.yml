@@ -82,6 +82,15 @@ jobs:
           node-version: '22'
       - name: Install pre-commit
         run: pip install pre-commit==4.0.1
+      # The catalog-schema-validate hook runs `node plugin/cli/scripts/
+      # validate-catalog.mjs` which imports `ajv`. Without these deps the hook
+      # fails with "Cannot find package 'ajv'". Install via pnpm (project's
+      # lockfile is pnpm-lock.yaml) so the hook can resolve its imports.
+      - name: Enable pnpm via corepack
+        run: corepack enable
+      - name: Install plugin/cli deps (ajv for catalog-schema-validate hook)
+        working-directory: plugin/cli
+        run: pnpm install --frozen-lockfile
       - name: Run pre-commit on all files
         run: pre-commit run --all-files --show-diff-on-failure
       - name: CLI unit tests
