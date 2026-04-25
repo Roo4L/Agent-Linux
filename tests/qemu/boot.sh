@@ -244,10 +244,18 @@ QEMU_PORT=${AGENTLINUX_QEMU_PORT:-2222}
 printf 'booting QEMU (Ubuntu %s / %s; mem=%s smp=%s port=%s)\n' \
   "$UBUNTU_VERSION" "$RELEASE" "$QEMU_MEM" "$QEMU_SMP" "$QEMU_PORT"
 
+## Build a writable qcow2 overlay backed by the cached cloud image.
+## `-drive ...,snapshot=on` would also work in theory, but QEMU 8.2+ is
+## strict about read-only backing semantics and reports "Block node is
+## read-only" on some host filesystems. An explicit overlay is portable
+## across QEMU versions and keeps the cached backing file untouched
+## (Pitfall 10 defense-in-depth, plus reproducible cache hits).
+qemu-img create -q -f qcow2 -F qcow2 -b "${IMG}" "${RUN_DIR}/disk.qcow2"
+
 qemu-system-x86_64 \
   -cpu host -enable-kvm \
   -m "$QEMU_MEM" -smp "$QEMU_SMP" \
-  -drive "file=${IMG},if=virtio,snapshot=on" \
+  -drive "file=${RUN_DIR}/disk.qcow2,if=virtio,format=qcow2" \
   -drive "file=${RUN_DIR}/seed.iso,format=raw,readonly=on" \
   -netdev "user,id=n0,hostfwd=tcp::${QEMU_PORT}-:22" \
   -device virtio-net,netdev=n0 \
