@@ -51,9 +51,24 @@ STUB
     && sha256sum "$tarball" > "${tarball}.sha256")
 
   # 2. Start python3 HTTP server in background on $FIXTURE_PORT.
+  # Detach fully via setsid so the python process is its own session leader and
+  # no longer a descendant of the controlling pty — without this, the running
+  # server keeps `docker exec` from returning after bats finishes (CI hang
+  # observed on rc6 gate-2-docker: 71/71 tests green, then 7-min hang to
+  # timeout-minutes:20).
   (cd "$FIXTURE_TMP/releases" \
-    && nohup python3 -m http.server "$FIXTURE_PORT" >/dev/null 2>&1 &
-  echo $! > "$FIXTURE_TMP/server.pid")
+    && setsid -f python3 -m http.server "$FIXTURE_PORT" </dev/null >/dev/null 2>&1)
+  # setsid -f forks before exec, so $! does not reflect the python PID.
+  # Discover the PID by port instead — matches whoever is actually serving.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    pid=$(ss -lntpH "sport = :${FIXTURE_PORT}" 2>/dev/null \
+      | grep -oE 'pid=[0-9]+' | head -n1 | cut -d= -f2)
+    if [[ -n "${pid:-}" ]]; then
+      echo "$pid" > "$FIXTURE_TMP/server.pid"
+      break
+    fi
+    sleep 0.2
+  done
   # Poll port-ready. Up to 5s (10 * 0.5s) — python3 -m http.server starts fast.
   for _ in 1 2 3 4 5 6 7 8 9 10; do
     if curl -fsS "http://127.0.0.1:${FIXTURE_PORT}/${FIXTURE_TAG}/${tarball}" \
@@ -71,9 +86,18 @@ teardown_file() {
     local pid
     pid=$(cat "$FIXTURE_TMP/server.pid" 2>/dev/null || echo "")
     if [[ -n "$pid" ]]; then
-      kill "$pid" 2>/dev/null || true
+      # Kill the whole session/process group (setsid -f makes pid the leader)
+      # then escalate to SIGKILL if still alive after a short grace window.
+      kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
+      for _ in 1 2 3 4 5 6; do
+        kill -0 "$pid" 2>/dev/null || break
+        sleep 0.5
+      done
+      kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
     fi
   fi
+  # Belt-and-suspenders: kill any leftover http.server on FIXTURE_PORT.
+  pkill -KILL -f "http.server ${FIXTURE_PORT}" 2>/dev/null || true
   if [[ -n "${FIXTURE_TMP:-}" && -d "$FIXTURE_TMP" ]]; then
     rm -rf "$FIXTURE_TMP"
   fi
