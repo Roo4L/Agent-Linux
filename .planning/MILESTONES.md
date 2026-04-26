@@ -49,11 +49,33 @@
 
 ---
 
-## v0.3.0 AgentLinux Plugin (Ubuntu) — IN PROGRESS
+## v0.3.0 AgentLinux Plugin (Ubuntu) — Feature-complete: 2026-04-20
 
-**Started:** 2026-04-18
+**Phases completed:** 6 + 1 inserted (Phase 5.1)
+**Plans completed:** 30
+**Timeline:** 2026-04-18 → 2026-04-20 (~3 days active execution)
 
-**Goal:** Ship a one-command installable extension for Ubuntu that turns any existing system into an agent-ready environment — dedicated agent user with correctly-owned Node.js runtime, default agent (Claude Code) installed, CLI registry for installing additional agents.
+**Key accomplishments:**
+- One-command installable Ubuntu plugin (curl-pipe-bash + optional `.deb` via fpm) with SHA256-verified release tarball
+- Dedicated `agent` user provisioned with correctly-owned Node.js 22 LTS runtime, per-user npm prefix at `/home/agent/.npm-global/`, and six-mode PATH wiring (interactive, non-interactive SSH, cron, systemd `User=agent`, `sudo -u agent`, `sudo -u agent -i`)
+- Passwordless sudo for agent user via `/etc/sudoers.d/agentlinux` (ADR-012) — required for Playwright `install --with-deps`
+- Registry CLI `agentlinux list/install/remove/upgrade/pin` with JSON-Schema-validated catalog (3 real agents available, none installed by default)
+- AGT-02 canonical acceptance test green: agent user can `claude update` against the live Anthropic CDN with zero EACCES / permission-denied lines, on both Ubuntu 22.04 + 24.04
+- Behavior-test contract: 66/66 bats green on both Ubuntu versions; harness 104/104; 4-gate `release.yml` (pre-commit → Docker matrix → QEMU release gate → pinned-combo gate per ADR-011)
+
+**v0.3.0 ships when:** First `v0.3.0-rc1` tag push exercises `release.yml` end-to-end against the live GitHub Release publish path. Static gates all green; the tag push is the runtime-shipping event.
+
+**Archived planning:** `.planning/milestones/v0.3.0-REQUIREMENTS.md` + `.planning/milestones/v0.3.0-ROADMAP.md` (preserved for traceability; phase directories remain under `.planning/phases/01-*..06-*` until v0.3.0 ships).
+
+---
+
+## v0.4.0 Open-Source Release — IN PROGRESS
+
+**Started:** 2026-04-26
+
+**Goal:** Open-source the AgentLinux GitHub repository — establish OSS licensing, eliminate any leaked secrets from git history, clean up build artifacts and stale branches, verify CI/CD operates correctly under public-repo permissions, and flip visibility to public so AgentLinux can ride free GitHub Actions minutes and accept community contributions.
+
+**Why now:** Private-repo CI/CD spend has become non-trivial as the QEMU release-gate matrix grew (Phase 6 of v0.3.0). Public repos get free Actions minutes. Public visibility also unblocks community contributions and outside marketing/outreach.
 
 See: `.planning/PROJECT.md` and `.planning/ROADMAP.md` for active scope and phases.
 
