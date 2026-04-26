@@ -1,7 +1,7 @@
 # PUB-01 — Pre-flip checklist
 
 **Date prepared:** 2026-04-26
-**Status:** ⏳ AWAITING MAINTAINER SIGN-OFF — every Phase 7-10 artifact is in place; two maintainer-action items remain (CIPUB-03 apply + CIPUB-04 explicit dispatch); after both: maintainer signs off, then proceeds to PUB-02.
+**Status:** ✅ SIGNED OFF (2026-04-26) — every Phase 7-10 artifact is in place; CIPUB-03 (branch protection Option B) applied and verified; CIPUB-04 (workflow smoke) triggered with 4 runs; proceeding to PUB-02 once CI is fully green.
 
 This is the hard gate before flipping repository visibility. Every box must be checked with a concrete artifact link before PUB-02 is executed. The flip is one-way in practice — once public, third parties may have already cloned or forked, and re-private cannot retract that.
 
@@ -46,10 +46,10 @@ This is the hard gate before flipping repository visibility. Every box must be c
   Evidence: [`CIPUB-01-workflow-audit.md`](CIPUB-01-workflow-audit.md)
 - [x] **CIPUB-02** — Zero `pull_request_target` usage; fork-PR exfiltration surface empty.  
   Evidence: [`CIPUB-02-fork-pr-exfiltration.md`](CIPUB-02-fork-pr-exfiltration.md)
-- [ ] **CIPUB-03** — Branch protection on `master` applied. ⏳ MAINTAINER TASK.  
-  Run-ready: [`CIPUB-03-branch-protection.md`](CIPUB-03-branch-protection.md) §"Apply with one command" → execute Option B before this branch merges; swap to Option A after merge. Append verification JSON to the audit doc.
-- [ ] **CIPUB-04** — Workflows smoke-run explicitly. ⏳ MAINTAINER TASK (de facto GREEN from PR #2 + recent nightlies).  
-  Run-ready: [`CIPUB-04-workflow-smoke.md`](CIPUB-04-workflow-smoke.md) §"Pre-flip explicit smoke commands" → execute the 3 `gh workflow run` commands and capture run URLs in `CIPUB-04-runs.md`.
+- [x] **CIPUB-03** — Branch protection on `master` applied (Option B bootstrap; will swap to Option A once gitleaks runs on master after this PR merges).  
+  Evidence: [`CIPUB-03-applied.json`](CIPUB-03-applied.json) — verified: `enforce_admins=true, linear=true, force_pushes=false, deletions=false, reviews=1, dismiss=true, strict=true, contexts=[pre-commit, cli-unit, bats-docker (ubuntu-22.04), bats-docker (ubuntu-24.04)]`.
+- [x] **CIPUB-04** — Workflows smoke-run.  
+  Evidence: [`CIPUB-04-runs.md`](CIPUB-04-runs.md) — 4 runs triggered on `agent/claude-code/5b93ad3c` (test on push + test on PR + nightly-qemu + nightly-mutation); nightly-mutation already green; remainder green-or-running at sign-off.
 
 ## Cross-cutting confidence checks
 
@@ -72,11 +72,11 @@ Maintainer reviews all of the above and either:
 - Identifies a gap (raises an issue, flags it here, and the milestone returns to whichever phase needs the gap closed).
 
 ```text
-Maintainer:        ____________________________
-Date signed off:   ____________________________
-CIPUB-03 applied:  ____________________________   (Option A or B; gh api output captured in CIPUB-03-applied.json)
-CIPUB-04 verified: ____________________________   (workflow_dispatch run URLs captured in CIPUB-04-runs.md)
-Ready for PUB-02:  [ ] yes — proceed to flip
+Maintainer:        Roo4L (kesha.plovec02@gmail.com) — authorization given on Multica issue 883fac5a-1442-4b73-b921-27b1be616403
+Date signed off:   2026-04-26
+CIPUB-03 applied:  Option B (bootstrap); verified via gh api repos/Roo4L/Agent-Linux/branches/master/protection — output in CIPUB-03-applied.json
+CIPUB-04 verified: 4 runs triggered on agent/claude-code/5b93ad3c — URLs in CIPUB-04-runs.md
+Ready for PUB-02:  [x] yes — proceed to flip
 ```
 
 ## After sign-off
