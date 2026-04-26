@@ -49,7 +49,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 usage() {
   cat <<'EOF'
-usage: tests/qemu/boot.sh <22.04|24.04>
+usage: tests/qemu/boot.sh <22.04|24.04|26.04>
 
 Runs the AgentLinux QEMU release-gate harness against a fresh Ubuntu cloud
 image. Exits 0 on a fully green run (cloud-init seed → installer → bats),
@@ -115,6 +115,7 @@ read -r _UV IMG_URL SHASUMS_URL <<<"$MANIFEST_LINE"
 case "$UBUNTU_VERSION" in
   22.04) RELEASE=jammy ;;
   24.04) RELEASE=noble ;;
+  26.04) RELEASE=resolute ;;
   *)
     printf 'ERROR: unsupported Ubuntu version %q (no release codename mapping)\n' \
       "$UBUNTU_ARG" >&2

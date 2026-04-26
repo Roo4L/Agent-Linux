@@ -13,7 +13,7 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
   steps, catalog, registry CLI in `plugin/cli/`)
 - `tests/bats/` — behavior-contract suite (BHV-XX / RT-XX / AGT-XX / CLI-XX / CAT-XX / INST-XX)
 - `tests/harness/` — harness meta-tests (Phase 1 acceptance gate)
-- `tests/docker/` — fast CI harness (Ubuntu 22.04 + 24.04 matrix, every PR)
+- `tests/docker/` — fast CI harness (Ubuntu 22.04 + 24.04 + 26.04 matrix, every PR)
 - `tests/qemu/` — release-gate harness (fresh cloud images, nightly + release)
 - `packaging/` — curl-pipe-bash installer + optional fpm .deb wrapper
 - `docs/` — reference documentation (`HARNESS.md`, `decisions/`, `research/`, `proposals/`, `reviews/`)

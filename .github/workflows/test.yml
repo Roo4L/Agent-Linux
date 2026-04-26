@@ -118,14 +118,16 @@ jobs:
     # systemctl is-system-running wait is the usual long-tail; this caps it.
     timeout-minutes: 15
     strategy:
-      # Phase 2 acceptance matrix: BOTH supported Ubuntu LTS versions run on
-      # every PR. fail-fast=false so 22.04 failure still reports 24.04 (and
-      # vice versa) — Phase 6 release gate needs to see both arms.
+      # Phase 2 acceptance matrix: every supported Ubuntu LTS version runs on
+      # every PR. fail-fast=false so a single arm failure still reports the
+      # others — Phase 6 release gate needs to see all arms. AGE-11 added
+      # 26.04 ("Resolute Raccoon") on 2026-04-26.
       fail-fast: false
       matrix:
         ubuntu:
           - ubuntu-22.04
           - ubuntu-24.04
+          - ubuntu-26.04
     steps:
       - uses: actions/checkout@v5
       # Empty-plugin guard from Phase 1: still useful. After Phase 2 lands the

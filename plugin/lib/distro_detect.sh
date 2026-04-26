@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# plugin/lib/distro_detect.sh — Ubuntu 22.04 / 24.04 detection.
+# plugin/lib/distro_detect.sh — Ubuntu 22.04 / 24.04 / 26.04 detection.
 #
-# The installer refuses to run on anything other than Ubuntu 22.04 or 24.04 —
-# future distros land in v0.4+ per ADR. `detect_distro` exports
+# The installer refuses to run on anything other than Ubuntu 22.04, 24.04 or
+# 26.04 — future distros land in v0.4+ per ADR. `detect_distro` exports
 # AGENTLINUX_DISTRO_VERSION for downstream provisioners that need to branch
 # (e.g. locale-gen no-op on C.UTF-8, Pitfall 5 in 02-RESEARCH.md).
 #
@@ -24,8 +24,8 @@ fi
 #
 # Escape hatch: AGENTLINUX_SKIP_DISTRO_CHECK=1 bypasses validation and exports
 # AGENTLINUX_DISTRO_VERSION=unchecked. Intended ONLY for bats unit sourcing on
-# dev hosts that are not themselves Ubuntu 22.04/24.04. Real installer runs
-# MUST NOT set this.
+# dev hosts that are not themselves Ubuntu 22.04/24.04/26.04. Real installer
+# runs MUST NOT set this.
 detect_distro() {
   if [[ "${AGENTLINUX_SKIP_DISTRO_CHECK:-0}" == "1" ]]; then
     export AGENTLINUX_DISTRO_VERSION="unchecked"
@@ -49,12 +49,12 @@ detect_distro() {
   fi
 
   case "${VERSION_ID:-}" in
-    22.04 | 24.04)
+    22.04 | 24.04 | 26.04)
       export AGENTLINUX_DISTRO_VERSION="$VERSION_ID"
       log_info "detected ubuntu ${VERSION_ID}"
       ;;
     *)
-      log_error "unsupported ubuntu version: ${VERSION_ID:-unset} (required: 22.04 or 24.04)"
+      log_error "unsupported ubuntu version: ${VERSION_ID:-unset} (required: 22.04, 24.04 or 26.04)"
       return 1
       ;;
   esac

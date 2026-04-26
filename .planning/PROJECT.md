@@ -123,7 +123,7 @@ Known minor issue: OG image (SVG format) doesn't render on all social platforms 
 
 ## Constraints
 
-- **Target OS (v0.3.0):** Ubuntu (LTS). Fedora/CentOS/Alma/Arch deferred.
+- **Target OS (v0.3.0):** Ubuntu LTS — 22.04 (Jammy), 24.04 (Noble), 26.04 (Resolute Raccoon, added 2026-04-26 per AGE-11). Fedora/CentOS/Alma/Arch deferred.
 - **Install UX:** one-command from user perspective; internally may chain apt / curl / npm / fpm.
 - **Node.js ownership:** must be owned by the agent user or use a writable global prefix under the agent user's home — no `sudo npm install -g`.
 - **Test harness:** containerized or QEMU-based; no real-hardware / cloud-VM deploy step.

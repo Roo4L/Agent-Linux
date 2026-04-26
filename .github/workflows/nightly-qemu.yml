@@ -1,9 +1,10 @@
 name: nightly-qemu
 # Phase 6 Plan 06-03 Task 3. Nightly QEMU release-gate harness (TST-03).
 # Replaces the Phase 1 empty-guard scaffold with a real matrix run against
-# both supported Ubuntu LTS images. Docker (test.yml) runs every PR; this
+# every supported Ubuntu LTS image. Docker (test.yml) runs every PR; this
 # workflow runs nightly + workflow_dispatch and is the release-gate-adjacent
-# "Docker-alone is disqualified" (ADR-007) signal.
+# "Docker-alone is disqualified" (ADR-007) signal. AGE-11 added 26.04
+# ("Resolute Raccoon") on 2026-04-26.
 
 on:
   schedule:
@@ -11,14 +12,15 @@ on:
   workflow_dispatch:
     inputs:
       ubuntu:
-        description: 'Ubuntu version(s) to run (22.04 / 24.04 / both)'
+        description: 'Ubuntu version(s) to run (22.04 / 24.04 / 26.04 / all)'
         required: false
-        default: both
+        default: all
         type: choice
         options:
-          - both
+          - all
           - '22.04'
           - '24.04'
+          - '26.04'
 
 permissions:
   contents: read
@@ -31,17 +33,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ubuntu: ['22.04', '24.04']
+        ubuntu: ['22.04', '24.04', '26.04']
     steps:
       - uses: actions/checkout@v5
 
       # Skip the matrix leg when workflow_dispatch targeted a single version.
-      # Cron runs (github.event_name == 'schedule') always exercise both.
+      # Cron runs (github.event_name == 'schedule') always exercise all arms.
       - name: Decide whether to run this matrix leg
         id: decide
         run: |
           dispatched='${{ github.event.inputs.ubuntu }}'
-          if [[ -z "$dispatched" || "$dispatched" == 'both' ]]; then
+          if [[ -z "$dispatched" || "$dispatched" == 'all' || "$dispatched" == 'both' ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           elif [[ "$dispatched" == '${{ matrix.ubuntu }}' ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
