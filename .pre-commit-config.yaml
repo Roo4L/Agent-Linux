@@ -17,6 +17,10 @@ repos:
       - id: check-json
       - id: check-yaml
       - id: detect-private-key
+        # SEC-03/SEC-05 audit docs intentionally embed a PEM-shaped fixture
+        # block as the test material that proved the gitleaks gate fires.
+        # Excluded by path so the hook does not block its own evidence.
+        exclude: ^docs/audits/v0\.4\.0/SEC-(03-targeted-audit|05-gate-evidence)\.md$
       - id: end-of-file-fixer
       - id: trailing-whitespace
 

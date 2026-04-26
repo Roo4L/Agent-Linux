@@ -22,11 +22,14 @@ description = "v0.4.0 Phase 8 SEC-01 triage — see docs/audits/v0.4.0/SEC-01-gi
 paths = [
     '''\.planning/.*\.md$''',
     '''docs/audits/.*\.md$''',
+    '''docs/decisions/.*\.md$''',
 ]
 
-# Belt-and-braces fingerprint pin for the specific historical
-# generic-api-key match in commit 44a7f03 (.planning/.continue-here.md
-# line 65 — OpenNebula API hostname text).
+# Belt-and-braces fingerprint pins for known false positives:
+# - 44a7f03 .planning/.continue-here.md:65 — OpenNebula API hostname text
+# - c94920a docs/decisions/014-secret-remediation-noop.md:20 — same hostname
+#   text quoted in the ADR that documents the suppression decision
 fingerprints = [
     "44a7f03a5973cbb634cb885910960d12f9123c9e:.planning/.continue-here.md:generic-api-key:65",
+    "c94920a952caa8d5e679b875c1068b3d721d36cb:docs/decisions/014-secret-remediation-noop.md:generic-api-key:20",
 ]
