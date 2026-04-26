@@ -42,6 +42,14 @@ repos:
         # nested plugin/cli/biome.json and would fall back to defaults (tabs).
         args: [--config-path=plugin/cli]
 
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      # SEC-05 (v0.4.0 Phase 8): block secret-shaped strings on every commit.
+      # Configured via .gitleaks.toml at repo root (extends the upstream default
+      # rule set + allowlists .planning/*.md per ADR-014 + SEC-01-gitleaks-report.md).
+      - id: gitleaks
+
   - repo: local
     hooks:
       - id: catalog-schema-validate

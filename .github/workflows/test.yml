@@ -75,6 +75,31 @@ jobs:
         shell: bash
         run: pnpm exec node --test dist-test/test/*.test.js
 
+  # SEC-05 (v0.4.0 Phase 8): full-history gitleaks gate. The pre-commit job
+  # above runs gitleaks against staged files only (fast-feedback path). This
+  # job re-runs gitleaks across the full clone history so a bypassed commit
+  # (--no-verify, force push, merged PR with stale hooks) still gets caught.
+  # Configured via .gitleaks.toml (extends upstream defaults + allowlists
+  # .planning/*.md per ADR-014).
+  gitleaks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan every commit, not just the
+          # PR's tip.
+          fetch-depth: 0
+      - name: Run gitleaks (full history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          GITLEAKS_ENABLE_SUMMARY: true
+
   bats-docker:
     runs-on: ubuntu-24.04
     # 15 minutes comfortably covers a cold apt cache + Docker build + installer
