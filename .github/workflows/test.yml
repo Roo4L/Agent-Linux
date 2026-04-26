@@ -93,6 +93,10 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      # gitleaks-action@v2 fetches PR commits via
+      # /repos/{owner}/{repo}/pulls/{n}/commits on pull_request events;
+      # without pull-requests: read the API call returns 403.
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
