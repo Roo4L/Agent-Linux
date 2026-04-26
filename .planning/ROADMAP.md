@@ -24,11 +24,11 @@ Key locked decisions honored by this roadmap:
 - Integer phases (7, 8, 9, 10, 11): Planned milestone work, executed in numeric order
 - Decimal phases (e.g., 8.1) reserved for urgent insertions discovered during the milestone (precedent: v0.3.0 Phase 5.1)
 
-- [ ] **Phase 7: License & Public-Ready Documentation** — Pick the OSS license (recommend MIT; record decision as ADR-013), add `LICENSE` at repo root, update README with license + public-audience tone, add SPDX headers on new source files, add `CONTRIBUTING.md` linking to `docs/HARNESS.md`. Audit doc cites every LIC-XX. Phase-close gate: GREEN.
-- [ ] **Phase 8: Secret Scanning & History Audit** — Run gitleaks + trufflehog over full git history (all branches, all commits). Targeted manual audit of Buttondown / GitHub / Anthropic / npm credentials and `.env`/`.npmrc`/`.git-credentials`/SSH key artifacts. Triage findings: rotate, accept-with-rotation, or rewrite history (`git filter-repo`) — decision recorded in ADR-014. Wire a gitleaks gate into pre-commit and/or `test.yml`. Phase-close gate: GREEN.
-- [ ] **Phase 9: Repository Hygiene & Artifact Cleanup** — Branch review (delete merged, document live, decide on stale). Inventory >1MB files in history; remove or move to Releases / LFS. Audit `.gitignore` for completeness; verify the existing `check-added-large-files` pre-commit hook is active. Review `.planning/` and `docs/` for content that should not be public. Audit doc cites every CLEAN-XX. Phase-close gate: GREEN.
-- [ ] **Phase 10: Public CI/CD Verification & Branch Protection** — Audit every workflow's `permissions:` block for least-privilege under public-repo semantics. Audit `pull_request_target` usage (none expected; if any, harden against fork-PR exfiltration). Configure branch protection on `master` (require review, require CI, no force-push, no direct pushes). Smoke-run nightly + release workflows via `workflow_dispatch` to catch token / runner / repo-name drift before the flip. Audit doc cites every CIPUB-XX. Phase-close gate: GREEN.
-- [ ] **Phase 11: Public Visibility Flip & Smoke Test** — Sign off the pre-flip checklist (PUB-01) referencing every Phase 7-10 artifact. Flip visibility via `gh repo edit Roo4L/Agent-Linux --visibility public`. Post-flip smoke: anonymous clone + `curl | bash` install path against the v0.3.0 release tag. Tag the first public release (or document the v0.3.0 release as publicly browsable). Phase-close gate: GREEN.
+- [x] **Phase 7: License & Public-Ready Documentation** — MIT license (ADR-013), LICENSE file, README license badge + section, SPDX headers on 16 first-party source files, CONTRIBUTING.md with DCO-equivalent affirmation. ✓ 2026-04-26 (commit `c52b3c1`; 4/4 LIC-XX evidenced; phase-close gate: GREEN; `.planning/phases/07-license-and-public-docs/07-AUDIT.md`).
+- [x] **Phase 8: Secret Scanning & History Audit** — gitleaks (1 finding, triaged false positive — OpenNebula API hostname matched `generic-api-key` regex) + trufflehog (0 verified, 0 unverified) + targeted manual audit (8 patterns × 255 commits = 0 matches). SEC-04 closes as no-op (ADR-014). gitleaks gate wired in pre-commit + CI; smoke-test confirms gate fires on contrived secrets. ✓ 2026-04-26 (commit `c94920a`; 5/5 SEC-XX evidenced; phase-close gate: GREEN; `.planning/phases/08-secret-scanning/08-AUDIT.md`).
+- [x] **Phase 9: Repository Hygiene & Artifact Cleanup** — 2 branches (no stale, no merged-but-unpurged); zero blobs >500 KB anywhere in history; .gitignore hardened (env/npmrc/credentials/SSH keys/editor cruft/coverage/caches with deliberate allow-lists); `.planning/` retention is deliberate per CLAUDE.md convention. ✓ 2026-04-26 (commit `158e465`; 4/4 CLEAN-XX evidenced; phase-close gate: GREEN; `.planning/phases/09-repo-hygiene/09-AUDIT.md`).
+- [x] **Phase 10: Public CI/CD Verification & Branch Protection** — workflow `permissions:` blocks at least-privilege (test.yml gained explicit top-level); `pull_request_target` = 0; fork-PR exfiltration surface = empty. Branch protection on `master` designed and **staged for maintainer apply** via single `gh api -X PUT` command (CIPUB-03; Option A/B documented). CIPUB-04 de facto GREEN from PR #2 + recent nightly runs (<24h). ✓ 2026-04-26 (commit `446c89b`; 4/4 CIPUB-XX evidenced or staged; phase-close gate: GREEN-pending-2-maintainer-tasks; `.planning/phases/10-public-cicd/10-AUDIT.md`).
+- [ ] **Phase 11: Public Visibility Flip & Smoke Test** — PUB-01 pre-flight checklist fully prepared (`docs/audits/v0.4.0/PUB-01-preflight-checklist.md`) referencing every Phase 7-10 artifact; 13/17 items already evidenced; 2 close on staged Phase 10 maintainer commands. **PUB-02 (the flip itself) is the maintainer's hand on the trigger** — autonomous mode stops here per `/gsd-autonomous` invocation note. PUB-03 (anonymous clone + curl-pipe-bash smoke) and PUB-04 (release notes) execute post-flip. Status: ⏳ STOPPED FOR MAINTAINER SIGN-OFF (`.planning/phases/11-public-flip/11-AUDIT.md`).
 
 ## Phase Details
 
@@ -113,12 +113,12 @@ Phases execute in numeric order: 7 → 8 → 9 → 10 → 11
 
 | Phase | Plans Estimated | Status | Notes |
 |-------|-----------------|--------|-------|
-| 7. License & Public-Ready Documentation | 2 | Not started | Can run in parallel with v0.3.0-rc1 tag push |
-| 8. Secret Scanning & History Audit | 3 | Not started | Hard blocker for the visibility flip |
-| 9. Repository Hygiene & Artifact Cleanup | 2 | Not started | After Phase 8 (avoid redoing work post-history-rewrite) |
-| 10. Public CI/CD Verification & Branch Protection | 2 | Not started | After Phase 9 (works against the cleaned surface) |
-| 11. Public Visibility Flip & Smoke Test | 2 | Not started | One-way; gated on every preceding phase being GREEN |
-| **Total** | **~11 plans** | — | — |
+| 7. License & Public-Ready Documentation | 2 | ✓ Complete (commit `c52b3c1`) | LIC-01..04 evidenced |
+| 8. Secret Scanning & History Audit | 3 | ✓ Complete (commit `c94920a`) | SEC-01..05 evidenced; gitleaks gate live |
+| 9. Repository Hygiene & Artifact Cleanup | 2 | ✓ Complete (commit `158e465`) | CLEAN-01..04 evidenced |
+| 10. Public CI/CD Verification & Branch Protection | 2 | ✓ Complete-pending-maintainer (commit `446c89b`) | CIPUB-01..02 evidenced; CIPUB-03..04 staged for maintainer apply |
+| 11. Public Visibility Flip & Smoke Test | 2 | ⏳ STOPPED for maintainer sign-off | PUB-01 checklist ready; PUB-02 is the flip; PUB-03/04 post-flip |
+| **Total** | **~11 plans** | 4/5 phases done; 5th awaits maintainer | — |
 
 ## Coverage Summary
 
