@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/provisioner/10-agent-user.sh — agent user creation, locale, DOC-02 CLAUDE.md.
 #
 # Sourced by plugin/bin/agentlinux-install. Inherits `set -euo pipefail`, the

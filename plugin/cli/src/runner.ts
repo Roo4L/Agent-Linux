@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // plugin/cli/src/runner.ts — shared recipe dispatcher for install/remove/upgrade.
 // Mirrors /etc/agentlinux.env (plugin/provisioner/40-path-wiring.sh line 146)
 // byte-for-byte so recipes inherit the same PATH/locale whether triggered by

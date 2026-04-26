@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/provisioner/40-path-wiring.sh — six-mode PATH/locale wiring.
 #
 # Sourced by plugin/bin/agentlinux-install. Inherits `set -euo pipefail`, the

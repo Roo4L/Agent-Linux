@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # packaging/curl-installer/install.sh — AgentLinux v0.3.0 curl-pipe-bash installer (INST-03).
 #
 # This script is fetched and piped into bash by users:

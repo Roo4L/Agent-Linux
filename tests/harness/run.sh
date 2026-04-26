@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # tests/harness/run.sh
 # Runs the Phase 1 harness acceptance suite.
 # Exit 0 iff every HRN-XX, TST-06, TST-07 artifact required by ROADMAP.md §Phase 1 is present.

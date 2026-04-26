@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// SPDX-License-Identifier: MIT
 // plugin/cli/src/index.ts — agentlinux CLI entrypoint.
 // Pattern ref: 04-RESEARCH §Pattern 2 lines 474-548 + ADR-008 (Commander ^12).
 //

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/lib/as_user.sh — keystone: route every agent-owned command through
 # `sudo -u <user> -H -E --`. Violating this function is the "sudo npm install -g"
 # anti-pattern AgentLinux exists to eliminate (see CLAUDE.md "Critical Rules"

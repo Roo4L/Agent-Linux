@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/provisioner/50-registry-cli.sh — stage agentlinux CLI + catalog snapshot.
 #
 # Sourced by plugin/bin/agentlinux-install. Inherits strict-mode (errexit /

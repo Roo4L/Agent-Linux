@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # scripts/build-release.sh — Phase 6 Plan 01. Assemble AgentLinux release artifacts.
 #
 # Produces (under dist/ at repo root):

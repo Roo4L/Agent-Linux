@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/lib/log.sh — structured logging primitives.
 #
 # AgentLinux installer primitives: every user-visible message from the
