@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/bin/agentlinux-install — AgentLinux installer entrypoint
 # Phase 2 (v0.3.0): provisions the agent user + PATH wiring across six
 # invocation modes.

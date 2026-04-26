@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 // plugin/cli/src/types.ts — shared interfaces for the registry CLI.
 // Single source of truth consumed by src/commands/*, src/state/*, src/version/*,
 // src/catalog/*, and every test fixture.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/lib/idempotency.sh — grep-before-mutate primitives.
 #
 # Every state change in the installer goes through one of these helpers.

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/provisioner/20-sudoers.sh — install /etc/sudoers.d/agentlinux granting
 # passwordless sudo to the agent user (scope: ALL commands, per ADR-012).
 #

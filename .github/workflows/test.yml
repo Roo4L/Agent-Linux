@@ -17,6 +17,13 @@ on:
       - 'sitemap.xml'
       - 'robots.txt'
 
+# v0.4.0 CIPUB-01: explicit least-privilege default. Individual jobs may
+# narrow further (or, in the publish-only path of release.yml, escalate
+# to contents:write). Public-repo posture: never inherit the runner's
+# implicit default token permissions; pin them per workflow.
+permissions:
+  contents: read
+
 jobs:
   pre-commit:
     runs-on: ubuntu-24.04
@@ -74,6 +81,35 @@ jobs:
         working-directory: plugin/cli
         shell: bash
         run: pnpm exec node --test dist-test/test/*.test.js
+
+  # SEC-05 (v0.4.0 Phase 8): full-history gitleaks gate. The pre-commit job
+  # above runs gitleaks against staged files only (fast-feedback path). This
+  # job re-runs gitleaks across the full clone history so a bypassed commit
+  # (--no-verify, force push, merged PR with stale hooks) still gets caught.
+  # Configured via .gitleaks.toml (extends upstream defaults + allowlists
+  # .planning/*.md per ADR-014).
+  gitleaks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # gitleaks-action@v2 fetches PR commits via
+      # /repos/{owner}/{repo}/pulls/{n}/commits on pull_request events;
+      # without pull-requests: read the API call returns 403.
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history so gitleaks can scan every commit, not just the
+          # PR's tip.
+          fetch-depth: 0
+      - name: Run gitleaks (full history)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+          GITLEAKS_ENABLE_SUMMARY: true
 
   bats-docker:
     runs-on: ubuntu-24.04

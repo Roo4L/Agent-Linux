@@ -8,8 +8,9 @@ AgentLinux provisions a dedicated `agent` user with a correctly-owned Node.js
 runtime so agent tools like Claude Code and GSD self-update without EACCES or
 sudo fights. Curated stable versions; explicit override with `agentlinux pin`.
 
-[![test](https://github.com/agentlinux/agent-linux/actions/workflows/test.yml/badge.svg)](https://github.com/agentlinux/agent-linux/actions/workflows/test.yml)
-[![release](https://github.com/agentlinux/agent-linux/actions/workflows/release.yml/badge.svg)](https://github.com/agentlinux/agent-linux/actions/workflows/release.yml)
+[![test](https://github.com/Roo4L/Agent-Linux/actions/workflows/test.yml/badge.svg)](https://github.com/Roo4L/Agent-Linux/actions/workflows/test.yml)
+[![release](https://github.com/Roo4L/Agent-Linux/actions/workflows/release.yml/badge.svg)](https://github.com/Roo4L/Agent-Linux/actions/workflows/release.yml)
+[![license: MIT](https://img.shields.io/github/license/Roo4L/Agent-Linux)](LICENSE)
 
 ## Install
 
@@ -115,10 +116,27 @@ maintainer 2FA + branch protection.
 Report vulnerabilities via the repository's Security tab (coordinated
 disclosure).
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for how to file issues, open PRs, and
+run the test harness locally. The `tests/bats/` suite is the behavior contract
+— PRs that change behavior should add or update a `@test` per
+[`docs/HARNESS.md`](docs/HARNESS.md) §4 (Review Loop).
+
+## License
+
+AgentLinux is released under the [MIT License](LICENSE) — see
+[`docs/decisions/013-license-mit.md`](docs/decisions/013-license-mit.md) for
+the rationale and the SPDX-header convention applied to source files.
+
+The "AgentLinux" name and the crab mascot SVG are not covered by the MIT
+license — forks should pick their own name to avoid implying maintainer
+endorsement.
+
 ## Links
 
-- **Source + issues:** https://github.com/agentlinux/agent-linux
-- **Releases:** https://github.com/agentlinux/agent-linux/releases
+- **Source + issues:** https://github.com/Roo4L/Agent-Linux
+- **Releases:** https://github.com/Roo4L/Agent-Linux/releases
 - **Architecture decisions:** [docs/decisions/](docs/decisions/)
 - **Test harness spec:** [docs/HARNESS.md](docs/HARNESS.md)
 - **Stability model (user-facing):** [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md)

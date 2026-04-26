@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/lib/distro_detect.sh — Ubuntu 22.04 / 24.04 detection.
 #
 # The installer refuses to run on anything other than Ubuntu 22.04 or 24.04 —

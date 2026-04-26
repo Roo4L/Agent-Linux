@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# SPDX-License-Identifier: MIT
 # plugin/provisioner/30-nodejs.sh — Node.js 22 LTS + per-user npm prefix.
 #
 # Sourced by plugin/bin/agentlinux-install. Inherits strict-mode (errexit /
