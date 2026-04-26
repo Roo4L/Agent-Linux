@@ -17,6 +17,13 @@ on:
       - 'sitemap.xml'
       - 'robots.txt'
 
+# v0.4.0 CIPUB-01: explicit least-privilege default. Individual jobs may
+# narrow further (or, in the publish-only path of release.yml, escalate
+# to contents:write). Public-repo posture: never inherit the runner's
+# implicit default token permissions; pin them per workflow.
+permissions:
+  contents: read
+
 jobs:
   pre-commit:
     runs-on: ubuntu-24.04
