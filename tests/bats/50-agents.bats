@@ -65,7 +65,7 @@ setup_file() {
   # Serial installs keep sentinel writes unambiguous (no flock dance).
   sudo -u agent -H bash --login -c 'agentlinux install claude-code' >/dev/null 2>&1
   sudo -u agent -H bash --login -c 'agentlinux install gsd' >/dev/null 2>&1
-  sudo -u agent -H bash --login -c 'agentlinux install playwright' >/dev/null 2>&1
+  sudo -u agent -H bash --login -c 'agentlinux install playwright-cli' >/dev/null 2>&1
 }
 
 teardown_file() {
@@ -121,20 +121,17 @@ teardown_file() {
   done
 }
 
-# AGT-01 (playwright): `npx playwright --version` exits 0 in all six modes.
-# Using `npx --yes` forces non-interactive (no "install this package?" prompt)
-# even though the CLI is already globally installed by setup_file — matches
-# how cron/systemd units would invoke it. The setup_file install lands the
-# playwright binary at /home/agent/.npm-global/bin/playwright; npx resolves
-# to that same path but exercises the full CLI surface (bindings + browsers).
-@test "AGT-01: npx playwright --version exits 0 in every invocation mode" {
+# AGT-01 (playwright-cli): `playwright-cli --version` exits 0 in all six
+# invocation modes. setup_file installed @playwright/cli globally; the
+# binary lives at /home/agent/.npm-global/bin/playwright-cli.
+@test "AGT-01: playwright-cli --version exits 0 in every invocation mode" {
   local mode
   for mode in "${INVOKE_MODES[@]}"; do
-    invoke_mode "$mode" 'npx --yes playwright --version'
+    invoke_mode "$mode" 'playwright-cli --version'
     if [[ "${output:-}" == *SKIP_SYSTEMD_UNAVAILABLE* ]]; then
       skip "AGT-01 (${mode}): systemd PID 1 not running"
     fi
-    assert_exit_zero "AGT-01/Playwright (${mode})"
+    assert_exit_zero "AGT-01/Playwright-CLI (${mode})"
   done
 }
 
@@ -228,60 +225,45 @@ teardown_file() {
   fi
 }
 
-# ---------- AGT-05: playwright + chromium ----------
+# ---------- AGT-05: playwright-cli (Microsoft @playwright/cli for agents) ----------
 
-# AGT-05 (version): `npx playwright --version` output must contain the pinned
-# version substring. Catalog-driven pin lookup mirrors AGT-02b/AGT-04.
-@test "AGT-05: npx playwright --version exits 0 with pinned version string" {
+# AGT-05 (version): `playwright-cli --version` matches the catalog pin.
+# Catalog-driven pin lookup mirrors AGT-02b/AGT-04.
+@test "AGT-05: playwright-cli --version reports pinned version" {
   local pinned
-  pinned=$(jq -r '.agents[] | select(.id=="playwright") | .pinned_version' "$CATALOG")
-  run sudo -u agent -H bash --login -c 'npx --yes playwright --version'
+  pinned=$(jq -r '.agents[] | select(.id=="playwright-cli") | .pinned_version' "$CATALOG")
+  run sudo -u agent -H bash --login -c 'playwright-cli --version'
   assert_exit_zero "AGT-05"
   if ! printf '%s' "${output}" | grep -q -F -- "$pinned"; then
     __fail "AGT-05" \
-      "playwright --version contains pinned=${pinned}" \
+      "playwright-cli --version contains pinned=${pinned}" \
       "${output:-<empty>}" \
       "$LOG"
   fi
 }
 
-# AGT-05 (chromium cache): install.sh's third step already downloaded chromium
-# into ~agent/.cache/ms-playwright/chromium-<rev>. Re-verify the dir exists AND
-# is owned by `agent` (NOT root — the ADR-004 keystone: no wrapper shim + no
-# root-owned agent-runtime). `stat -c '%U'` prints the owner username; owner
-# mismatch flags a sudo-path bug in the Playwright install-deps hook.
-@test "AGT-05: chromium cached under ~agent/.cache/ms-playwright (no sudo/EACCES)" {
-  # Install.sh already downloaded chromium. Re-verify cache exists and is
-  # agent-owned (ADR-004 keystone).
-  run sudo -u agent -H bash --login -c 'find /home/agent/.cache/ms-playwright -maxdepth 1 -type d -name "chromium-*" | head -1'
-  assert_exit_zero "AGT-05"
-  if [[ -z "${output}" ]]; then
+# AGT-05 (skill wired): install.sh ran `playwright-cli install --skills`,
+# which copies the bundled Claude Code skill set into
+# ~/.claude/skills/playwright-cli/. Without this @test the recipe could
+# regress to "npm install only" (binary on PATH but Claude Code sees no
+# /playwright skills) — the same class of dogfood bug AGT-04's gsd
+# coverage closed.
+@test "AGT-05: agentlinux install playwright-cli-cli wires ~/.claude/skills/playwright-cli" {
+  local count
+  count=$(sudo -u agent -H bash --login -c 'find ~/.claude/skills -maxdepth 2 -iname "*playwright*" 2>/dev/null | wc -l')
+  if [[ "${count:-0}" -lt 1 ]]; then
     __fail "AGT-05" \
-      "at least one chromium-* dir under ~agent/.cache/ms-playwright" \
-      "none" \
-      "$LOG"
-  fi
-  # Ownership check: chromium dir must be agent:agent (not root-owned via
-  # a sudo-path bug). stat -c '%U' prints owner username.
-  local owner
-  owner=$(stat -c '%U' "${output}")
-  if [[ "$owner" != "agent" ]]; then
-    __fail "AGT-05" \
-      "chromium cache owned by agent" \
-      "owner=${owner} (path: ${output})" \
+      'agent ~/.claude/skills/*playwright* count >= 1 (bootstrapper ran during install)' \
+      "found ${count}" \
       "$LOG"
   fi
 }
 
 # AGT-05 (idempotency): CLI-03's "already installed" short-circuit must hold
 # on a real (non-test-dummy) agent. setup_file already installed; a second
-# invocation with the same pin must print "already installed" and NOT re-download
-# chromium (~281 MB). This is the real-agent twin of 40-*.bats's test-dummy
-# CLI-03 idempotency @test.
-@test "AGT-05: re-install playwright is idempotent (CLI-03 invariant on real agent)" {
-  # setup_file already installed; a second install with the same pin should
-  # print "already installed" and not re-download chromium.
-  run sudo -u agent -H bash --login -c 'agentlinux install playwright'
+# invocation with the same pin must print "already installed".
+@test "AGT-05: re-install playwright-cli is idempotent (CLI-03 invariant on real agent)" {
+  run sudo -u agent -H bash --login -c 'agentlinux install playwright-cli-cli'
   assert_exit_zero "AGT-05 re-install"
   echo "$output" | grep -q 'already installed' \
     || __fail "AGT-05" "idempotent re-install prints 'already installed'" "${output:-<empty>}" "$LOG"

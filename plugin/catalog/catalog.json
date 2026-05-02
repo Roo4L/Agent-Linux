@@ -30,18 +30,18 @@
       "tags": ["workflow", "productivity"]
     },
     {
-      "id": "playwright",
-      "display_name": "Playwright",
-      "description": "Browser automation framework (canonical browser-access tool per ADR; replaces v0.2.0's chrome-devtools-mcp).",
-      "homepage": "https://playwright.dev/",
+      "id": "playwright-cli",
+      "display_name": "Playwright CLI",
+      "description": "Microsoft's token-efficient Playwright command-line tool for coding agents — exposes browser automation via concise CLI commands and bundles a Claude Code skill.",
+      "homepage": "https://playwright.dev/agent-cli/installation",
       "license": "Apache-2.0",
       "source_kind": "npm",
-      "npm_package_name": "playwright",
-      "pinned_version": "1.59.1",
+      "npm_package_name": "@playwright/cli",
+      "pinned_version": "0.1.11",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
-      "post_install_verify": "npx playwright --version",
-      "tags": ["browser", "automation"]
+      "post_install_verify": "command -v playwright-cli && playwright-cli --version",
+      "tags": ["browser", "automation", "agent-skill"]
     },
     {
       "id": "test-dummy",
