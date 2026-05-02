@@ -1,0 +1,49 @@
+name: PR Preview (website)
+
+on:
+  pull_request:
+    branches: [master]
+    types: [opened, reopened, synchronize, closed]
+    paths:
+      - 'index.html'
+      - 'assets/**'
+      - 'CNAME'
+      - 'sitemap.xml'
+      - 'robots.txt'
+      - 'packaging/curl-installer/install.sh'
+      - '.github/workflows/pr-preview.yml'
+      - '.github/workflows/deploy.yml'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: pr-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout PR head
+        uses: actions/checkout@v4
+        if: github.event.action != 'closed'
+
+      # Mirrors deploy.yml so the preview ships the same install.sh bytes
+      # served at agentlinux.org/install.sh.
+      - name: Stage install.sh (mirror deploy.yml)
+        if: github.event.action != 'closed'
+        run: cp packaging/curl-installer/install.sh install.sh
+
+      # rossjrw/pr-preview-action publishes to gh-pages/pr-preview/pr-N/
+      # on opened/reopened/synchronize, and removes that directory on closed.
+      # The umbrella-dir matches deploy.yml's clean-exclude so prod deploys
+      # do not wipe open previews.
+      - name: Deploy PR preview
+        uses: rossjrw/pr-preview-action@v1
+        with:
+          source-dir: ./
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          action: auto
