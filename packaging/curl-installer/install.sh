@@ -38,7 +38,7 @@ IFS=$'\n\t'
 # AGENTLINUX_RELEASE_BASE is the test-mode seam consumed by 60-curl-installer.bats;
 # when set it REPLACES the github.com base URL entirely, including the path.
 # ------------------------------------------------------------------------------
-: "${ORG:=agentlinux}"
+: "${ORG:=Roo4L}"
 : "${AGENTLINUX_ORG:=$ORG}" # alias for readability in docs
 : "${AGENTLINUX_RELEASE_BASE:=}"
 : "${AGENTLINUX_VERSION:=}"
