@@ -27,23 +27,41 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR head
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         if: github.event.action != 'closed'
 
-      # Mirrors deploy.yml so the preview ships the same install.sh bytes
-      # served at agentlinux.org/install.sh.
-      - name: Stage install.sh (mirror deploy.yml)
+      # Stage only the served files into _site/ — mirrors deploy.yml. Two
+      # reasons it must be a subfolder, not the repo root:
+      #   1. JamesIves/github-pages-deploy-action (used internally by
+      #      rossjrw/pr-preview-action) rsyncs source-dir to its own temp
+      #      folder. With source-dir: ./ it recurses into the temp folder
+      #      until the path overflows OS max-path-length and the deploy
+      #      fails (observed on the dummy/preview-smoke-test branch).
+      #   2. The repo's root .gitignore (which ignores install.sh) would
+      #      otherwise ship to gh-pages and the action's `git add --all`
+      #      would skip the staged install.sh — same regression that broke
+      #      production after #4.
+      - name: Assemble site bundle
         if: github.event.action != 'closed'
-        run: cp packaging/curl-installer/install.sh install.sh
+        run: |
+          mkdir -p _site
+          cp packaging/curl-installer/install.sh _site/install.sh
+          cp index.html _site/
+          cp CNAME _site/
+          cp sitemap.xml _site/
+          cp robots.txt _site/
+          cp -r assets _site/
 
       # rossjrw/pr-preview-action publishes to gh-pages/pr-preview/pr-N/
       # on opened/reopened/synchronize, and removes that directory on closed.
       # The umbrella-dir matches deploy.yml's clean-exclude so prod deploys
-      # do not wipe open previews.
+      # do not wipe open previews. The action is composite, so its Node 24
+      # readiness depends on its sub-action marocchino/sticky-pull-request-comment;
+      # rossjrw/pr-preview-action issues #135/#136 track that bump upstream.
       - name: Deploy PR preview
         uses: rossjrw/pr-preview-action@v1
         with:
-          source-dir: ./
+          source-dir: ./_site/
           preview-branch: gh-pages
           umbrella-dir: pr-preview
           action: auto

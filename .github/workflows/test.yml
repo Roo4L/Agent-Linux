@@ -28,7 +28,7 @@ jobs:
   pre-commit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
@@ -51,7 +51,7 @@ jobs:
   cli-unit:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -98,7 +98,7 @@ jobs:
       # without pull-requests: read the API call returns 403.
       pull-requests: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           # Full history so gitleaks can scan every commit, not just the
           # PR's tip.
@@ -127,7 +127,7 @@ jobs:
           - ubuntu-22.04
           - ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       # Empty-plugin guard from Phase 1: still useful. After Phase 2 lands the
       # tests/bats/*.bats files the guard falls through to the real run. If a
       # future revert removes the bats suite the job short-circuits rather
