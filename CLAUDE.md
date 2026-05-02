@@ -44,10 +44,11 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
 ## Review Loop
 
 Before reporting any task complete, run the review feedback loop on all changed
-files per `@docs/HARNESS.md` §4. Triggered by this instruction — not a Stop hook
-(ADR-010: Stop hooks fire on every stop, wasting tokens on user interrupts and
-context limits). See `.claude/skills/review/SKILL.md` for the convention (arrives
-in Plan 01-03).
+files per `@docs/HARNESS.md` §4. Triggered by this instruction (primary) plus a
+one-shot Stop-hook reminder at `.claude/hooks/review-reminder.sh` (backstop).
+ADR-010 (refined 2026-05-02): reviewer-invoking hooks remain rejected; reminder
+hooks with a `stop_hook_active` guard are allowed. See
+`.claude/skills/review/SKILL.md` for the convention (arrives in Plan 01-03).
 
 Reviewers applied by file type:
 
