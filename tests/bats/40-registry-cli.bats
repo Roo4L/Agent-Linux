@@ -478,6 +478,12 @@ SH
     || __fail "INST-04" "/etc/agentlinux.env removed" "still present" "-"
   [[ ! -f /etc/cron.d/agentlinux ]] \
     || __fail "INST-04" "/etc/cron.d/agentlinux removed" "still present" "-"
+  # Step 3.5: Phase 5.1 sudoers drop-in (ADR-012 / BHV-07) gone.
+  # Without this check, run_purge could regress and leave a NOPASSWD
+  # grant orphaned after the agent user is removed — the regression
+  # actually shipped in v0.3.0-rc12 and v0.4.0; caught by dogfood.
+  [[ ! -f /etc/sudoers.d/agentlinux ]] \
+    || __fail "INST-04" "/etc/sudoers.d/agentlinux removed (BHV-07 + INST-04 symmetry)" "still present" "-"
   # Step 4: NodeSource apt files gone.
   [[ ! -f /etc/apt/sources.list.d/nodesource.sources ]] \
     || __fail "INST-04" "nodesource.sources removed" "still present" "-"
