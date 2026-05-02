@@ -59,7 +59,21 @@ fi
 ## zero GSD commands. The recipe was technically correct (npm install
 ## succeeded, binary on PATH, banner matched pin) but the user-visible
 ## intent ("install GSD") was not satisfied.
+## Wrap the bootstrapper non-fatally so the recipe stays idempotent on
+## re-runs / `--force`. Upstream may exit non-zero on "already installed"
+## paths or on partial-state recovery; what we actually care about is that
+## the skill set ends up under ~/.claude/skills/ — verified below.
 echo "gsd: wiring GSD skill set into ~/.claude/ via get-shit-done-cc --global --claude"
-get-shit-done-cc --global --claude
+get-shit-done-cc --global --claude \
+  || echo "gsd install: bootstrapper exited non-zero (re-run / partial-state path); verifying skill dirs anyway" >&2
 
-echo "gsd: install complete (resolves at ${bin_path}; banner matches pin; skill set wired into ~/.claude/skills/)"
+# Sanity-check that at least one gsd-* skill dir landed where Claude Code
+# looks. Without this assertion a regression to "binary on PATH but
+# bootstrapper never copied skills" would silently slip through.
+skill_dir="${AGENTLINUX_AGENT_HOME:-/home/agent}/.claude/skills"
+if ! find "$skill_dir" -maxdepth 1 -type d -name 'gsd-*' -print -quit 2>/dev/null | grep -q .; then
+  printf 'gsd install: no gsd-* skill dirs under %s after bootstrapper run\n' "$skill_dir" >&2
+  exit 1
+fi
+
+echo "gsd: install complete (resolves at ${bin_path}; banner matches pin; skill set wired into ${skill_dir}/gsd-*)"

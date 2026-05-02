@@ -13,19 +13,23 @@ echo "playwright-cli: removing @playwright/cli + Claude Code skill"
 
 # Step 1: best-effort skill teardown via the bootstrapper itself. Some
 # upstream versions support a symmetric --uninstall flag; if absent or it
-# returns non-zero, we still proceed with the npm uninstall + manual skill
-# directory cleanup below.
+# returns non-zero, we still proceed with the npm uninstall + defensive
+# skill directory cleanup below. We do NOT swallow stderr — the tee
+# transcript should preserve the actual upstream error if there is one.
 if command -v playwright-cli >/dev/null 2>&1; then
-  playwright-cli install --skills --uninstall 2>/dev/null \
-    || playwright-cli uninstall --skills 2>/dev/null \
-    || true
+  playwright-cli install --skills --uninstall \
+    || playwright-cli uninstall --skills \
+    || echo "playwright-cli uninstall: bootstrapper teardown returned non-zero (continuing)" >&2
 fi
 
-# Step 2: remove any lingering playwright skill dirs under ~/.claude/skills/
-# (defensive — the bootstrapper's --uninstall coverage may not match
-#  whatever version is installed).
-find "${AGENTLINUX_AGENT_HOME}/.claude/skills" -maxdepth 2 -iname '*playwright*' \
-  -exec rm -rf {} + 2>/dev/null || true
+# Step 2: defensive removal of the playwright-cli skill dirs under
+# ~/.claude/skills/. Anchor the match on `playwright-cli` (mirroring the
+# install side) so an unrelated user-authored `~/.claude/skills/playwright-
+# notes/` is NOT collateral damage. `-name` (not `-iname`) is sufficient
+# because upstream's skill dir is conventionally lower-case-kebab.
+find "${AGENTLINUX_AGENT_HOME}/.claude/skills" -maxdepth 1 -type d -name 'playwright-cli*' \
+  -exec rm -rf {} + \
+  || true
 
 # Step 3: npm uninstall -g. Idempotent on missing package.
 npm uninstall -g @playwright/cli --no-fund --no-audit >/dev/null 2>&1 || true

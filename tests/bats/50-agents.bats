@@ -60,6 +60,16 @@ setup_file() {
     done
   fi
 
+  # Defensive: scrub any stale ~/.claude/skills/ state from a prior run BEFORE
+  # the per-agent installs. Without this scrub the AGT-04 / AGT-05 skill-wired
+  # @tests below could pass on stale state alone — exactly the regression those
+  # tests are supposed to catch (npm install succeeds but skills don't get
+  # wired). Bounded to the ids this file installs: gsd-* and *playwright*.
+  sudo -u agent -H bash --login -c '
+    rm -rf ~/.claude/skills/gsd-* 2>/dev/null
+    find ~/.claude/skills -maxdepth 1 -type d -iname "*playwright*" -exec rm -rf {} + 2>/dev/null
+  ' >/dev/null 2>&1 || true
+
   # Install all three agents once for the file. Each @test assumes the install
   # has already happened; we trade setup-file time for test-case simplicity.
   # Serial installs keep sentinel writes unambiguous (no flock dance).
@@ -75,7 +85,7 @@ teardown_file() {
   if [[ -L /home/agent/.npm-global/bin/agentlinux ]]; then
     sudo -u agent -H bash --login -c 'agentlinux remove --force claude-code' >/dev/null 2>&1 || true
     sudo -u agent -H bash --login -c 'agentlinux remove --force gsd' >/dev/null 2>&1 || true
-    sudo -u agent -H bash --login -c 'agentlinux remove --force playwright' >/dev/null 2>&1 || true
+    sudo -u agent -H bash --login -c 'agentlinux remove --force playwright-cli' >/dev/null 2>&1 || true
   fi
 }
 
@@ -122,8 +132,12 @@ teardown_file() {
 }
 
 # AGT-01 (playwright-cli): `playwright-cli --version` exits 0 in all six
-# invocation modes. setup_file installed @playwright/cli globally; the
-# binary lives at /home/agent/.npm-global/bin/playwright-cli.
+# invocation modes AND emits a semver-shaped string. setup_file installed
+# @playwright/cli globally; the binary lives at
+# /home/agent/.npm-global/bin/playwright-cli. The semver-shape grep is
+# parity with the claude --version mode loop above; an exit-0 with empty
+# output (e.g. an upstream regression in --version under non-TTY stdin in
+# cron mode) would silently pass without it.
 @test "AGT-01: playwright-cli --version exits 0 in every invocation mode" {
   local mode
   for mode in "${INVOKE_MODES[@]}"; do
@@ -132,6 +146,12 @@ teardown_file() {
       skip "AGT-01 (${mode}): systemd PID 1 not running"
     fi
     assert_exit_zero "AGT-01/Playwright-CLI (${mode})"
+    if ! printf '%s' "${output}" | grep -Eq '[0-9]+\.[0-9]+\.[0-9]+'; then
+      __fail "AGT-01/Playwright-CLI (${mode})" \
+        "playwright-cli --version output contains semver" \
+        "${output:-<empty>}" \
+        "$LOG"
+    fi
   done
 }
 
@@ -219,7 +239,7 @@ teardown_file() {
   count=$(sudo -u agent -H bash --login -c 'ls -1d ~/.claude/skills/gsd-* 2>/dev/null | wc -l')
   if [[ "${count:-0}" -lt 10 ]]; then
     __fail "AGT-04" \
-      'agent ~/.claude/skills/gsd-* count >= 10 (bootstrapper ran during install)' \
+      '/home/agent/.claude/skills/gsd-* count >= 10 (bootstrapper ran during install)' \
       "found ${count}" \
       "$LOG"
   fi
@@ -248,12 +268,12 @@ teardown_file() {
 # regress to "npm install only" (binary on PATH but Claude Code sees no
 # /playwright skills) — the same class of dogfood bug AGT-04's gsd
 # coverage closed.
-@test "AGT-05: agentlinux install playwright-cli-cli wires ~/.claude/skills/playwright-cli" {
+@test "AGT-05: agentlinux install playwright-cli wires ~/.claude/skills/playwright-cli" {
   local count
   count=$(sudo -u agent -H bash --login -c 'find ~/.claude/skills -maxdepth 2 -iname "*playwright*" 2>/dev/null | wc -l')
   if [[ "${count:-0}" -lt 1 ]]; then
     __fail "AGT-05" \
-      'agent ~/.claude/skills/*playwright* count >= 1 (bootstrapper ran during install)' \
+      '/home/agent/.claude/skills/*playwright* count >= 1 (bootstrapper ran during install)' \
       "found ${count}" \
       "$LOG"
   fi
@@ -263,7 +283,7 @@ teardown_file() {
 # on a real (non-test-dummy) agent. setup_file already installed; a second
 # invocation with the same pin must print "already installed".
 @test "AGT-05: re-install playwright-cli is idempotent (CLI-03 invariant on real agent)" {
-  run sudo -u agent -H bash --login -c 'agentlinux install playwright-cli-cli'
+  run sudo -u agent -H bash --login -c 'agentlinux install playwright-cli'
   assert_exit_zero "AGT-05 re-install"
   echo "$output" | grep -q 'already installed' \
     || __fail "AGT-05" "idempotent re-install prints 'already installed'" "${output:-<empty>}" "$LOG"

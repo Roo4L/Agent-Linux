@@ -88,8 +88,8 @@ setup() {
 
 # ---------- CLI-02: list shows catalog with installed/not-installed ----------
 
-# CLI-02 + CAT-01: the three real agents (claude-code, gsd, playwright) all
-# show up in default `agentlinux list` output; test-dummy MUST be hidden
+# CLI-02 + CAT-01: the three real agents (claude-code, gsd, playwright-cli)
+# all show up in default `agentlinux list` output; test-dummy MUST be hidden
 # (test_only:true) without --include-test. Happy-path + filter-negative combo.
 @test "CLI-02: agentlinux list shows the three real agents by default (test-dummy hidden)" {
   run sudo -u agent -H bash --login -c 'agentlinux list'
@@ -98,8 +98,8 @@ setup() {
     || __fail "CLI-02" "claude-code in default list" "${output:-<empty>}" "$LOG"
   echo "$output" | grep -q 'gsd' \
     || __fail "CLI-02" "gsd in default list" "${output:-<empty>}" "$LOG"
-  echo "$output" | grep -q 'playwright' \
-    || __fail "CLI-02" "playwright in default list" "${output:-<empty>}" "$LOG"
+  echo "$output" | grep -q 'playwright-cli' \
+    || __fail "CLI-02" "playwright-cli in default list" "${output:-<empty>}" "$LOG"
   # test-dummy MUST NOT appear in default list (CAT-02 related — no test fixtures
   # leak into user-facing default output).
   if echo "$output" | grep -q 'test-dummy'; then
@@ -316,17 +316,21 @@ setup() {
 
 # CAT-01: all three real agents are present in the JSON output (authoritative
 # machine-readable form; the text-table CLI-02 test is the human-readable twin).
-@test "CAT-01: catalog JSON contains claude-code, gsd, playwright" {
+@test "CAT-01: catalog JSON contains claude-code, gsd, playwright-cli" {
   run sudo -u agent -H bash --login -c 'agentlinux list --json'
   assert_exit_zero "CAT-01"
   local ids
   ids=$(echo "$output" | jq -r '.[].id' | sort | tr '\n' ' ')
-  echo "$ids" | grep -qw 'claude-code' \
+  # `grep -qw` would NOT match `playwright-cli` because `-` is a non-word
+  # boundary; switch to fixed-string `grep -qF` with a leading/trailing
+  # space so we still get whole-token matching against the space-joined
+  # id stream above.
+  echo " $ids" | grep -qF ' claude-code ' \
     || __fail "CAT-01" "claude-code in JSON ids" "$ids" "-"
-  echo "$ids" | grep -qw 'gsd' \
+  echo " $ids" | grep -qF ' gsd ' \
     || __fail "CAT-01" "gsd in JSON ids" "$ids" "-"
-  echo "$ids" | grep -qw 'playwright' \
-    || __fail "CAT-01" "playwright in JSON ids" "$ids" "-"
+  echo " $ids" | grep -qF ' playwright-cli ' \
+    || __fail "CAT-01" "playwright-cli in JSON ids" "$ids" "-"
 }
 
 # CAT-02: fresh install has empty /opt/agentlinux/state/installed.d/.
@@ -359,17 +363,17 @@ setup() {
   [[ -z "$missing" ]] \
     || __fail "CAT-04" "every entry has a pinned_version in .curated" "missing: $missing" "-"
   # Spot-check the pinned values against what catalog.json declares (Plan 04-02).
-  local claude_ver gsd_ver playwright_ver dummy_ver
+  local claude_ver gsd_ver playwright_cli_ver dummy_ver
   claude_ver=$(echo "$output" | jq -r '.[] | select(.id=="claude-code") | .curated')
   gsd_ver=$(echo "$output" | jq -r '.[] | select(.id=="gsd") | .curated')
-  playwright_ver=$(echo "$output" | jq -r '.[] | select(.id=="playwright") | .curated')
+  playwright_cli_ver=$(echo "$output" | jq -r '.[] | select(.id=="playwright-cli") | .curated')
   dummy_ver=$(echo "$output" | jq -r '.[] | select(.id=="test-dummy") | .curated')
   [[ "$claude_ver" == "2.1.98" ]] \
     || __fail "CAT-04" "claude-code pinned_version=2.1.98" "$claude_ver" "plugin/catalog/catalog.json"
   [[ "$gsd_ver" == "1.37.1" ]] \
     || __fail "CAT-04" "gsd pinned_version=1.37.1" "$gsd_ver" "plugin/catalog/catalog.json"
-  [[ "$playwright_ver" == "1.59.1" ]] \
-    || __fail "CAT-04" "playwright pinned_version=1.59.1" "$playwright_ver" "plugin/catalog/catalog.json"
+  [[ "$playwright_cli_ver" == "0.1.11" ]] \
+    || __fail "CAT-04" "playwright-cli pinned_version=0.1.11" "$playwright_cli_ver" "plugin/catalog/catalog.json"
   [[ "$dummy_ver" == "0.0.1" ]] \
     || __fail "CAT-04" "test-dummy pinned_version=0.0.1" "$dummy_ver" "plugin/catalog/catalog.json"
 }

@@ -48,13 +48,20 @@ echo "playwright-cli: CLI at ${bin_path}, version ${pw_version}"
 echo "playwright-cli: wiring Claude Code skill via 'playwright-cli install --skills'"
 
 # Bootstrap the bundled Claude Code skill into ~/.claude/skills/.
-playwright-cli install --skills
+# Non-fatal: upstream may exit non-zero on re-runs / "already installed"
+# paths; what we actually care about is that the skill landed on disk —
+# verified below.
+playwright-cli install --skills \
+  || echo "playwright-cli install: bootstrapper exited non-zero (re-run / partial-state); verifying skill anyway" >&2
 
-# Sanity-check the skill landed where Claude Code looks for it.
+# Sanity-check the skill landed where Claude Code looks for it. Anchor
+# the match on `playwright-cli` (mirrors install side) — a broader
+# `*playwright*` would match unrelated user-installed skills.
 skill_dir="${AGENTLINUX_AGENT_HOME}/.claude/skills"
-if ! find "$skill_dir" -maxdepth 2 -iname '*playwright*' | head -1 | grep -q .; then
-  printf 'playwright-cli install: no playwright skill found under %s\n' "$skill_dir" >&2
+mkdir -p "$skill_dir"
+if ! find "$skill_dir" -maxdepth 1 -type d -name 'playwright-cli*' -print -quit 2>/dev/null | grep -q .; then
+  printf 'playwright-cli install: no playwright-cli skill found under %s after bootstrapper run\n' "$skill_dir" >&2
   exit 1
 fi
 
-echo "playwright-cli: install complete (binary at ${bin_path}; skill wired into ${skill_dir}/)"
+echo "playwright-cli: install complete (binary at ${bin_path}; skill wired into ${skill_dir}/playwright-cli)"
