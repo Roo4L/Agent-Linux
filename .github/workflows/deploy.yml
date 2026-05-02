@@ -22,19 +22,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
-      # Pattern 5 (Pitfall 7 anti-drift) — the canonical curl-installer lives
-      # at packaging/curl-installer/install.sh (Plan 06-02). Pages must serve
-      # those exact bytes at agentlinux.org/install.sh so the documented
-      # `curl https://agentlinux.org/install.sh | sudo bash` UX works. A
-      # sync-on-deploy `cp` avoids two maintained copies (the repo-root copy
-      # is gitignored and CI-generated on every Pages deploy).
-      - name: Stage install.sh for GH Pages (Pattern 5 — Pitfall 7 anti-drift)
-        run: cp packaging/curl-installer/install.sh install.sh
+        uses: actions/checkout@v5
+
+      # Stage only the served files into _site/ so that:
+      #   1. The repo's root .gitignore (which ignores install.sh) is NOT
+      #      shipped to gh-pages — otherwise the action's `git add --all`
+      #      runs inside a tree that ignores the very file we're trying
+      #      to publish, and `agentlinux.org/install.sh` 404s.
+      #   2. Repo bloat (plugin/, .planning/, docs/, etc.) does not get
+      #      published at agentlinux.org/<dir>/.
+      # Pattern 5 (Pitfall 7 anti-drift): install.sh comes from the single
+      # editable source at packaging/curl-installer/install.sh.
+      - name: Assemble site bundle
+        run: |
+          mkdir -p _site
+          cp packaging/curl-installer/install.sh _site/install.sh
+          cp index.html _site/
+          cp CNAME _site/
+          cp sitemap.xml _site/
+          cp robots.txt _site/
+          cp -r assets _site/
+
       - name: Deploy to gh-pages branch
-        uses: JamesIves/github-pages-deploy-action@v4
+        # Pinned to v4.8.0 — the first release on Node.js 24 runtime.
+        # GitHub forces Node 24 from 2026-06-02; @v4 floats but pinning here
+        # keeps the upgrade explicit in git history.
+        uses: JamesIves/github-pages-deploy-action@v4.8.0
         with:
-          folder: .
+          folder: _site
           branch: gh-pages
           # clean-exclude protects pr-preview/* from being wiped by prod deploys.
           # Without this, every push to master would delete all open PR previews.
