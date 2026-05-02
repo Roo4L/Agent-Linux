@@ -118,11 +118,12 @@ jobs:
         shell: bash
         run: pnpm exec node --test dist-test/test/*.test.js
 
-  # Gate 2 — Docker matrix. Runs tests/docker/run.sh on both Ubuntu LTS
-  # images. The Docker harness executes the full tests/bats/ suite INCLUDING
+  # Gate 2 — Docker matrix. Runs tests/docker/run.sh on every supported Ubuntu
+  # LTS image. The Docker harness executes the full tests/bats/ suite INCLUDING
   # tests/bats/51-agt02-release-gate.bats — this satisfies TST-05's
-  # "AGT-02 inside Docker" half. fail-fast:false so a 22.04 red still shows
-  # the 24.04 signal (and vice versa) for faster triage.
+  # "AGT-02 inside Docker" half. fail-fast:false so any arm failing still
+  # shows the others' signal for faster triage. AGE-11 added 26.04 on
+  # 2026-04-26.
   gate-2-docker:
     needs: gate-1-precommit
     runs-on: ubuntu-24.04
@@ -130,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ubuntu: [ubuntu-22.04, ubuntu-24.04]
+        ubuntu: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04]
     steps:
       - uses: actions/checkout@v5
       - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)
@@ -147,7 +148,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ubuntu: ['22.04', '24.04']
+        ubuntu: ['22.04', '24.04', '26.04']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4

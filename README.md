@@ -14,7 +14,7 @@ sudo fights. Curated stable versions; explicit override with `agentlinux pin`.
 
 ## Install
 
-One command on a clean Ubuntu 22.04 or 24.04 host (root/sudo required):
+One command on a clean Ubuntu 22.04, 24.04 or 26.04 host (root/sudo required):
 
 ```bash
 curl -fsSL https://agentlinux.org/install.sh | sudo bash
@@ -67,8 +67,8 @@ and the `nodejs` package as well. A re-run of the curl installer after
 ## Stability model
 
 AgentLinux ships *curated combos*: every catalog agent is pinned to an exact
-version that we test together end-to-end (Docker × {22.04, 24.04} + QEMU ×
-{22.04, 24.04}) before each release. When you install an agent, you get the
+version that we test together end-to-end (Docker × {22.04, 24.04, 26.04} +
+QEMU × {22.04, 24.04, 26.04}) before each release. When you install an agent, you get the
 curated pin; when you want to run ahead of it, you can — `agentlinux upgrade`
 shows the 3-way divergence between installed, curated, and upstream latest,
 and `agentlinux pin` sets sticky overrides so power users are not re-nagged.
@@ -95,9 +95,9 @@ catalog's curated choice. Precedent: Homebrew's `brew pin`.
 
 ## Requirements
 
-- Ubuntu 22.04 LTS or 24.04 LTS (x86_64)
+- Ubuntu 22.04 LTS, 24.04 LTS, or 26.04 LTS (x86_64)
 - root or sudo access for the one-time install
-- `curl` preinstalled (stock on both releases)
+- `curl` preinstalled (stock on all three releases)
 
 Not yet supported in v0.3.0: ARM64, Fedora/Alma/Rocky/Arch. Those are on the
 v0.4+ roadmap. See [.planning/REQUIREMENTS.md](.planning/REQUIREMENTS.md) for
