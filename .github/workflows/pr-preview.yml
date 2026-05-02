@@ -30,11 +30,22 @@ jobs:
         uses: actions/checkout@v4
         if: github.event.action != 'closed'
 
-      # Mirrors deploy.yml so the preview ships the same install.sh bytes
-      # served at agentlinux.org/install.sh.
-      - name: Stage install.sh (mirror deploy.yml)
+      # Stage the site to a clean subdirectory. source-dir MUST be a
+      # subfolder, not the repo root — otherwise rsync inside
+      # JamesIves/github-pages-deploy-action recurses into its own temp
+      # folder and overflows the path length.
+      - name: Assemble site bundle
         if: github.event.action != 'closed'
-        run: cp packaging/curl-installer/install.sh install.sh
+        run: |
+          mkdir -p _site
+          # Mirrors deploy.yml install.sh staging so the preview ships the
+          # same install.sh bytes served at agentlinux.org/install.sh.
+          cp packaging/curl-installer/install.sh _site/install.sh
+          cp index.html _site/
+          cp CNAME _site/
+          cp sitemap.xml _site/
+          cp robots.txt _site/
+          cp -r assets _site/
 
       # rossjrw/pr-preview-action publishes to gh-pages/pr-preview/pr-N/
       # on opened/reopened/synchronize, and removes that directory on closed.
@@ -43,7 +54,7 @@ jobs:
       - name: Deploy PR preview
         uses: rossjrw/pr-preview-action@v1
         with:
-          source-dir: ./
+          source-dir: ./_site/
           preview-branch: gh-pages
           umbrella-dir: pr-preview
           action: auto
