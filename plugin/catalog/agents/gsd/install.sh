@@ -47,4 +47,19 @@ if ! printf '%s' "$banner" | grep -q -F "v${AGENTLINUX_PINNED_VERSION}"; then
   exit 1
 fi
 
-echo "gsd: install complete (resolves at ${bin_path}; banner matches pin)"
+## get-shit-done-cc is the BOOTSTRAPPER, not the slash-commands themselves.
+## After npm install the binary lives on PATH but Claude Code does not yet
+## see any /gsd-* commands or skills. The bootstrapper has to be invoked
+## with --global --claude to copy the GSD skill set into ~/.claude/skills/
+## (122+ skill dirs, hooks, statusline, settings) — that is what makes
+## /gsd-* commands surface inside Claude Code.
+##
+## Discovered by dogfood: a fresh AgentLinux + `agentlinux install gsd`
+## left ~/.claude/skills/gsd-* empty, so the user ran Claude Code and saw
+## zero GSD commands. The recipe was technically correct (npm install
+## succeeded, binary on PATH, banner matched pin) but the user-visible
+## intent ("install GSD") was not satisfied.
+echo "gsd: wiring GSD skill set into ~/.claude/ via get-shit-done-cc --global --claude"
+get-shit-done-cc --global --claude
+
+echo "gsd: install complete (resolves at ${bin_path}; banner matches pin; skill set wired into ~/.claude/skills/)"

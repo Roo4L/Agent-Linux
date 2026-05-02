@@ -211,6 +211,23 @@ teardown_file() {
   fi
 }
 
+# AGT-04: install.sh must actually wire the GSD skill set into ~/.claude/skills/
+# — without this, npm-installing get-shit-done-cc is a no-op from the user's
+# perspective ("agentlinux install gsd" succeeds but Claude Code shows zero
+# /gsd-* commands). Discovered by dogfood. Without this @test, install.sh
+# could regress to "npm install only" and the bats suite would still go green
+# while the user-visible intent silently breaks.
+@test "AGT-04: agentlinux install gsd wires ~/.claude/skills/gsd-* (>=10 skills present)" {
+  local count
+  count=$(sudo -u agent -H bash --login -c 'ls -1d ~/.claude/skills/gsd-* 2>/dev/null | wc -l')
+  if [[ "${count:-0}" -lt 10 ]]; then
+    __fail "AGT-04" \
+      'agent ~/.claude/skills/gsd-* count >= 10 (bootstrapper ran during install)' \
+      "found ${count}" \
+      "$LOG"
+  fi
+}
+
 # ---------- AGT-05: playwright + chromium ----------
 
 # AGT-05 (version): `npx playwright --version` output must contain the pinned
