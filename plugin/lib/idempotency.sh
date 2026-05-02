@@ -17,6 +17,50 @@ if ! command -v log_error >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
+# write_file_atomic <mode> <dest>
+# Atomic full-file overwrite from stdin: write the heredoc/pipe body to a
+# tmpfile in the same directory as <dest>, then install(1) it into place.
+# Same semantics as `install -m <mode> /dev/stdin <dest>` on GNU coreutils,
+# but portable to uutils-coreutils 0.7.0 (the Rust rewrite shipped on Ubuntu
+# 26.04). uutils' install recursively readlink-chases /dev/stdin →
+# /proc/self/fd/0 → "pipe:[NNN]" and then tries to stat the synthetic pipe
+# name as a path, ENOENTing with "install: No such file or directory" — but
+# only when the destination ALREADY exists (first run succeeds, idempotent
+# re-runs fail). Symptom diagnosed via strace on Ubuntu 26.04 during the
+# AGE-11 supported-target rollout (see PR #5 / commit fixing INST-02 + BHV-07
+# byte-stability on uutils). Keep this helper in the lib so future calls
+# cannot regress to /dev/stdin under set -e.
+#
+# Same-directory tmpfile placement keeps the install(1) rename atomic — a
+# cross-filesystem rename would fall back to copy+unlink and lose atomicity.
+# The tmpfile is hidden (leading dot) and unlinked unconditionally; on install
+# failure the function returns non-zero so the caller's set -euo pipefail trap
+# fires and the operator sees the underlying install diagnostic in the log.
+write_file_atomic() {
+  if [[ $# -lt 2 ]]; then
+    log_error "write_file_atomic: missing arguments (usage: write_file_atomic <mode> <dest>)"
+    return 64
+  fi
+  local mode=$1 dest=$2
+  local dir base tmp rc=0
+  dir=$(dirname -- "$dest")
+  base=$(basename -- "$dest")
+  tmp=$(mktemp -p "$dir" ".${base}.XXXXXX")
+  # shellcheck disable=SC2064
+  # Expand $tmp at trap-install time (function-local var); resolving later
+  # would re-read a stale binding if the variable were reassigned.
+  # Symmetric with ensure_marker_block's RETURN trap — guarantees tmpfile
+  # cleanup on any exit path, including a `cat` that aborts mid-write under
+  # set -e (ENOSPC, SIGPIPE).
+  trap "rm -f -- '$tmp'" RETURN
+  cat >"$tmp"
+  install -m "$mode" "$tmp" "$dest" || rc=$?
+  if [[ $rc -ne 0 ]]; then
+    log_error "write_file_atomic: install -m ${mode} failed for ${dest} (rc=${rc})"
+    return "$rc"
+  fi
+}
+
 # ensure_line_in_file <line> <file>
 # Append <line> to <file> only if not already present (fixed-string
 # whole-line match). `-F` = literal string, `-x` = whole-line, `-q` = quiet,

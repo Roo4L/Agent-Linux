@@ -66,8 +66,11 @@ check_root() {
 }
 
 # ------------------------------------------------------------------------------
-# Parse /etc/os-release; die unless it declares Ubuntu 22.04 or 24.04.
+# Parse /etc/os-release; die unless it declares Ubuntu 22.04, 24.04 or 26.04.
 # Source: 06-RESEARCH.md lines 920-936 (Example: Ubuntu version detection).
+# Keep this allowlist in lockstep with plugin/lib/distro_detect.sh — both gate
+# the same support matrix and the curl-installer test fixture exercises this
+# path before handing off to the staged installer.
 # ------------------------------------------------------------------------------
 detect_ubuntu_version() {
   local id version
@@ -81,9 +84,9 @@ detect_ubuntu_version() {
   [[ "$id" == "ubuntu" ]] \
     || die "unsupported distro: ${id} (AgentLinux v0.3.0 supports Ubuntu only)"
   case "$version" in
-    22.04 | 24.04) ;;
+    22.04 | 24.04 | 26.04) ;;
     *)
-      die "unsupported Ubuntu version: ${version} (AgentLinux v0.3.0 supports 22.04 and 24.04 only)"
+      die "unsupported Ubuntu version: ${version} (AgentLinux v0.3.0 supports 22.04, 24.04 and 26.04 only)"
       ;;
   esac
 }
