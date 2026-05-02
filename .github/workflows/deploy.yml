@@ -5,10 +5,13 @@ on:
     branches: ["master"]
   workflow_dispatch:
 
+# Writes to the gh-pages branch (paired with pr-preview.yml so PR previews
+# can live alongside production at /pr-preview/pr-N/). Pages source must be
+# set to "Deploy from a branch: gh-pages / (root)" — see scripts or run:
+#   gh api -X PUT repos/$OWNER/$REPO/pages \
+#     -f 'source[branch]=gh-pages' -f 'source[path]=/' -f build_type=legacy
 permissions:
-  contents: read
-  pages: write
-  id-token: write
+  contents: write
 
 concurrency:
   group: "pages"
@@ -16,9 +19,6 @@ concurrency:
 
 jobs:
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -31,12 +31,13 @@ jobs:
       # is gitignored and CI-generated on every Pages deploy).
       - name: Stage install.sh for GH Pages (Pattern 5 — Pitfall 7 anti-drift)
         run: cp packaging/curl-installer/install.sh install.sh
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-      - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+      - name: Deploy to gh-pages branch
+        uses: JamesIves/github-pages-deploy-action@v4
         with:
-          path: '.'
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+          folder: .
+          branch: gh-pages
+          # clean-exclude protects pr-preview/* from being wiped by prod deploys.
+          # Without this, every push to master would delete all open PR previews.
+          clean-exclude: |
+            pr-preview/
+          single-commit: true
