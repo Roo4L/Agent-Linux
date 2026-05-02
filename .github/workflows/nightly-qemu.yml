@@ -33,7 +33,7 @@ jobs:
       matrix:
         ubuntu: ['22.04', '24.04']
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # Skip the matrix leg when workflow_dispatch targeted a single version.
       # Cron runs (github.event_name == 'schedule') always exercise both.

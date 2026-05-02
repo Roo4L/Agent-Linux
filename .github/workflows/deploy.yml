@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       # Stage only the served files into _site/ so that:
       #   1. The repo's root .gitignore (which ignores install.sh) is NOT
@@ -44,7 +44,10 @@ jobs:
           cp -r assets _site/
 
       - name: Deploy to gh-pages branch
-        uses: JamesIves/github-pages-deploy-action@v4
+        # Pinned to v4.8.0 — the first release on Node.js 24 runtime.
+        # GitHub forces Node 24 from 2026-06-02; @v4 floats but pinning here
+        # keeps the upgrade explicit in git history.
+        uses: JamesIves/github-pages-deploy-action@v4.8.0
         with:
           folder: _site
           branch: gh-pages
