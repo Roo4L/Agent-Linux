@@ -51,7 +51,16 @@ echo "playwright-cli: wiring Claude Code skill via 'playwright-cli install --ski
 # Non-fatal: upstream may exit non-zero on re-runs / "already installed"
 # paths; what we actually care about is that the skill landed on disk —
 # verified below.
-playwright-cli install --skills \
+#
+# Must run from a writable CWD: `playwright-cli install` calls
+# initWorkspace() which mkdirs ./.playwright in the current directory.
+# AgentLinux dispatches recipes from /opt/agentlinux-src/ (read-only repo
+# copy in Docker / read-only workspace in QEMU), so a bare invocation
+# crashes with EACCES on .playwright. Anchor CWD to agent-home (always
+# writable, agent-owned) so the workspace dir lives at
+# /home/agent/.playwright — a per-user side-effect that purge cleans via
+# `userdel -r agent`.
+( cd "${AGENTLINUX_AGENT_HOME}" && playwright-cli install --skills ) \
   || echo "playwright-cli install: bootstrapper exited non-zero (re-run / partial-state); verifying skill anyway" >&2
 
 # Sanity-check the skill landed where Claude Code looks for it. Anchor
