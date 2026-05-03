@@ -316,6 +316,19 @@ if [[ "$SRC_SHA" != "$SNAPSHOT_SHA" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# 10b. VERSION sentinel asset.
+#      packaging/curl-installer/install.sh resolves an unpinned tag by
+#      following https://github.com/.../releases/latest/download/VERSION and
+#      capturing the redirect URL with curl -fsSIL. The asset itself doesn't
+#      need to be machine-parsed — but it MUST exist so curl -f doesn't fail
+#      on the redirect target. Without this file shipped on every release,
+#      `curl -fsSL https://agentlinux.org/install.sh | bash` fails with
+#      "could not resolve latest version" against any release that lacks the
+#      sentinel (dogfood-discovered against v0.3.2-rc1).
+# ---------------------------------------------------------------------------
+printf '%s\n' "$TAG" >dist/VERSION
+
+# ---------------------------------------------------------------------------
 # 11. Optional .deb via fpm (ADR-006 — optional v0.3.0 path).
 #     Skip gracefully if fpm is absent or SKIP_DEB=1 or --no-deb — the
 #     tarball + sha256 + catalog snapshot are the authoritative outputs.
@@ -345,4 +358,4 @@ fi
 # ---------------------------------------------------------------------------
 # 12. Final summary (stdout-only; no emojis per CLAUDE.md).
 # ---------------------------------------------------------------------------
-printf 'Built: %s + .sha256 + catalog-%s.json%s\n' "$TARBALL" "$TAG" "$DEB_SUFFIX"
+printf 'Built: %s + .sha256 + catalog-%s.json + VERSION%s\n' "$TARBALL" "$TAG" "$DEB_SUFFIX"
