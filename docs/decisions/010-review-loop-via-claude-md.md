@@ -27,7 +27,8 @@ checks (pre-commit lint, unit tests for changed CLI files) in the future.
 - The review convention lives in `.claude/skills/review/SKILL.md` (arrives in
   Plan 01-03); CLAUDE.md points at it.
 - A reminder Stop hook with `stop_hook_active` one-shot guard is allowed
-  (see Refinement below); see `.claude/hooks/review-reminder.sh`.
+  (see Refinement below); see `.claude/hooks/review-reminder.sh` and
+  `.claude/hooks/session-tracker-reminder.sh`.
 
 ## Refinement — 2026-05-02 — Reminder hooks allowed
 
@@ -61,5 +62,9 @@ Why this is consistent with the original decision:
   backstop for the case where Claude forgets to consult CLAUDE.md before
   reporting complete.
 
-Implementation: `.claude/hooks/review-reminder.sh`, wired via
-`.claude/settings.json` (project-shared).
+Implementation: `.claude/hooks/review-reminder.sh` and
+`.claude/hooks/session-tracker-reminder.sh`, both wired via
+`.claude/settings.json` (project-shared) under the same Stop matcher block.
+Each hook owns one reminder concern and short-circuits independently via
+`stop_hook_active`; worst case is one extra "block + re-stop" round-trip per
+hook per turn.
