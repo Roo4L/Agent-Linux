@@ -13,7 +13,7 @@
 #   - failures emit __fail four-line TST-04 diagnostics
 #   - setup_file installs all three agents ONCE for the whole file; teardown_file
 #     removes them. Serial installs keep sentinel writes unambiguous.
-#   - version pins are read from /opt/agentlinux/catalog/0.3.0/catalog.json via
+#   - version pins are read from /opt/agentlinux/catalog/0.3.2/catalog.json via
 #     jq — NEVER hardcoded in @test bodies (so a catalog version bump does not
 #     require editing this file).
 #
@@ -27,7 +27,7 @@ load 'helpers/invoke_modes'
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
-CATALOG=/opt/agentlinux/catalog/0.3.0/catalog.json
+CATALOG=/opt/agentlinux/catalog/0.3.2/catalog.json
 
 setup_file() {
   # 40-registry-cli.bats's INST-04 --purge @tests run earlier in filename sort

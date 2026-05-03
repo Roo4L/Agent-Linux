@@ -9,7 +9,7 @@
 #       §Pattern 1, §Pitfall 6, §Example 1; 02-CONTEXT.md "Installer UX & Logging".
 set -euo pipefail
 
-readonly AGENTLINUX_VERSION="0.3.0"
+readonly AGENTLINUX_VERSION="0.3.2"
 readonly LOG_FILE="${AGENTLINUX_LOG:-/var/log/agentlinux-install.log}"
 # Resolve script-relative directories. Split `declare`/`assign` per SC2155 so
 # a cmdsub failure surfaces as a non-zero return instead of being masked by
