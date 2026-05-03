@@ -324,3 +324,4 @@ jobs:
             dist/agentlinux-*.tar.gz.sha256
             dist/catalog-*.json
             dist/agentlinux_*.deb
+            dist/VERSION

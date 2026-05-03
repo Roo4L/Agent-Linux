@@ -165,8 +165,15 @@ main() {
   # HTTP 404 HTML body would land in the tarball path and sha256sum -c would
   # emit a confusing "FAILED" verdict. Asserting the gzip magic bytes BEFORE
   # sha256 gives a precise error.
-  if ! file -- "${tmpdir}/${tarball}" | grep -q 'gzip compressed'; then
-    die "downloaded ${tarball} is not a gzip archive — possible 404-as-HTML or proxy-rewrite; refusing to proceed"
+  #
+  # Read the first two bytes via `head` + `od` rather than `file(1)`: the
+  # `file` package is NOT preinstalled on minimal Ubuntu/Debian cloud images
+  # (and many Docker base images). `head` and `od` are coreutils, always
+  # present. Magic for gzip is 1f 8b (RFC 1952).
+  local _magic
+  _magic=$(head -c 2 "${tmpdir}/${tarball}" 2>/dev/null | od -An -tx1 | tr -d ' \n')
+  if [[ "$_magic" != "1f8b" ]]; then
+    die "downloaded ${tarball} is not a gzip archive (magic bytes: ${_magic:-empty}) — possible 404-as-HTML or proxy-rewrite; refusing to proceed"
   fi
 
   # SHA256 verification BEFORE extraction (T-06-02 — hard security gate).
