@@ -37,7 +37,7 @@ Options:
                         users may depend on Node.js, so this is NOT the
                         default purge behavior.
 
-The installer must run as root. Supported hosts: Ubuntu 22.04 and 24.04.
+The installer must run as root. Supported hosts: Ubuntu 22.04, 24.04 and 26.04.
 Transcript: ${LOG_FILE}
 EOF
 }

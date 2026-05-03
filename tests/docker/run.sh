@@ -23,7 +23,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04>
+usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04>
 
 Builds the matching Docker image, runs agentlinux-install inside, runs the
 bats suite inside, and exits with the bats exit code.
@@ -45,7 +45,7 @@ if [[ -z $UBUNTU_VERSION ]]; then
   exit 64
 fi
 case "$UBUNTU_VERSION" in
-  ubuntu-22.04 | ubuntu-24.04) ;;
+  ubuntu-22.04 | ubuntu-24.04 | ubuntu-26.04) ;;
   -h | --help)
     usage
     exit 0

@@ -66,6 +66,7 @@ agent-linux/                            # Workspace root
 │   ├── docker/                         # Fast CI harness — Dockerfile per Ubuntu version
 │   │   ├── Dockerfile.ubuntu-22.04
 │   │   ├── Dockerfile.ubuntu-24.04
+│   │   ├── Dockerfile.ubuntu-26.04
 │   │   └── run.sh                      # Orchestrates: build image → run installer → run bats
 │   └── qemu/                           # Definitive release-gate harness — cloud-image VMs
 │       ├── boot.sh                     # Fresh Ubuntu cloud image → SSH → install → bats
@@ -282,7 +283,7 @@ External systems that agents interact with during AgentLinux development. Compar
 | Playwright (browser-access tool for agents) | `npm view playwright` + Playwright docs | Full | — |
 | GSD npm package | Local GSD install + `npm view get-shit-done-cc` | Full | — |
 | Ubuntu cloud images (QEMU test harness) | Cloud-images.ubuntu.com download + QEMU local | Partial | **P1:** cache downloaded images, boot helper skill |
-| Docker Hub (ubuntu:22.04, ubuntu:24.04) | `docker pull` via GH Actions | Full | — |
+| Docker Hub (ubuntu:22.04, ubuntu:24.04, ubuntu:26.04) | `docker pull` via GH Actions | Full | — |
 | agentlinux.org (website + releases host) | GitHub Pages deploy via Actions | Full | — |
 | Context7 MCP (library docs lookup) | Configured via `.mcp.json` | Full | — |
 
