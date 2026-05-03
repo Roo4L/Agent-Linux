@@ -1,6 +1,6 @@
 {
   "name": "@agentlinux/cli",
-  "version": "0.3.0",
+  "version": "0.3.2",
   "private": true,
   "description": "AgentLinux registry CLI — install, upgrade, remove catalog agents",
   "type": "module",
