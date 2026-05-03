@@ -286,6 +286,7 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 | # | Description | Date | Commit | Directory |
 |---|-------------|------|--------|-----------|
 | 260502-i4p | Add stop hook reminding Claude to run review loop (AL-23) and amend ADR-010 | 2026-05-02 | af9bd74 | [260502-i4p-add-stop-hook-reminding-claude-to-run-re](./quick/260502-i4p-add-stop-hook-reminding-claude-to-run-re/) |
+| 260503-8z4 | Add session-tracker Stop hook (AL-24) — second instance of ADR-010 reminder-hook pattern | 2026-05-03 | _pending_ | [260503-8z4-al-24-add-stop-hook-for-session-tracking](./quick/260503-8z4-al-24-add-stop-hook-for-session-tracking/) |
 
 ## Deferred Items
 

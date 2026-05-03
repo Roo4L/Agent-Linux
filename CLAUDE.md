@@ -61,6 +61,16 @@ Reviewers applied by file type:
 Main agent owns triage: fix what's valid, skip what's noise, iterate until the
 remaining comments are not actionable.
 
+## Session Tracking
+
+Concrete deliverables (MR, doc, decision artifact, ticket in another project)
+get tracked in Jira project **AL** (copiedwonder.atlassian.net, board 2) per
+`@.claude/skills/session-tracker/SKILL.md`. A second one-shot Stop-hook reminder
+at `.claude/hooks/session-tracker-reminder.sh` (backstop, same ADR-010 refinement
+that allows the review-reminder hook) nudges Claude to invoke the skill before
+stopping. Skip for research-only / Q&A / `.planning/`-only sessions — request
+stop again to pass through.
+
 ## Commands
 
 ```bash
