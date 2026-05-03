@@ -26,7 +26,7 @@ const program = new Command();
 program
   .name("agentlinux")
   .description("AgentLinux registry CLI — install, upgrade, remove catalog agents")
-  .version("0.3.0", "-V, --version");
+  .version("0.3.2", "-V, --version");
 
 // Commander's `.enablePositionalOptions()` is REQUIRED so the install
 // subcommand's `--version <semver>` override (CLI-03) can shadow the

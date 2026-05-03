@@ -61,7 +61,7 @@ async function resolveSchemaPath(): Promise<string> {
   const candidates: string[] = [];
   if (envDir) candidates.push(join(envDir, "schema.json"));
   // Production default — matches loader.ts's defaultCatalogDir().
-  const ver = process.env.AGENTLINUX_VERSION ?? "0.3.0";
+  const ver = process.env.AGENTLINUX_VERSION ?? "0.3.2";
   candidates.push(`/opt/agentlinux/catalog/${ver}/schema.json`);
   // Walk up 6 levels; covers dist/ dist-test/src/ src/ and a couple spare
   // for dev/test layouts.

@@ -11,7 +11,7 @@ import type { Catalog } from "../types.js";
 import { formatErrors, getValidator } from "./schema.js";
 
 function defaultCatalogDir(): string {
-  const ver = process.env.AGENTLINUX_VERSION ?? "0.3.0";
+  const ver = process.env.AGENTLINUX_VERSION ?? "0.3.2";
   return `/opt/agentlinux/catalog/${ver}`;
 }
 

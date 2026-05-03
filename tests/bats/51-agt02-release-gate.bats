@@ -22,7 +22,7 @@
 load 'helpers/invoke_modes'
 load 'helpers/assertions'
 
-CATALOG=/opt/agentlinux/catalog/0.3.0/catalog.json
+CATALOG=/opt/agentlinux/catalog/0.3.2/catalog.json
 
 setup_file() {
   # 40-registry-cli.bats's INST-04 @tests run --purge at the end of that file

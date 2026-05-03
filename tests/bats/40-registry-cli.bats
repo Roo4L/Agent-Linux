@@ -71,10 +71,10 @@ setup() {
   done
 }
 
-# CLI-01: --version prints 0.3.0 across invocation modes — proves the symlink
+# CLI-01: --version prints 0.3.2 across invocation modes — proves the symlink
 # + Node shebang + dist/index.js + package.json "type":"module" chain all fire
 # regardless of which shell wrapper the caller uses.
-@test "CLI-01: agentlinux --version prints 0.3.0 from every invocation mode" {
+@test "CLI-01: agentlinux --version prints 0.3.2 from every invocation mode" {
   local mode
   for mode in "${INVOKE_MODES[@]}"; do
     invoke_mode "$mode" 'agentlinux --version'
@@ -82,7 +82,7 @@ setup() {
       skip "CLI-01 (${mode}): systemd PID 1 not running"
     fi
     assert_exit_zero "CLI-01 (${mode})"
-    assert_path_has "CLI-01 (${mode})" "0.3.0"
+    assert_path_has "CLI-01 (${mode})" "0.3.2"
   done
 }
 
@@ -244,7 +244,7 @@ setup() {
 @test "CLI-05: running agentlinux as agent user succeeds without sudo" {
   run sudo -u agent -H bash --login -c 'agentlinux --version'
   assert_exit_zero "CLI-05"
-  assert_path_has "CLI-05" "0.3.0"
+  assert_path_has "CLI-05" "0.3.2"
 }
 
 # ---------- CLI-06: upgrade detects divergence; report-only without bulk flag ----------
@@ -396,11 +396,11 @@ setup() {
   # the same AGENTLINUX_CATALOG_DIR env var — schema.ts §resolveSchemaPath).
   # Copy the production schema verbatim so the fixture catalog validates
   # against the SAME rules production does.
-  cp /opt/agentlinux/catalog/0.3.0/schema.json "$tmp/schema.json"
+  cp /opt/agentlinux/catalog/0.3.2/schema.json "$tmp/schema.json"
 
   cat >"$tmp/catalog.json" <<'JSON'
 {
-  "version": "0.3.0",
+  "version": "0.3.2",
   "agents": [
     {
       "id": "fake-42",
