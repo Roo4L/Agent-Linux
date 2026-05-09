@@ -1,6 +1,6 @@
 ---
 name: review
-description: Runs the AgentLinux review feedback loop on changed files before declaring a task complete. Spawns project-scoped subagents (bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor) in parallel, aggregates free-form feedback, and re-runs until remaining comments are not actionable. Triggered by CLAUDE.md review-loop instruction (ADR-010) — not a Stop hook. Invoke after any substantive change to plugin/, tests/, or docs/.
+description: Runs the AgentLinux review feedback loop on changed files before declaring a task complete. Spawns project-scoped subagents (bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor, ai-deslop) in parallel, aggregates free-form feedback, and re-runs until remaining comments are not actionable. Triggered by CLAUDE.md review-loop instruction (ADR-010) — not a Stop hook. Invoke after any substantive change to plugin/, tests/, or docs/.
 ---
 
 # /review — AgentLinux Review Feedback Loop
@@ -56,15 +56,16 @@ Map changed files to subagents. The main agent inspects `git diff --name-only` (
 
 | Changed file pattern | Subagents to spawn |
 |----------------------|--------------------|
-| `^plugin/(bin\|lib\|provisioner)/.+\.sh$` | bash-engineer + security-engineer + qa-engineer |
-| `^packaging/curl-installer/.+\.sh$` | bash-engineer + security-engineer (always — trust-critical surface) |
-| `^plugin/cli/(src\|test\|scripts)/.+\.(ts\|mjs\|js)$` | node-engineer + security-engineer + qa-engineer |
+| `^plugin/(bin\|lib\|provisioner)/.+\.sh$` | bash-engineer + security-engineer + qa-engineer + ai-deslop |
+| `^packaging/curl-installer/.+\.sh$` | bash-engineer + security-engineer + ai-deslop (always — trust-critical surface) |
+| `^plugin/cli/(src\|test\|scripts)/.+\.(ts\|mjs\|js)$` | node-engineer + security-engineer + qa-engineer + ai-deslop |
 | `^plugin/cli/(package\.json\|tsconfig\.json\|biome\.json\|stryker\.config\.json)$` | node-engineer |
-| `^tests/bats/.+\.bats$` | qa-engineer + behavior-coverage-auditor |
-| `^tests/bats/helpers/.+$` | qa-engineer + bash-engineer (helpers are bash) |
-| `^tests/(docker\|qemu)/.+$` | qa-engineer + bash-engineer |
-| `^plugin/catalog/(agents/.+/.+\.(sh\|json)\|catalog\.json\|schema\.json)$` | catalog-auditor + security-engineer (+ bash-engineer if install.sh/remove.sh) |
-| `^docs/.+\.md$` | global `review-documentation` + `fact-checker` (if available) |
+| `^tests/bats/.+\.bats$` | qa-engineer + behavior-coverage-auditor (the spec is the spec — no ai-deslop) |
+| `^tests/bats/helpers/.+$` | qa-engineer + bash-engineer + ai-deslop (helpers are bash) |
+| `^tests/(docker\|qemu\|harness)/.+$` | qa-engineer + bash-engineer + ai-deslop |
+| `^plugin/catalog/(agents/.+/.+\.(sh\|json)\|catalog\.json\|schema\.json)$` | catalog-auditor + security-engineer + ai-deslop (+ bash-engineer if install.sh/remove.sh) |
+| `^docs/.+\.md$` (excluding ADRs and research summaries) | global `review-documentation` + `fact-checker` (if available) + ai-deslop |
+| `^docs/decisions/.+\.md$` and `^docs/research/.+/SUMMARY\.md$` | global `review-documentation` + `fact-checker` (load-bearing prose — no ai-deslop) |
 | `^\.planning/REQUIREMENTS\.md$` | behavior-coverage-auditor (IDs may have drifted from tests) |
 | **End-of-phase close** | behavior-coverage-auditor (always, TST-07 gate) |
 
@@ -122,5 +123,6 @@ Copy-of-truth from `docs/HARNESS.md` §4.3:
 
 - `docs/HARNESS.md` §4 — authoritative spec
 - `docs/decisions/010-review-loop-via-claude-md.md` — trigger mechanism rationale (ADR-010)
-- `.claude/agents/{bash-engineer,node-engineer,security-engineer,qa-engineer,behavior-coverage-auditor,catalog-auditor}.md` — the six subagents this skill dispatches
+- `.claude/agents/{bash-engineer,node-engineer,security-engineer,qa-engineer,behavior-coverage-auditor,catalog-auditor,ai-deslop}.md` — the seven subagents this skill dispatches
+- Global `pre-delivery-cleanup` skill — pre-MR self-deslop pass that pairs with `ai-deslop`
 - `CLAUDE.md` §Review Loop — the instruction that triggers this skill
