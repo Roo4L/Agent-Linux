@@ -47,17 +47,18 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends \
          systemd systemd-sysv \
          curl ca-certificates \
-    && apt-get clean
-# >>> DO NOT add `rm -rf /var/lib/apt/lists/*` to the RUN above. <<<
-# AL-37 documents that plugin/provisioner/10-agent-user.sh runs
-# `apt-get install locales` without a preceding `apt-get update`, so the
-# apt cache must stay populated for the installer to find the locales
-# package. Earlier dogfood retests accidentally hid this bug because the
-# manual recipe ran `apt-get update` before installing curl, side-effecting
-# a populated cache. The strategic fix lives in AL-37 (the installer itself
-# runs apt-get update). Until that lands, keeping /var/lib/apt/lists/
-# populated here is the tactical fix that makes the dogfood image work.
-# Image-size cost is roughly 25 MB; not worth optimizing for a test image.
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+# /var/lib/apt/lists/ is intentionally cleaned. AL-37 fixed the installer so
+# plugin/provisioner/10-agent-user.sh AND 20-sudoers.sh both run
+# `apt-get update` before any gated auto-install — the AgentLinux installer
+# is now correct on hosts with empty apt cache. We start the dogfood image
+# with an empty cache so any future provisioner that re-introduces an
+# "auto-install missing package without apt-get update" pattern fails
+# dogfood retests immediately. This is regression coverage for AL-37 baked
+# into the test substrate; it also reproduces the real-world starting state
+# of a freshly pulled Ubuntu container where /var/lib/apt/lists/ is empty
+# until something runs apt-get update.
 
 # Mask the systemd units that fight containerized PID 1 (logind needs real
 # seats; resolved/networkd assume real netns ownership; tmpfiles-clean
