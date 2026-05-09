@@ -75,9 +75,7 @@ async function resolveSchemaPath(): Promise<string> {
     try {
       await access(p);
       return p;
-    } catch {
-      // next
-    }
+    } catch {}
   }
   throw new Error(
     `agentlinux: unable to locate catalog schema.json; set AGENTLINUX_CATALOG_DIR. Searched:\n${candidates.map((c) => `  - ${c}`).join("\n")}`,

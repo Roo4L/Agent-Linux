@@ -65,7 +65,6 @@ without the explicit grep.
 EOF
 }
 
-# Argument parsing.
 case "${1:-}" in
   -h | --help)
     usage
@@ -83,7 +82,6 @@ case "$UBUNTU_VERSION" in
     ;;
 esac
 
-# Strip the `ubuntu-` prefix for the docker image build-arg.
 readonly UBUNTU_NUM=${UBUNTU_VERSION#ubuntu-}
 
 # Pinned RC tag. AL-31 documents that unpinned curl-bash currently 404s
@@ -175,9 +173,8 @@ for _ in $(seq 1 30); do
 done
 
 printf '== curl-pipe-bash install (AGENTLINUX_VERSION=%s) ==\n' "$TAG"
-# Pipe the env var explicitly into the docker exec so the inner bash inherits
-# it. `-e VAR=value` adds it to the exec environment; the sub-bash invoked by
-# `sh -lc` then sees it and exports onward to install.sh.
+# Pipe AGENTLINUX_VERSION explicitly into the docker exec so the inner bash
+# inherits it (the AL-31 redirect-parse workaround documented at the top).
 docker exec -e "AGENTLINUX_VERSION=$TAG" "$CID" \
   bash -lc 'curl -fsSL https://agentlinux.org/install.sh | bash'
 
@@ -210,7 +207,6 @@ docker exec "$CID" sudo -u agent -H bash -lc 'claude --version'
 
 printf '== claude binary location + ownership ==\n'
 # Assert agent:agent ownership explicitly rather than eyeballing `ls -la`.
-# stat -c %U:%G prints just the owner:group columns; comparison is exact.
 CLAUDE_OWNER=$(docker exec "$CID" sudo -u agent -H bash -lc 'stat -c "%U:%G" "$(command -v claude)"')
 printf 'claude binary owner:group = %s\n' "$CLAUDE_OWNER"
 if [[ "$CLAUDE_OWNER" != "agent:agent" ]]; then
