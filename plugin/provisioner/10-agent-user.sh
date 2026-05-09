@@ -82,7 +82,7 @@ ensure_marker_block /home/agent/CLAUDE.md "agentlinux-doc-02" --top <<'DOC02'
 
 ## This environment is correctly owned
 
-This agent user was provisioned by AgentLinux v0.3.0. Your home directory,
+This agent user was provisioned by AgentLinux. Your home directory,
 npm global prefix (arrives Phase 3), and per-tool config paths are all owned
 by you. You do NOT need sudo for routine agent operations.
 

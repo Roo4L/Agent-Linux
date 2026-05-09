@@ -66,7 +66,8 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   #   - readlink target: a string, byte-stable by construction.
   #   - first line of dist/index.js: the #!/usr/bin/env node shebang — stable
   #     regardless of any internal tsc reordering of the generated body.
-  local version=${AGENTLINUX_VERSION:-0.3.2}
+  local version
+  version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)}
   find \
     /etc/profile.d/agentlinux.sh \
     /etc/agentlinux.env \

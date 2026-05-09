@@ -21,6 +21,10 @@ load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
 INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+# AL-29: derive the expected version from package.json — single source-of-truth.
+# Production layout: /opt/agentlinux-src/ is the bind-mounted source tree
+# established by tests/docker/run.sh:150 BEFORE bats fires.
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
 
 setup_file() {
   # The installer is already run by tests/docker/run.sh BEFORE bats fires,
@@ -71,10 +75,12 @@ setup() {
   done
 }
 
-# CLI-01: --version prints 0.3.2 across invocation modes — proves the symlink
-# + Node shebang + dist/index.js + package.json "type":"module" chain all fire
-# regardless of which shell wrapper the caller uses.
-@test "CLI-01: agentlinux --version prints 0.3.2 from every invocation mode" {
+# CLI-01: --version prints package.json's `version` across invocation modes —
+# proves the symlink + Node shebang + dist/index.js + package.json
+# "type":"module" chain all fire regardless of which shell wrapper the caller
+# uses. Asserts on $PKG_VERSION (derived from package.json at file scope —
+# AL-29) so a release bump in package.json propagates here without an edit.
+@test "CLI-01: agentlinux --version prints package.json version from every invocation mode" {
   local mode
   for mode in "${INVOKE_MODES[@]}"; do
     invoke_mode "$mode" 'agentlinux --version'
@@ -82,7 +88,7 @@ setup() {
       skip "CLI-01 (${mode}): systemd PID 1 not running"
     fi
     assert_exit_zero "CLI-01 (${mode})"
-    assert_path_has "CLI-01 (${mode})" "0.3.2"
+    assert_path_has "CLI-01 (${mode})" "$PKG_VERSION"
   done
 }
 
@@ -244,7 +250,7 @@ setup() {
 @test "CLI-05: running agentlinux as agent user succeeds without sudo" {
   run sudo -u agent -H bash --login -c 'agentlinux --version'
   assert_exit_zero "CLI-05"
-  assert_path_has "CLI-05" "0.3.2"
+  assert_path_has "CLI-05" "$PKG_VERSION"
 }
 
 # ---------- CLI-06: upgrade detects divergence; report-only without bulk flag ----------
@@ -396,11 +402,13 @@ setup() {
   # the same AGENTLINUX_CATALOG_DIR env var — schema.ts §resolveSchemaPath).
   # Copy the production schema verbatim so the fixture catalog validates
   # against the SAME rules production does.
-  cp /opt/agentlinux/catalog/0.3.2/schema.json "$tmp/schema.json"
+  cp "/opt/agentlinux/catalog/${PKG_VERSION}/schema.json" "$tmp/schema.json"
 
-  cat >"$tmp/catalog.json" <<'JSON'
+  # Unquoted heredoc so ${PKG_VERSION} substitutes; the rest of the body
+  # contains no $-tokens, so this is the only expansion that fires.
+  cat >"$tmp/catalog.json" <<JSON
 {
-  "version": "0.3.2",
+  "version": "${PKG_VERSION}",
   "agents": [
     {
       "id": "fake-42",
