@@ -1,316 +1,313 @@
-# Project Research Summary
+# Research Synthesis — v0.5.0 Agenda Redefinition
 
-**Project:** AgentLinux v0.3.0 — Installable Ubuntu Plugin
-**Domain:** Linux system extension / agent-environment provisioner (bash installer + Node.js CLI)
-**Researched:** 2026-04-18
-**Confidence:** HIGH overall
-
-## Executive Summary
-
-AgentLinux v0.3.0 is a one-command Ubuntu installer that provisions a dedicated `agent` user with a correctly-owned Node.js runtime, a pre-installed default agent (Claude Code), and a curated registry CLI for adding more agents. The product is best understood as a hybrid of two well-understood patterns: a service-user installer (like Jenkins or PostgreSQL packages, which create a functional system account with a real shell) and a tooling manager (like Homebrew or mise, which list and install things). No existing tool combines both. The canonical acceptance test — "the agent user can `claude update` without sudo on a fresh Ubuntu install" — directly exercises the motivating bug class (EACCES from root-owned npm globals) and must be green before shipping.
-
-The recommended implementation is a bash installer entrypoint (`bin/agentlinux-install`) that runs four ordered, idempotent provisioner scripts, plus a Node.js/Commander.js registry CLI (`agentlinux list/install/remove`) that ships as a vendored package inside `/opt/agentlinux/`. Distribution is curl-pipe-bash as primary (wrapping a SHA256-verified tarball download) with an optional `.deb` built by fpm as a secondary path — the reverse of what STACK.md proposed. Tests run in Docker (every PR, fast) and QEMU (nightly and release gate, definitive). The most critical implementation decision for v0.3.0 is how Claude Code itself is installed: the four research files contain a genuine tension (npm install vs. native binary installer) that requires user input before Phase 2 requirements can be locked.
-
-The single biggest risk is subtle ownership mistakes that make the install look correct until an agent tries to self-update or run in a non-interactive context (cron, systemd, `sudo -u agent`). Belt-and-braces PATH setup — `/etc/profile.d/`, stubs in `/usr/local/bin/`, and `Defaults:agent secure_path` in sudoers — is mandatory, not optional. Docker tests have known false-positive categories (root-by-default, no systemd, C/POSIX locale) that must be compensated for; QEMU is required as the release gate.
+**Project:** AgentLinux
+**Milestone:** v0.5.0 — Agenda Redefinition (Jira epic AL-7)
+**Synthesized:** 2026-05-09
+**Source files:** `.planning/research/STACK.md` · `FEATURES.md` · `ARCHITECTURE.md` · `PITFALLS.md`
+**Overall confidence:** HIGH on every axis (framework, location, pillar substance, propagation, and pitfall mitigation each have ≥2 converging sources and a direct in-repo precedent).
 
 ---
 
-## Key Findings
+## 1 · Executive Summary
 
-### Recommended Stack
+v0.5.0 broadens AgentLinux from a single-pillar product (separated, correctly-owned agent environment) to a three-pillar product (env + stability/benchmarks + security hardening), where pillars 2 and 3 are **forward-looking** and land in v0.6+. The milestone ships *framing*, not implementation: a canonical strategy doc at `docs/STRATEGY.md`, an ADR (slot ADR-015) recording the framing decision, and a website refresh that propagates the new positioning to agentlinux.org.
 
-The v0.3.0 stack is almost entirely carry-forward from v0.2.0 with three surgical additions: a distribution mechanism for the plugin itself, an agent-user provisioning model, and a registry CLI framework.
+The four parallel research passes converge cleanly. The doc's spine is the **Sourcegraph "Strategy Page" template** (the only public, MIT-licensed, dev-tools-authored template that prompts for "what we're not working on & why"), anchored by **Rumelt's Diagnosis → Guiding Policy → Coherent Action kernel** as a hidden review checklist. Three named inserts give the doc its AgentLinux character: a **Geoffrey Moore positioning sentence** inside Mission, **Amazon-style Tenets** as the framing for the three pillars, and a one-page **Roman Pichler Vision Board** appendix for scanability. The doc lives at `docs/STRATEGY.md` (single Markdown file, sibling to `STABILITY-MODEL.md` and `HARNESS.md`) — the in-repo convention is too strong to deviate from.
 
-**Core technologies:**
-
-| Technology | Purpose | Why Recommended |
-|------------|---------|-----------------|
-| bash 5.x (system) | Installer body, provisioner scripts | Zero added runtime dep; postinst-compatible; team has v0.2.0 experience |
-| Node.js 22 LTS via NodeSource | Agent runtime, registry CLI runtime | Carry-forward; EOL April 2027; system-wide binary avoids shell-hook activation problems |
-| per-user `~/.npm-global` prefix | npm install destination for the agent user | The keystone decision: moves npm globals into agent home so self-update never needs sudo |
-| Commander.js 14.0.3 | Registry CLI framework | Zero dependencies; 35M weekly downloads; right-sized for 3-5 verbs |
-| fpm 1.17.0 | Build optional `.deb` | Carry-forward from v0.2.0; already validated |
-| jq 1.7.x | JSON merge for `~/.claude.json` MCP config | Carry-forward from v0.2.0 |
-| bats-core 1.11.x | Bash assertion framework for installer tests | TAP-compliant; apt-installable; idiomatic for shell installer testing |
-| Docker + ubuntu:22.04/24.04 | Primary CI test harness | Free in GitHub Actions; ~90s per run; matrix across Ubuntu versions |
-
-**Structurally disqualified (do not revisit for v0.3.0):**
-- Snap: AppArmor confinement incompatible with whole-filesystem agent access
-- nvm/fnm/volta: shell-hook activation breaks non-interactive shells (cron, systemd, `sudo -u agent`)
-- Ansible/Chef/Puppet: single-host installer does not need fleet management tooling
-- oclif: designed for Heroku-scale CLIs; overkill for 3-5 verbs
-- Ubuntu's packaged nodejs: ships Node.js 18.19 (out of LTS in 2026)
-- `dpkg -i` (use `apt install ./pkg.deb` instead for dependency resolution)
-
-### Expected Features
-
-**Must have — table stakes (all P1, ships in v0.3.0):**
-- One-command installer for Ubuntu 22.04 + 24.04 (curl-pipe-bash primary)
-- Dedicated `agent` user: real interactive user via `useradd -m -s /bin/bash --user-group`, regular UID (not `--system`), no password
-- Node.js 22 LTS from NodeSource (system-wide binary, per-user npm prefix)
-- Writable npm global prefix at `~/.npm-global` owned by the agent user
-- Default agent installed on first install: Claude Code (with `--no-default-agent` flag for CI use)
-- `agentlinux list / install / remove` registry CLI
-- Idempotent installer (safe to re-run; converges, never destroys)
-- Canonical acceptance test: `sudo -u agent -i claude update` exits 0, no EACCES
-- Uninstall path (`agentlinux uninstall` + `--purge` option)
-- Initial catalog: 3 definite agents (claude-code, gsd, chrome-devtools-mcp)
-- Docker + bats test harness in CI
-
-**Should have — differentiators (P2, fast-follow patches):**
-- `agentlinux info <agent>`, `agentlinux update <agent>`, `agentlinux doctor`
-- `agentlinux self-update` (re-fetches and re-runs install script; mise pattern)
-- QEMU-based test runner (nightly + release gate)
-- `install-verified.json` marker file + `CLAUDE.md` in agent home (prevents agent from inventing npx shims post-install)
-
-**Defer to v0.4+:**
-- Cross-distro support (Fedora, Arch, CentOS)
-- Public PPA with package signing
-- Multi-tenant agent users
-- Remote-fetch catalog (embedded-only for v0.3.0; remote merge as optional env-var override)
-- Claude Code native binary installer path (pending OQ-1 decision — see Open Questions)
-- fnm/volta for multi-version Node.js support
-
-**Permanent anti-features (excluded for all versions):**
-- GUI/TUI installer
-- Docker-in-Docker inside the agent environment
-- Agent sandboxing (Claude Code's job, not ours)
-- Auto-update daemon (opt-in manual `self-update` only)
-- Telemetry / phone-home
-
-### Architecture Approach
-
-The plugin is a bash-orchestrated installer plus a Node.js registry CLI. The installer entrypoint (`bin/agentlinux-install`) sources shared bash helpers from `lib/` and executes four ordered, idempotent provisioner scripts in sequence. The registry CLI (`cli/`) is a Node.js/Commander.js project that reads `catalog/catalog.json` and dispatches to per-agent `catalog/agents/<name>/install.sh` bash scripts — the same scripts the provisioner called during initial install. This single-code-path design means "install an agent via provisioner" and "install an agent via registry CLI" are identical operations.
-
-**Major components:**
-
-| Component | Responsibility |
-|-----------|----------------|
-| `bin/agentlinux-install` | Entrypoint; parses flags, sources lib, runs provisioner scripts in order |
-| `lib/*.sh` | Shared bash helpers: logging, idempotency primitives (`ensure_user`, `ensure_line_in_file`, `ensure_npm_prefix`), `as_user` wrapper, distro detection |
-| `provisioner/10-agent-user.sh` | Creates `agent` user, configures sudoers drop-in (validated with `visudo -c -f`), sets locale, seeds `~/.bashrc` PATH |
-| `provisioner/30-nodejs.sh` | Installs NodeSource Node.js 22; runs `as_user agent npm config set prefix ~/.npm-global` |
-| `provisioner/40-default-agent.sh` | Installs default agent as the agent user; seeds `~/.claude.json` from template |
-| `provisioner/50-registry-cli.sh` | Installs the `agentlinux` CLI for the agent user; writes bash completion |
-| `cli/` (Node.js) | Registry CLI: `list`, `install`, `remove`, `info`, `doctor`; reads `catalog.json`, dispatches to per-agent scripts via `runner.js` |
-| `catalog/` | `schema.json` (JSON Schema contract), `catalog.json` (embedded data), `agents/<name>/install.sh` (per-agent logic) |
-| `packaging/curl-installer/install.sh` | Primary distribution: verifies SHA256, extracts to `/opt/agentlinux/`, execs `bin/agentlinux-install` |
-| `packaging/deb/` | Optional fpm wrapper; secondary distribution path |
-| `tests/bats/` | Black-box assertion suite; runs inside the target environment |
-| `tests/docker/` | Fast CI runner: clean Ubuntu image, installer, bats (~90s, every PR) |
-| `tests/qemu/` | Definitive runner: fresh Ubuntu cloud image over SSH (~5min, nightly + release gate) |
-
-All v0.3.0 code lives under `plugin/` in the repo; `packaging/` holds distribution wrappers; `website/` and `.planning/` are unchanged.
-
-### Critical Pitfalls
-
-1. **System-wide Claude Code install breaks self-update (the original bug class)** — Any install that runs as root produces root-owned files in paths the agent user must write to. `claude update` fails with EACCES. Prevention: always `sudo -u agent -H` before any Claude Code install; verify with `claude doctor` as the final installer step; run `sudo -u agent -i claude update` in every CI run.
-
-2. **PATH not set for non-interactive invocations (cron, systemd, `sudo -u agent`, non-interactive SSH)** — `~/.bashrc` is only sourced in interactive shells. PATH must be wired via all four mechanisms: `/etc/profile.d/agentlinux-path.sh`, stub wrappers in `/usr/local/bin/`, `Defaults:agent secure_path` in sudoers, and explicit `Environment=PATH=...` in any systemd units. If any path is missing, agents create wrapper shims — the exact bug this project exists to eliminate.
-
-3. **nvm/fnm/volta shell-hook activation breaks non-interactive shells** — Version managers inject via `~/.bashrc`. Non-interactive shells skip this file. `node` and `npm` vanish from PATH in cron, systemd, and `sudo -u agent <cmd>`. Prevention: NodeSource system Node.js (`/usr/bin/node`, always on PATH), per-user prefix for globals only.
-
-4. **Installer not idempotent (pre-existing user, pre-existing Node, re-runs)** — `useradd agent` fails if user exists. `echo >> ~/.bashrc` duplicates lines. Every operation must go through idempotency primitives. CI must test: fresh install, re-run on same system, install with pre-existing `agent` user, install with Node already present.
-
-5. **Sudoers misconfiguration bricks sudo for all users** — Bad syntax, wrong file mode (must be 0440), wrong filename (dot in name is silently ignored by sudo), or `NOPASSWD: ALL`. Prevention: always validate with `visudo -c -f /tmp/staged` before deploying; use `install -m 0440 -o root -g root` (atomic).
-
-6. **Docker tests pass, real Ubuntu fails** — Docker runs as root by default (masks missing sudo paths), has no systemd, uses C/POSIX locale, assigns UID 1000 by default. Prevention: run test container as non-root; generate locale in test image; require QEMU as release gate.
+The single highest-leverage finding from the synthesis is the **phrasing-rule glossary** PITFALLS.md introduces — the distinction between *delivered-fact voice* and *forward-looking voice*. This rule is what stops the milestone from producing vaporware: every sentence in pillar 2 / pillar 3 sections (in the strategy doc *and* on the refreshed landing page) must use forward-looking voice with subject = "we" / "our roadmap" / an explicit milestone tag — never subject = "AgentLinux" + present-tense verb. An automated grep gate enforces this. Three other AgentLinux-specific risks dominate the rest of the design space: (a) the website is two pivots stale and a half-rewrite would produce a self-contradictory page; (b) the team has historically landed `docs/`-only changes without updating README + CONTRIBUTING + ROADMAP — the strategy doc is the *most likely* doc to suffer this; (c) the team will be tempted to write three pillars in equal voice with no priority tag, which makes the doc useless for saying no. Each is addressed by a concrete acceptance criterion downstream phase plans cite verbatim.
 
 ---
 
-## Tensions Resolved
+## 2 · Locked Decisions
 
-### Distribution Mechanism: curl-pipe-bash primary, .deb secondary
+These are settled by the four-researcher convergence; downstream phases consume them as fixed inputs and do not re-decide them.
 
-STACK.md recommends `.deb` as primary. ARCHITECTURE.md recommends curl-pipe-bash as primary. **Resolution: curl-pipe-bash is primary for v0.3.0.**
-
-The curl-pipe-bash installer is a thin wrapper that downloads a SHA256-verified release tarball and execs `bin/agentlinux-install`. This avoids the NodeSource-dependency-declaration problem inherent in `.deb` (the .deb can't auto-install NodeSource Node.js without bundling the repo setup script — which is exactly what the bash installer already does). The `.deb` path is built as an optional secondary for users who prefer package management. Both paths converge on the same `bin/agentlinux-install` entrypoint, so there is exactly one installer to test and maintain.
-
-### Agent User sudo: no NOPASSWD by default
-
-PROJECT.md v0.2.0 gave the agent user passwordless sudo. The v0.3.0 core value message is "agent user never needs sudo." **Resolution: no NOPASSWD sudo in the default install.** The agent user's entire toolchain (claude, npm, gsd, agentlinux) must work without escalation. The `/etc/sudoers.d/agentlinux` file is present for upgrade tracking and `Defaults:agent secure_path` wiring, but contains no NOPASSWD grant. A `--with-sudo` flag can be added if a specific use case demands it.
-
-### PATH setup: belt-and-braces is mandatory
-
-Other docs treat PATH wiring as "configure `~/.bashrc`." PITFALLS.md is emphatic that this is insufficient. **Resolution: all four layers are mandatory:**
-1. `/etc/profile.d/agentlinux-path.sh` — login shells
-2. Stub wrappers in `/usr/local/bin/` (root-owned, pointing at agent's `~/.npm-global/bin/`) — cron and sudo
-3. `Defaults:agent secure_path` in sudoers — `sudo -u agent <cmd>`
-4. Explicit `Environment=PATH=...` in any systemd unit files
-
-The stub-wrapper pattern is safe: the wrapper is root-owned (survives sudo's secure_path) but points at the agent's home path where self-update writes. Self-update updates `~/.npm-global/bin/claude`; the wrapper continues pointing at it.
+| # | Decision | Source | Notes |
+|---|----------|--------|-------|
+| L1 | **Strategy-doc framework spine** = Sourcegraph "Strategy Page" template, with Rumelt's kernel as a hidden review-checklist overlay. | STACK.md framework matrix; verified at github.com/sourcegraph/handbook | Built by a dev-tools company; license-permissive; explicit "what we're not working on" prompt is exactly what AL-7 needs. |
+| L2 | **Three named inserts** = Geoffrey Moore positioning sentence (inside Mission), Amazon-style Tenets (as the framing for the three pillars), Roman Pichler Vision Board (one-page appendix). | STACK.md framework matrix | Each insert does one job extremely well; together they cover positioning + pillar-framing + scanability. |
+| L3 | **Strategy-doc location** = `docs/STRATEGY.md` (single file, ALL-CAPS keystone, sibling to `docs/STABILITY-MODEL.md` and `docs/HARNESS.md`). | ARCHITECTURE.md Part A; STACK.md location matrix | One file, one URL, no rename trap. Folder/tree decomposition is reachable later if the doc passes ~15 KB. |
+| L4 | **Strategy-doc format** = single Markdown file, target 4–8 KB on first cut (same scale as STABILITY-MODEL.md's 5.4 KB). No tree, no embedded canvas image, no Notion/external doc. | STACK.md tooling matrix | Stable, git-diffable, GitHub-rendered, ADR-citable. |
+| L5 | **ADR slot reserved** = **ADR-015 — Three-pillar product framing (v0.5.0 agenda redefinition)**. Lands in the same milestone as `docs/STRATEGY.md`; the two cross-link bidirectionally. | ARCHITECTURE.md Part B; PITFALLS.md #21 | Same pattern as ADR-011 ↔ STABILITY-MODEL.md. ADR-015 records ≥3 considered alternatives (stay single-pillar / pivot security-first / four pillars including observability) per PITFALLS.md #21. |
+| L6 | **Website propagation strategy** = restructure `index.html` IA to mirror the three-pillar framing (mise.jdx.dev pattern) **+** link out to `docs/STRATEGY.md` from the appropriate section. **Reject** CI-side render of MD → HTML (violates the no-build constraint). | ARCHITECTURE.md Part C | Hand-port; no new tooling; ~1–2 days of focused work. |
+| L7 | **Voice rule** (verbatim from PITFALLS.md): **delivered-fact voice** = present-tense indicative naming a shipped behaviour, links to `@test` / ADR / CI gate / release artefact. **Forward-looking voice** = first-person plural commitment with explicit horizon, no present-tense product subject. NEVER write "AgentLinux benchmarks…" or "AgentLinux defends against…" for unshipped behaviour. **Aspirational drift** = any sentence that uses delivered-fact voice for an unshipped behaviour and is the single most dangerous v0.5.0 pattern. | PITFALLS.md (phrasing-rule glossary, pitfalls #6, #14) | Enforced by `grep -nE '^[^a-z]*AgentLinux (provides\|offers\|ensures\|protects\|defends\|benchmarks\|measures\|hardens\|isolates\|detects\|prevents)\b'` on pillar-2/3 sections — must return zero matches. |
+| L8 | **ADR-012 (NOPASSWD ALL) position** = "Defensible scope choice for v0.3.0; *security debt now* that pillar 3 is being committed to. Pillar 3 commits to *revisiting* the trade-off in v0.6+ via an opt-in `agentlinux harden` profile (capability-scoped sudoers + bubblewrap-based per-recipe sandbox + iptables egress allowlist). v0.3.x default posture unchanged." | FEATURES.md §E (ADR-012 special call-out) | This exact framing goes into both `docs/STRATEGY.md` Pillar 3 *and* ADR-015's Consequences section. |
+| L9 | **Strategy doc's `Today` / `Direction` split per pillar** — every pillar section is split into `### Today (delivered, vX.Y.Z)` and `### Direction (forward-looking)` subsections with a horizontal rule between them. Pillar 1's `Direction` block is allowed to be "this pillar is foundational; tracked via the bats suite" but the subsection MUST exist for symmetry. | PITFALLS.md #7 | Structural enforcement of the L7 voice rule. |
+| L10 | **Site source location** = repo root (NOT `site/` or `website/`). `index.html`, `CNAME`, `sitemap.xml`, `robots.txt`, `assets/` all at root. | ARCHITECTURE.md "Repo state inspected" §1 | The milestone-context's reference to `site/` is incorrect; the website-refresh phase touches root-level `index.html`. |
 
 ---
 
-## Open Questions
+## 3 · Strategy-doc TOC skeleton (recommended)
 
-These require user input before requirements can be locked. The requirements step must resolve them.
+Pulled from STACK.md's recommended TOC. Authoring phase plan fills it in; section names and ordering are locked by L1+L2.
 
-### OQ-1: Claude Code install mechanism — npm vs native binary installer (HIGH PRIORITY)
+```markdown
+# AgentLinux Product Strategy
 
-This is the most consequential open decision for v0.3.0.
+> One-paragraph elevator opener (what AgentLinux is, who it serves, why
+> v0.5.0 broadened from one pillar to three). Anchor links to AL-7 and ADR-015.
 
-**Option A — npm install (STACK.md / FEATURES.md / ARCHITECTURE.md position):**
-`sudo -u agent npm install -g @anthropic-ai/claude-code` into agent's `~/.npm-global`. The per-user npm prefix is the keystone decision; this exercises it directly. The acceptance test validates the prefix ownership story. Consistent with carrying forward v0.2.0 install patterns.
+Quicklinks:
+- ADR-015 — Three-pillar product framing
+- docs/STABILITY-MODEL.md — pillar 2 seed (ADR-011)
+- README.md — install + verify
+- agentlinux.org — public landing page (refreshed to mirror this framing)
 
-**Option B — native binary installer (PITFALLS.md position):**
-`sudo -u agent -H curl -fsSL https://claude.ai/install.sh | bash`. Installs to `~/.local/bin/claude`; self-updates via atomic binary replacement; does not involve npm at runtime. Anthropic's current documented recommended install path. Avoids GitHub issue #9327 where `npm install -g --prefix=~/.local` creates a symlink that the self-updater clobbers.
+## Mission
+  ### Positioning statement      ← Geoffrey Moore form (one paragraph)
 
-The tension: three of four research docs assume Option A; PITFALLS.md recommends Option B citing current Anthropic documentation. STACK.md explicitly defers Option B to v0.4+ arguing that v0.3.0 should validate the per-user prefix solution end-to-end.
+## The three pillars (tenets)    ← Amazon-style tenets framing
+  ### Pillar 1 — Separated, correctly-owned agent environment
+    #### Today (delivered, v0.3.0)
+    #### Direction (forward-looking)
+  ### Pillar 2 — Stability + best-tested setup with measurable benchmarks
+    #### Today (delivered, v0.3.0 — ADR-011 stability seed)
+    #### Direction (forward-looking — v0.6+ Benchmarks milestone)
+  ### Pillar 3 — Security hardening
+    #### Today (delivered — gitleaks gate, MIT, branch protection, SHA256 install)
+    #### Direction (forward-looking — v0.6+ Security Hardening milestone)
+  ### Pillar priority                ← PITFALLS.md #4 forcing function
+    foundational / next-milestone / opportunistic tagging
 
-**Ask the user:** if the goal is to validate the npm-prefix ownership model, choose Option A. If the goal is to use Anthropic's recommended path and maximize long-term reliability, choose Option B. The `~/.local/bin` PATH plumbing is effectively identical either way.
+## Guiding principles            ← 4–7 stances; threads through the three pillars
 
-### OQ-2: Distribution mechanism confirmation
+## Where we are now
+  ### Top issues / contributor pain points (optional)
+  ### Competitive landscape
 
-Research converges on curl-pipe-bash primary, .deb optional secondary. Confirm with user that they do not want to invest in `.deb` as primary for v0.3.0.
+## Strategy and plans
+  ### Themes for v0.6+
+  ### What we're explicitly *not* working on & why  ← ≥5 entries (PITFALLS.md #9)
 
-### OQ-3: Catalog schema format — JSON vs TOML
+## Trade-offs / rejected alternatives  ← PITFALLS.md #13
 
-FEATURES.md suggests TOML. ARCHITECTURE.md and STACK.md use JSON. **Recommendation: JSON** — Node.js reads it natively, no extra dep. Confirm with user.
+## Appendix A — One-page Vision Board   ← Roman Pichler form (markdown table)
+## Appendix B — Roadmap themes (forward-looking)
+   #### Sequencing rationale         ← PITFALLS.md #26 (why pillar X before pillar Y)
+```
 
-### OQ-4: Initial catalog scope — include @openai/codex?
-
-The 3 definite agents are agreed. `@openai/codex` is "nice-to-include" — identical npm install recipe, validates the registry is not Anthropic-only. Low risk either way. Confirm with user.
-
----
-
-## Implications for Roadmap
-
-All three structural researchers converged on a 4-6 phase plan. The synthesis below collapses overlapping suggestions into a single recommended phase list.
-
-### Phase 1: Installer Foundation
-
-**Rationale:** Everything depends on a correct agent user with correct PATH wiring. The most critical pitfalls live here. Idempotency patterns established here prevent retrofitting later.
-**Delivers:** Running `bin/agentlinux-install` on a fresh Ubuntu 22.04 or 24.04 produces a correct `agent` user with bash shell, locale, sudoers drop-in (validated with `visudo -c -f`), and belt-and-braces PATH setup. No agents installed yet.
-**Addresses:** TS-1, TS-2, TS-3, TS-10 (idempotency)
-**Must avoid:** Pitfall 4 (PATH dropped), Pitfall 5 (non-idempotent), Pitfall 8 (locale), Pitfall 9 (sudoers)
-**Research flag:** Standard patterns — `useradd`, `/etc/sudoers.d/`, `/etc/profile.d/`, locale-gen are all well-documented; no research phase needed.
-
-### Phase 2: Node.js Ownership + Default Agent Install
-
-**Rationale:** The keystone and highest-risk phase. The canonical acceptance test lives here. npm prefix ownership, PATH wiring for npm-global bin dir, and Claude Code install must all be correct before anything is built on top. OQ-1 (npm vs native installer) must be resolved before this phase begins.
-**Delivers:** NodeSource Node.js 22 installed; agent user's npm prefix configured; Claude Code installed as the agent user; `~/.claude.json` seeded. Canonical acceptance test (`sudo -u agent -i claude update`) passes.
-**Addresses:** TS-4, TS-5, TS-6, TS-11
-**Must avoid:** Pitfall 1 (system-wide Claude Code install), Pitfall 2 (npm prefix for other packages), Pitfall 3 (nvm), Pitfall 10 (/etc/skel inadequacy), Pitfall 12 (conflicting installs)
-**Research flag:** OQ-1 must be decided by the user. Once resolved, PITFALLS.md has detailed implementation guidance for both paths. No additional research phase needed.
-
-### Phase 3: Test Harness
-
-**Rationale:** Build the test harness immediately after Phase 2 passes the acceptance test manually, before the registry CLI is added. Locking the canonical test in CI prevents regressions during Phase 4 development. PITFALLS.md is explicit that Docker-only testing ships broken installs to users.
-**Delivers:** Docker test runner (ubuntu:22.04 + ubuntu:24.04 matrix), bats assertion suite covering agent user, Node.js ownership, Claude Code install, PATH for all invocation modes (cron, systemd, sudo-u, non-interactive ssh), and the canonical self-update acceptance test. QEMU runner scaffolded.
-**Addresses:** D-6 (container test harness)
-**Must avoid:** Pitfall 7 (Docker false positives) — run container as non-root, generate locale, test non-interactive PATH in all forms
-**Research flag:** Standard patterns — Docker + bats is fully documented in STACK.md down to Dockerfile level.
-
-### Phase 4: Registry CLI
-
-**Rationale:** The CLI is independent of the installer core and can be developed in parallel with Phase 3. It depends on Phase 2 (Node.js installed) and Phase 1 (agent user exists). The catalog schema must accommodate Python agents even if only npm agents ship in v0.3.0.
-**Delivers:** `agentlinux list / install / remove` commands backed by embedded `catalog.json`; `provisioner/50-registry-cli.sh` wires the CLI into the installer; initial catalog: claude-code, gsd, chrome-devtools-mcp.
-**Addresses:** TS-7, TS-8, TS-9, TS-12, D-1, D-2, D-3
-**Must avoid:** Anti-pattern 2 (npm as root), Anti-pattern 3 (system-wide MCP config), Anti-pattern 6 (remote-only catalog — embedded must always work offline)
-**Research flag:** Standard patterns — Commander.js + catalog dispatch pattern fully documented in ARCHITECTURE.md.
-
-### Phase 5: Packaging + Distribution + Release
-
-**Rationale:** Once the installer is tested and the registry works, wrap it for distribution. This produces the shippable artifact.
-**Delivers:** `packaging/curl-installer/install.sh` (primary — thin downloader with SHA256 verification, execs `bin/agentlinux-install`); GitHub Actions release workflow (tag → build tarball → upload to Releases); optional `.deb` via fpm; QEMU runner fully wired (nightly + release gate); `install-verified.json` marker file and `CLAUDE.md` in agent home.
-**Addresses:** TS-1 (one-command install), Pitfall 6 (distribution mechanism), Pitfall 11 (agent shim prevention)
-**Must avoid:** curl-pipe-bash mid-stream interruption (wrap in `main()` called on last line; SHA256 verify); `dpkg -i` vs `apt install ./pkg.deb`
-**Research flag:** Standard patterns — GitHub Releases + fpm carry-forward from v0.2.0.
-
-### Phase Ordering Rationale
-
-- Phase 1 before everything: `agent` user is a dependency of all provisioner steps; PATH is a dependency of the acceptance test.
-- Phase 2 before Phase 4: the registry CLI installs agents via the same npm path established in Phase 2; that path must be proven before the CLI drives it.
-- Phase 3 immediately after Phase 2: the canonical acceptance test should be in CI before more code is added on top.
-- Phase 4 parallelizable with Phase 3: CLI Node.js code and catalog are independent of Docker/bats scaffolding.
-- Phase 5 last: packaging wraps a working, tested installer.
-
-ARCHITECTURE.md critical-path dependency chain: Phase 1 → Phase 2 → Phase 3 → (Phase 4 / Phase 3 in parallel) → Phase 5.
-
-### Research Flags
-
-Phases needing deeper research during planning:
-- **Phase 2:** OQ-1 (npm vs native Claude Code installer) is the only remaining open question. It is a user/product decision, not a technical research gap. No research phase needed — just user input.
-
-Phases with standard, fully-documented patterns (skip research-phase):
-- **Phase 1:** useradd, sudoers, locale-gen — decades-old patterns; ARCHITECTURE.md + PITFALLS.md have exact implementation sketches.
-- **Phase 3:** Docker + bats + QEMU runner patterns documented in STACK.md + ARCHITECTURE.md down to Dockerfile level.
-- **Phase 4:** Commander.js CLI + catalog dispatch pattern fully documented in STACK.md + ARCHITECTURE.md.
-- **Phase 5:** GitHub Releases + fpm is a carry-forward pattern from v0.2.0.
+**Authoring effort estimate:** 1 phase, ~3–6 hours of writing, ~6–8 KB final file. Framework is decided; phase A is fill-in-the-blanks.
 
 ---
 
-## Anti-Patterns Summary (do not add these)
+## 4 · Pillar-2 substance summary
 
-From across all four research docs:
+**Honest scope (the load-bearing claim).** Pillar 2's "measurable benchmarks vs vanilla setup" is principally about **time-to-productive** and **stability across upstream drift**, NOT SWE-bench-Verified score deltas. The strategy doc must include the explicit statement:
 
-| Anti-pattern | Why not | Instead |
-|---|---|---|
-| `sudo npm install -g` anywhere in installer | Reintroduces the exact bug AgentLinux exists to fix | Always `sudo -u agent -H npm install -g` |
-| Snap as distribution mechanism | AppArmor confinement incompatible with agent filesystem access | curl-pipe-bash + optional .deb |
-| nvm/fnm/volta for the agent's Node.js | Shell-hook activation breaks cron, systemd, non-interactive SSH | NodeSource system Node + per-user npm prefix |
-| Ansible/Chef/Puppet as the installer | Requires Python/Ruby runtime; designed for fleet management | bash + apt + npm |
-| Docker-only testing (no QEMU) | Docker false-positive categories ship broken installs | Docker for inner loop; QEMU for release gate |
-| `/etc/skel` as sole config distribution mechanism | Not applied to pre-existing users; not applied on plugin updates | Direct `install -o agent` to agent home + `/etc/skel` for freshness |
-| System-wide MCP config (`/etc/claude-code/managed-mcp.json`) | Takes exclusive control; users cannot add their own MCP servers | Per-user `~/.claude.json` |
-| Wrapper shims at `/usr/local/bin/` that exec via Node path | Self-update writes over the wrapper's Node target | Trust per-user npm prefix; if stubs are needed, hard-exec the agent's binary path |
-| Remote-only catalog (always-fetch) | Breaks offline; breaks if agentlinux.org is down | Embedded catalog primary; remote merge optional via `AGENTLINUX_CATALOG_URL` env |
-| Publishing the registry CLI to npm as a standalone package | CLI depends on `/opt/agentlinux/catalog.json`; meaningless outside the install | Vendor `node_modules/` inside the install directory |
+> *"We do not expect or claim that AgentLinux changes Claude's SWE-bench Verified score. The credible measurable claims are time-to-productive (AGT-02 + first-task wall-clock) and stability across upstream drift (`pass^k` + curated combos)."*
 
----
+**Existing v0.3.0 capability that seeds the pillar:** ADR-011 stability model (curated `pinned_version` per catalog agent + end-to-end tested combo + TST-08 release-gate). The benchmark layer is the planned extension; the pinning is already real.
 
-## Confidence Assessment
+**Table-stakes commitments (3, all from FEATURES.md):**
 
-| Area | Confidence | Notes |
-|------|------------|-------|
-| Stack | HIGH | Context7-verified package versions; official docs for NodeSource, Claude Code, useradd, npm prefix; all key decisions carry forward v0.2.0 validation |
-| Features | HIGH | 7-tool comparison set grounds all feature claims; anti-feature rationale is explicit and PROJECT.md-anchored |
-| Architecture | HIGH | Component boundaries specific and validated against analogous systems (Jenkins, postgres, Homebrew); v0.2.0 provisioner-script model proven |
-| Pitfalls | HIGH (ownership/PATH/sudoers/locale) MEDIUM (Docker false-positive taxonomy) | The npm-vs-native-installer tension is the one unresolved high-confidence disagreement between docs |
+- **P2-1** — AGT-02 as the load-bearing measurable claim. The release-gate test that the curated `claude` self-updates against the live Anthropic CDN with zero EACCES and zero sudo prompts. Already true; strategy doc restates.
+- **P2-2** — Curated combos as pillar-2 seed. Cite `docs/STABILITY-MODEL.md` and ADR-011. Already true; strategy doc references.
+- **P2-3** — Honesty about *what* benchmarks measure: time-to-productive + stability across drift, not Verified score. Refusing to overclaim is the trust signal.
 
-**Overall confidence:** HIGH for all implementation decisions. One open question (OQ-1: Claude Code install mechanism) is the only item requiring user input before Phase 2 begins.
+**Differentiator commitments (3):**
 
-### Gaps to Address
+- **P2-4** — Adopt one or more of: **terminal-bench** (closest analog to "agent operating a real CLI environment"), **Multi-Docker-Eval-style env-build efficiency reporting** (token + wall-clock + image size — the closest published methodological precedent), and a small AgentLinux-specific golden-task suite. Selection happens *in the v0.6 Benchmarks milestone*, not in v0.5.0.
+- **P2-5** — Where appropriate, results reported as **`pass^k`** (Sierra τ-bench convention) so reliability is visible, not hidden behind best-of-k. Most agent products quote `pass@k`; pass^k is the right metric for a stability-pillar product.
+- **P2-6** — Token, cost, and latency observability for users who opt in via catalog entries for **Helicone** or **Langfuse**. AgentLinux ships neither by default (no-default-agents principle, ADR-003) but the catalog makes it one command away.
 
-- **OQ-1 (Claude Code install: npm vs native binary):** Ask user during requirements. Both paths are fully researched; this is a product/philosophy decision.
-- **OQ-2 (curl-pipe-bash vs .deb as primary):** Confirm with user; research recommends curl-pipe-bash primary.
-- **OQ-3 (JSON vs TOML for catalog schema):** Confirm with user; default to JSON.
-- **OQ-4 (include @openai/codex in initial catalog):** Low-stakes; confirm with user.
-- **Sudoers scope for agent user:** Research recommends no NOPASSWD by default; confirm user agrees before locking in the design.
+**Explicit non-goals (2):**
+
+- **P2-7** — Not replicating the SWE-bench / Aider / GAIA leaderboards. Cite them as broader landscape; pick the subset that exercises the *environment*.
+- **P2-8** — Not publishing per-model scores. The curated combo's CI green light is the publishable invariant; a per-model leaderboard is a different product.
+
+**Named eval suites worth citing (≤6 most relevant, in priority order):** terminal-bench (tbench.ai), Multi-Docker-Eval (arxiv 2512.06915), τ-bench / τ²-bench (Sierra Research, pass^k methodology), SWE-bench Verified (the field's reference, with the explicit non-claim), SWE-bench Live (Microsoft, contamination-resistant), Aider polyglot (cross-language toolchain stress).
 
 ---
 
-## Sources
+## 5 · Pillar-3 substance summary
 
-### Primary (HIGH confidence)
-- [Claude Code: Advanced setup](https://code.claude.com/docs/en/setup) — native installer, binary location, auto-update mechanism, `claude doctor`
-- [Claude Code: Troubleshooting](https://code.claude.com/docs/en/troubleshooting) — conflicting installs, "Do NOT use sudo npm install -g", permission verification
-- [npm Docs: Resolving EACCES errors](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/) — official per-user prefix recipe
-- [sindresorhus/guides: npm-global-without-sudo.md](https://github.com/sindresorhus/guides/blob/main/npm-global-without-sudo.md) — canonical user-writable prefix recipe
-- [Ubuntu Manpage: useradd(8)](https://manpages.ubuntu.com/manpages/noble/en/man8/useradd.8.html) — flag semantics for agent user creation
-- [sudoers(5) man page](https://manpages.debian.org/buster/sudo/sudoers.5.en.html) — file mode 0440, secure_path, NOPASSWD syntax, filename rules (no dots)
-- [Node.js EOL Schedule](https://nodejs.org/en/about/eol) — Node 22 LTS maintenance through April 2027
-- Context7: `/tj/commander.js` — Commander 14.x, zero deps, stand-alone executable subcommands pattern
-- npm registry (live, 2026-04-18): `commander@14.0.3`, `@anthropic-ai/claude-code@2.1.114`, `get-shit-done-cc@1.37.1`, `chrome-devtools-mcp@0.21.0`
-- [bats-core](https://github.com/bats-core/bats-core) — TAP-compliant bash testing
-- [Docker Engine on Ubuntu](https://docs.docker.com/engine/install/ubuntu/) — test harness base image
+**Late-2025 frame to adopt:** **OWASP LLM Top 10 v2025** as the threat-model reference + **Simon Willison's Lethal Trifecta** (untrusted input + sensitive data + external communication = exploitable) + **Meta AI's Agents Rule of Two** (an agent should hold ≤2 of the three or operate under human-in-the-loop). These are the de-facto industry frames as of late 2025.
 
-### Secondary (MEDIUM confidence)
-- [GitHub anthropics/claude-code #9327](https://github.com/anthropics/claude-code/issues/9327) — self-update misbehaves with npm symlink install; supports native installer preference in PITFALLS.md
-- [Snap classic confinement docs](https://snapcraft.io/docs/classic-confinement) — confirms Snap Store review required; disqualifies snap
-- Docker, Tailscale, k3s, Homebrew, nvm, mise, gh install scripts — feature baseline and install-behavior comparison set from FEATURES.md
-- Jenkins/PostgreSQL service-user model — agent user shape precedent
-- [Leapcell: nvm vs Volta vs fnm Deep Dive](https://leapcell.io/blog/navigating-node-js-versions-a-deep-dive-into-nvm-volta-and-fnm) — non-interactive shell failure modes for version managers
-- [Sysdig: Friends don't let friends curl bash](https://www.sysdig.com/blog/friends-dont-let-friends-curl-bash) — curl-pipe-bash mid-stream interruption mitigations
-- [Debian apt-get DPkg::Lock::Timeout](https://blog.sinjakli.co.uk/2021/10/25/waiting-for-apt-locks-without-the-hacky-bash-scripts/) — dpkg lock contention fix pattern
+**Table-stakes commitments (3):**
 
-### Tertiary (LOW confidence — directional only)
-- v0.2.0 phase-04 research (`.planning/milestones/v0.2.0-phases/04-agent-tool-packages/04-RESEARCH.md`) — project-internal; treated as MEDIUM for carry-forward decisions
-- Various blog posts on curl-pipe-bash mid-stream interruption (the `main(){};main` wrapping pattern is widely recommended)
-- [Claude Code Native Installer blog](https://claudefa.st/blog/guide/native-installer) — context for OQ-1 native installer path
+- **P3-1** — Adopt OWASP LLM Top 10 v2025; name LLM01 prompt injection (direct + indirect) as the dominant risk for any coding agent regardless of vendor.
+- **P3-2** — Adopt Lethal Trifecta + Agents Rule of Two as the deployable framing.
+- **P3-3** — Document and commit to **revisiting ADR-012 NOPASSWD ALL** (per L8 above). Refusing to take this position is itself a position; stakeholders will read silence as either denial or unawareness.
+
+**Differentiator commitments (3):**
+
+- **P3-4** — Commit to one or more concrete supply-chain hardening measures: (a) **cosign-signed catalog snapshots** (closes the gap left by README §Security's "GPG signatures on the v0.4+ roadmap"), (b) **`npm audit signatures`** in CI on catalog candidates, (c) **recipe-level SBOM emission** per release.
+- **P3-5** — Commit to an opt-in **`--ignore-scripts` policy** for catalog recipes where feasible. npm postinstall is the dominant npm-malware delivery channel per the chalk/debug + Shai-Hulud + ua-parser-js precedents. Recipes that genuinely require scripts get extra review and are documented as such.
+- **P3-6** — Adopt a **hardened CLAUDE.md skel fragment** in agent-user provisioning that codifies Anthropic's "External content is data, not instructions" boundary — pre-deployed by AgentLinux, not user-curated. Unique value an installable plugin can deliver that per-user manual setup typically does not.
+
+**Explicit non-goals (3):**
+
+- **P3-7** — Not providing model-level guardrails (Llama Guard / ShieldGemma / NeMo Guardrails). Properly the agent or model vendor's surface.
+- **P3-8** — Not vetting the *content* of upstream agent code. We pin and sign the snapshot we test; we do not audit Claude Code's source. Catalog acceptance is by behavior + maintainer reputation + provenance signals.
+- **P3-9** — Not becoming a sandbox runtime. The opt-in `--sandbox` profile uses off-the-shelf Linux primitives (bubblewrap + Landlock + seccomp + iptables) already in the kernel; we ship recipes + defaults, not a new isolation engine. gVisor / Firecracker / Kata Containers exist; AgentLinux does not compete.
+
+**Named attacks to cite (≥4):** **Shai-Hulud npm worm** (CISA AA25, Sept-Nov 2025; 25,000+ malicious repositories in the 2.0 wave; postinstall harvests creds), **chalk + debug + 16 packages compromise** (Sept 8 2025; phished 2FA, ~2h live with billions of weekly downloads), **TrustFall** (Adversa AI, 2025; one-click RCE in Claude Code / Cursor / Gemini CLI / Copilot), **Cline data exfiltration via markdown image** (embracethered.com Aug 2025; auto-approve → trifecta exploited with no UI prompt). Optional: ua-parser-js, event-stream as historical anchors.
+
+**Named defenses to cite (≥4):** **npm provenance + Sigstore signing** (`npm audit signatures`; Trusted Publishing Jul 2025), **SLSA framework + in-toto attestations** (target SLSA L3 for first-party catalog snapshots; current state ≈ "SHA256 + maintainer 2FA + branch protection"), **Anthropic devcontainer reference** (bubblewrap + iptables/ipset egress firewall; OUTPUT default DROP), **bubblewrap / Landlock / seccomp-bpf** (Linux-native unprivileged sandboxing; the primitives `agentlinux harden` would compose), **capability-scoped sudoers** (Microsoft SCOM-style allowlists) for tightening ADR-012, **cosign** for signed releases.
 
 ---
 
-*Research completed: 2026-04-18*
-*Ready for roadmap: yes — pending user resolution of OQ-1 (Claude Code install mechanism) before Phase 2 requirements are locked*
+## 6 · Cross-link map (compact form)
+
+Eight in-repo files cross-link to STRATEGY.md; STRATEGY.md cross-links to nine in-repo + external artefacts. From ARCHITECTURE.md Part B.
+
+### Outbound — `docs/STRATEGY.md` references…
+
+| STRATEGY.md section | References |
+|---|---|
+| Mission > Positioning | (none — uses competitor names) |
+| Pillar 1 | ADR-001 (pivot), ADR-004 (per-user npm prefix), ADR-005 (system Node.js), ADR-012 (agent sudo), README "About" |
+| Pillar 2 | ADR-011, `docs/STABILITY-MODEL.md`, ADR-007 (Docker+QEMU harness), v0.6+ Benchmarks milestone placeholder |
+| Pillar 3 | ADR-006 (curl-pipe-bash + SHA256), ADR-013 (MIT), ADR-014 (secret remediation), ADR-012 (revisit), v0.6+ Security Hardening milestone placeholder, OWASP LLM Top 10, Anthropic security guidance |
+| Guiding principles | ADR-002 (behavior contract), ADR-011 (stability-first), ADR-010 (review loop) |
+| Where we are now | ADR-002, ADR-011, ADR-013 |
+| What we're NOT working on | ADR-001 (custom distro), ADR-009 (Snap), ADR-011 (per-agent .debs) |
+| Themes > "Distro Reach" | ADR-009 |
+| Decision provenance | ADR-015 |
+
+### Inbound — these files gain a back-pointer to STRATEGY.md
+
+| File | Edit type |
+|---|---|
+| `README.md` — new sentence in About + link in Links | small surgical |
+| `CONTRIBUTING.md` — new "Why this project exists" paragraph linking to STRATEGY.md | one-line addition |
+| `docs/decisions/015-agenda-redefinition.md` (new) | new file (the v0.5.0 ADR) |
+| `docs/decisions/011-stability-first-version-pinning.md` | optional bidirectional link (recommended) |
+| `docs/decisions/012-agent-user-full-sudo.md` | optional bidirectional link (recommended for honest documentation of unresolved tension) |
+| `docs/STABILITY-MODEL.md` — Related section | optional, recommended |
+| `.planning/PROJECT.md` — Core Value section | required as part of milestone close |
+| `agentlinux.org` (`index.html`) | required as part of v0.5.0 Site-Refresh phase |
+| Future `ROADMAP.md` (v0.6+ milestones, when they exist) | future requirement |
+
+**No update needed:** `docs/HARNESS.md` (orthogonal, internal harness spec).
+
+---
+
+## 7 · Website refresh scope
+
+**Critical correction.** The site source is at the **repo root**, not `site/`. `index.html` (~895 LOC), `CNAME`, `sitemap.xml`, `robots.txt`, `assets/` all sit at root. There is no `site/` or `website/` directory. The website-refresh phase touches root-level `index.html` + `assets/`.
+
+**Current state.** `index.html` is **two pivots stale** — hero says "A purpose-built Linux distribution"; features section advertises QEMU/Docker micro-VM distribution formats. Both retired in the v0.2.0→v0.3.0 pivot (ADR-001). The site contradicts the README. A refresh is required regardless of whether the strategy doc lands.
+
+**Recommended IA (mise.jdx.dev pattern — three pillars, equal-weight cards, single-page).** Verified at mise.jdx.dev as the primary analogue (single CLI tool, three explicit pillars, technical OSS audience, no build step).
+
+```
+Nav:    AgentLinux | Pillars | Install | FAQ | Strategy (→ docs/STRATEGY.md)
+Hero:   Crab + tagline (2-line: line A delivered-fact, line B forward-looking)
+        + curl-pipe-bash CTA + secondary "Read the strategy →"
+#problem   keep — broaden slightly to acknowledge stability + security pain
+#pillars   NEW (replaces #features grid) — 3 numbered cards, mise-style
+           Each card: "Shipped v0.3.0" badge for pillar 1; "Coming v0.6+"
+           badge for pillars 2/3 (PITFALLS.md #14 + #18 enforcement)
+#install   NEW — mirrors README's curl-pipe-bash + verify
+#signup    keep Buttondown form
+#faq       update for v0.3.0/v0.4.0 reality + three-pillar framing
+Footer:    repo, releases, ADRs, STABILITY-MODEL, STRATEGY
+```
+
+**Sections deleted:** the 8-card `#features` grid (replaced by `#pillars`), the `#comparison` block (phrased around the retired distro shape).
+
+**Estimated scope: medium, ~1–2 days of focused work.** Pure HTML/CSS edits in the existing `index.html`. No new tooling. No build step added. `assets/` (mascot, favicon) untouched.
+
+**Install-instruction drift mitigation.** Adopt **option 2 from ARCHITECTURE.md Part C**: deploy-time grep check that fails the deploy if the `index.html` install snippet's version stamp diverges from `README.md`'s `<!-- VERSION_START --><!-- VERSION_END -->` block. Same shape as the existing Pattern 5 anti-drift check on `install.sh`.
+
+**Explicitly out of scope (deferred unless phase-discuss surfaces it):** Visual redesign. The crab mascot stays. The dark JetBrains Mono aesthetic stays. The OG-image SVG → PNG conversion (carried since v0.1.0 per PROJECT.md known-issues) **should be folded into this PR** — v0.5.0 is the right time to fix it, and the OG/Twitter meta-tag rewrite (PITFALLS.md #20) is happening anyway.
+
+---
+
+## 8 · Top-5 pitfalls to design out
+
+The five most likely to bite us specifically (PITFALLS.md §"Top 5"). Each is paired with the prevention rule downstream phase plans cite **verbatim**.
+
+| # | Pitfall | Prevention rule (cite verbatim in phase plans) |
+|---|---------|------------------------------------------------|
+| **1** | **#6 — Aspirational drift (overpromising forward-looking work).** Highest risk. Whole milestone exists to surface unshipped pillars; the temptation to use delivered-fact voice is structural. Public repo since v0.4.0 means mis-claims reach HN, not just internal stakeholders. | **Acceptance check (automated grep):** in `docs/STRATEGY.md`, for any line under a pillar-2 or pillar-3 heading, `grep -nE '^[^a-z]*AgentLinux (provides\|offers\|ensures\|protects\|defends\|benchmarks\|measures\|hardens\|isolates\|detects\|prevents)\b'` MUST return zero matches. **Replacement phrasing rule:** "We are committing to `<behaviour>` in `<milestone>`." / "Our roadmap commits to `<behaviour>` before `<milestone>` ships." / "AgentLinux today does not yet `<behaviour>`; v0.6+ adds `<behaviour>`." Every claim about an unshipped behaviour MUST appear in a sentence whose grammatical subject is "we" / "our roadmap" / an explicit milestone identifier — never "AgentLinux". |
+| **2** | **#14 — False-advertising the broadening on the website.** Same root cause as #1, much higher visibility surface. Current site is already over-promising; site refreshes have historically been done lightly. | **Acceptance check (visual + textual):** every pillar-2 / pillar-3 section on the landing page MUST carry a visible status badge (`[v0.6+ ROADMAP]` / `[COMING SOON — v0.6+]`) at parity with how pillar 1 carries `[SHIPPED v0.3.0]`. Textual check identical to #1: `grep -nE 'AgentLinux (benchmarks\|measures\|defends\|protects\|prevents\|hardens)\b'` on the rendered HTML must return zero matches. CTA for unshipped pillars: "Follow the roadmap" / "Watch the repo" — never "Get started" / "Install now". |
+| **3** | **#22 — Strategy doc lands without updating README + CONTRIBUTING + ROADMAP.** Highest probability. Team has track record of landing `docs/`-only changes; strategy doc is *most likely* to suffer because it complements rather than replaces README, so README rewrite feels optional. It isn't. | **Acceptance check:** phase plan for the strategy-doc phase MUST enumerate every downstream surface that needs updating, in the same phase or as an explicit follow-up before the milestone closes. **Enumerated list:** `README.md` (About + Links), `CONTRIBUTING.md` (link + which pillars accept contributions today), `.planning/PROJECT.md` (Core Value section), `docs/STABILITY-MODEL.md` (Related), `docs/decisions/011-…md` (forward-reference, optional), `docs/decisions/012-…md` (forward-reference, recommended for honest tension documentation), `agentlinux.org` (separate phase). Phase-close gate: each enumerated file shows a commit in the milestone window or carries an explicit "no change needed because…" entry. |
+| **4** | **#4 — Listing pillars without prioritization.** Most likely structural failure. Three pillars + nothing-shipped on two + small team that doesn't want to "pre-decide" v0.6 = strong incentive to write all three in equal voice with equal length. | **Acceptance check:** pillars section MUST include a "**Pillar priority**" subsection that explicitly tags each pillar as `foundational` / `next-milestone` / `opportunistic`. **For AgentLinux this lands as:** pillar 1 = `foundational`, pillar 2 OR pillar 3 = `next-milestone`, the other = `opportunistic`. Strategy doc owner MUST commit to which is which; deferring the choice fails the gate. (See OQ-3 below — this decision is Open Questions.) |
+| **5** | **#12 — Strategy doc never updates again.** Most likely long-term failure. AgentLinux has strong harness culture but no living-doc culture; ADRs are immutable by convention; strategy doc inherits that mental model when it shouldn't. | **Acceptance check (process binding):** the `/gsd-complete-milestone` template gains a mandatory step "Strategy doc reviewed; pillar `Today` sections updated for any newly-shipped behaviour; pillar `Direction` sections updated to remove now-shipped commitments." Strategy doc gains a top-of-file "**Last reviewed:** `<date>` at `<milestone close>`" header that the milestone-close gate enforces. Optionally: CI lint that fails if header date is older than the most recent release tag by >90 days. **This pitfall is NOT mitigated by an in-milestone check alone — it requires amending the milestone-close convention itself, so flag for the v0.5.0 retrospective and the `/gsd-new-milestone` template update that follows.** |
+
+---
+
+## 9 · Open Questions for Requirements / Roadmap pass
+
+The synthesis did NOT resolve these; each needs a user call (or a phase-discuss decision) before downstream work locks.
+
+| # | Question | Recommended default | Forcing function |
+|---|----------|---------------------|------------------|
+| **OQ-1** | **Phase split:** one phase for strategy doc + ADR-015 vs two separate phases (one for strategy doc, one for ADR)? | Single phase. ADR-015 is small (decision-statement + ≥3 considered alternatives + AL-7 link + Consequences); both artefacts are interlocked and should land in the same merge per PITFALLS.md #21. | Requirements pass needs to know whether STRAT-XX and ADR-XX requirements ladder up to one or two phase plans. |
+| **OQ-2** | **Website refresh phase shape:** single phase for content + IA + meta-tag rewrites, or split content/IA from any visual work? | Single phase. Visual redesign is explicitly out of scope (see §7). The OG-image SVG→PNG fix folds in. | Roadmap pass needs to know whether SITE-XX requirements ladder up to one or two phase plans. |
+| **OQ-3** | **Pillar priority decision:** which of pillar 2 / pillar 3 is `next-milestone` (v0.6+) and which is `opportunistic`? Pitfall #4 forces this call BEFORE the strategy doc lands. | **No recommended default — this is genuinely a user call.** Both have credible arguments. Pillar 2 first: free GHA minutes since v0.4.0 unblock benchmark CI cost; existing ADR-011 + STABILITY-MODEL.md provide the seed; terminal-bench + Multi-Docker-Eval are off-the-shelf-runnable. Pillar 3 first: post-Shai-Hulud landscape gives the security framing visible urgency; ADR-012 NOPASSWD revisit is overdue; Anthropic's devcontainer reference de-risks the implementation. | The strategy doc cannot write its "**Pillar priority**" subsection (PITFALLS.md #4 acceptance check) or its Appendix B sequencing-rationale paragraph (PITFALLS.md #26) without this call. The doc-authoring phase is blocked at first draft until this resolves. |
+| **OQ-4** | **Number of guiding principles to commit to** (Sourcegraph template recommends 4–7). | 5. Suggested seeds from STACK.md TOC: "Behavior tests are the spec" (ADR-002), "We test exactly what we ship" (ADR-011 contract), "Curated combos, not thin wrappers" (ADR-011 negative space), "No silent drift" (`agentlinux upgrade` contract), "Trust through evidence, not assertion" (provenance for pillars 2+3). Phase-A authoring picks the actual list. | Requirements pass enumerates the principles as STRAT-XX entries. |
+| **OQ-5** | **Jira sub-tasks under AL-7:** file now (one per phase deliverable) or after roadmap lands? | After roadmap lands. The session-tracker convention treats Jira tickets as artefacts of completed work (per project CLAUDE.md "Session Tracking" section), so the natural moment is post-roadmap when phase identifiers are stable. | If we file pre-roadmap, ticket IDs may need re-assignment; if we wait, the AL-7 epic remains the single inbound link until phases lock. |
+
+---
+
+## 10 · Roadmap implications
+
+Synthesizer's recommendation, NOT a binding roadmap. Roadmapper agent consumes this as the starting point.
+
+### Phase 12 — Strategy doc + ADR-015
+
+- **Likely shape:** 2 plans:
+  - **Plan 12-01: STRAT requirements** — author `docs/STRATEGY.md` against the Locked-Decisions L1–L4 spine, fill in the §3 TOC skeleton, deliver §4 + §5 pillar substance, take the L8 ADR-012 position verbatim, produce ADR-015 alongside. STRAT-XX requirement coverage.
+  - **Plan 12-02: Downstream surface updates** — README + CONTRIBUTING + PROJECT.md + STABILITY-MODEL + ADR-011/012 forward-references per §6. Mitigates Top-5 pitfall #3 (PITFALLS.md #22) directly.
+- **Acceptance gates:** every Top-5 pitfall mitigation in §8 cited verbatim.
+- **OQ blocker:** OQ-3 (pillar priority) MUST resolve before Plan 12-01 first draft.
+
+### Phase 13 — Website refresh
+
+- **Likely shape:** 1 plan locked at phase-discuss after Phase 12 lands (so the site can link to a stable `docs/STRATEGY.md` URL).
+- **SITE-XX requirements** cover the §7 IA restructure + the L7 voice rule applied to HTML + OG/Twitter meta-tag rewrite + OG-image PNG conversion + deploy-time install-instruction drift check.
+- **Acceptance gates:** Top-5 pitfall #2 (PITFALLS.md #14) mitigation enforced via grep + visible roadmap badges; PITFALLS.md #18 cross-artefact sync (pillar visual order matches strategy doc prose order); PITFALLS.md #19 mobile/narrow viewport screenshots in PR body.
+
+### (Optional) Phase 14 — Cross-link wiring + downstream-doc updates
+
+- **Only needed if Plan 12-02 (Downstream surface updates) ends up too large to ride inside Phase 12.**
+- Synthesizer recommendation: fold into Phase 12 (single coherent work item; splits create the exact PITFALLS.md #22 risk we're mitigating).
+
+### Number of forward-looking themes to surface in STRATEGY.md Appendix B
+
+**3** themes is the recommended commitment, matching the Jujutsu roadmap exemplar (themed-not-dated):
+
+1. **Benchmarks Harness** — pillar 2 implementation milestone (v0.6+).
+2. **Security Hardening** — pillar 3 implementation milestone (v0.6+).
+3. **Distro Reach** — Fedora / Alma / Arch — pillar 1 expansion (cite ADR-009 Snap-disqualified as negative-space precedent).
+
+Additional candidates to consider but not commit to: Observability (Helicone/Langfuse catalog entries), Multi-host orchestration, Per-agent telemetry. Phase A authoring picks the final list; OQ-3 fixes which of themes 1 vs 2 is `next-milestone`.
+
+---
+
+## 11 · Source file pointers
+
+For downstream phases that want to drill in. All paths are absolute from the worktree root `/home/agent/agent-linux/.claude/worktrees/agenda/`:
+
+| File | Most relevant for |
+|------|-------------------|
+| **`.planning/research/STACK.md`** | Framework comparison matrix (10 frameworks evaluated), Sourcegraph-template TOC source, OSS-exemplar references (Jujutsu, Sourcegraph handbook, Prettier, Tailscale, Sigstore, Headscale), tooling/format/location decision matrices, what-to-actively-avoid table. |
+| **`.planning/research/FEATURES.md`** | Pillar-2 eval-suite landscape (13 suites), Multi-Docker-Eval methodological keystone, vanilla-comparison honest-assessment table, pillar-3 attack landscape (Shai-Hulud + chalk/debug + TrustFall + Cline + 3 historical), pillar-3 defense landscape (npm provenance + SLSA + cosign + Anthropic devcontainer + bubblewrap + capability-scoped sudoers), ADR-012 special call-out §E with the recommended verbatim language. |
+| **`.planning/research/ARCHITECTURE.md`** | Repo state factual baseline (site at root, not `site/`), `docs/STRATEGY.md` location rationale, naming-decision matrix (STRATEGY vs PRODUCT vs MISSION vs VISION), full cross-link map (outbound + inbound + graph form), website-propagation per-option assessment (with CI-render rejection), recommended IA (mise-style 3-pillar cards), 5 OSS landing-page exemplars. |
+| **`.planning/research/PITFALLS.md`** | 27-pitfall catalog (13 strategy-doc + 7 website + 7 cross-cutting), the **phrasing-rule glossary** (the load-bearing artefact for the whole milestone), Top-5 callouts with AgentLinux-specific reasoning, concrete grep rule for pitfall #6 / #14 enforcement, downstream-surface enumeration for pitfall #22. |
+
+---
+
+## Confidence assessment
+
+| Area | Confidence | Reasoning |
+|------|------------|-----------|
+| Strategy-doc framework | **HIGH** | Sourcegraph template is a near-perfect direct precedent; multiple converging sources (Rumelt's kernel, Amazon Tenets convention, Geoffrey Moore positioning) back the inserts; OSS exemplars verified individually (Jujutsu, Prettier, Tailscale, Sigstore, Headscale). |
+| Strategy-doc location | **HIGH** | In-repo precedent (`docs/STABILITY-MODEL.md`, `docs/HARNESS.md`) is unambiguous; OpenTelemetry Collector's `docs/vision.md` is the closest external precedent. |
+| Pillar-2 substance | **HIGH** | Eval-suite landscape grounded in named recent papers (terminal-bench, Multi-Docker-Eval, τ-bench, SWE-bench Verified/Live/Pro); honest-assessment table prevents overclaim. |
+| Pillar-3 substance | **HIGH** | OWASP LLM Top 10 v2025, Lethal Trifecta, Agents Rule of Two are the de-facto industry frames; named CVEs/incidents (Shai-Hulud + chalk/debug + TrustFall + Cline) are recent and verifiable; ADR-012 position is internally derived from ADR-012 itself + post-Shai-Hulud landscape — defensible. |
+| Website propagation | **HIGH** | Repo state directly inspected; mise.jdx.dev IA verified via WebFetch; no-build constraint confirmed against `.github/workflows/deploy.yml`. |
+| Pitfall catalog | **HIGH** | Each pitfall cross-checked against multiple secondary sources (Linux Foundation, Red Hat, ProductTeacher, Christensen Institute, Wikipedia vaporware page, Evil Martians dev-tool study); AgentLinux-specific application grounded in PROJECT.md + index.html + STABILITY-MODEL.md. |
+
+**Overall confidence:** **HIGH.** The four researchers converged cleanly on every locked decision; no inter-file disagreements surfaced.
+
+### Gaps for requirements/roadmap pass to address
+
+- **OQ-3 (pillar priority)** — genuinely unresolved; needs user call before Phase 12 first draft. Pitfall #4 forcing function applies.
+- **OQ-1 / OQ-2 (phase split shape)** — recommended defaults given but final call belongs to roadmapper.
+- **OQ-4 (guiding principles count)** — recommended default of 5 with seed list; final list is Phase-A authoring decision.
+- **OQ-5 (Jira sub-task timing)** — process question; defer to post-roadmap.
+- **PITFALLS.md #12 / #23** — strategy-doc-never-updates-again is a process risk that requires amending `/gsd-complete-milestone` template, NOT just a v0.5.0 phase-plan acceptance criterion. Flag for the v0.5.0 retrospective + the `/gsd-new-milestone` template update that follows.
