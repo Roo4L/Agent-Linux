@@ -129,23 +129,31 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
          "before=${shebang_pre} after=${shebang_post}" "$LOG"
 }
 
-@test "AL-37: installer log contains no apt 'no installation candidate' or 'unable to locate package' errors" {
-  # Named negative assertion for the AL-37 bug class: provisioner steps that
-  # auto-install missing prerequisite packages (locales in 10-agent-user.sh,
-  # sudo in 20-sudoers.sh) must run `apt-get update` BEFORE `apt-get install`,
-  # otherwise hosts with empty /var/lib/apt/lists/ (freshly pulled Ubuntu
-  # containers, long-idle hosts) abort the installer with `Package <name> has
-  # no installation candidate` or `E: Unable to locate package <name>`.
+@test "INST-05: installer log has no apt 'no installation candidate' / 'unable to locate package' (AL-37 regression guard)" {
+  # Sibling of the EACCES negative assertion below: both assert "installer
+  # log has no <bad-string>" against the same tee'd transcript. INST-05 is
+  # the right REQ-ID parent because both bug classes manifest as
+  # installer-log lines that the entrypoint did NOT trip on.
   #
-  # This is regression coverage at the assertion-quality layer: AL-37 is also
+  # AL-37 bug class: provisioner steps that auto-install missing
+  # prerequisite packages (locales in 10-agent-user.sh, sudo in 20-sudoers.sh)
+  # must run `apt-get update` BEFORE `apt-get install`. Without it, hosts
+  # with empty /var/lib/apt/lists/ (freshly pulled Ubuntu containers, long-
+  # idle hosts) abort the installer with `Package <name> has no installation
+  # candidate` or `E: Unable to locate package <name>`. AL-37 is also
   # exercised structurally by tests/docker/Dockerfile.dogfood's empty-cache
-  # start state, but a named negative assertion against the canonical apt
-  # failure strings makes a future regression visible at the bats layer (and
-  # in the auditor's grep trail) instead of only in dogfood log scrollback.
+  # start state; this @test adds the named negative assertion at the bats
+  # layer so a future regression is visible in the bats output (and in the
+  # behavior-coverage-auditor grep trail) instead of only in dogfood log
+  # scrollback.
+  #
+  # Naming convention follows tests/bats/60-curl-installer.bats:206
+  # (INST-03 + AL-31 regression guard) — REQ-ID leads, AL-XX is the
+  # parenthetical Jira traceability tag.
   if grep -E -q 'has no installation candidate|Unable to locate package' "$LOG"; then
     local hits
     hits=$(grep -nE 'has no installation candidate|Unable to locate package' "$LOG" | head -5)
-    __fail "AL-37" \
+    __fail "INST-05" \
       "no 'no installation candidate' or 'Unable to locate package' lines in $LOG" \
       "$hits" \
       "$LOG"
