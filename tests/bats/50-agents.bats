@@ -13,9 +13,10 @@
 #   - failures emit __fail four-line TST-04 diagnostics
 #   - setup_file installs all three agents ONCE for the whole file; teardown_file
 #     removes them. Serial installs keep sentinel writes unambiguous.
-#   - version pins are read from /opt/agentlinux/catalog/0.3.2/catalog.json via
-#     jq — NEVER hardcoded in @test bodies (so a catalog version bump does not
-#     require editing this file).
+#   - version pins are read from /opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
+#     via jq — NEVER hardcoded in @test bodies (so a catalog version bump
+#     does not require editing this file). PKG_VERSION itself is derived
+#     from plugin/cli/package.json under the AL-29 SoT consolidation.
 #
 # Refs:
 #   - .claude/skills/behavior-test-contract/SKILL.md (ID-in-@test-name required)
