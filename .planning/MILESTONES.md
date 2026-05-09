@@ -80,20 +80,20 @@
 - Public CI/CD readiness: workflow `permissions:` blocks at least-privilege; 0 `pull_request_target` usage; branch protection on `master` applied (CIPUB-01..04)
 - Repository visibility flipped to public; anonymous-clone + `curl | bash` smoke test against v0.3.0 release tag both green (PUB-01..04)
 
-**What carries forward into v0.5.0:** Free GitHub Actions minutes (unblocks the broader benchmark + security work pillars 2 and 3 will eventually require). OSS license + CONTRIBUTING surface for external contributors. ADR-001..ADR-014 + behavior-test contract + per-phase TST-07-style phase-close gate convention.
+**What carries forward into v0.3.3:** Free GitHub Actions minutes (unblocks the broader benchmark + security work pillars 2 and 3 will eventually require). OSS license + CONTRIBUTING surface for external contributors. ADR-001..ADR-014 + behavior-test contract + per-phase TST-07-style phase-close gate convention.
 
 **Archived planning:** `.planning/milestones/v0.4.0-REQUIREMENTS.md` + `.planning/milestones/v0.4.0-ROADMAP.md` (preserved for traceability; phase directories `.planning/phases/07-*..11-*` remain in place — formal archive happens via `/gsd-complete-milestone v0.4.0`).
 
 ---
 
-## v0.5.0 Agenda Redefinition — IN PROGRESS
+## v0.3.3 Agenda Redefinition — IN PROGRESS
 
 **Started:** 2026-05-09 | **Anchor:** Jira epic [AL-7 — Project agenda redefinition](https://copiedwonder.atlassian.net/browse/AL-7)
 
 **Goal:** Broaden AgentLinux's mission from a single-pillar product ("separated, correctly-owned agent environment") to a three-pillar product, capture the new framing in a canonical product-strategy document, and propagate the framing to the public landing page at agentlinux.org.
 
 **Three pillars (per AL-7):**
-1. Separated, correctly-owned agent environment — the existing v0.3.0 core (foundational; not changing in v0.5.0)
+1. Separated, correctly-owned agent environment — the existing v0.3.0 core (foundational; not changing in v0.3.3)
 2. Stability + best-tested setup with measurable benchmarks (token consumption, speed, task success rate vs vanilla)
 3. Security hardening against supply-chain + prompt/tool-injection attacks
 

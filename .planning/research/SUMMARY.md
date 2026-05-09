@@ -1,16 +1,44 @@
-# Research Synthesis — v0.5.0 Agenda Redefinition
+# Research Synthesis — v0.3.3 Agenda Redefinition
 
 **Project:** AgentLinux
-**Milestone:** v0.5.0 — Agenda Redefinition (Jira epic AL-7)
+**Milestone:** v0.3.3 — Agenda Redefinition (Jira epic AL-7)
 **Synthesized:** 2026-05-09
 **Source files:** `.planning/research/STACK.md` · `FEATURES.md` · `ARCHITECTURE.md` · `PITFALLS.md`
 **Overall confidence:** HIGH on every axis (framework, location, pillar substance, propagation, and pitfall mitigation each have ≥2 converging sources and a direct in-repo precedent).
 
 ---
 
+## 0 · Scope correction (added 2026-05-09 after user review)
+
+**Read this before §4 / §5 / L8.** The original synthesis pre-locked pillar contents and the ADR-012 position as if they were research output. They are not — they are **milestone work**. This section re-marks what is *actually* locked vs. what the milestone gets to decide.
+
+**Genuinely locked by research (downstream phases consume as fixed input):**
+
+- L1, L2, L3, L4 — Strategy-doc framework spine, three named inserts, location, format.
+- L5 — ADR-015 slot reserved (the *slot* is locked; the *contents* are milestone-decided).
+- L6 — Website propagation pattern (restructure IA + link out; reject CI render).
+- L7 — Voice rule (delivered-fact vs forward-looking) + automated grep gate.
+- L9 — Today / Direction subsection split per pillar.
+- L10 — Site source location (repo root, not `site/`).
+- §6 — Cross-link map (the *file pairs* that need links; the *count of pillars* the strategy doc references is milestone-decided).
+- §7 — Website refresh scope (the IA pattern + drift mitigation; the actual pillar count + status badges are milestone-decided).
+- §8 — Top-5 pitfalls + their prevention rules.
+
+**NOT locked — milestone-decided in exploration phases:**
+
+- **Pillar count.** AL-7 proposed three pillars. The milestone may land on 2 (env + stability, with security folded in or treated as cross-cutting) or 3 (env + stability + security as full pillar). Phase 13 produces the verdict.
+- **Pillar 2 contents** (everything in §4 — table-stakes, differentiators, non-goals, what AgentLinux measures, which eval suites it cites). The user's current direction: pillar 2 = **stability + time-to-productive (automation of package installations + problem reconciliations across upstream drift)**. Benchmarks may end up as *one possible measurement layer* rather than the headline. Phase 12 explores the value proposition and decides scope; §4 is **raw material** (the eval-suite landscape, the `time-to-productive` framing, the vanilla-comparison honesty rule), not the pre-locked content.
+- **Pillar 3 contents** (everything in §5). Phase 13 explores the candidate AND decides whether security is a pillar at all. §5 is **raw material** (the Lethal Trifecta / Rule of Two frames, the Shai-Hulud + TrustFall + Cline + chalk/debug attack inventory, the npm provenance + SLSA + cosign + bubblewrap + capability-scoped sudoers defense inventory) for the exploration to draw from, not the pre-locked content.
+- **L8 (ADR-012 NOPASSWD position).** Marked as "locked" in the original synthesis; it is not. If Phase 13 decides security is *not* a pillar, the ADR-012 framing changes shape entirely. If Phase 13 keeps security as a pillar, it gets to decide what the pillar commits to (revisit via opt-in `agentlinux harden`? something else? nothing for v0.6+?). The verbatim language in the original L8 is a **candidate position**, not the verdict.
+- **Pillar priority** (Pitfall #4 forcing function). The strategy doc must assign each surviving pillar a `foundational` / `next-milestone` / `opportunistic` tag. **User direction**: pillar 1 = `foundational` (settled by v0.3.0 reality), pillar 2 = `next-milestone` (definitely top priority NOW per user, framed as stability + time-to-productive). Pillar 3's priority depends on whether it survives Phase 13.
+
+**The strategy-doc authoring phase (Phase 14 below) consumes the EXPLORATION OUTPUTS, not §4/§5 directly.** §4 and §5 stay in the synthesis as the landscape researchers gathered, useful for the exploration phases to draw from.
+
+---
+
 ## 1 · Executive Summary
 
-v0.5.0 broadens AgentLinux from a single-pillar product (separated, correctly-owned agent environment) to a three-pillar product (env + stability/benchmarks + security hardening), where pillars 2 and 3 are **forward-looking** and land in v0.6+. The milestone ships *framing*, not implementation: a canonical strategy doc at `docs/STRATEGY.md`, an ADR (slot ADR-015) recording the framing decision, and a website refresh that propagates the new positioning to agentlinux.org.
+v0.3.3 broadens AgentLinux from a single-pillar product (separated, correctly-owned agent environment) to a three-pillar product (env + stability/benchmarks + security hardening), where pillars 2 and 3 are **forward-looking** and land in v0.6+. The milestone ships *framing*, not implementation: a canonical strategy doc at `docs/STRATEGY.md`, an ADR (slot ADR-015) recording the framing decision, and a website refresh that propagates the new positioning to agentlinux.org.
 
 The four parallel research passes converge cleanly. The doc's spine is the **Sourcegraph "Strategy Page" template** (the only public, MIT-licensed, dev-tools-authored template that prompts for "what we're not working on & why"), anchored by **Rumelt's Diagnosis → Guiding Policy → Coherent Action kernel** as a hidden review checklist. Three named inserts give the doc its AgentLinux character: a **Geoffrey Moore positioning sentence** inside Mission, **Amazon-style Tenets** as the framing for the three pillars, and a one-page **Roman Pichler Vision Board** appendix for scanability. The doc lives at `docs/STRATEGY.md` (single Markdown file, sibling to `STABILITY-MODEL.md` and `HARNESS.md`) — the in-repo convention is too strong to deviate from.
 
@@ -28,9 +56,9 @@ These are settled by the four-researcher convergence; downstream phases consume 
 | L2 | **Three named inserts** = Geoffrey Moore positioning sentence (inside Mission), Amazon-style Tenets (as the framing for the three pillars), Roman Pichler Vision Board (one-page appendix). | STACK.md framework matrix | Each insert does one job extremely well; together they cover positioning + pillar-framing + scanability. |
 | L3 | **Strategy-doc location** = `docs/STRATEGY.md` (single file, ALL-CAPS keystone, sibling to `docs/STABILITY-MODEL.md` and `docs/HARNESS.md`). | ARCHITECTURE.md Part A; STACK.md location matrix | One file, one URL, no rename trap. Folder/tree decomposition is reachable later if the doc passes ~15 KB. |
 | L4 | **Strategy-doc format** = single Markdown file, target 4–8 KB on first cut (same scale as STABILITY-MODEL.md's 5.4 KB). No tree, no embedded canvas image, no Notion/external doc. | STACK.md tooling matrix | Stable, git-diffable, GitHub-rendered, ADR-citable. |
-| L5 | **ADR slot reserved** = **ADR-015 — Three-pillar product framing (v0.5.0 agenda redefinition)**. Lands in the same milestone as `docs/STRATEGY.md`; the two cross-link bidirectionally. | ARCHITECTURE.md Part B; PITFALLS.md #21 | Same pattern as ADR-011 ↔ STABILITY-MODEL.md. ADR-015 records ≥3 considered alternatives (stay single-pillar / pivot security-first / four pillars including observability) per PITFALLS.md #21. |
+| L5 | **ADR slot reserved** = **ADR-015 — Three-pillar product framing (v0.3.3 agenda redefinition)**. Lands in the same milestone as `docs/STRATEGY.md`; the two cross-link bidirectionally. | ARCHITECTURE.md Part B; PITFALLS.md #21 | Same pattern as ADR-011 ↔ STABILITY-MODEL.md. ADR-015 records ≥3 considered alternatives (stay single-pillar / pivot security-first / four pillars including observability) per PITFALLS.md #21. |
 | L6 | **Website propagation strategy** = restructure `index.html` IA to mirror the three-pillar framing (mise.jdx.dev pattern) **+** link out to `docs/STRATEGY.md` from the appropriate section. **Reject** CI-side render of MD → HTML (violates the no-build constraint). | ARCHITECTURE.md Part C | Hand-port; no new tooling; ~1–2 days of focused work. |
-| L7 | **Voice rule** (verbatim from PITFALLS.md): **delivered-fact voice** = present-tense indicative naming a shipped behaviour, links to `@test` / ADR / CI gate / release artefact. **Forward-looking voice** = first-person plural commitment with explicit horizon, no present-tense product subject. NEVER write "AgentLinux benchmarks…" or "AgentLinux defends against…" for unshipped behaviour. **Aspirational drift** = any sentence that uses delivered-fact voice for an unshipped behaviour and is the single most dangerous v0.5.0 pattern. | PITFALLS.md (phrasing-rule glossary, pitfalls #6, #14) | Enforced by `grep -nE '^[^a-z]*AgentLinux (provides\|offers\|ensures\|protects\|defends\|benchmarks\|measures\|hardens\|isolates\|detects\|prevents)\b'` on pillar-2/3 sections — must return zero matches. |
+| L7 | **Voice rule** (verbatim from PITFALLS.md): **delivered-fact voice** = present-tense indicative naming a shipped behaviour, links to `@test` / ADR / CI gate / release artefact. **Forward-looking voice** = first-person plural commitment with explicit horizon, no present-tense product subject. NEVER write "AgentLinux benchmarks…" or "AgentLinux defends against…" for unshipped behaviour. **Aspirational drift** = any sentence that uses delivered-fact voice for an unshipped behaviour and is the single most dangerous v0.3.3 pattern. | PITFALLS.md (phrasing-rule glossary, pitfalls #6, #14) | Enforced by `grep -nE '^[^a-z]*AgentLinux (provides\|offers\|ensures\|protects\|defends\|benchmarks\|measures\|hardens\|isolates\|detects\|prevents)\b'` on pillar-2/3 sections — must return zero matches. |
 | L8 | **ADR-012 (NOPASSWD ALL) position** = "Defensible scope choice for v0.3.0; *security debt now* that pillar 3 is being committed to. Pillar 3 commits to *revisiting* the trade-off in v0.6+ via an opt-in `agentlinux harden` profile (capability-scoped sudoers + bubblewrap-based per-recipe sandbox + iptables egress allowlist). v0.3.x default posture unchanged." | FEATURES.md §E (ADR-012 special call-out) | This exact framing goes into both `docs/STRATEGY.md` Pillar 3 *and* ADR-015's Consequences section. |
 | L9 | **Strategy doc's `Today` / `Direction` split per pillar** — every pillar section is split into `### Today (delivered, vX.Y.Z)` and `### Direction (forward-looking)` subsections with a horizontal rule between them. Pillar 1's `Direction` block is allowed to be "this pillar is foundational; tracked via the bats suite" but the subsection MUST exist for symmetry. | PITFALLS.md #7 | Structural enforcement of the L7 voice rule. |
 | L10 | **Site source location** = repo root (NOT `site/` or `website/`). `index.html`, `CNAME`, `sitemap.xml`, `robots.txt`, `assets/` all at root. | ARCHITECTURE.md "Repo state inspected" §1 | The milestone-context's reference to `site/` is incorrect; the website-refresh phase touches root-level `index.html`. |
@@ -45,7 +73,7 @@ Pulled from STACK.md's recommended TOC. Authoring phase plan fills it in; sectio
 # AgentLinux Product Strategy
 
 > One-paragraph elevator opener (what AgentLinux is, who it serves, why
-> v0.5.0 broadened from one pillar to three). Anchor links to AL-7 and ADR-015.
+> v0.3.3 broadened from one pillar to three). Anchor links to AL-7 and ADR-015.
 
 Quicklinks:
 - ADR-015 — Three-pillar product framing
@@ -106,7 +134,7 @@ Quicklinks:
 
 **Differentiator commitments (3):**
 
-- **P2-4** — Adopt one or more of: **terminal-bench** (closest analog to "agent operating a real CLI environment"), **Multi-Docker-Eval-style env-build efficiency reporting** (token + wall-clock + image size — the closest published methodological precedent), and a small AgentLinux-specific golden-task suite. Selection happens *in the v0.6 Benchmarks milestone*, not in v0.5.0.
+- **P2-4** — Adopt one or more of: **terminal-bench** (closest analog to "agent operating a real CLI environment"), **Multi-Docker-Eval-style env-build efficiency reporting** (token + wall-clock + image size — the closest published methodological precedent), and a small AgentLinux-specific golden-task suite. Selection happens *in the v0.6 Benchmarks milestone*, not in v0.3.3.
 - **P2-5** — Where appropriate, results reported as **`pass^k`** (Sierra τ-bench convention) so reliability is visible, not hidden behind best-of-k. Most agent products quote `pass@k`; pass^k is the right metric for a stability-pillar product.
 - **P2-6** — Token, cost, and latency observability for users who opt in via catalog entries for **Helicone** or **Langfuse**. AgentLinux ships neither by default (no-default-agents principle, ADR-003) but the catalog makes it one command away.
 
@@ -171,12 +199,12 @@ Eight in-repo files cross-link to STRATEGY.md; STRATEGY.md cross-links to nine i
 |---|---|
 | `README.md` — new sentence in About + link in Links | small surgical |
 | `CONTRIBUTING.md` — new "Why this project exists" paragraph linking to STRATEGY.md | one-line addition |
-| `docs/decisions/015-agenda-redefinition.md` (new) | new file (the v0.5.0 ADR) |
+| `docs/decisions/015-agenda-redefinition.md` (new) | new file (the v0.3.3 ADR) |
 | `docs/decisions/011-stability-first-version-pinning.md` | optional bidirectional link (recommended) |
 | `docs/decisions/012-agent-user-full-sudo.md` | optional bidirectional link (recommended for honest documentation of unresolved tension) |
 | `docs/STABILITY-MODEL.md` — Related section | optional, recommended |
 | `.planning/PROJECT.md` — Core Value section | required as part of milestone close |
-| `agentlinux.org` (`index.html`) | required as part of v0.5.0 Site-Refresh phase |
+| `agentlinux.org` (`index.html`) | required as part of v0.3.3 Site-Refresh phase |
 | Future `ROADMAP.md` (v0.6+ milestones, when they exist) | future requirement |
 
 **No update needed:** `docs/HARNESS.md` (orthogonal, internal harness spec).
@@ -211,7 +239,7 @@ Footer:    repo, releases, ADRs, STABILITY-MODEL, STRATEGY
 
 **Install-instruction drift mitigation.** Adopt **option 2 from ARCHITECTURE.md Part C**: deploy-time grep check that fails the deploy if the `index.html` install snippet's version stamp diverges from `README.md`'s `<!-- VERSION_START --><!-- VERSION_END -->` block. Same shape as the existing Pattern 5 anti-drift check on `install.sh`.
 
-**Explicitly out of scope (deferred unless phase-discuss surfaces it):** Visual redesign. The crab mascot stays. The dark JetBrains Mono aesthetic stays. The OG-image SVG → PNG conversion (carried since v0.1.0 per PROJECT.md known-issues) **should be folded into this PR** — v0.5.0 is the right time to fix it, and the OG/Twitter meta-tag rewrite (PITFALLS.md #20) is happening anyway.
+**Explicitly out of scope (deferred unless phase-discuss surfaces it):** Visual redesign. The crab mascot stays. The dark JetBrains Mono aesthetic stays. The OG-image SVG → PNG conversion (carried since v0.1.0 per PROJECT.md known-issues) **should be folded into this PR** — v0.3.3 is the right time to fix it, and the OG/Twitter meta-tag rewrite (PITFALLS.md #20) is happening anyway.
 
 ---
 
@@ -225,7 +253,7 @@ The five most likely to bite us specifically (PITFALLS.md §"Top 5"). Each is pa
 | **2** | **#14 — False-advertising the broadening on the website.** Same root cause as #1, much higher visibility surface. Current site is already over-promising; site refreshes have historically been done lightly. | **Acceptance check (visual + textual):** every pillar-2 / pillar-3 section on the landing page MUST carry a visible status badge (`[v0.6+ ROADMAP]` / `[COMING SOON — v0.6+]`) at parity with how pillar 1 carries `[SHIPPED v0.3.0]`. Textual check identical to #1: `grep -nE 'AgentLinux (benchmarks\|measures\|defends\|protects\|prevents\|hardens)\b'` on the rendered HTML must return zero matches. CTA for unshipped pillars: "Follow the roadmap" / "Watch the repo" — never "Get started" / "Install now". |
 | **3** | **#22 — Strategy doc lands without updating README + CONTRIBUTING + ROADMAP.** Highest probability. Team has track record of landing `docs/`-only changes; strategy doc is *most likely* to suffer because it complements rather than replaces README, so README rewrite feels optional. It isn't. | **Acceptance check:** phase plan for the strategy-doc phase MUST enumerate every downstream surface that needs updating, in the same phase or as an explicit follow-up before the milestone closes. **Enumerated list:** `README.md` (About + Links), `CONTRIBUTING.md` (link + which pillars accept contributions today), `.planning/PROJECT.md` (Core Value section), `docs/STABILITY-MODEL.md` (Related), `docs/decisions/011-…md` (forward-reference, optional), `docs/decisions/012-…md` (forward-reference, recommended for honest tension documentation), `agentlinux.org` (separate phase). Phase-close gate: each enumerated file shows a commit in the milestone window or carries an explicit "no change needed because…" entry. |
 | **4** | **#4 — Listing pillars without prioritization.** Most likely structural failure. Three pillars + nothing-shipped on two + small team that doesn't want to "pre-decide" v0.6 = strong incentive to write all three in equal voice with equal length. | **Acceptance check:** pillars section MUST include a "**Pillar priority**" subsection that explicitly tags each pillar as `foundational` / `next-milestone` / `opportunistic`. **For AgentLinux this lands as:** pillar 1 = `foundational`, pillar 2 OR pillar 3 = `next-milestone`, the other = `opportunistic`. Strategy doc owner MUST commit to which is which; deferring the choice fails the gate. (See OQ-3 below — this decision is Open Questions.) |
-| **5** | **#12 — Strategy doc never updates again.** Most likely long-term failure. AgentLinux has strong harness culture but no living-doc culture; ADRs are immutable by convention; strategy doc inherits that mental model when it shouldn't. | **Acceptance check (process binding):** the `/gsd-complete-milestone` template gains a mandatory step "Strategy doc reviewed; pillar `Today` sections updated for any newly-shipped behaviour; pillar `Direction` sections updated to remove now-shipped commitments." Strategy doc gains a top-of-file "**Last reviewed:** `<date>` at `<milestone close>`" header that the milestone-close gate enforces. Optionally: CI lint that fails if header date is older than the most recent release tag by >90 days. **This pitfall is NOT mitigated by an in-milestone check alone — it requires amending the milestone-close convention itself, so flag for the v0.5.0 retrospective and the `/gsd-new-milestone` template update that follows.** |
+| **5** | **#12 — Strategy doc never updates again.** Most likely long-term failure. AgentLinux has strong harness culture but no living-doc culture; ADRs are immutable by convention; strategy doc inherits that mental model when it shouldn't. | **Acceptance check (process binding):** the `/gsd-complete-milestone` template gains a mandatory step "Strategy doc reviewed; pillar `Today` sections updated for any newly-shipped behaviour; pillar `Direction` sections updated to remove now-shipped commitments." Strategy doc gains a top-of-file "**Last reviewed:** `<date>` at `<milestone close>`" header that the milestone-close gate enforces. Optionally: CI lint that fails if header date is older than the most recent release tag by >90 days. **This pitfall is NOT mitigated by an in-milestone check alone — it requires amending the milestone-close convention itself, so flag for the v0.3.3 retrospective and the `/gsd-new-milestone` template update that follows.** |
 
 ---
 
@@ -310,4 +338,4 @@ For downstream phases that want to drill in. All paths are absolute from the wor
 - **OQ-1 / OQ-2 (phase split shape)** — recommended defaults given but final call belongs to roadmapper.
 - **OQ-4 (guiding principles count)** — recommended default of 5 with seed list; final list is Phase-A authoring decision.
 - **OQ-5 (Jira sub-task timing)** — process question; defer to post-roadmap.
-- **PITFALLS.md #12 / #23** — strategy-doc-never-updates-again is a process risk that requires amending `/gsd-complete-milestone` template, NOT just a v0.5.0 phase-plan acceptance criterion. Flag for the v0.5.0 retrospective + the `/gsd-new-milestone` template update that follows.
+- **PITFALLS.md #12 / #23** — strategy-doc-never-updates-again is a process risk that requires amending `/gsd-complete-milestone` template, NOT just a v0.3.3 phase-plan acceptance criterion. Flag for the v0.3.3 retrospective + the `/gsd-new-milestone` template update that follows.
