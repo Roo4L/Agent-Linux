@@ -1,0 +1,78 @@
+# tests/docker/Dockerfile.dogfood
+# Minimal Ubuntu base for one-command dogfood retests of the curl-pipe-bash
+# install path. AL-36.
+#
+# Goal: reproduce the user-with-curl-already-installed starting state, NOTHING
+# more. Specifically, this image deliberately does NOT preinstall sudo, file,
+# jq, gnupg, locales, or any other package the AgentLinux installer is
+# supposed to install itself. Preinstalling those would silently bypass the
+# AL-30 auto-install gates (sudo via 20-sudoers.sh, file-replacement via the
+# coreutils head+od magic-byte read in packaging/curl-installer/install.sh,
+# locales via 10-agent-user.sh) and the dogfood would mask the very class of
+# bugs we built it to catch.
+#
+# Contents above the Ubuntu base:
+#   - curl + ca-certificates: bootstrap the curl-pipe-bash command. This
+#     mirrors what a real user would have on a typical Linux laptop —
+#     anything narrower (curl absent) just shifts the "first apt-get install"
+#     onto the user, which is not what we are testing.
+#   - systemd + systemd-sysv: PID 1 is /sbin/init so the AGT-02 self-update
+#     probe (claude update, gated on --user systemd availability) runs end
+#     to end. Without systemd as PID 1 the probe terminates with the same
+#     "Raw mode is not supported" stdin error we saw on bare ubuntu.
+#
+# Runtime requirements (set by tests/docker/dogfood.sh, NOT this Dockerfile):
+#   - --privileged
+#   - --cgroupns=host
+#   - -e container=docker
+#   - -v /sys/fs/cgroup:/sys/fs/cgroup:rw
+#   - --tmpfs /run --tmpfs /tmp
+#
+# Build args:
+#   UBUNTU_VERSION=22.04 | 24.04 (default) | 26.04
+#
+# Refs: AL-36; tests/docker/Dockerfile.ubuntu-24.04 §Pitfall 3 (systemd recipe);
+#       packaging/curl-installer/install.sh; AL-30 (auto-install sudo);
+#       AL-31 (unpinned curl-bash workaround documented in dogfood.sh wrapper).
+
+ARG UBUNTU_VERSION=24.04
+FROM ubuntu:${UBUNTU_VERSION}
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Two packages only. systemd and systemd-sysv are required for PID 1; curl
+# and ca-certificates are required to fetch install.sh over HTTPS. Anything
+# else is the AgentLinux installer's job.
+#
+# NOTE: We intentionally do NOT clean /var/lib/apt/lists/ after install.
+# AL-37 documents that plugin/provisioner/10-agent-user.sh runs `apt-get
+# install locales` without a preceding `apt-get update`, so the apt cache
+# must be populated when the installer runs. Earlier dogfood retests
+# accidentally hid this bug because the manual eight-line recipe ran
+# `apt-get update` before installing curl, side-effecting a populated cache.
+# The strategic fix lives in AL-37 (the installer itself runs apt-get
+# update); until then, keeping the cache populated here is the tactical
+# fix that makes the dogfood image work.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+         systemd systemd-sysv \
+         curl ca-certificates \
+    && apt-get clean
+
+# Mask the systemd units that fight containerized PID 1 (logind needs real
+# seats; resolved/networkd assume real netns ownership; tmpfiles-clean
+# clobbers the bind-mounted cgroup tree). Identical mask list to the heavier
+# tests/docker/Dockerfile.ubuntu-24.04 — same recipe, same constraints.
+RUN rm -f /lib/systemd/system/multi-user.target.wants/* \
+    && systemctl mask \
+         systemd-logind.service \
+         systemd-resolved.service \
+         systemd-networkd.service \
+         systemd-tmpfiles-setup.service \
+         systemd-tmpfiles-clean.service \
+         systemd-tmpfiles-clean.timer
+
+VOLUME /sys/fs/cgroup
+STOPSIGNAL SIGRTMIN+3
+
+CMD ["/sbin/init"]
