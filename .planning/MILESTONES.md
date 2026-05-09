@@ -69,13 +69,35 @@
 
 ---
 
-## v0.4.0 Open-Source Release — IN PROGRESS
+## v0.4.0 Open-Source Release — Shipped: 2026-05-09
 
-**Started:** 2026-04-26
+**Started:** 2026-04-26 | **Phases completed:** 5 (Phases 7–11) | **Anchor:** Issue AGE-6
 
-**Goal:** Open-source the AgentLinux GitHub repository — establish OSS licensing, eliminate any leaked secrets from git history, clean up build artifacts and stale branches, verify CI/CD operates correctly under public-repo permissions, and flip visibility to public so AgentLinux can ride free GitHub Actions minutes and accept community contributions.
+**Key accomplishments:**
+- MIT OSS license (ADR-013); LICENSE at repo root, README license badge + section, SPDX headers on first-party source files (LIC-01..04)
+- Secret scanning sweep: gitleaks (1 finding, triaged false positive) + trufflehog (0 verified) + targeted manual audit (8 patterns × 255 commits = 0 matches); SEC-04 closes as no-op (ADR-014); gitleaks gate live in pre-commit + CI (SEC-01..05)
+- Repository hygiene: 0 stale branches, 0 blobs >500 KB anywhere in history, .gitignore hardened (CLEAN-01..04)
+- Public CI/CD readiness: workflow `permissions:` blocks at least-privilege; 0 `pull_request_target` usage; branch protection on `master` applied (CIPUB-01..04)
+- Repository visibility flipped to public; anonymous-clone + `curl | bash` smoke test against v0.3.0 release tag both green (PUB-01..04)
 
-**Why now:** Private-repo CI/CD spend has become non-trivial as the QEMU release-gate matrix grew (Phase 6 of v0.3.0). Public repos get free Actions minutes. Public visibility also unblocks community contributions and outside marketing/outreach.
+**What carries forward into v0.5.0:** Free GitHub Actions minutes (unblocks the broader benchmark + security work pillars 2 and 3 will eventually require). OSS license + CONTRIBUTING surface for external contributors. ADR-001..ADR-014 + behavior-test contract + per-phase TST-07-style phase-close gate convention.
+
+**Archived planning:** `.planning/milestones/v0.4.0-REQUIREMENTS.md` + `.planning/milestones/v0.4.0-ROADMAP.md` (preserved for traceability; phase directories `.planning/phases/07-*..11-*` remain in place — formal archive happens via `/gsd-complete-milestone v0.4.0`).
+
+---
+
+## v0.5.0 Agenda Redefinition — IN PROGRESS
+
+**Started:** 2026-05-09 | **Anchor:** Jira epic [AL-7 — Project agenda redefinition](https://copiedwonder.atlassian.net/browse/AL-7)
+
+**Goal:** Broaden AgentLinux's mission from a single-pillar product ("separated, correctly-owned agent environment") to a three-pillar product, capture the new framing in a canonical product-strategy document, and propagate the framing to the public landing page at agentlinux.org.
+
+**Three pillars (per AL-7):**
+1. Separated, correctly-owned agent environment — the existing v0.3.0 core (foundational; not changing in v0.5.0)
+2. Stability + best-tested setup with measurable benchmarks (token consumption, speed, task success rate vs vanilla)
+3. Security hardening against supply-chain + prompt/tool-injection attacks
+
+**Why now:** A single-pillar framing is too narrow to position AgentLinux against agent-environment competitors and to attract the right contributors. The strategy doc becomes a single source of truth that downstream surfaces (website, CONTRIBUTING, future milestone roadmaps) reference; pillar 2 + pillar 3 implementation lands in v0.6+ milestones with the framing locked.
 
 See: `.planning/PROJECT.md` and `.planning/ROADMAP.md` for active scope and phases.
 

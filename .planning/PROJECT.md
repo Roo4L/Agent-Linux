@@ -10,25 +10,36 @@ The project also maintains a landing page at **agentlinux.org** for validation a
 
 An agent can be dropped into any supported Linux system and *just work* — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights, sudo prompts, or recursive-shim workarounds. Installing AgentLinux on your distro gives you an agent environment that was built right the first time.
 
-## Current Milestone: v0.4.0 Open-Source Release
+## Current Milestone: v0.5.0 Agenda Redefinition
 
-**Goal:** Open-source the AgentLinux GitHub repository — establish OSS licensing, eliminate any leaked secrets from git history, clean up build artifacts and stale branches, verify CI/CD operates correctly under public-repo permissions, and flip visibility to public so AgentLinux can ride free GitHub Actions minutes and accept community contributions.
+**Anchor:** Jira epic [AL-7 — Project agenda redefinition](https://copiedwonder.atlassian.net/browse/AL-7).
+
+**Goal:** Broaden AgentLinux's mission from a single-pillar product ("separated, correctly-owned agent environment") to a three-pillar product, capture the new framing in a canonical product-strategy document, and propagate the framing to the public landing page at agentlinux.org.
+
+**The three pillars (per AL-7):**
+1. **Separated, correctly-owned agent environment** — the existing v0.3.0 core: dedicated agent user, per-user npm prefix, no-EACCES self-update. Foundational; not changing in v0.5.0.
+2. **Stability + best-tested setup for agents** — pinned curated combinations (ADR-011 is the seed) extended with **measurable benchmarks** vs vanilla setups: token consumption, throughput/speed, task success rate.
+3. **Security hardening** — defenses against (a) supply-chain attacks on the agent toolchain (npm registry compromise, recipe tampering, transitive deps) and (b) prompt/tool-injection attacks against the agent itself (OWASP LLM Top 10 territory, Anthropic tool-use safety guidance).
 
 **Target features:**
-- OSS licensing (MIT recommended) — `LICENSE` file at repo root, README updated with license badge/section, SPDX headers on source files where appropriate
-- Full git-history secret-scanning sweep (gitleaks + trufflehog) with explicit attention to Buttondown API tokens, GitHub / Anthropic / npm / package-registry credentials, and `.env` / `.npmrc` / `.git-credentials` artifacts
-- Remediation of any found secrets (rotate + decide between accept-with-rotation and history rewrite per severity); pre-commit + CI guard to prevent re-introduction
-- Repository hygiene cleanup — stale branches, large binary artifacts, accidentally-committed build outputs; `.gitignore` audit
-- CI/CD public-readiness — verify all GitHub Actions workflows run correctly under public-repo permissions, harden any `pull_request_target` usage against fork-PR exfiltration, configure branch-protection on `main`
-- Public visibility flip + post-flip smoke (anonymous clone + `curl | bash` install path against the v0.3.0 release tag)
+- Canonical **product-strategy document** in the repo (likely `docs/strategy/`) — vision, target users, jobs-to-be-done, the three pillars + their non-goals, positioning vs alternatives, candidate roadmap themes for v0.6+. Authored from a PM-framework template chosen via parallel research.
+- **Decision provenance** — ADR documenting the framing choice, discarded alternatives, and the AL-7 connection.
+- **Roadmap themes for v0.6+** surfaced as a forward-looking appendix in the strategy doc — not committed phases (those happen at the next `/gsd-new-milestone`). Likely candidates: a Benchmarks/Stability milestone and a Security Hardening milestone.
+- **Website refresh** at agentlinux.org reflecting the three-pillar framing — scope locked at phase-discuss time after the strategy doc lands.
 
-## Previous Milestone: v0.3.0 AgentLinux Plugin (Ubuntu) — feature-complete 2026-04-20
+**Verification posture:** v0.5.0 is a planning/strategy milestone. Most evidence is documents (strategy doc + ADR + audit reports per phase), not bats @tests. The website-refresh phase produces real product code (HTML/CSS/JS); the bats / Docker / QEMU harness from v0.3.0 stays green throughout (a regression there blocks the milestone) but no new bats are required.
 
-v0.3.0 shipped the installable Ubuntu plugin in 6 phases (Harness, Installer Foundation + Agent User, Node.js Runtime, Registry CLI + Catalog, Agent Installability, Distribution + Release Pipeline) plus one inserted phase (5.1 Agent User Sudo Drop-In). All 54 v0.3.0 requirements have observable bats coverage, both Ubuntu 22.04 + 24.04 Docker matrices and the QEMU release-gate suite are green, and AGT-02 (the canonical "Claude Code self-updates without sudo / EACCES" acceptance test) passes end-to-end against the live Anthropic CDN. The v0.3.0 release pipeline is wired (4-gate `release.yml`: pre-commit → Docker matrix → QEMU release gate → pinned-combo gate) and awaits its first `v0.3.0-rc1` tag push as the shipping event. v0.4.0 (open-sourcing) does not block on the rc1 tag — repo cleanup runs in parallel.
+## Previous Milestone: v0.4.0 Open-Source Release — Shipped 2026-05-09
 
-**What carries forward:** The behavior-test contract (bats suite as spec), curl-pipe-bash installer, catalog + registry CLI, ADR-001..ADR-012, and the phase-close TST-07 behavior-coverage-auditor gate. v0.4.0 phases follow the same per-phase TST-07 pattern: every requirement gets at least one verifiable check (bats @test, CI-gate citation, or auditable artifact) before the phase closes.
+v0.4.0 took AgentLinux from a private repository to a public one across 5 phases (License + Public-Ready Documentation; Secret Scanning + History Audit; Repository Hygiene + Artifact Cleanup; Public CI/CD + Branch Protection; Public Visibility Flip + Smoke Test). MIT licensed (ADR-013). Zero verified secrets in history (gitleaks + trufflehog + targeted manual audit). gitleaks gate live in pre-commit + CI. Workflow `permissions:` blocks at least-privilege; zero `pull_request_target` usage. Branch protection applied on `master`. The visibility flip executed and the post-flip anonymous-clone + `curl | bash` smoke test against the v0.3.0 release tag both succeeded.
+
+**What carries forward into v0.5.0:** Public-repo CI/CD spend now lives on free GitHub Actions minutes, unblocking the broader benchmark/security work that pillars 2 and 3 will eventually require. The OSS license + CONTRIBUTING surface lets external contributors begin engaging with the strategy doc and any v0.6+ work that flows from it. ADR-001..ADR-014 + the behavior-test contract (bats suite as spec) + the per-phase TST-07-style phase-close gate convention all carry forward unchanged; v0.5.0 phases follow the same evidence-cite-per-requirement pattern, with documentation artifacts substituting for bats where appropriate.
 
 ## Earlier Milestones
+
+### v0.3.0 AgentLinux Plugin (Ubuntu) — Shipped 2026-04-20
+
+v0.3.0 shipped the installable Ubuntu plugin in 6 phases (Harness, Installer Foundation + Agent User, Node.js Runtime, Registry CLI + Catalog, Agent Installability, Distribution + Release Pipeline) plus one inserted phase (5.1 Agent User Sudo Drop-In). All 54 v0.3.0 requirements have observable bats coverage; Ubuntu 22.04 + 24.04 + 26.04 Docker matrices and the QEMU release-gate suite green; AGT-02 (the canonical "Claude Code self-updates without sudo / EACCES" acceptance test) passes end-to-end against the live Anthropic CDN. 4-gate `release.yml` (pre-commit → Docker matrix → QEMU release gate → pinned-combo gate). Carries forward: behavior-test contract (bats suite as spec), curl-pipe-bash installer, catalog + registry CLI, ADR-001..ADR-012, TST-07 phase-close gate convention.
 
 ### v0.2.0 First Distro Image (retired 2026-04-18 — pivot)
 
@@ -68,28 +79,38 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 - ✓ Canonical acceptance test AGT-02: Claude Code self-update without sudo / EACCES — v0.3.0 (live against Anthropic CDN, both Ubuntu 22.04 + 24.04)
 - ✓ Bats behavior-test suite + Docker matrix + QEMU release-gate suite + 4-gate `release.yml` — v0.3.0
 - ✓ Pinned-combo release gate (TST-08) + catalog snapshot publication (CAT-05) per ADR-011 — v0.3.0
+- ✓ MIT OSS license (ADR-013) — `LICENSE` at repo root, README license badge + section, SPDX headers on first-party source files (LIC-01..04) — v0.4.0
+- ✓ Full git-history secret scan (gitleaks + trufflehog + targeted manual audit) — zero verified findings, one false positive triaged (SEC-01..03) — v0.4.0
+- ✓ Pre-commit + CI gitleaks gate live; smoke-test confirms gate fires on contrived secrets (SEC-04..05) — v0.4.0
+- ✓ Repository hygiene: `.gitignore` hardened, no stale branches, no >500 KB blobs in history (CLEAN-01..04) — v0.4.0
+- ✓ Workflow `permissions:` blocks at least-privilege; zero `pull_request_target`; branch protection on `master` applied (CIPUB-01..04) — v0.4.0
+- ✓ Repository visibility flipped to public; anonymous-clone + `curl | bash` smoke against v0.3.0 release tag green (PUB-01..04) — v0.4.0
 
-### Active (v0.4.0 — Open-Source Release)
+### Active (v0.5.0 — Agenda Redefinition)
 
-- [ ] OSI-approved OSS license (MIT recommended) — `LICENSE` file at repo root, README updated, SPDX headers where appropriate
-- [ ] Full git-history secret scan (gitleaks + trufflehog) with zero confirmed High/Critical findings (or all findings triaged with documented decision)
-- [ ] Buttondown API tokens, GitHub / Anthropic / npm credentials, `.env` / `.npmrc` / `.git-credentials` artifacts specifically audited
-- [ ] Any leaked secrets rotated; severity decides between accept-with-rotation vs. history rewrite (`git filter-repo`)
-- [ ] Pre-commit and/or CI gate runs gitleaks on every PR going forward
-- [ ] Stale branches, large binaries (>1 MB outside release artifacts), and accidentally-committed build outputs removed; `.gitignore` audited
-- [ ] All GitHub Actions workflows verified to run correctly under public-repo permissions; fork-PR exfiltration paths hardened
-- [ ] Branch protection on `main` (require review, require CI green, no force-push)
-- [ ] Repository visibility flipped to public via `gh repo edit --visibility public` (or GitHub UI)
-- [ ] Post-flip smoke: anonymous HTTPS clone + `curl | bash` install path against v0.3.0 release tag both succeed
+Requirements for this milestone are defined in `.planning/REQUIREMENTS.md` after the parallel-research pass and the requirement-scoping conversation. Categories will likely span:
+
+- **STRAT-XX**: Product-strategy document content (vision, target users, JTBD, three pillars, positioning, roadmap themes appendix)
+- **ADR-XX**: Decision provenance for the framing
+- **SITE-XX**: Website refresh deliverables (scope locked at phase-discuss time after the strategy doc lands)
+- **MILE-XX**: Forward-looking roadmap-theme commitments seeded from the strategy doc
+
+Refer to `REQUIREMENTS.md` for the locked list once defined.
 
 ### Out of Scope
 
-**v0.4.0 out of scope:**
-- New distro targets (Fedora / CentOS / Alma / Arch / openSUSE) — deferred to a later milestone; the public flip is a repo/process milestone, not a feature milestone
-- New agent recipes or catalog entries — catalog churn happens in feature milestones, not the open-sourcing one
+**v0.5.0 out of scope:**
+- *Implementing* benchmarks (pillar 2) — v0.5.0 surfaces benchmarks as a roadmap theme; the actual harness/dataset/scoring lands in a v0.6+ milestone
+- *Implementing* security-hardening countermeasures (pillar 3) — v0.5.0 surfaces threat models + roadmap themes; supply-chain and prompt-injection mitigations land in a v0.6+ milestone
+- New distro targets, new catalog agents, new installer features — pillar 1 stays at its v0.3.0 surface for this milestone
+- A full website redesign — the website-refresh phase decides scope at phase-discuss time, after the strategy doc; default expectation is content/IA changes, not a new visual design
+- Renaming, restructuring, or moving the strategy doc after Phase A lands — the doc location locks at Phase A close so the website refresh can link to a stable URL
+
+**v0.4.0 out of scope (carried forward):**
+- New distro targets (Fedora / CentOS / Alma / Arch / openSUSE) — deferred to a later milestone
 - Mutation testing promotion to release gate — still v0.5+ per ADR-010
 - Multi-arch (ARM) — x86_64 only for now
-- Repo migration to a different GitHub organization or rename — out of scope; this milestone keeps the repo in place and only flips visibility
+- Repo migration to a different GitHub organization or rename
 
 **v0.3.0 out of scope (carried forward):**
 - Fedora / CentOS / Alma / Arch / openSUSE targets (deferred to a later feature milestone)
@@ -115,11 +136,13 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 
 **Distro experiment (v0.2.0, retired 2026-04-18):** Packer + QEMU + fpm stack produced bootable Debian 12 QCOW2 images with three agent tools pre-packaged. Useful provisioner-script learnings. Retired because distro-as-product has too much adoption friction vs. an installable extension.
 
-**Plugin (v0.3.0, feature-complete 2026-04-20):** All 6 phases plus inserted phase 5.1 shipped. 54/54 requirements covered. Awaits the first `v0.3.0-rc1` tag push as the runtime-shipping event.
+**Plugin (v0.3.0, shipped 2026-04-20):** All 6 phases plus inserted phase 5.1 shipped. 54/54 requirements covered. v0.3.0-rc1 tag pushed; release pipeline executed end-to-end.
 
-**Open-Source Release (v0.4.0, current):** Repo is currently private. Going public delivers two things: free GitHub Actions minutes (private-repo CI/CD spend has become non-trivial as the QEMU release-gate matrix grew) and an unblocked path to community contributions and outside marketing/outreach. Non-negotiables before flipping: a recognized OSS license, zero verifiable secrets in git history (with rotation of anything that did leak), CI/CD verified to keep working under public-repo permissions and fork-PR exfiltration patterns. The visibility flip is the milestone's shipping event.
+**Open-Source Release (v0.4.0, shipped 2026-05-09):** Repository is now public. Free GitHub Actions minutes unblock the broader benchmark/security work pillars 2 and 3 will eventually require. MIT licensed (ADR-013). Zero verified secrets in history. Workflow `permissions:` blocks at least-privilege; branch protection on `master`; post-flip anonymous-clone + `curl | bash` smoke green.
 
-Known minor issue: OG image (SVG format) doesn't render on all social platforms — convert to PNG for broader support (website todo).
+**Agenda Redefinition (v0.5.0, current):** Anchored on Jira epic AL-7. Broadens AgentLinux's mission from a single-pillar product to three pillars (separated agent environment + stability/benchmarks + security hardening), captures the new framing in a canonical product-strategy document plus an ADR, and propagates the framing to the public landing page. Forward-looking — pillar 2 (benchmarks) and pillar 3 (security) describe direction and seed v0.6+ milestones; v0.5.0 ships the framing, not the implementation.
+
+Known minor issue (carried forward): OG image (SVG format) doesn't render on all social platforms — convert to PNG for broader support (website todo).
 
 ## Constraints
 
@@ -149,9 +172,12 @@ Known minor issue: OG image (SVG format) doesn't render on all social platforms 
 | Local apt repo in image (no public PPA) | Sufficient for PoC | Retired with pivot |
 | Ubuntu as v0.3.0 target | Largest developer Linux audience; apt-based (leverages v0.2.0 learnings) | ✓ Good — v0.3.0 shipped on Ubuntu 22.04 + 24.04 |
 | Canonical acceptance test: Claude Code self-update | Directly tests the motivating bug class (EACCES / recursive shim) | ✓ Good — AGT-02 green end-to-end against Anthropic CDN |
-| **Open-source the repo (v0.4.0)** (2026-04-26) | Private-repo CI/CD spend is non-trivial; public repos get free Actions minutes; unblocks community contributions and outside marketing | — Active |
-| MIT as recommended OSS license | Permissive, dependency-friendly, low-friction for community adoption (vs. Apache-2.0 patent grant or GPL copyleft) | — Active (final pick confirmed in Phase 7) |
-| Visibility flip is irreversible-in-practice | Re-private is possible but third parties may have already cloned/forked; treat as one-way | — Active (drives Phase 11 pre-flight checklist) |
+| **Open-source the repo (v0.4.0)** (2026-04-26) | Private-repo CI/CD spend is non-trivial; public repos get free Actions minutes; unblocks community contributions and outside marketing | ✓ Shipped 2026-05-09 |
+| MIT as the OSS license (ADR-013) | Permissive, dependency-friendly, low-friction for community adoption | ✓ Applied in v0.4.0 Phase 7 |
+| Visibility flip treated as irreversible-in-practice | Re-private is possible but third parties may have already cloned/forked; one-way trip | ✓ Drove the v0.4.0 Phase 11 pre-flight checklist; flip executed |
+| **Agenda redefinition (v0.5.0)** (2026-05-09, AL-7) | A single-pillar framing ("separated agent environment") is too narrow to position AgentLinux against agent-environment competitors and to attract the right contributors; broadening to three pillars (env + stability/benchmarks + security) gives a defensible PM-grade product story | — Active |
+| Strategy doc as the v0.5.0 keystone deliverable | A single source-of-truth for "what AgentLinux is" anchored in the repo (vs. spread across README, website, ADRs) lets every downstream surface (site, CONTRIBUTING, future milestone roadmaps) reference one canonical framing | — Active |
+| Defer pillar 2 + pillar 3 implementation to v0.6+ | Strategy must lock before benchmarks/threat-model work picks scope; otherwise the implementation ships against an unstable framing | — Active |
 
 ## Evolution
 
@@ -171,4 +197,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-26 — v0.3.0 feature-complete; v0.4.0 (Open-Source Release) milestone planned.*
+*Last updated: 2026-05-09 — v0.4.0 (Open-Source Release) shipped; v0.5.0 (Agenda Redefinition, AL-7) milestone planned.*
