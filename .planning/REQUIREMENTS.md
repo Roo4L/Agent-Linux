@@ -14,7 +14,7 @@
 - **Pillar contents are not pre-decided.** The research SUMMARY.md surfaces the landscape (eval suites, attack inventory, defense inventory, named precedents) as **raw material**; the exploration phases decide what AgentLinux actually commits to.
 - **The voice rule is non-negotiable.** Per PITFALLS.md: every claim about an unshipped behaviour MUST appear in a sentence whose grammatical subject is "we" / "our roadmap" / an explicit milestone identifier — never "AgentLinux + present-tense verb." An automated grep gate enforces this on the strategy doc and on the rendered website HTML. This is the single most important defence against shipping vaporware.
 - **Phase-close gate convention carries over from v0.3.0/v0.4.0.** Every requirement closes with a cited evidence artefact in its phase's `<phase-NN>-AUDIT.md` before the gate emits GREEN. For documentation-only requirements the evidence is a file path + line range or a commit hash.
-- **The strategy doc is a living document.** Pitfall #12 / #23 — strategy doc never updates again — is flagged for the milestone retrospective + a `/gsd-complete-milestone` template amendment, not as an in-milestone requirement. The strategy doc itself includes a `Last reviewed:` header (STRAT-14) so the cadence binding has a place to land.
+- **The strategy doc is a living document.** Pitfall #12 / #23 — strategy doc never updates again — is flagged for the milestone retrospective + a `/gsd-complete-milestone` template amendment, not as an in-milestone requirement. The strategy doc itself includes a `Last reviewed:` header (STRAT-10) so the cadence binding has a place to land.
 - **User-stated direction (locked at milestone-open):** Pillar 1 = `foundational` (settled by v0.3.0 reality). Pillar 2 (framed by user as **stability + time-to-productive — automation of package installations + problem reconciliations across upstream drift**) = `next-milestone` priority. Pillar 3's existence and priority are decided by Phase 13.
 
 ## v0.3.3 Requirements
@@ -136,11 +136,39 @@ Filled in by the roadmapper agent: each requirement is mapped to exactly one pha
 
 | Req | Phase | Plan |
 |-----|-------|------|
-| EXPL-01 | 12 | TBD |
-| EXPL-02 | 13 | TBD |
-| STRAT-01..14 | 14 | TBD |
-| DOC-01..05 | 14 (or 14b) | TBD |
-| SITE-01..11 | 15 | TBD |
+| EXPL-01 | 12 | 12-01-PLAN.md |
+| EXPL-02 | 13 | 13-01-PLAN.md |
+| STRAT-01 | 14 | 14-01-PLAN.md |
+| STRAT-02 | 14 | 14-01-PLAN.md |
+| STRAT-03 | 14 | 14-01-PLAN.md |
+| STRAT-04 | 14 | 14-01-PLAN.md |
+| STRAT-05 | 14 | 14-01-PLAN.md |
+| STRAT-06 | 14 | 14-01-PLAN.md |
+| STRAT-07 | 14 | 14-01-PLAN.md |
+| STRAT-08 | 14 | 14-01-PLAN.md |
+| STRAT-09 | 14 | 14-01-PLAN.md |
+| STRAT-10 | 14 | 14-01-PLAN.md |
+| STRAT-11 | 14 | 14-01-PLAN.md |
+| STRAT-12 | 14 | 14-02-PLAN.md |
+| STRAT-13 | 14 | 14-01-PLAN.md |
+| DOC-01 | 14 | 14-02-PLAN.md |
+| DOC-02 | 14 | 14-02-PLAN.md |
+| DOC-03 | 14 | 14-02-PLAN.md |
+| DOC-04 | 14 | 14-02-PLAN.md |
+| DOC-05 | 14 | 14-02-PLAN.md (conditional on EXPL-02 Verdict (a); else N/A close in 14-AUDIT.md) |
+| SITE-01 | 15 | 15-01-PLAN.md |
+| SITE-02 | 15 | 15-01-PLAN.md |
+| SITE-03 | 15 | 15-01-PLAN.md |
+| SITE-04 | 15 | 15-01-PLAN.md |
+| SITE-05 | 15 | 15-01-PLAN.md |
+| SITE-06 | 15 | 15-01-PLAN.md |
+| SITE-07 | 15 | 15-01-PLAN.md |
+| SITE-08 | 15 | 15-01-PLAN.md |
+| SITE-09 | 15 | 15-01-PLAN.md |
+| SITE-10 | 15 | 15-01-PLAN.md (or N/A close if SITE-05 omits the install snippet) |
+| SITE-11 | 15 | 15-01-PLAN.md |
+
+**Coverage:** 31 / 31 requirements mapped (2 EXPL + 13 STRAT + 5 DOC + 11 SITE). Zero orphans, zero duplicates. Plan-slot conditionals (DOC-05, SITE-10) are recorded inline above.
 
 ## Deferred Items
 
