@@ -82,7 +82,6 @@ case "$UBUNTU_VERSION" in
     ;;
 esac
 
-# Strip the `ubuntu-` prefix for the docker image build-arg.
 readonly UBUNTU_NUM=${UBUNTU_VERSION#ubuntu-}
 
 # Pinned RC tag. AL-31 documents that unpinned curl-bash currently 404s
@@ -174,9 +173,8 @@ for _ in $(seq 1 30); do
 done
 
 printf '== curl-pipe-bash install (AGENTLINUX_VERSION=%s) ==\n' "$TAG"
-# Pipe the env var explicitly into the docker exec so the inner bash inherits
-# it. `-e VAR=value` adds it to the exec environment; the sub-bash invoked by
-# `sh -lc` then sees it and exports onward to install.sh.
+# Pipe AGENTLINUX_VERSION explicitly into the docker exec so the inner bash
+# inherits it (the AL-31 redirect-parse workaround documented at the top).
 docker exec -e "AGENTLINUX_VERSION=$TAG" "$CID" \
   bash -lc 'curl -fsSL https://agentlinux.org/install.sh | bash'
 
