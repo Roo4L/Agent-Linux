@@ -65,7 +65,6 @@ without the explicit grep.
 EOF
 }
 
-# Argument parsing.
 case "${1:-}" in
   -h | --help)
     usage
@@ -210,7 +209,6 @@ docker exec "$CID" sudo -u agent -H bash -lc 'claude --version'
 
 printf '== claude binary location + ownership ==\n'
 # Assert agent:agent ownership explicitly rather than eyeballing `ls -la`.
-# stat -c %U:%G prints just the owner:group columns; comparison is exact.
 CLAUDE_OWNER=$(docker exec "$CID" sudo -u agent -H bash -lc 'stat -c "%U:%G" "$(command -v claude)"')
 printf 'claude binary owner:group = %s\n' "$CLAUDE_OWNER"
 if [[ "$CLAUDE_OWNER" != "agent:agent" ]]; then
