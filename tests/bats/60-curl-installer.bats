@@ -186,3 +186,51 @@ teardown_file() {
       "plugin/ dir exists (unsafe!)" "$INSTALL_SH"
   fi
 }
+
+# AL-31: source-level guard against the v0.3.2-rc2 dogfood regression where
+# resolve_version() used `curl -fsSIL -w '%{url_effective}'`. With -L, curl
+# follows the entire redirect chain to the final release-assets host, whose
+# URL is opaque and contains no tag. The grep returned empty and unpinned
+# `curl|bash` died with "could not parse tag from redirect URL".
+#
+# Fix: drop -L, read the FIRST Location header via `%{redirect_url}` instead
+# of `%{url_effective}`. The first hop always contains the tag because GitHub
+# constructs that URL from /releases/latest/download/.
+#
+# This @test is a STATIC source-shape guard, not a behavior test — exercising
+# the live-redirect code path requires either a 302→302 fixture chain or
+# overriding the hardcoded github.com URL (no env-var seam exists for that
+# today). The shape guard is sufficient to prevent the specific regression
+# from re-landing unnoticed; a future PR can add a behavior fixture if the
+# resolve_version path grows.
+@test "INST-03: resolve_version reads first-hop redirect (AL-31 regression guard)" {
+  # 1. The fixed code MUST use %{redirect_url}.
+  if ! grep -qE "curl[^|]+-w '%\{redirect_url\}'" "$INSTALL_SH"; then
+    __fail "INST-03" \
+      "resolve_version curl invocation uses -w '%{redirect_url}'" \
+      "missing — pre-AL-31 code likely re-landed" "$INSTALL_SH"
+  fi
+  # 2. resolve_version MUST NOT use %{url_effective} (the broken pattern)
+  # OR carry -L. Look at the function body but EXCLUDE comment-only lines so
+  # the explanatory comment that mentions both `%{url_effective}` and `-L`
+  # doesn't trigger a false positive on itself.
+  if grep -qE 'resolve_version\(\)' "$INSTALL_SH"; then
+    local fn_code
+    fn_code=$(awk '/^resolve_version\(\) \{/,/^\}/' "$INSTALL_SH" \
+      | grep -vE '^[[:space:]]*#')
+    if printf '%s' "$fn_code" | grep -qE '%\{url_effective\}'; then
+      __fail "INST-03" \
+        "resolve_version() does NOT use %{url_effective}" \
+        "found — pre-AL-31 broken pattern re-landed" "$INSTALL_SH"
+    fi
+    # 3. resolve_version's curl call MUST NOT carry -L (or -fsSIL etc.).
+    # -L follows redirects past the first hop, losing the tag.
+    if printf '%s' "$fn_code" \
+      | grep -qE 'curl[^|]*-[a-zA-Z]*L[a-zA-Z]*[ '\''"]'; then
+      __fail "INST-03" \
+        "resolve_version curl call does NOT use -L" \
+        "found -L flag — would refollow past first hop and lose the tag" \
+        "$INSTALL_SH"
+    fi
+  fi
+}
