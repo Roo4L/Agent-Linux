@@ -39,8 +39,29 @@ usage() {
   cat >&2 <<'EOF'
 usage: tests/docker/dogfood.sh [<ubuntu-22.04|ubuntu-24.04|ubuntu-26.04>] [<vX.Y.Z[-suffix]>]
 
-Defaults to ubuntu-24.04 and the most recent stable AgentLinux release.
-Pin a specific RC via the second argument to test it.
+Defaults to ubuntu-24.04 and the v0.3.2-rc2 release tag (AL-31 workaround
+— unpinned curl-pipe-bash 404s against pre-AL-31 published RCs because the
+installer follows the wrong redirect hop; this wrapper exports
+AGENTLINUX_VERSION so the workaround is automatic).
+
+Environment overrides:
+  AGENTLINUX_DOGFOOD_TAG=v0.3.x-rcN   override the default tag without
+                                       passing it as the second argument
+  AGENTLINUX_KEEP_CONTAINER=1          skip teardown for interactive
+                                       `docker exec` debugging. WARNING:
+                                       leaves a privileged container
+                                       running; do NOT set in shared CI —
+                                       this is intended for dev-laptop
+                                       inspection only.
+
+The wrapper exits 0 only if every step (install, claude-code install,
+claude --version pre-update, claude update, claude --version post-update)
+succeeds AND the captured `claude update` transcript contains zero EACCES
+or permission-denied lines. The EACCES check is the AGT-02 release-gate
+invariant (see tests/bats/51-agt02-release-gate.bats) and matters because
+Anthropic's updater can return exit 0 while still flagging EACCES on a
+non-fatal path — that pattern would silently invalidate the dogfood
+without the explicit grep.
 EOF
 }
 
@@ -122,6 +143,25 @@ cleanup() {
 }
 trap 'cleanup; final_banner' EXIT
 
+# Diagnostic dump on any unexpected failure (set -e abort). Runs BEFORE the
+# cleanup trap removes the container, so the journal/install-log are still
+# reachable. ERR fires per-failed-command under set -e.
+err_dump() {
+  local rc=$?
+  printf '\n== FAIL DIAGNOSTIC (exit %d) ==\n' "$rc" >&2
+  printf '\n--- /var/log/agentlinux-install.log (last 80 lines) ---\n' >&2
+  docker exec "$CID" sh -c 'tail -n 80 /var/log/agentlinux-install.log 2>/dev/null || echo "(no install log)"' >&2 || true
+  printf '\n--- systemd journal (last 80 entries) ---\n' >&2
+  docker exec "$CID" journalctl --no-pager -n 80 2>/dev/null >&2 || true
+  printf '\n--- claude update transcript (if captured) ---\n' >&2
+  if [[ -n "${UPDATE_LOG:-}" && -f "$UPDATE_LOG" ]]; then
+    cat "$UPDATE_LOG" >&2
+  else
+    echo "(no transcript captured — failure occurred before claude update)" >&2
+  fi
+}
+trap err_dump ERR
+
 printf '== wait for systemd (up to 30s) ==\n'
 for _ in $(seq 1 30); do
   if docker exec "$CID" systemctl is-system-running --wait >/dev/null 2>&1; then
@@ -148,13 +188,40 @@ printf '== claude --version (post-install) ==\n'
 docker exec "$CID" sudo -u agent -H bash -lc 'claude --version'
 
 printf '== claude update (AGT-02 release-gate self-update) ==\n'
-docker exec "$CID" sudo -u agent -H bash -lc 'claude update'
+# Capture the transcript so we can grep it for EACCES / permission-denied
+# lines AFTER the update returns. The Anthropic updater is known to exit 0
+# while still emitting permission-denied diagnostics on non-fatal recovery
+# paths — that pattern would silently invalidate the AGT-02 invariant
+# without this explicit grep. Mirrors tests/bats/51-agt02-release-gate.bats
+# which tees and runs assert_no_eacces over the captured output.
+UPDATE_LOG=$(mktemp -t agentlinux-dogfood-update.XXXXXX)
+readonly UPDATE_LOG
+docker exec "$CID" sudo -u agent -H bash -lc 'claude update' 2>&1 | tee "$UPDATE_LOG"
+
+if grep -E -i 'EACCES|permission denied' "$UPDATE_LOG" >/dev/null; then
+  printf '\nFAIL: claude update transcript contains EACCES / permission-denied lines\n' >&2
+  printf '      (AGT-02 release-gate invariant violated — see %s)\n' "$UPDATE_LOG" >&2
+  grep -nE -i 'EACCES|permission denied' "$UPDATE_LOG" >&2 || true
+  exit 1
+fi
 
 printf '== claude --version (post-update) ==\n'
 docker exec "$CID" sudo -u agent -H bash -lc 'claude --version'
 
 printf '== claude binary location + ownership ==\n'
-docker exec "$CID" sudo -u agent -H bash -lc 'ls -la $(command -v claude)'
+# Assert agent:agent ownership explicitly rather than eyeballing `ls -la`.
+# stat -c %U:%G prints just the owner:group columns; comparison is exact.
+CLAUDE_OWNER=$(docker exec "$CID" sudo -u agent -H bash -lc 'stat -c "%U:%G" "$(command -v claude)"')
+printf 'claude binary owner:group = %s\n' "$CLAUDE_OWNER"
+if [[ "$CLAUDE_OWNER" != "agent:agent" ]]; then
+  printf '\nFAIL: claude binary not owned by agent:agent (got: %s)\n' "$CLAUDE_OWNER" >&2
+  printf '      AGT-02 invariant violated — Claude Code self-update would break.\n' >&2
+  exit 1
+fi
+docker exec "$CID" sudo -u agent -H bash -lc 'ls -la "$(command -v claude)"'
+
+# Clean up transcript on success — only kept when err_dump fires.
+rm -f "$UPDATE_LOG"
 
 FINAL_STATUS=0
 exit 0
