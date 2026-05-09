@@ -129,6 +129,29 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
          "before=${shebang_pre} after=${shebang_post}" "$LOG"
 }
 
+@test "AL-37: installer log contains no apt 'no installation candidate' or 'unable to locate package' errors" {
+  # Named negative assertion for the AL-37 bug class: provisioner steps that
+  # auto-install missing prerequisite packages (locales in 10-agent-user.sh,
+  # sudo in 20-sudoers.sh) must run `apt-get update` BEFORE `apt-get install`,
+  # otherwise hosts with empty /var/lib/apt/lists/ (freshly pulled Ubuntu
+  # containers, long-idle hosts) abort the installer with `Package <name> has
+  # no installation candidate` or `E: Unable to locate package <name>`.
+  #
+  # This is regression coverage at the assertion-quality layer: AL-37 is also
+  # exercised structurally by tests/docker/Dockerfile.dogfood's empty-cache
+  # start state, but a named negative assertion against the canonical apt
+  # failure strings makes a future regression visible at the bats layer (and
+  # in the auditor's grep trail) instead of only in dogfood log scrollback.
+  if grep -E -q 'has no installation candidate|Unable to locate package' "$LOG"; then
+    local hits
+    hits=$(grep -nE 'has no installation candidate|Unable to locate package' "$LOG" | head -5)
+    __fail "AL-37" \
+      "no 'no installation candidate' or 'Unable to locate package' lines in $LOG" \
+      "$hits" \
+      "$LOG"
+  fi
+}
+
 @test "INST-05: installer log contains no EACCES or 'permission denied' lines" {
   # The tee'd transcript merges stdout + stderr (Pitfall 6 mitigation in the
   # entrypoint). This is the authoritative no-EACCES gate per the
