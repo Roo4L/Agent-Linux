@@ -27,7 +27,9 @@ load 'helpers/invoke_modes'
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
-CATALOG=/opt/agentlinux/catalog/0.3.2/catalog.json
+# AL-29: derive the catalog version from package.json — single SoT.
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 
 setup_file() {
   # 40-registry-cli.bats's INST-04 --purge @tests run earlier in filename sort
