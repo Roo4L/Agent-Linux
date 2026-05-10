@@ -24,14 +24,13 @@ behavior-test-driven — that shapes how we accept changes.
    that there is no reason to skip it.
 
 5. **Open a PR.** Reference the issue. Describe what behavior changed and
-   which `BHV-XX` / `RT-XX` / `AGT-XX` / `CLI-XX` / `CAT-XX` / `INST-XX` /
-   `HRN-XX` / `TST-XX` / `DOC-XX` requirements are touched.
+   which `tests/bats/*.bats` test files cover it.
 
 ## Behavior-test contract
 
 `tests/bats/*.bats` is the spec. Implementation may change freely as long as
 the suite stays green. PRs that change observable behavior should add or
-update a `@test` that cites the relevant requirement ID in its description.
+update a `@test` that names the behavior it pins.
 
 See [`docs/HARNESS.md`](docs/HARNESS.md) §3 (test harness layout), §4 (review
 loop), and §5 (skill convention).
