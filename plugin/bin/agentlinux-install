@@ -36,12 +36,18 @@ readonly PROV_DIR
 PKG_JSON="$BIN_DIR/../cli/package.json"
 readonly PKG_JSON
 [[ -r "$PKG_JSON" ]] \
-  || { printf 'agentlinux-install: package.json not readable at %s\n' "$PKG_JSON" >&2; exit 1; }
+  || {
+    printf 'agentlinux-install: package.json not readable at %s\n' "$PKG_JSON" >&2
+    exit 1
+  }
 AGENTLINUX_VERSION=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' \
   "$PKG_JSON" | head -n 1)
 [[ "$AGENTLINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.-]+)?$ ]] \
-  || { printf 'agentlinux-install: bad or missing version in %s: %q\n' \
-       "$PKG_JSON" "$AGENTLINUX_VERSION" >&2; exit 1; }
+  || {
+    printf 'agentlinux-install: bad or missing version in %s: %q\n' \
+      "$PKG_JSON" "$AGENTLINUX_VERSION" >&2
+    exit 1
+  }
 readonly AGENTLINUX_VERSION
 
 usage() {
@@ -59,6 +65,10 @@ Options:
       --remove-nodejs   Used WITH --purge: also apt-get purge nodejs. Other
                         users may depend on Node.js, so this is NOT the
                         default purge behavior.
+      --report-only     Run detection pass + emit report; exit 0 without
+                        running provisioners. Read-only.
+      --report-format=FMT  text (default) or json. Honored with --report-only.
+      --user=NAME       Install-user name to probe (default: agent).
 
 The installer must run as root. Supported hosts: Ubuntu 22.04, 24.04 and 26.04.
 Transcript: ${LOG_FILE}
@@ -147,6 +157,14 @@ trap on_error ERR
 # to branch into run_purge vs the normal provisioner flow.
 PURGE_REQUESTED=false
 REMOVE_NODEJS_REQUESTED=false
+# Phase 12 (Plan 12-01): detection-layer flag state. REPORT_ONLY gates
+# run_provisioners; REPORT_FORMAT chooses the renderer (text/json); INSTALL_USER
+# is the install-user name passed to detect::run_once. Defaults preserve the
+# v0.3.0 greenfield behavior — without --report-only, main() falls through to
+# run_provisioners exactly as before.
+REPORT_ONLY=false
+REPORT_FORMAT=text
+INSTALL_USER=agent
 
 # parse_args — handle flags that either mutate installer state (--verbose,
 # --purge, --remove-nodejs) or need the log transcript for diagnostics
@@ -177,6 +195,31 @@ parse_args() {
       --remove-nodejs)
         REMOVE_NODEJS_REQUESTED=true
         ;;
+      --report-only)
+        REPORT_ONLY=true
+        ;;
+      --report-format=*)
+        REPORT_FORMAT="${1#*=}"
+        ;;
+      --report-format)
+        shift
+        [[ $# -gt 0 ]] || {
+          log_error "--report-format requires a value (text|json)"
+          exit 64
+        }
+        REPORT_FORMAT="$1"
+        ;;
+      --user=*)
+        INSTALL_USER="${1#*=}"
+        ;;
+      --user)
+        shift
+        [[ $# -gt 0 ]] || {
+          log_error "--user requires a value"
+          exit 64
+        }
+        INSTALL_USER="$1"
+        ;;
       *)
         log_error "unknown argument: $1"
         usage >&2
@@ -185,6 +228,32 @@ parse_args() {
     esac
     shift
   done
+
+  # Validate REPORT_FORMAT after the loop. Only `text` or `json` allowed;
+  # anything else is a usage error (exit 64 / EX_USAGE per the v0.3.0
+  # convention used by --help / --version's pre_parse_args fallthrough).
+  case "$REPORT_FORMAT" in
+    text | json) ;;
+    *)
+      log_error "--report-format must be 'text' or 'json' (got: ${REPORT_FORMAT})"
+      exit 64
+      ;;
+  esac
+}
+
+# ensure_jq — install jq if absent. Required by detection-layer's jq -n /
+# jq -s 'add' / jq '.' calls (DET-01..06 + orchestrator). Mirrors the visudo
+# install fallback in plugin/provisioner/20-sudoers.sh:45-48: jq is pre-installed
+# on the test Docker images (tests/docker/Dockerfile.ubuntu-{22,24,26}.04 line
+# ~92), but minimal Ubuntu cloud images and bare base containers can ship
+# without it. apt-get install is idempotent — a no-op when present. The bats
+# no-op @test in Plan 12-03 runs against the Docker fixture where jq is already
+# installed, so this fallback never mutates host state during the @test.
+ensure_jq() {
+  if ! command -v jq >/dev/null 2>&1; then
+    log_warn "jq not found; installing 'jq' package (required by detection layer)"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
+  fi
 }
 
 require_root() {
@@ -337,6 +406,21 @@ main() {
   fi
   log_info "agentlinux-install v${AGENTLINUX_VERSION} starting"
   detect_distro
+  # Phase 12: ensure jq is present, source detect.sh, and run the read-only
+  # detection pass. Both --report-only and the greenfield path call
+  # detect::run_once so /run/agentlinux-detect.json is populated for Phase 13's
+  # REUSE provisioners (which source detect.sh and consult the cached readers).
+  # --report-only short-circuits BEFORE run_provisioners — exit 0 after the
+  # report is emitted. The no-flag path proceeds to run_provisioners exactly as
+  # in v0.3.0 (greenfield baseline 66/66 untouched).
+  ensure_jq
+  # shellcheck source=../lib/detect.sh
+  . "$LIB_DIR/detect.sh"
+  detect::run_once "$INSTALL_USER"
+  if [[ $REPORT_ONLY == true ]]; then
+    detect::emit_report "$REPORT_FORMAT"
+    exit 0
+  fi
   run_provisioners
   log_info "agentlinux-install complete (transcript: ${LOG_FILE})"
 }
