@@ -1,7 +1,7 @@
 # AgentLinux Stability Model
 
 > The user-facing summary of AgentLinux's curated-combo version pinning —
-> the full decision record is at [`docs/decisions/011-stability-first-version-pinning.md`](decisions/011-stability-first-version-pinning.md).
+> the full decision record is at [`decisions/011-stability-first-version-pinning.md`](decisions/011-stability-first-version-pinning.md).
 
 AgentLinux ships *curated combos*: every catalog agent is pinned to an exact
 version that we test together end-to-end before each release. You install one
