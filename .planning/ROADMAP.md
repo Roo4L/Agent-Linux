@@ -31,7 +31,7 @@ Key locked decisions honored by this roadmap:
 - Integer phases (12, 13, 14, 15): Planned milestone work, executed in numeric order
 - Decimal phases (e.g., 13.1) reserved for urgent insertions discovered during the milestone (precedent: v0.3.0 Phase 5.1)
 
-- [ ] **Phase 12: Pillar 2 Exploration** — Dig into the user-prioritized pillar 2 (stability + time-to-productive — automation of package installations + problem reconciliations across upstream drift). Produce `docs/exploration/PILLAR-2-NOTES.md` with a Decision summary section authoritative for Phase 14: pillar name, ≥2 table-stakes commitments, ≥1 differentiator (may be empty if intentionally so), ≥2 explicit non-goals, "Today / Direction" content seed, `next-milestone` priority tag reaffirmed (or revisited).
+- [x] **Phase 12: Pillar 2 Exploration** — Dig into the user-prioritized pillar 2 (stability + time-to-productive — automation of package installations + problem reconciliations across upstream drift). Produce `docs/exploration/PILLAR-2-NOTES.md` with a Decision summary section authoritative for Phase 14: pillar name, ≥2 table-stakes commitments, ≥1 differentiator (may be empty if intentionally so), ≥2 explicit non-goals, "Today / Direction" content seed, `next-milestone` priority tag reaffirmed (or revisited). (completed 2026-05-10)
 - [ ] **Phase 13: Pillar 3 Candidate Exploration** — Treat security as a *candidate* pillar; explore the post-Shai-Hulud / OWASP-LLM-Top-10-v2025 / Lethal-Trifecta landscape; produce `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` whose first-section verdict is one of (a) yes full pillar, (b) fold into pillar 2 sub-concern, (c) cross-cutting concern, (d) explicitly out-of-scope. If verdict ∈ {a, b, c}: Decision summary names committed table-stakes, differentiators, non-goals, recommended priority tag.
 - [ ] **Phase 14: Strategy Doc + ADR-015 + Downstream Surface Updates** — Author `docs/STRATEGY.md` against the Sourcegraph spine + three named inserts; consume Phase 12 + Phase 13 outputs verbatim into the Pillars section; produce ADR-015 (Three-pillar product framing) alongside; propagate the framing in the same milestone window to README + CONTRIBUTING + .planning/PROJECT.md + docs/STABILITY-MODEL.md + (conditionally) docs/decisions/012-agent-user-full-sudo.md. Voice-rule grep gate enforced on STRATEGY.md as the phase-close gate.
 - [ ] **Phase 15: Website Refresh (agentlinux.org)** — Reframe `index.html` (currently two pivots stale) to mirror the strategy doc's pillar shape (mise.jdx.dev IA pattern). Replace `#features` 8-card grid with `#pillars` N-card section carrying status badges; reframe or remove `#comparison`; rewrite hero + OG/Twitter meta tags; convert OG image SVG → PNG (closes v0.1.0 known issue); add `#install` snippet + deploy-time anti-drift check; voice-rule grep gate on rendered HTML; mobile screenshots in PR body.
@@ -49,7 +49,7 @@ Key locked decisions honored by this roadmap:
   4. The Decision summary explicitly reaffirms the `next-milestone` priority tag for pillar 2 (or explicitly re-opens the user's stated direction with a one-line rationale). The literal string `next-milestone` appears in the section. — EXPL-01.
   5. Phase-close audit `.planning/phases/12-pillar-2-exploration/12-AUDIT.md` cites the file path + the line range of the Decision summary section + the grep transcript above; gate emits GREEN.
 **Plans**: estimated 1 plan
-- [ ] 12-01-PLAN.md — Author `docs/exploration/PILLAR-2-NOTES.md` from research raw material; produce Decision summary; phase-close audit (EXPL-01)
+- [x] 12-01-PLAN.md — Author `docs/exploration/PILLAR-2-NOTES.md` from research raw material; produce Decision summary; phase-close audit (EXPL-01)
 
 ### Phase 13: Pillar 3 Candidate Exploration
 **Goal**: Decide whether security is a pillar at all, and if so what it commits to. Treat the AL-7-proposed pillar 3 (security hardening) as a *candidate*. Produce a written verdict that Phase 14 can lift verbatim into either (a) `docs/STRATEGY.md` Pillar 3 + `## Pillar priority` subsection + Appendix B "Security Hardening" theme, OR (b) the strategy doc's Pillar 2 sub-concerns / cross-cutting Guiding Principles, OR (c) the strategy doc's `What we're explicitly *not* working on` list — without re-deciding at authoring time.
@@ -117,7 +117,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15. Phase 12 → Phase 13 
 
 | Phase | Plans Estimated | Status | Notes |
 |-------|-----------------|--------|-------|
-| 12. Pillar 2 Exploration | 1 | Not started | Produces `docs/exploration/PILLAR-2-NOTES.md` with Decision summary anchor for Phase 14 |
+| 12. Pillar 2 Exploration | 1/1 | Complete   | 2026-05-10 |
 | 13. Pillar 3 Candidate Exploration | 1 | Not started | Produces `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` with `## Verdict` anchor (a/b/c/d) decisive for Phase 14 pillar count + DOC-05 conditional close |
 | 14. Strategy Doc + ADR-015 + Downstream Surface Updates | 2 | Not started | Largest phase by req count (18 reqs: 13 STRAT + 5 DOC); plans split STRAT-authoring from DOC-propagation; voice-rule grep gate is the hard gate |
 | 15. Website Refresh | 1 | Not started | Depends on stable `docs/STRATEGY.md` URL + locked pillar count; voice-rule grep gate on rendered HTML; OG image SVG→PNG closes v0.1.0 known issue |
