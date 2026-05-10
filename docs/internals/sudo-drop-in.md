@@ -36,12 +36,8 @@ which is exactly the wrong place for it.
 
 The installer's second provisioner step writes a single drop-in at
 `/etc/sudoers.d/agentlinux` containing exactly `agent ALL=(ALL) NOPASSWD:
-ALL`. The file is mode `0440`, ownership `root:root`, validated through
-`visudo -cf` on a tmpfile *before* atomic-rename into place — a syntax
-error in the written content aborts the installer without ever touching
-the system's existing sudoers policy. A post-install `visudo -cf` rehash
-catches any TOCTOU corruption between rename and exit. Re-runs produce a
-byte-identical file.
+ALL`, mode `0440`, owned `root:root`. Re-runs produce a byte-identical
+file.
 
 Mode `0440` means only root can read the drop-in. The agent observes its
 effective policy via `sudo -l` but cannot `cat` the file directly. The

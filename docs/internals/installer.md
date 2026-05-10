@@ -30,28 +30,22 @@ the installer's job here is the trust story for getting onto disk safely.
 
 ## What AgentLinux does
 
-The installer is one shell script, fetched once, that does five things in
-order: HTTPS-fetch the release tarball from a versioned GitHub Release URL,
-fetch the sibling `.sha256` sidecar, verify the tarball against the sidecar
-*before* extracting anything, extract into a versioned path under
-`/opt/agentlinux/`, and `exec` the staged `agentlinux-install` entrypoint
-which runs the ordered provisioner steps (agent user, sudo drop-in, Node.js
-runtime, PATH wiring, registry CLI).
-
-The whole script body is wrapped in `main() { ... }; main "$@"` with no
-content after the final invocation. This is the canonical mitigation for
-partial-download execution: bash parses the entire file before running any
-logic, so a truncated download yields a syntax error before any commands
-fire. A short read cannot destroy the host.
+The installer is one shell script that turns a clean Ubuntu host into an
+agent-ready environment in a single command. It downloads a versioned
+release tarball from GitHub Releases over HTTPS, verifies it against a
+sibling `.sha256` sidecar *before* extracting anything, and hands off to
+the staged `agentlinux-install` entrypoint which runs the ordered
+provisioner steps: agent user, sudo drop-in, Node.js runtime, PATH wiring,
+registry CLI.
 
 The version is either pinned explicitly via the `AGENTLINUX_VERSION`
-environment variable (regex-validated before any URL interpolation) or
-resolved by reading the `Location` header of the GitHub Releases "latest"
-permalink. No JSON API call, no rate-limit exposure. The release URL is
-HTTPS-only, the tarball's gzip magic bytes are checked before the SHA256
-verification, and extraction happens with `--no-same-owner` as a defence
-against forged owner metadata. The trust story is explicit: HTTPS plus
-SHA256 sidecar plus maintainer 2FA plus branch protection.
+environment variable or resolved automatically to the latest GitHub
+Release. Either way the resulting URL is a permanent, versioned artifact
+— so the same command run a week later installs the same tarball you
+ran today, byte for byte. That is the key win over a hand-rolled `curl
+| bash`: a reproducible install that pins to a CI-tested combo of
+installer, runtime, and catalog, with the SHA256 verified before any
+code runs.
 
 ## Worked example
 
@@ -98,11 +92,12 @@ Without a versioned, SHA-verified installer, the naive path is
    artifact to point at — only a moving URL.
 
 **AgentLinux's installer makes the trust story explicit: HTTPS plus a
-SHA256 sidecar verified before extraction plus a `main(){}; main "$@"`
-wrapper that defeats partial-download execution plus an env-pinnable
-`AGENTLINUX_VERSION` that resolves to a permanent versioned URL.** The
-full release pipeline — curl-pipe-bash primary plus optional `.deb`
-wrapper — is recorded in [the distribution decision record](../decisions/006-curl-pipe-bash-plus-deb.md).
+SHA256 sidecar verified before extraction, plus an env-pinnable
+`AGENTLINUX_VERSION` that resolves to a permanent versioned URL — so
+the install is reproducible a week from now and the bytes are checked
+before any code runs.** The full release pipeline — curl-pipe-bash
+primary plus optional `.deb` wrapper — is recorded in
+[the distribution decision record](../decisions/006-curl-pipe-bash-plus-deb.md).
 
 ## Related
 
