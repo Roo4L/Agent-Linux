@@ -24,10 +24,9 @@ in a half-configured state that is harder to recover from than a clean
 failure.
 
 And the typical bootstrap script ends with `sudo npm install -g <tool>`,
-which is the exact corruption AgentLinux exists to eliminate: root-owned
-files under `/usr/lib/node_modules`, a wrapper at `/usr/local/bin/`, and
-a tool that can never self-update again because the agent user can no
-longer write to its own install tree.
+which corrupts the install tree in a way the agent can never recover from
+on its own. That bug class is the subject of [Agent user](agent-user.md);
+the installer's job here is the trust story for getting onto disk safely.
 
 ## What AgentLinux does
 
@@ -67,16 +66,18 @@ agentlinux-install: 10-agent-user: done
 agentlinux-install: 20-sudoers: done
 agentlinux-install: 30-nodejs: done
 agentlinux-install: 40-path-wiring: done
+agentlinux-install: 50-registry-cli: done
 agentlinux-install: agentlinux-install complete
 
 $ agentlinux list
-ID            STATUS         PINNED      LATEST
-claude-code   not installed  2.1.98      —
-gsd           not installed  1.37.1      —
-playwright    not installed  1.59.1      —
+NAME            STATUS         CURATED   INSTALLED   DESCRIPTION
+claude-code     not installed  2.1.98    —           Anthropic's coding agent
+gsd             not installed  1.37.1    —           get-shit-done-cc planning workflow CLI
+playwright-cli  not installed  0.1.11    —           Browser automation with chromium
 ```
 
-No agents are installed by default — that is a deliberate choice (ADR-003),
+No agents are installed by default — that is a deliberate choice (see
+[the no-default-installs decision record](../decisions/003-no-default-agents-installed.md)),
 not an oversight. Users opt in with `agentlinux install <name>`.
 
 ## Value vs the naive approach
@@ -100,8 +101,8 @@ Without a versioned, SHA-verified installer, the naive path is
 SHA256 sidecar verified before extraction plus a `main(){}; main "$@"`
 wrapper that defeats partial-download execution plus an env-pinnable
 `AGENTLINUX_VERSION` that resolves to a permanent versioned URL.** The
-full release pipeline (curl-pipe-bash primary plus optional .deb wrapper)
-is recorded as ADR-006.
+full release pipeline — curl-pipe-bash primary plus optional `.deb`
+wrapper — is recorded in [the distribution decision record](../decisions/006-curl-pipe-bash-plus-deb.md).
 
 ## Related
 

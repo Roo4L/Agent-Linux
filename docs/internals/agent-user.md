@@ -29,9 +29,9 @@ The same shape breaks every tool that ships its own self-updater into a
 root-owned prefix: the wrapper at `/usr/local/bin/` points at the wrong
 inode after the next update, or points at a tree the running user cannot
 write to, and the tool gradually rots into a state where only `sudo`
-unblocks it. AGT-02 — the AgentLinux release-gate test — is the regression
-test that catches exactly this: a fresh install plus `claude update` must
-succeed with zero EACCES and zero `sudo` prompts in the transcript.
+unblocks it. AgentLinux's release-gate test enforces the inverse contract:
+a fresh install plus `claude update` must succeed with zero EACCES and zero
+`sudo` prompts in the transcript.
 
 ## What AgentLinux does
 
@@ -56,8 +56,8 @@ artifacts, byte-identical PATH literal in each.
 Every install routes through an `as_user agent <cmd>` helper that drops to
 the agent user before invoking npm, the upstream native installer, or any
 other write. The agent ends up owning every file it later needs to update.
-`sudo npm install -g` is forbidden everywhere in the codebase; the
-`security-engineer` review subagent flags it on every PR.
+`sudo npm install -g` is forbidden everywhere in the codebase; our PR
+review process flags it on every PR.
 
 ## Worked example
 
@@ -99,13 +99,12 @@ Without a dedicated agent user with its own npm prefix, the naive path is
    ship their own updater (`claude update`) write into a root-owned prefix,
    leave a wrapper at `/usr/local/bin/`, and fail to rewrite themselves on
    the next update. The user reaches for `sudo`, fixes one symptom, creates
-   the next one. AGT-02 is the canonical regression test for this exact
-   sequence.
+   the next one. The release-gate test catches exactly this sequence.
 
 **AgentLinux gives agents their own user with their own npm prefix, so
-self-update Just Works.** The per-user prefix as the keystone ownership
-decision is recorded as ADR-004; it is the single design choice every other
-piece of the install layer is downstream of.
+self-update Just Works.** The per-user prefix is the keystone ownership
+decision — recorded in [the per-user-prefix decision record](../decisions/004-per-user-npm-prefix.md);
+every other piece of the install layer is downstream of it.
 
 ## Related
 
@@ -114,5 +113,5 @@ piece of the install layer is downstream of.
   PATH wiring that backs this user's ownership story.
 - [Sudo drop-in](sudo-drop-in.md) — the `/etc/sudoers.d/agentlinux` grant
   that lets this user run privileged commands without password prompts.
-- [Claude Code](claude-code.md) — the canonical case study; AGT-02 is its
-  release-gate test.
+- [Claude Code](claude-code.md) — the canonical case study for the
+  self-update-without-sudo invariant.

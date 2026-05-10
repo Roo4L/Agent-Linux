@@ -86,20 +86,18 @@ Without AgentLinux, the naive path is `sudo npm install -g
 @playwright/cli && sudo playwright-cli install --skills`. Two problems:
 
 1. **The npm install ends up root-owned.** Same self-update breakage
-   as the other catalog agents — root-owned `/usr/lib/node_modules`,
-   wrapper at `/usr/local/bin/`, every later non-`sudo` operation
-   under `~/.npm/` failing with EACCES. The agent user's per-user
-   prefix is the keystone fix; routing every install through
-   `as_user agent` is what keeps it intact.
+   the other catalog agents hit — see [Agent user](agent-user.md) for
+   the bug class. Routing the install through `as_user agent` is what
+   keeps the per-user prefix invariant intact for Playwright too.
 2. **The browser-deps step needs sudo, which stalls non-interactive
    sessions.** Playwright's installer auto-prepends `sudo` to the
    apt-deps install. A long-running agent that hits a `[sudo]
    password for agent:` prompt mid-install is a stalled agent — the
-   prompt never resolves, the loop never recovers. AgentLinux's
-   NOPASSWD sudo drop-in (ADR-012) is what makes the apt step run
-   cleanly under automation, and the install includes the
-   `--skills` bootstrap step so the agent actually has slash commands
-   for browser work, not just a binary on PATH.
+   prompt never resolves, the loop never recovers. The NOPASSWD sudo
+   drop-in (see [Sudo drop-in](sudo-drop-in.md)) is what makes the
+   apt step run cleanly under automation, and the install includes the
+   `--skills` bootstrap so the agent actually has slash commands for
+   browser work, not just a binary on PATH.
 
 **AgentLinux ships the full Playwright install — npm package, agent
 skill wiring, and the OS-level browser deps the apt layer needs — as

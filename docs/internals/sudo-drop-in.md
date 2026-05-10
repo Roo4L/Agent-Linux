@@ -16,9 +16,9 @@ edit a file under `/etc/`, install a system font, swap a binary via
 `update-alternatives`, or set a kernel parameter. Each of those operations
 either succeeds via sudo or wedges the agent's loop indefinitely.
 
-The earlier "zero sudo for the agent user" posture (v0.3.0 Phases 1-4) was
-elegant on paper — the agent owned its npm prefix and its home, so why
-would it need root? — but it predictably blocked too much real agent work.
+The earlier "zero sudo for the agent user" posture was elegant on paper —
+the agent owned its npm prefix and its home, so why would it need root? —
+but it predictably blocked too much real agent work.
 A long-running agent that hits a `sudo -n true` failure cannot recover; the
 shell either prompts for a password (which a non-interactive session never
 satisfies) or refuses to run, and the agent's task fails for a reason that
@@ -79,8 +79,8 @@ A counter-example illustrates the discipline the codebase still holds:
 $ sudo -u agent sudo npm install -g @anthropic-ai/claude-code
 # This WOULD run password-free now — but it's still a bug.
 # It writes a root-owned global tree, breaks `claude update`, and
-# violates ADR-004. The codebase's `as_user` rule and the
-# security-engineer review subagent reject it on every PR.
+# violates the per-user-prefix invariant. The codebase's `as_user`
+# rule and our PR review process reject it on every PR.
 ```
 
 The lesson: sudo is the right tool for `apt install` and `systemctl
@@ -109,8 +109,9 @@ problems:
 `as_user` discipline still keeps the per-user prefix invariant intact.**
 The trade-off — granting full sudo means any agent-held secret on the
 host is effectively a root credential — is documented explicitly in
-ADR-012, which records this decision against the alternatives (narrow
-apt-only, medium apt+systemctl, broad ALL).
+[the agent-user-full-sudo decision record](../decisions/012-agent-user-full-sudo.md),
+which records this decision against the alternatives (narrow apt-only,
+medium apt+systemctl, broad ALL).
 
 ## Related
 
@@ -120,4 +121,4 @@ apt-only, medium apt+systemctl, broad ALL).
   step that writes this drop-in.
 - [../decisions/012-agent-user-full-sudo.md](../decisions/012-agent-user-full-sudo.md)
   — the full decision record, including considered alternatives (zero
-  sudo, narrow allowlist, the v0.4+ USR-05 sandboxing path).
+  sudo, narrow allowlist, and a future sandboxing path on our roadmap).

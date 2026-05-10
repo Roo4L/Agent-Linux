@@ -26,9 +26,9 @@ owned by root. `sudo npm install -g <tool>` then writes into
 `/usr/lib/node_modules` as root, leaves a wrapper at `/usr/local/bin/`,
 and the next non-root operation under `~/.npm/` fails with EACCES — and
 worse, every tool that ships its own self-updater can no longer rewrite
-itself. AGT-02 is the regression test that catches this: a fresh install
-plus `claude update` must succeed without any `sudo` prompt and without
-any EACCES.
+itself. See [Agent user](agent-user.md) for the full bug class; the
+release-gate test asserts the inverse contract — a fresh install plus
+`claude update` must succeed with zero `sudo` prompts and zero EACCES.
 
 Both naive paths fail the same invariant from opposite sides: the
 version-manager path makes Node.js invisible to non-interactive contexts,
@@ -40,15 +40,15 @@ own tools. Either way, the autonomous loop stalls.
 The runtime layer has two halves and they only work together.
 
 The first half is system Node.js via apt. AgentLinux installs the official
-NodeSource apt repository (HTTPS, GPG-signed, the upstream blessed by
-ADR-005), then `apt-get install nodejs`. The currently-tracked line is
-Node.js LTS (v22 at the v0.3.0 release; future releases follow the LTS
-cadence). System Node.js means a stable PATH entry that works in every
-invocation mode, no shell-init hooks, no per-user re-activation flow. The
-trade-off — Node.js version upgrades follow the distro's apt cadence
-rather than a bleeding-edge per-user toggle — is documented in ADR-005
-and is acceptable because AgentLinux's job is a correctly-owned runtime,
-not bleeding-edge Node features.
+NodeSource apt repository (HTTPS, GPG-signed, the upstream blessed in
+[the system-Node decision record](../decisions/005-system-nodejs-over-version-managers.md)),
+then `apt-get install nodejs`. The currently-tracked line is Node.js LTS
+(v22 at the v0.3.0 release; future releases follow the LTS cadence).
+System Node.js means a stable PATH entry that works in every invocation
+mode, no shell-init hooks, no per-user re-activation flow. The trade-off
+— Node.js version upgrades follow the distro's apt cadence rather than a
+bleeding-edge per-user toggle — is acceptable because AgentLinux's job is
+a correctly-owned runtime, not bleeding-edge Node features.
 
 The second half is the per-user npm prefix. The installer creates
 `~/.npm-global/{bin,lib}` owned by `agent:agent`, writes
@@ -125,9 +125,10 @@ problems:
 **AgentLinux uses system Node.js for predictability and a per-user npm
 prefix for ownership — and wires PATH so both choices hold across every
 shell context the agent ever runs in.** The system-Node decision is
-recorded as ADR-005; the per-user prefix as ADR-004. The two together
-are the load-bearing decisions everything else in the runtime layer is
-downstream of.
+recorded in [the system-Node decision record](../decisions/005-system-nodejs-over-version-managers.md);
+the per-user prefix in [the per-user-prefix decision record](../decisions/004-per-user-npm-prefix.md).
+The two together are the load-bearing decisions everything else in the
+runtime layer is downstream of.
 
 ## Related
 
@@ -136,6 +137,7 @@ downstream of.
 - [Installer](installer.md) — the entrypoint whose third and fourth
   provisioner steps build this runtime layer.
 - [Claude Code](claude-code.md) — the canonical case for why this layer
-  matters; AGT-02 is its release-gate test.
+  matters; the self-update-without-sudo invariant is its release-gate
+  test.
 - [GSD](gsd.md) — installed via npm into the per-user prefix this layer
   provides.

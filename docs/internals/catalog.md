@@ -67,18 +67,16 @@ recipes are plain bash. Each recipe receives
 guard at the top), runs as the agent user, and asserts a post-install
 invariant (binary on PATH, version banner matches pin, skill directory
 exists where Claude Code looks for it). Adding an agent requires a
-catalog entry plus a recipe pair — no TypeScript edits anywhere,
-which is the contract CAT-03 records.
+catalog entry plus a recipe pair — no TypeScript edits anywhere.
 
 Three invariants govern the catalog:
 
-- Agents are *available* not installed by default — `agentlinux list`
-  on a fresh host shows every entry with `STATUS: not installed`
-  (CAT-01 / CAT-02; ADR-003 records the decision against
-  install-by-default convenience).
-- The catalog is schema-validated at pre-commit and CI time — the
-  catalog auditor runs `ajv` against `schema.json` and refuses to ship
-  malformed entries (CAT-03).
+- Agents are *available*, not installed by default — `agentlinux list`
+  on a fresh host shows every entry with `STATUS: not installed`. The
+  rationale is recorded in [the no-default-installs decision record](../decisions/003-no-default-agents-installed.md).
+- The catalog is schema-validated at pre-commit and CI time — our
+  catalog reviewer runs `ajv` against `schema.json` and refuses to ship
+  malformed entries.
 - Adding a new agent is a one-PR change against the catalog — no CLI
   source edit, no release tag. The schema is the contract; the
   recipe is the implementation.
@@ -109,8 +107,8 @@ $ $EDITOR plugin/catalog/catalog.json   # add the entry
 $ pre-commit run --all-files            # ajv validation runs here
 ```
 
-No CLI source edited. The catalog auditor reviews the entry against
-the schema; the security-engineer review subagent flags any
+No CLI source edited. Our catalog reviewer validates the entry
+against the schema; our PR review process flags any
 `sudo npm install -g` or `/usr/local/bin/` shim in the recipe; the
 release-gate matrix runs the recipe end-to-end on a clean host.
 

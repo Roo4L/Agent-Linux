@@ -135,8 +135,8 @@ state-changing operation runs as the agent user with the catalog's
 - [Catalog](catalog.md) — the schema-validated registry the CLI reads.
 - [Agent user](agent-user.md) — every install runs as this user; the
   CLI's `preAction` guard refuses to dispatch under any other.
-- [Claude Code](claude-code.md) — the canonical install case; AGT-02
-  is its release-gate test.
+- [Claude Code](claude-code.md) — the canonical install case; the
+  self-update-without-sudo invariant is its release-gate test.
 - [GSD](gsd.md) — npm-global recipe with a bundled bootstrapper.
 - [Playwright](playwright.md) — npm-global plus a `--skills`
   bootstrapper plus apt-layer browser deps.
