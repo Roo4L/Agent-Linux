@@ -19,11 +19,11 @@ overrides_applied: 0
 
 | # | Truth | Status | Evidence |
 |---|-------|--------|----------|
-| 1 | File exists at exact path; body in [2 KB, 12 KB] | ✓ VERIFIED | `EXISTS`; `wc -c = 12199` (2048 ≤ 12199 ≤ 12288) |
-| 2 | First section is `## Verdict`; exactly one bolded `**Verdict:**` line declaring (b) | ✓ VERIFIED | First `## ` heading at line 13 = `## Verdict`; `grep -c '^## Verdict$' = 1`; `grep -cE '\*\*Verdict:' = 1`; line reads exactly: `**Verdict:** (b) Fold into Pillar 2 as sub-concern. Security is not a separate pillar in v0.3.3.` |
+| 1 | File exists at exact path; body in [2 KB, 12 KB] | ✓ VERIFIED | `EXISTS`; `wc -c = 12073` (2048 ≤ 12073 ≤ 12288) |
+| 2 | First section is `## Verdict`; exactly one bolded `**Verdict:**` line declaring (b) | ✓ VERIFIED | First `## ` heading at line 15 = `## Verdict`; `grep -c '^## Verdict$' = 1`; `grep -cE '\*\*Verdict:' = 1`; line reads exactly: `**Verdict:** (b) Fold into Pillar 2 as sub-concern. Security is not a separate pillar in v0.3.3.` |
 | 3 | Body cites ≥7 distinct grep tokens from the EXPL-02 regex set | ✓ VERIFIED | 12/12 distinct tokens present: ADR-012, Cline, Lethal Trifecta, OWASP, Rule of Two, SLSA, Shai-Hulud, TrustFall, bubblewrap, chalk, cosign, provenance |
-| 4 | File ENDS with `## Decision summary` containing ≥2 table-stakes, ≥1 differentiator, ≥2 non-goals, recommended priority tag | ✓ VERIFIED | Last `## ` heading at line 159 = `## Decision summary`; ends at line 213; contains ≥2 table-stakes (curated catalog + ADR-011 + admission criteria), 1 differentiator (supply-chain monitoring + compromised-version refusal), 3 non-goals (NG-1 / NG-2 / NG-3), priority tags (`next-milestone` for the fold + `opportunistic` for Appendix B), DOC-05 N/A disposition |
-| 5 | Phase-close audit at `.../13-pillar-3-candidate-exploration/13-AUDIT.md` exists with grep transcripts + GREEN verdict + verdict line in first 10 lines | ✓ VERIFIED | Audit exists (11.5K); `gate: GREEN` in frontmatter (line 6) + `**Gate: GREEN.**` body (line 306); verdict line on body line 10 (within first 10 lines): `**Verdict (Phase 13, EXPL-02):** (b) Fold into Pillar 2 as sub-concern. Security is not a separate pillar in v0.3.3.`; cites file path (26 occurrences), Verdict section line range (13–24), Decision summary line range (159–213), all five SC grep transcripts |
+| 4 | File ENDS with `## Decision summary` containing ≥2 table-stakes, ≥1 differentiator, ≥2 non-goals, recommended priority tag | ✓ VERIFIED | Last `## ` heading at line 158 = `## Decision summary`; ends at line 211; contains ≥2 table-stakes (curated catalog + ADR-011 + admission criteria), 1 differentiator (supply-chain monitoring + compromised-version refusal), 3 non-goals (NG-1 / NG-2 / NG-3), priority tags (`next-milestone` for the fold + `opportunistic` for Appendix B), DOC-05 N/A disposition |
+| 5 | Phase-close audit at `.../13-pillar-3-candidate-exploration/13-AUDIT.md` exists with grep transcripts + GREEN verdict + verdict line in first 10 lines | ✓ VERIFIED | Audit exists (11.5K); `gate: GREEN` in frontmatter (line 6) + `**Gate: GREEN.**` body (line 306); verdict line on body line 10 (within first 10 lines): `**Verdict (Phase 13, EXPL-02):** (b) Fold into Pillar 2 as sub-concern. Security is not a separate pillar in v0.3.3.`; cites file path (26 occurrences), Verdict section line range (15–26), Decision summary line range (158–211), all five SC grep transcripts |
 
 **Score:** 5/5 truths verified
 
@@ -31,7 +31,7 @@ overrides_applied: 0
 
 | Artifact | Expected | Status | Details |
 |----------|----------|--------|---------|
-| `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` | ≥2 KB, ≤12 KB; first section `## Verdict`; last section `## Decision summary` | ✓ VERIFIED | 12199 bytes; `## Verdict` at line 13 (first); `## Decision summary` at line 159 (last); ends at line 213 |
+| `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` | ≥2 KB, ≤12 KB; first section `## Verdict`; last section `## Decision summary` | ✓ VERIFIED | 12073 bytes; `## Verdict` at line 15 (first); `## Decision summary` at line 158 (last); ends at line 211 |
 | `.planning/phases/13-pillar-3-candidate-exploration/13-AUDIT.md` | Phase-close audit with single-line verdict + grep transcripts + GREEN gate | ✓ VERIFIED | 11.5K; `gate: GREEN` frontmatter + body verdict gate; verdict on body line 10; grep transcripts for all five SCs |
 
 ### Key Link Verification
@@ -40,7 +40,7 @@ overrides_applied: 0
 |------|----|-----|--------|---------|
 | PILLAR-3-CANDIDATE-NOTES.md | 13-CONTEXT.md | Verdict (b) phrasing + supply-chain monitoring + NG-1/NG-2/NG-3 + ADR-012 framing + priority tag | ✓ WIRED | Verdict text exact match to lock; `NG-1`/`NG-2`/`NG-3` all present; "supply-chain monitoring" used 8 times across body; `next-milestone` + `opportunistic` literals both present in Decision summary |
 | PILLAR-3-CANDIDATE-NOTES.md | PILLAR-2-NOTES.md | Decision summary names Pillar 2 / ADR-011 / curated catalog / admission criteria as fold target | ✓ WIRED | "Pillar 2" cited 19 times; ADR-011 cited 3 times as fold-anchor; "curated catalog" + "admission criteria" referenced as table-stakes |
-| 13-AUDIT.md | PILLAR-3-CANDIDATE-NOTES.md | single-line verdict header + grep transcripts + line ranges | ✓ WIRED | Audit's body line 10 records verdict; cites Verdict lines 13–24 + Decision summary lines 159–213; grep transcripts for SC1–SC5 verbatim |
+| 13-AUDIT.md | PILLAR-3-CANDIDATE-NOTES.md | single-line verdict header + grep transcripts + line ranges | ✓ WIRED | Audit's body line 10 records verdict; cites Verdict lines 15–26 + Decision summary lines 158–211; grep transcripts for SC1–SC5 verbatim |
 
 ### Voice-Rule Hard Gate
 

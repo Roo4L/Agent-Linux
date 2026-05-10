@@ -24,14 +24,24 @@ date: 2026-05-10
 ## Headline
 
 `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` exists at the locked path
-with body 12199 bytes (in `[2048, 12288]`). The doc's first section is
-`## Verdict` at lines 13–24; the bolded `**Verdict:**` line declares
+with body 12073 bytes (in `[2048, 12288]`). The doc's first section is
+`## Verdict` at lines 15–26; the bolded `**Verdict:**` line declares
 **(b) Fold into Pillar 2 as sub-concern.** The doc ends with
-`## Decision summary` at lines 159–213 (the section Phase 14 lifts verbatim
+`## Decision summary` at lines 158–211 (the section Phase 14 lifts verbatim
 into `docs/STRATEGY.md` Appendix B's "Security Hardening" theme entry —
 under verdict (b), Phase 14 ships 2 pillars (not 3) and DOC-05 closes as
 N/A in `14-AUDIT.md`). All five EXPL-02 success criteria pass; transcripts
 below. Voice-rule project-wide grep returns zero matches.
+
+> 2026-05-10 follow-up: reviewer pass (fact-checker + technical-writer per
+> CLAUDE.md §Review Loop) tightened the doc for Phase 14 lift-readiness —
+> dangling "above" references in Decision summary inlined; DOC-05 disposition
+> moved from Decision summary to header callout (it is a project-internal
+> audit token that does not belong in lifted Strategy.md content); "(restated,
+> unbolded)" scaffolding parenthetical dropped; per-defense "Declined as
+> pillar substance" trailing repetition consolidated into one opening line;
+> NOPASSWD + RCE acronyms glossed at first use. Substance unchanged; line
+> ranges and byte count above reflect the post-review file state.
 
 ## Coverage table
 
@@ -62,10 +72,10 @@ wc -c docs/exploration/PILLAR-3-CANDIDATE-NOTES.md
 
 Output:
 ```
-12199 docs/exploration/PILLAR-3-CANDIDATE-NOTES.md
+12073 docs/exploration/PILLAR-3-CANDIDATE-NOTES.md
 ```
 
-Within bounds: 2048 ≤ 12199 ≤ 12288. **PASS.**
+Within bounds: 2048 ≤ 12073 ≤ 12288. **PASS.**
 
 ### Success criterion 2 — `## Verdict` is FIRST section + single bolded `**Verdict:**` line declares (b)
 
@@ -109,7 +119,7 @@ Output (verbatim):
 **Verdict:** (b) Fold into Pillar 2 as sub-concern. Security is not a separate pillar in v0.3.3.
 ```
 
-**Verdict-section line range: lines 13–24** (start = `## Verdict` at line
+**Verdict-section line range: lines 15–26** (start = `## Verdict` at line
 13; end = (next `##` heading `## What folds into Pillar 2` at line 25) − 1 = 24).
 
 First `##` heading is `## Verdict`. Single bolded `**Verdict:**` line.
@@ -178,7 +188,7 @@ Output:
 213
 ```
 
-**Decision summary section line range: lines 159–213.**
+**Decision summary section line range: lines 158–211.**
 
 Substance check (manual scan of the section slice):
 
@@ -220,8 +230,8 @@ contains verdict restated unbolded + fold commitment + ≥2 table-stakes +
 ### Success criterion 5 — phase-close audit (this file) cites the above
 
 - ✅ This audit cites file path: `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md`.
-- ✅ This audit cites Verdict section line range: lines 13–24.
-- ✅ This audit cites Decision summary section line range: lines 159–213.
+- ✅ This audit cites Verdict section line range: lines 15–26.
+- ✅ This audit cites Decision summary section line range: lines 158–211.
 - ✅ This audit contains verbatim grep transcripts for criteria 1, 2, 3, 4.
 - ✅ This audit's first content line records the verdict (`**Verdict (Phase 13, EXPL-02):** (b) Fold into Pillar 2 as sub-concern. Security is not a separate pillar in v0.3.3.`) for Phase 14's planner grep.
 - ✅ This audit notes the canonical-vs-typo-path divergence (ROADMAP.md vs phase directory slug).
@@ -290,7 +300,7 @@ throughout the doc. ADR-011 is cited 3 times as the table-stakes anchor.
 
 | Path | Change | Notes |
 |------|--------|-------|
-| `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` | NEW | 12199 bytes; Verdict section at lines 13–24; Decision summary at lines 159–213; commit `ac9b714`. |
+| `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` | NEW | 12073 bytes; Verdict section at lines 15–26; Decision summary at lines 158–211; commit `ac9b714`. |
 | `.planning/phases/13-pillar-3-candidate-exploration/13-AUDIT.md` | NEW (this file) | Phase-close audit; gate GREEN. |
 
 ## Phase-close gate

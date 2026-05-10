@@ -2,8 +2,10 @@
 
 > Phase 13 verdict. Phase 14 lifts the `## Decision summary` section verbatim
 > into `docs/STRATEGY.md` Appendix B's "Security Hardening" theme entry (not
-> into a Pillar 3 — verdict (b) means there is no Pillar 3). DOC-05 closes
-> as N/A in `14-AUDIT.md`.
+> into a Pillar 3 — verdict (b) means there is no Pillar 3). DOC-05
+> (ADR-012 forward-reference to a Pillar 3) closes as N/A in `14-AUDIT.md`;
+> the unresolved ADR-012 tension is recorded inside Pillar 2's STRATEGY.md
+> section as a known limitation, not via an ADR file edit.
 >
 > Locked: 2026-05-10. Source: `.planning/research/SUMMARY.md` §5,
 > `.planning/research/FEATURES.md` Pillar 3 section (lines 97-200),
@@ -26,13 +28,13 @@ stays as a v0.6+ `opportunistic` theme in Appendix B, not as a pillar.
 
 The one forward-looking commitment we hold from the security landscape is
 **active supply-chain monitoring + curated catalog admission**, mechanism-shared
-with Pillar 2's compat-guarded version pinning gate. It has three parts.
+with Pillar 2's compat-guarded version pinning gate. Three parts:
 
 1. **We monitor public supply-chain disclosures.** Our roadmap commits to
    tracking Shai-Hulud-class npm worm events, chalk/debug-class 2FA-phishing
-   events, TrustFall-class one-click RCEs in coding agents, and OWASP LLM
-   Top 10 v2025 + Lethal Trifecta + Agents Rule of Two as adopted reference
-   frames.
+   events, and TrustFall-class one-click remote-code-execution (RCE) events
+   in coding agents. We adopt OWASP LLM Top 10 v2025, the Lethal Trifecta,
+   and the Agents Rule of Two as reference frames.
 2. **We refuse to bump pinned versions to compromised releases.** Pillar 2's
    compat-guarded gate gains a security check alongside the compatibility
    check. If a pin candidate has known compromise (revoked provenance,
@@ -44,11 +46,10 @@ with Pillar 2's compat-guarded version pinning gate. It has three parts.
    reputation. No sight-unseen admission. The codified policy locks at the
    milestone where the catalog admission framework ships.
 
-We monitor public disclosures; we never line-by-line audit Claude Code's
-source. Catalog acceptance is by behaviour + provenance signals + maintainer
-reputation + the supply-chain monitoring above — never by upstream code review.
 This is a position **infrastructure** can take that a thin wrapper or a
-single-tool installer cannot.
+single-tool installer cannot. The non-commitment side — what we deliberately
+do not do (line-by-line upstream code audit, model-level guardrails, sandbox
+runtime) — is enumerated under Decision summary's non-goals below.
 
 ## Threat landscape we considered
 
@@ -90,50 +91,48 @@ to any of them as pillar substance under verdict (b). Each lives in Appendix
 B of `docs/STRATEGY.md` as a v0.6+ `opportunistic` theme entry, eligible to
 mature into a milestone if a future user need justifies it.
 
+Each defense below is declined as pillar substance and lives in Appendix B's
+Security Hardening theme, eligible to mature into a milestone if a future
+user need justifies it.
+
 - **npm provenance + Sigstore signing.** `npm audit signatures` verifies a
   package's build identity; ~12.6% of popular packages publish provenance as
   of 2025; npm Trusted Publishing (Jul 2025) removes long-lived API tokens.
-  Closes the maintainer-account-takeover impact window. Declined as pillar
-  substance; our roadmap may revisit in a v0.6+ Security Hardening theme.
+  Closes the maintainer-account-takeover impact window.
 - **SLSA framework + in-toto attestations.** Graded supply-chain integrity
   levels; SLSA L3 is achievable for first-party catalog snapshots. Today we
   ship "SHA256 + maintainer 2FA + branch protection" per README §Security.
-  Declined as pillar substance; same Appendix B disposition.
 - **cosign-signed catalog snapshots.** Signed catalog releases would close
   the gap left by README §Security's "GPG signatures on the v0.4+ roadmap."
-  Declined as pillar substance; same Appendix B disposition.
 - **bubblewrap-based per-recipe sandbox.** Linux-native unprivileged
   sandboxing primitive; Anthropic's devcontainer reference uses it with an
   iptables/ipset egress firewall (default OUTPUT DROP) and a curated
   allowlist. The primitives exist already in the kernel; a user who wants
-  this posture composes them themselves. Declined; same Appendix B disposition.
-- **Capability-scoped sudoers replacing ADR-012 NOPASSWD ALL.** Microsoft
-  SCOM-style allowlists scoped to `/usr/bin/apt-get install *`,
-  `/usr/bin/systemctl restart *`, etc. Phase 5 showed agents need a long
-  tail of commands and the allowlist is its own maintenance burden.
-  Declined; same Appendix B disposition.
+  this posture composes them themselves.
+- **Capability-scoped sudoers replacing ADR-012 NOPASSWD ALL** (passwordless
+  sudo to any command). Microsoft SCOM-style allowlists scoped to
+  `/usr/bin/apt-get install *`, `/usr/bin/systemctl restart *`, etc.
+  Phase 5 showed agents need a long tail of commands and the allowlist is
+  its own maintenance burden.
 
 ## ADR-012 tension
 
-ADR-012 (`agent ALL=(ALL) NOPASSWD: ALL`) was a defensible scope choice at
-v0.3.0. The agent was framed as a trusted coworker; the alternative
-(capability-scoped sudoers allowlists) was rejected because Phase 5 showed
-agents need apt + systemctl + many other things and an ever-growing
-allowlist is its own maintenance burden.
+ADR-012 (`agent ALL=(ALL) NOPASSWD: ALL` — passwordless sudo to any command)
+was a defensible scope choice at v0.3.0. The agent was framed as a trusted
+coworker; the alternative (capability-scoped sudoers allowlists) was rejected
+because Phase 5 showed agents need apt + systemctl + many other things and
+an ever-growing allowlist is its own maintenance burden.
 
 After Shai-Hulud, TrustFall, and the Lethal Trifecta framing in late 2025,
 that "trusted coworker" framing is harder to defend. A single successful
 prompt injection on the agent — one bad README in one cloned repo — converts
 the agent into an adversary with NOPASSWD root, and the blast radius is the
-entire host. Anthropic itself shipped Claude Code sandboxing (bubblewrap +
-network firewall) in 2025 because they recognised the same threat; the
-industry direction is toward containment, not away from it.
+entire host. Anthropic shipped Claude Code sandboxing (bubblewrap + network
+firewall) in 2025 against the same threat class.
 
 Position: defensible v0.3.0 scope choice, recognized debt now. Resolution
-is a v0.6+ `opportunistic` theme in Appendix B Security Hardening, NOT a
-pillar commitment. DOC-05 closes as N/A in `14-AUDIT.md` because pillar 3
-does not exist; the unresolved tension is recorded in Pillar 2's section
-as a known limitation (forward-pointer text but no ADR file edit required).
+lives in Appendix B's Security Hardening theme as a v0.6+ `opportunistic`
+entry, not as a pillar commitment.
 
 ## Why verdict (b) and not (a/c/d)
 
@@ -161,13 +160,18 @@ each get one paragraph so future readers do not re-open the question.
 > Phase 14 lifts this section verbatim into `docs/STRATEGY.md` Appendix B's
 > "Security Hardening" theme entry (NOT into a Pillar 3 section).
 
-Verdict (restated, unbolded): (b) Fold into Pillar 2 as sub-concern. Security
-is not a separate pillar in v0.3.3.
+Verdict: (b) Fold into Pillar 2 as a sub-concern — security is not a separate
+pillar in v0.3.3.
 
 **What folds into Pillar 2 (the one new commitment):** Active supply-chain
 monitoring + curated catalog admission, mechanism-shared with Pillar 2's
-compat-guarded version pinning gate. Phrasing locked in `## What folds into
-Pillar 2` above.
+compat-guarded version pinning gate. Three parts: monitor public supply-chain
+disclosures (Shai-Hulud-class, chalk/debug-class, TrustFall-class events) and
+adopt OWASP LLM Top 10 v2025 + Lethal Trifecta + Agents Rule of Two as
+reference frames; refuse to bump pinned versions to releases with known
+compromise; keep new, untested, or unreviewed projects out of the catalog
+by default (admission requires existing security-research track record +
+TST-08 4-gate behaviour-test + maintainer reputation).
 
 **Table-stakes that the fold subsumes (≥2):**
 
@@ -177,11 +181,11 @@ Pillar 2` above.
 - Pillar 2's existing curated catalog admission criteria — only `claude-code`,
   `gsd`, and `playwright-cli` admitted to date; no sight-unseen admission.
 
-**Differentiators (≥1):** The supply-chain monitoring + compromised-version
-refusal commitment named above. Under verdict (b), this differentiator lives
-in Pillar 2's section in `docs/STRATEGY.md`, not in a separate Pillar 3.
+**Differentiators (≥1):** Active supply-chain monitoring + refusal to bump
+pinned versions to compromised releases. Under verdict (b), this lives in
+Pillar 2's STRATEGY.md section, not in a separate Pillar 3.
 
-**Explicit non-goals (≥2; all 3 retained for full CONTEXT.md fidelity):**
+**Explicit non-goals:**
 
 - **NG-1 — Not providing model-level guardrails.** Llama Guard, ShieldGemma,
   IBM Granite Guardian, Prompt Guard, NeMo Guardrails — properly the agent
@@ -189,25 +193,19 @@ in Pillar 2's section in `docs/STRATEGY.md`, not in a separate Pillar 3.
 - **NG-2 — Not vetting the content of upstream agent code.** We pin and
   monitor; we never line-by-line audit Claude Code's source. Catalog
   acceptance is by behaviour + provenance signals + maintainer reputation +
-  the supply-chain monitoring named above — not by upstream code review.
+  active supply-chain monitoring — not by upstream code review.
 - **NG-3 — Not becoming a sandbox runtime.** No commitment to ship an
   `agentlinux harden` profile, capability-scoped sudoers, bubblewrap-based
   recipes, Landlock or seccomp-bpf wrappers, or iptables egress allowlists.
-  These primitives exist already in the kernel and elsewhere (Anthropic's
-  devcontainer demonstrates the pattern); a user who wants that posture
-  composes the off-the-shelf primitives themselves. gVisor, Firecracker, and
-  Kata Containers exist and we do not compete.
+  These primitives exist already in the kernel and elsewhere; a user who
+  wants that posture composes the off-the-shelf primitives themselves.
+  gVisor, Firecracker, and Kata Containers exist and we do not compete.
 
 **Recommended priority tag:**
 
-- The fold inherits Pillar 2's `next-milestone` priority tag — Pillar 3 does
+- The fold inherits Pillar 2's `next-milestone` priority tag. Pillar 3 does
   not exist under verdict (b), so there is no separate pillar-3 tag.
-- Appendix B "Security Hardening" theme is tagged `opportunistic` for v0.6+
-  and contains the defenses declined as pillar substance above
-  (capability-scoped sudoers replacing ADR-012, cosign-signed catalog
-  releases, npm provenance verification in CI, bubblewrap-based per-recipe
-  sandbox profile, iptables egress allowlist).
-
-**DOC-05 disposition:** Closes as N/A in `14-AUDIT.md`. Pillar 3 does not
-exist; the ADR-012 tension is recorded in Pillar 2's section as a known
-limitation (forward-pointer text only; no ADR file edit required).
+- Appendix B's Security Hardening theme is tagged `opportunistic` for v0.6+
+  and contains the declined defenses: capability-scoped sudoers replacing
+  ADR-012, cosign-signed catalog releases, npm provenance verification in
+  CI, bubblewrap-based per-recipe sandbox profile, iptables egress allowlist.
