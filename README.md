@@ -86,9 +86,10 @@ curated pin; when you want to run ahead of it, you can — `agentlinux upgrade`
 shows the 3-way divergence between installed, curated, and upstream latest,
 and `agentlinux pin` sets sticky overrides so power users are not re-nagged.
 
-AGT-02 remains a permission invariant: whether you stay on the curated pin or
-run `claude update` past it, AgentLinux's release-gate test verifies the
-self-update path succeeds with zero `EACCES` and zero `sudo` prompts.
+The self-update-without-sudo invariant is permanent: whether you stay on the
+curated pin or run `claude update` past it, AgentLinux's release-gate test
+verifies the self-update path succeeds with zero `EACCES` and zero `sudo`
+prompts.
 
 See [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md) for the user-facing
 one-page summary and [docs/decisions/011-stability-first-version-pinning.md](docs/decisions/011-stability-first-version-pinning.md)
@@ -113,8 +114,7 @@ catalog's curated choice. Precedent: Homebrew's `brew pin`.
 - `curl` preinstalled (stock on all three releases)
 
 Not yet supported in v0.3.0: ARM64, Fedora/Alma/Rocky/Arch. Those are on the
-v0.4+ roadmap. See [.planning/REQUIREMENTS.md](.planning/REQUIREMENTS.md) for
-the full behavior contract.
+v0.4+ roadmap.
 
 ## Security
 
@@ -123,7 +123,8 @@ download (connection reset mid-transfer) yields a bash syntax error *before*
 any commands run — partial-download execution is not possible. The release
 tarball is fetched over HTTPS and verified against a sibling `.sha256` asset
 published on the same GitHub Release before extraction. GPG signatures are
-on the v0.4+ roadmap (ADR-006); v0.3.0's trust story is HTTPS + SHA256 +
+on the v0.4+ roadmap — see [`docs/decisions/006-curl-pipe-bash-plus-deb.md`](docs/decisions/006-curl-pipe-bash-plus-deb.md)
+for the distribution decision; v0.3.0's trust story is HTTPS + SHA256 +
 maintainer 2FA + branch protection.
 
 Report vulnerabilities via the repository's Security tab (coordinated

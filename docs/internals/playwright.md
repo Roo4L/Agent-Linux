@@ -53,9 +53,9 @@ skill into `~/.claude/skills/playwright-cli/` — which is what makes the
 agent's `/playwright-cli` slash commands surface inside Claude Code.
 Apt-layer browser deps that the bootstrapper's underlying Playwright
 runtime needs install via the upstream sudo-prepended path; the agent
-user's NOPASSWD sudo drop-in (`/etc/sudoers.d/agentlinux`,
-[ADR-012](../decisions/012-agent-user-full-sudo.md)) is what makes that
-step run cleanly without prompting. After install, a sanity check asserts
+user's NOPASSWD sudo drop-in (`/etc/sudoers.d/agentlinux` — see
+[the agent-user-full-sudo decision record](../decisions/012-agent-user-full-sudo.md))
+is what makes that step run cleanly without prompting. After install, a sanity check asserts
 the skill directory landed where Claude Code looks for it; a missing
 directory fails the install rather than silently writing a sentinel for
 a half-bootstrapped state.
