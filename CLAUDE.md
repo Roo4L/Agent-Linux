@@ -52,14 +52,20 @@ hooks with a `stop_hook_active` guard are allowed. See
 
 Reviewers applied by file type:
 
-- Bash → `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`
-- TS/JS → `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`
+- Bash → `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`
+- TS/JS → `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`
 - Bats spec (`tests/bats/*.bats`) → `qa-engineer`, `behavior-coverage-auditor`
   (the spec is the spec — no `ai-deslop`)
 - Bats helpers + Docker/QEMU harness → `qa-engineer`, `bash-engineer`, `ai-deslop`
-- Catalog recipes → `catalog-auditor`, `security-engineer`, `ai-deslop`
+- Catalog recipes → `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`
 - Docs → `technical-writer`, `fact-checker`, `ai-deslop` (skip for ADRs and
   research summaries)
+
+`dev-docs-auditor` keeps `docs/internals/<component>.md` in sync when changes
+touch `plugin/bin/`, `plugin/lib/`, `plugin/provisioner/`, `plugin/cli/src/`,
+`plugin/catalog/`, or `packaging/curl-installer/`. Skips on pure refactors,
+typos, or comment-only changes. See `.claude/skills/dev-docs/SKILL.md` for the
+docs contract and the source-path → doc-path dispatch table.
 
 Main agent owns triage: fix what's valid, skip what's noise, iterate until the
 remaining comments are not actionable.
@@ -94,10 +100,13 @@ bash tests/harness/run.sh                  # Run harness meta-tests (Phase 1)
 - `@.planning/REQUIREMENTS.md` — behavior contract (BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC)
 - `@docs/HARNESS.md` — authoritative harness spec (§1 layout, §2 docs, §3 systems, §4 review, §5 skills, §6 this file, §7 checklist, §8 criteria)
 - `@docs/research/v0.3.0/SUMMARY.md` — v0.3.0 research synthesis
-- `@docs/decisions/` — ADR-001..ADR-010
-- Skills (arrive Plan 01-04): `.claude/skills/agentlinux-installer/`,
+- `@docs/decisions/` — ADR-001..ADR-015 (ADR-015: developer internals docs)
+- `@docs/internals/` — developer documentation (what each AgentLinux component
+  does and why; product-perspective lens; insight source for blog/email/website)
+- Skills: `.claude/skills/agentlinux-installer/`,
   `.claude/skills/behavior-test-contract/`, `.claude/skills/catalog-schema/`,
-  `.claude/skills/qemu-harness/`, `.claude/skills/review/`
+  `.claude/skills/dev-docs/`, `.claude/skills/qemu-harness/`,
+  `.claude/skills/review/`, `.claude/skills/workspace-cleanup/`
 
 ---
 *Last updated: 2026-04-18 — Phase 1 Harness Setup (Plan 01-01).*

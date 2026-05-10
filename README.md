@@ -64,6 +64,19 @@ preserved by default; add `--remove-nodejs` to drop the NodeSource apt list
 and the `nodejs` package as well. A re-run of the curl installer after
 `--purge` starts from a clean slate — there is no state hidden elsewhere.
 
+## Why AgentLinux — concepts
+
+Each AgentLinux surface — installer, agent user, sudo drop-in, Node.js runtime,
+the agent catalog, the registry CLI, and the curated agent set (Claude Code,
+GSD, Playwright) — solves a specific bug class that the naive `sudo npm
+install -g` path leaves broken. The internals docs walk through one component
+at a time: what the problem is, what AgentLinux does about it, and the value
+vs. the naive approach.
+
+See [docs/internals/README.md](docs/internals/README.md) for the index — nine
+short component docs, each answering "what value does AgentLinux provide
+here" in under a minute.
+
 ## Stability model
 
 AgentLinux ships *curated combos*: every catalog agent is pinned to an exact
@@ -138,6 +151,7 @@ endorsement.
 - **Source + issues:** https://github.com/Roo4L/Agent-Linux
 - **Releases:** https://github.com/Roo4L/Agent-Linux/releases
 - **Architecture decisions:** [docs/decisions/](docs/decisions/)
+- **Internals (developer docs):** [docs/internals/](docs/internals/)
 - **Test harness spec:** [docs/HARNESS.md](docs/HARNESS.md)
 - **Stability model (user-facing):** [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md)
 - **Landing page:** https://agentlinux.org
