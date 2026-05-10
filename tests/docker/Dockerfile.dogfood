@@ -49,16 +49,13 @@ RUN apt-get update \
          curl ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
-# /var/lib/apt/lists/ is intentionally cleaned. AL-37 fixed the installer so
-# plugin/provisioner/10-agent-user.sh AND 20-sudoers.sh both run
-# `apt-get update` before any gated auto-install — the AgentLinux installer
-# is now correct on hosts with empty apt cache. We start the dogfood image
-# with an empty cache so any future provisioner that re-introduces an
+# /var/lib/apt/lists/ is intentionally cleaned. AL-37 fixed
+# plugin/provisioner/10-agent-user.sh AND 20-sudoers.sh to run
+# `apt-get update` before any gated auto-install, so the dogfood image can
+# start with an empty cache. Any future provisioner that re-introduces an
 # "auto-install missing package without apt-get update" pattern fails
-# dogfood retests immediately. This is regression coverage for AL-37 baked
-# into the test substrate; it also reproduces the real-world starting state
-# of a freshly pulled Ubuntu container where /var/lib/apt/lists/ is empty
-# until something runs apt-get update.
+# dogfood retests immediately — regression coverage for AL-37 baked into
+# the test substrate.
 
 # Mask the systemd units that fight containerized PID 1 (logind needs real
 # seats; resolved/networkd assume real netns ownership; tmpfiles-clean
