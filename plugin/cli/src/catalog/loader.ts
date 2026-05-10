@@ -8,10 +8,11 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { Catalog } from "../types.js";
+import { VERSION } from "../version.js";
 import { formatErrors, getValidator } from "./schema.js";
 
 function defaultCatalogDir(): string {
-  const ver = process.env.AGENTLINUX_VERSION ?? "0.3.2";
+  const ver = process.env.AGENTLINUX_VERSION ?? VERSION;
   return `/opt/agentlinux/catalog/${ver}`;
 }
 

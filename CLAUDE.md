@@ -52,14 +52,21 @@ hooks with a `stop_hook_active` guard are allowed. See
 
 Reviewers applied by file type:
 
-- Bash → `bash-engineer`, `security-engineer`, `qa-engineer`
-- TS/JS → `node-engineer`, `security-engineer`, `qa-engineer`
-- Bats → `qa-engineer`, `behavior-coverage-auditor`
-- Catalog recipes → `catalog-auditor`, `security-engineer`
-- Docs → `technical-writer`, `fact-checker`
+- Bash → `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`
+- TS/JS → `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`
+- Bats spec (`tests/bats/*.bats`) → `qa-engineer`, `behavior-coverage-auditor`
+  (the spec is the spec — no `ai-deslop`)
+- Bats helpers + Docker/QEMU harness → `qa-engineer`, `bash-engineer`, `ai-deslop`
+- Catalog recipes → `catalog-auditor`, `security-engineer`, `ai-deslop`
+- Docs → `technical-writer`, `fact-checker`, `ai-deslop` (skip for ADRs and
+  research summaries)
 
 Main agent owns triage: fix what's valid, skip what's noise, iterate until the
 remaining comments are not actionable.
+
+Before opening an MR, the global `pre-delivery-cleanup` skill provides a
+self-review pass that pairs well with `ai-deslop` — invoke it when the
+implementation is finished and tests pass but before the final commit.
 
 ## Session Tracking
 

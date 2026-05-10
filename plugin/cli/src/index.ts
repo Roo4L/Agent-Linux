@@ -20,13 +20,14 @@ import { pinCmd } from "./commands/pin.js";
 import { removeCmd } from "./commands/remove.js";
 import { upgradeCmd } from "./commands/upgrade.js";
 import { guardAgentUser } from "./guard/user.js";
+import { VERSION } from "./version.js";
 
 const program = new Command();
 
 program
   .name("agentlinux")
   .description("AgentLinux registry CLI — install, upgrade, remove catalog agents")
-  .version("0.3.2", "-V, --version");
+  .version(VERSION, "-V, --version");
 
 // Commander's `.enablePositionalOptions()` is REQUIRED so the install
 // subcommand's `--version <semver>` override (CLI-03) can shadow the

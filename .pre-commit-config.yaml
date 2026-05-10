@@ -62,3 +62,15 @@ repos:
         language: system
         files: ^plugin/catalog/(catalog|agents/.*/recipe)\.json$
         pass_filenames: false
+
+      # AL-25: shift the build-release.sh three-way version-lock gate from
+      # release-time to commit-time. Fails fast on drift between
+      # plugin/cli/package.json::version (SoT under AL-29) and
+      # plugin/catalog/catalog.json::version. Pure bash plus sed; no jq
+      # dependency on contributor laptops.
+      - id: check-version-lockstep
+        name: Check package.json/catalog.json version lockstep
+        entry: scripts/check-version-lockstep.sh
+        language: system
+        files: ^(plugin/cli/package\.json|plugin/catalog/catalog\.json)$
+        pass_filenames: false

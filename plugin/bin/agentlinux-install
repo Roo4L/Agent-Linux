@@ -9,7 +9,6 @@
 #       §Pattern 1, §Pitfall 6, §Example 1; 02-CONTEXT.md "Installer UX & Logging".
 set -euo pipefail
 
-readonly AGENTLINUX_VERSION="0.3.2"
 readonly LOG_FILE="${AGENTLINUX_LOG:-/var/log/agentlinux-install.log}"
 # Resolve script-relative directories. Split `declare`/`assign` per SC2155 so
 # a cmdsub failure surfaces as a non-zero return instead of being masked by
@@ -20,6 +19,30 @@ LIB_DIR="$(cd "$BIN_DIR/../lib" && pwd)"
 readonly LIB_DIR
 PROV_DIR="$(cd "$BIN_DIR/../provisioner" && pwd)"
 readonly PROV_DIR
+
+# AL-29: derive AGENTLINUX_VERSION from the co-shipped plugin/cli/package.json
+# rather than a hardcoded constant. Single source-of-truth: bumping
+# package.json now propagates to the bash installer, the registry CLI, the
+# bats test suite, and the release pipeline's three-way version lock. The
+# previous hardcoded constant drifted in v0.3.2-rc1 (silently broke CAT-05
+# because the staged catalog landed at /opt/agentlinux/catalog/0.3.0/ while
+# package.json said 0.3.2).
+#
+# Why sed-not-jq: the entrypoint runs BEFORE 30-nodejs.sh which (transitively
+# via apt-get) brings jq onto bare Ubuntu. Coreutils-only extraction is
+# sufficient because we control the package.json shape — it is checked into
+# this repo with a fixed format. The version-regex check below catches any
+# format drift loudly.
+PKG_JSON="$BIN_DIR/../cli/package.json"
+readonly PKG_JSON
+[[ -r "$PKG_JSON" ]] \
+  || { printf 'agentlinux-install: package.json not readable at %s\n' "$PKG_JSON" >&2; exit 1; }
+AGENTLINUX_VERSION=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' \
+  "$PKG_JSON" | head -n 1)
+[[ "$AGENTLINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.-]+)?$ ]] \
+  || { printf 'agentlinux-install: bad or missing version in %s: %q\n' \
+       "$PKG_JSON" "$AGENTLINUX_VERSION" >&2; exit 1; }
+readonly AGENTLINUX_VERSION
 
 usage() {
   cat <<EOF

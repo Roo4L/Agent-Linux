@@ -39,8 +39,13 @@ ensure_dir /home/agent 0755 agent:agent
 # Docker slim images strip the `locales` package entirely, so ensure it is
 # installed before invoking locale-gen / update-locale. DEBIAN_FRONTEND +
 # --no-install-recommends keep the install non-interactive and minimal.
+# `apt-get update` runs first because the cache is empty on freshly pulled
+# Ubuntu containers and long-idle hosts; without it `apt-get install` exits
+# with "Package locales has no installation candidate" (AL-37). Mirrors the
+# pattern at 30-nodejs.sh:33.
 if ! command -v locale-gen >/dev/null 2>&1; then
   log_warn "locale-gen not found; installing 'locales' package"
+  DEBIAN_FRONTEND=noninteractive apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales
 fi
 
@@ -82,7 +87,7 @@ ensure_marker_block /home/agent/CLAUDE.md "agentlinux-doc-02" --top <<'DOC02'
 
 ## This environment is correctly owned
 
-This agent user was provisioned by AgentLinux v0.3.0. Your home directory,
+This agent user was provisioned by AgentLinux. Your home directory,
 npm global prefix (arrives Phase 3), and per-tool config paths are all owned
 by you. You do NOT need sudo for routine agent operations.
 

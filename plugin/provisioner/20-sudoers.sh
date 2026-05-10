@@ -41,9 +41,12 @@ log_info "20-sudoers: starting"
 # the `sudo` package, which provides both the `sudo` binary AND `visudo`. We
 # need `visudo` to validate the drop-in before installing it (T-05.1-01), and
 # the agent user obviously needs `sudo` afterwards. Mirror the pattern used by
-# 10-agent-user.sh's `locales` install.
+# 10-agent-user.sh's `locales` install: apt-get update first (cache may be
+# empty on freshly pulled containers and long-idle hosts — AL-37), then
+# apt-get install gated on prereq absence.
 if ! command -v visudo >/dev/null 2>&1; then
   log_warn "visudo not found; installing 'sudo' package"
+  DEBIAN_FRONTEND=noninteractive apt-get update
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo
 fi
 

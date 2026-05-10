@@ -108,11 +108,19 @@ resolve_version() {
     return 0
   fi
   local redirect tag
-  redirect=$(curl -fsSIL -o /dev/null -w '%{url_effective}' \
+  # Read ONLY the FIRST redirect's Location header — do NOT follow with -L.
+  # GitHub's releases-latest-download path emits a 302 with Location:
+  # /releases/download/<TAG>/<asset>, which contains the tag we need to
+  # extract. With -L, curl follows that hop AND the second hop into
+  # release-assets.githubusercontent.com — and `%{url_effective}` then
+  # reports only the FINAL URL, which is opaque (token-only, no tag).
+  # `%{redirect_url}` prints the next-hop Location without following.
+  # Dogfood-discovered against v0.3.2-rc2 (AL-31).
+  redirect=$(curl -fsS -I -o /dev/null -w '%{redirect_url}' \
     "https://github.com/${ORG}/agent-linux/releases/latest/download/VERSION") \
     || die 'could not resolve latest version (check network connectivity and https://github.com/'"${ORG}"'/agent-linux/releases/latest)'
   tag=$(printf '%s' "$redirect" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?' | head -n 1)
-  [[ -n "$tag" ]] || die "could not parse tag from redirect URL: ${redirect}"
+  [[ -n "$tag" ]] || die "could not parse tag from redirect Location header (got: '${redirect:-<empty — server returned 200 instead of a 302 to releases/download/...>}'); set AGENTLINUX_VERSION to override"
   printf '%s' "$tag"
 }
 

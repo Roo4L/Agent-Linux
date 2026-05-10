@@ -25,6 +25,7 @@ const Ajv2020: any = (AjvModule as any).default ?? (AjvModule as any).Ajv2020 ??
 const addFormats: any = (AjvFormatsModule as any).default ?? AjvFormatsModule;
 
 import { access } from "node:fs/promises";
+import { VERSION } from "../version.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -61,7 +62,7 @@ async function resolveSchemaPath(): Promise<string> {
   const candidates: string[] = [];
   if (envDir) candidates.push(join(envDir, "schema.json"));
   // Production default — matches loader.ts's defaultCatalogDir().
-  const ver = process.env.AGENTLINUX_VERSION ?? "0.3.2";
+  const ver = process.env.AGENTLINUX_VERSION ?? VERSION;
   candidates.push(`/opt/agentlinux/catalog/${ver}/schema.json`);
   // Walk up 6 levels; covers dist/ dist-test/src/ src/ and a couple spare
   // for dev/test layouts.
@@ -74,9 +75,7 @@ async function resolveSchemaPath(): Promise<string> {
     try {
       await access(p);
       return p;
-    } catch {
-      // next
-    }
+    } catch {}
   }
   throw new Error(
     `agentlinux: unable to locate catalog schema.json; set AGENTLINUX_CATALOG_DIR. Searched:\n${candidates.map((c) => `  - ${c}`).join("\n")}`,
