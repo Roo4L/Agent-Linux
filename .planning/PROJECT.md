@@ -10,19 +10,27 @@ The project also maintains a landing page at **agentlinux.org** for validation a
 
 An agent can be dropped into any supported Linux system and *just work* — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights, sudo prompts, or recursive-shim workarounds. Installing AgentLinux on your distro gives you an agent environment that was built right the first time.
 
-## Current Milestone: v0.4.0 Open-Source Release
+## Current Milestone: v0.3.4 Aware Installation Process
 
-**Goal:** Open-source the AgentLinux GitHub repository — establish OSS licensing, eliminate any leaked secrets from git history, clean up build artifacts and stale branches, verify CI/CD operates correctly under public-repo permissions, and flip visibility to public so AgentLinux can ride free GitHub Actions minutes and accept community contributions.
+**Goal:** Make AgentLinux installation aware of pre-existing AI/agent setups on the host — pre-existing `agent` user, Node.js, npm-global prefix, Claude Code, GSD, Playwright — and either reuse, remediate, or bail with a clear error rather than failing or silently overwriting user state. Triggered by [AL-38](https://copiedwonder.atlassian.net/browse/AL-38): agents are commonly run on long-lived VMs that already have partial agent toolchains installed; v0.3.0's installer assumed a fresh host and clobbers or aborts otherwise.
 
 **Target features:**
-- OSS licensing (MIT recommended) — `LICENSE` file at repo root, README updated with license badge/section, SPDX headers on source files where appropriate
-- Full git-history secret-scanning sweep (gitleaks + trufflehog) with explicit attention to Buttondown API tokens, GitHub / Anthropic / npm / package-registry credentials, and `.env` / `.npmrc` / `.git-credentials` artifacts
-- Remediation of any found secrets (rotate + decide between accept-with-rotation and history rewrite per severity); pre-commit + CI guard to prevent re-introduction
-- Repository hygiene cleanup — stale branches, large binary artifacts, accidentally-committed build outputs; `.gitignore` audit
-- CI/CD public-readiness — verify all GitHub Actions workflows run correctly under public-repo permissions, harden any `pull_request_target` usage against fork-PR exfiltration, configure branch-protection on `main`
-- Public visibility flip + post-flip smoke (anonymous clone + `curl | bash` install path against the v0.3.0 release tag)
+- Detection pass: discovery layer that catalogs pre-existing agent user (UID/GID, shell, home, groups), Node.js (NodeSource / distro APT / nvm / fnm / volta / mise), npm-global prefix + ownership, sudoers drop-in drift, and each catalog agent (claude-code, gsd, playwright — version + binary path + ownership + health)
+- Reuse path: if a detected component matches AgentLinux's contract (correct ownership, version-compatible per the catalog's pin window, PATH-wireable), skip the corresponding provisioner / recipe — never re-clobber working state
+- Remediate path: when a component is mostly-correct (wrong-owner npm-global prefix, missing PATH wiring, drifted sudoers drop-in, broken catalog-agent install), fix it in place — gated by user opt-in for any overwrite of pre-existing user state
+- Pre-flight report: before any mutation, print a Reuse / Create / Remediate / Bail report (text + machine-readable JSON via `--report-format`) so the user knows exactly what the installer will do
+- Dry-run mode: `agentlinux install --dry-run` produces the pre-flight report without writing anything
+- Non-interactive default: when stdin is not a TTY (cron, CI, ssh-non-interactive, automation, `curl | sudo bash`), pick safe defaults (reuse-or-bail), never prompt, never overwrite user state without an explicit flag
+- Interactive prompts: alternate-user-name prompt when the existing `agent` user is incompatible; reinstall confirmation when an agent tool fails its health check
+- Documentation: a "Brownfield Install" section in README plus a focused `docs/MIGRATION.md` walking through the common pre-existing-setup scenarios
 
-## Previous Milestone: v0.3.0 AgentLinux Plugin (Ubuntu) — feature-complete 2026-04-20
+## Previous Milestone: v0.4.0 Open-Source Release — feature-complete (formal closeout pending)
+
+v0.4.0 (Open-Source Release) shipped Phases 7–11 (License + CONTRIBUTING; gitleaks/trufflehog history audit + scanner gate; repo hygiene + branch cleanup; public-CI/CD audit + branch protection; visibility flip + post-flip smoke). The status section of this document and `MILESTONES.md` are scheduled for a maintenance pass that reconciles the formal closeout. v0.3.4 numbering reflects a milestone-rename pass; the formal `MILESTONES.md` ordering will be updated in that same pass.
+
+## Earlier Milestones
+
+### v0.3.0 AgentLinux Plugin (Ubuntu) — feature-complete 2026-04-20 (preserved here pending v0.4.0 closeout reconciliation)
 
 v0.3.0 shipped the installable Ubuntu plugin in 6 phases (Harness, Installer Foundation + Agent User, Node.js Runtime, Registry CLI + Catalog, Agent Installability, Distribution + Release Pipeline) plus one inserted phase (5.1 Agent User Sudo Drop-In). All 54 v0.3.0 requirements have observable bats coverage, both Ubuntu 22.04 + 24.04 Docker matrices and the QEMU release-gate suite are green, and AGT-02 (the canonical "Claude Code self-updates without sudo / EACCES" acceptance test) passes end-to-end against the live Anthropic CDN. The v0.3.0 release pipeline is wired (4-gate `release.yml`: pre-commit → Docker matrix → QEMU release gate → pinned-combo gate) and awaits its first `v0.3.0-rc1` tag push as the shipping event. v0.4.0 (open-sourcing) does not block on the rc1 tag — repo cleanup runs in parallel.
 
@@ -69,27 +77,35 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 - ✓ Bats behavior-test suite + Docker matrix + QEMU release-gate suite + 4-gate `release.yml` — v0.3.0
 - ✓ Pinned-combo release gate (TST-08) + catalog snapshot publication (CAT-05) per ADR-011 — v0.3.0
 
-### Active (v0.4.0 — Open-Source Release)
+### Active (v0.3.4 — Aware Installation Process)
 
-- [ ] OSI-approved OSS license (MIT recommended) — `LICENSE` file at repo root, README updated, SPDX headers where appropriate
-- [ ] Full git-history secret scan (gitleaks + trufflehog) with zero confirmed High/Critical findings (or all findings triaged with documented decision)
-- [ ] Buttondown API tokens, GitHub / Anthropic / npm credentials, `.env` / `.npmrc` / `.git-credentials` artifacts specifically audited
-- [ ] Any leaked secrets rotated; severity decides between accept-with-rotation vs. history rewrite (`git filter-repo`)
-- [ ] Pre-commit and/or CI gate runs gitleaks on every PR going forward
-- [ ] Stale branches, large binaries (>1 MB outside release artifacts), and accidentally-committed build outputs removed; `.gitignore` audited
-- [ ] All GitHub Actions workflows verified to run correctly under public-repo permissions; fork-PR exfiltration paths hardened
-- [ ] Branch protection on `main` (require review, require CI green, no force-push)
-- [ ] Repository visibility flipped to public via `gh repo edit --visibility public` (or GitHub UI)
-- [ ] Post-flip smoke: anonymous HTTPS clone + `curl | bash` install path against v0.3.0 release tag both succeed
+See `.planning/REQUIREMENTS.md` for the full v0.3.4 requirement list (categories: DET, REUSE, REMEDIATE, UX, DOC). Headline outcomes:
+
+- [ ] Pre-flight detection pass identifies pre-existing agent user, Node.js, npm-global prefix, sudoers drop-in, and each catalog agent — surfaced as a Reuse / Create / Remediate / Bail report
+- [ ] `agentlinux install --dry-run` prints the report and exits 0 without mutation
+- [ ] Reuse path: compatible pre-existing components are reused; provisioners / recipes short-circuit instead of clobbering
+- [ ] Remediate path: incompatible-but-fixable components (wrong ownership, missing PATH wiring, drifted sudoers, broken agent install) are fixed — overwrites of user state require an explicit flag in non-interactive mode
+- [ ] Non-interactive default is reuse-or-bail; interactive mode prompts for alternate user name when `agent` clashes and for reinstall confirmation when an agent tool fails its health check
+- [ ] README "Brownfield Install" section + `docs/MIGRATION.md` cover the common pre-existing-setup scenarios
+
+### Validated (v0.4.0 — Open-Source Release; formal closeout pending)
+
+The v0.4.0 requirement set (LIC / SEC / CLEAN / CIPUB / PUB) shipped end-to-end with audit evidence under `docs/audits/v0.4.0/`. Formal status reconciliation (move to Validated, fold into MILESTONES.md) is scheduled for the next maintenance pass alongside the milestone-rename. Detail preserved in `.planning/milestones/v0.4.0-REQUIREMENTS.md`.
 
 ### Out of Scope
 
-**v0.4.0 out of scope:**
-- New distro targets (Fedora / CentOS / Alma / Arch / openSUSE) — deferred to a later milestone; the public flip is a repo/process milestone, not a feature milestone
-- New agent recipes or catalog entries — catalog churn happens in feature milestones, not the open-sourcing one
+**v0.3.4 out of scope:**
+- New distro targets (Fedora / CentOS / Alma / Arch / openSUSE) — still deferred; brownfield-aware install is Ubuntu-only for v0.3.4
+- New catalog agents beyond the existing three (claude-code, gsd, playwright) — catalog churn happens in feature milestones, not the brownfield-aware one
+- Auto-detection of arbitrary user-installed npm globals outside the catalog (e.g. `npx`, `tsx`, `vercel`) — out of scope; AgentLinux only owns its catalog
+- Auto-migration of nvm / fnm / volta / mise managed Node.js installs to a system Node.js install — surfaced as "Bail" with a clear remediation hint, not auto-rewritten
+- Replacing or migrating an existing user's shell init files (`.bashrc`, `.profile`) — additive `ensure_marker_block` only; never edit pre-existing lines
+- Multi-arch (ARM) — x86_64 only for now (carried forward)
+
+**v0.4.0 out of scope (carried forward):**
+- New distro targets (Fedora / CentOS / Alma / Arch / openSUSE) — deferred to a later milestone
 - Mutation testing promotion to release gate — still v0.5+ per ADR-010
-- Multi-arch (ARM) — x86_64 only for now
-- Repo migration to a different GitHub organization or rename — out of scope; this milestone keeps the repo in place and only flips visibility
+- Repo migration to a different GitHub organization or rename — out of scope
 
 **v0.3.0 out of scope (carried forward):**
 - Fedora / CentOS / Alma / Arch / openSUSE targets (deferred to a later feature milestone)
@@ -117,7 +133,9 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 
 **Plugin (v0.3.0, feature-complete 2026-04-20):** All 6 phases plus inserted phase 5.1 shipped. 54/54 requirements covered. Awaits the first `v0.3.0-rc1` tag push as the runtime-shipping event.
 
-**Open-Source Release (v0.4.0, current):** Repo is currently private. Going public delivers two things: free GitHub Actions minutes (private-repo CI/CD spend has become non-trivial as the QEMU release-gate matrix grew) and an unblocked path to community contributions and outside marketing/outreach. Non-negotiables before flipping: a recognized OSS license, zero verifiable secrets in git history (with rotation of anything that did leak), CI/CD verified to keep working under public-repo permissions and fork-PR exfiltration patterns. The visibility flip is the milestone's shipping event.
+**Open-Source Release (v0.4.0, feature-complete; formal closeout pending):** Phases 7–11 shipped end-to-end (license + CONTRIBUTING; gitleaks/trufflehog history audit + scanner gate; repo hygiene + branch cleanup; public-CI/CD audit + branch protection; visibility flip + post-flip smoke). Audit evidence under `docs/audits/v0.4.0/`. The formal `MILESTONES.md` reconciliation + the milestone-rename pass (which makes v0.3.4 numerically subsequent in the project's revised cadence) are scheduled for the next maintenance pass.
+
+**Aware Installation (v0.3.4, current):** AgentLinux's installer was designed assuming a fresh host. In practice agents run on long-lived VMs that already have an `agent` user, Node.js, and one or more catalog tools installed — often partially, often with permission drift. v0.3.4 introduces a detection-driven path through the installer: pre-flight discovery of every component AgentLinux owns, a Reuse / Create / Remediate / Bail decision per component, a dry-run mode, and a non-interactive default that never overwrites user state without an explicit flag. The bug class is the same one v0.3.0 exists to eliminate — surprise privilege fights — but viewed from the brownfield direction. Triggered by AL-38; the canonical acceptance test is "agent installation completes cleanly on a host with Claude Code, GSD, and Playwright already present, AGT-02 self-update still green afterwards."
 
 Known minor issue: OG image (SVG format) doesn't render on all social platforms — convert to PNG for broader support (website todo).
 
@@ -151,7 +169,11 @@ Known minor issue: OG image (SVG format) doesn't render on all social platforms 
 | Canonical acceptance test: Claude Code self-update | Directly tests the motivating bug class (EACCES / recursive shim) | ✓ Good — AGT-02 green end-to-end against Anthropic CDN |
 | **Open-source the repo (v0.4.0)** (2026-04-26) | Private-repo CI/CD spend is non-trivial; public repos get free Actions minutes; unblocks community contributions and outside marketing | — Active |
 | MIT as recommended OSS license | Permissive, dependency-friendly, low-friction for community adoption (vs. Apache-2.0 patent grant or GPL copyleft) | — Active (final pick confirmed in Phase 7) |
-| Visibility flip is irreversible-in-practice | Re-private is possible but third parties may have already cloned/forked; treat as one-way | — Active (drives Phase 11 pre-flight checklist) |
+| Visibility flip is irreversible-in-practice | Re-private is possible but third parties may have already cloned/forked; treat as one-way | — Active (drove Phase 11 pre-flight checklist) |
+| **Aware Installation milestone (v0.3.4)** (2026-05-09) | AL-38: real-world hosts already have partial agent toolchains; the v0.3.0 installer's "fresh-host" assumption fails them. Detection + Reuse/Remediate/Bail makes AgentLinux usable on brownfield hosts without changing the v0.3.0 contract for fresh hosts | — Active |
+| Reuse-or-bail as the non-interactive default | Non-interactive contexts (cron, CI, ssh-non-interactive, `curl \| sudo bash`) cannot safely make policy decisions about pre-existing user state; default to the conservative path; require an explicit flag for any overwrite | — Active (drives v0.3.4 UX-03..05) |
+| Detection layer is read-only | Discovery never mutates host state; mutation is the Reuse / Remediate path's responsibility, gated by the pre-flight report. This keeps `--dry-run` trivially correct | — Active (drives v0.3.4 DET-XX) |
+| Brownfield acceptance test: AGT-02 still green after install on a pre-populated host | Same canonical bug class as v0.3.0; the brownfield path must not regress the green-field path | — Active (locks v0.3.4 phase-close gate) |
 
 ## Evolution
 
@@ -171,4 +193,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-04-26 — v0.3.0 feature-complete; v0.4.0 (Open-Source Release) milestone planned.*
+*Last updated: 2026-05-09 — v0.3.4 (Aware Installation Process) milestone planned via /gsd-new-milestone (AL-38). v0.4.0 (Open-Source Release) feature-complete; formal closeout reconciliation pending.*
