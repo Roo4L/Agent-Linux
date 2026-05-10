@@ -42,9 +42,7 @@ ensure_dir /home/agent 0755 agent:agent
 # `apt-get update` runs first because the cache is empty on freshly pulled
 # Ubuntu containers and long-idle hosts; without it `apt-get install` exits
 # with "Package locales has no installation candidate" (AL-37). Mirrors the
-# apt-get update→install ordering at 30-nodejs.sh:33 (gated here on
-# `command -v locale-gen` absence, unconditional there because nodejs is
-# always installed by the AgentLinux installer).
+# pattern at 30-nodejs.sh:33.
 if ! command -v locale-gen >/dev/null 2>&1; then
   log_warn "locale-gen not found; installing 'locales' package"
   DEBIAN_FRONTEND=noninteractive apt-get update
