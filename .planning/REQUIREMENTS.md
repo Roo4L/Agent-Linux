@@ -1,74 +1,88 @@
-# Requirements: AgentLinux v0.4.0 — Open-Source Release
+# Requirements: AgentLinux v0.3.4 — Aware Installation Process
 
-**Defined:** 2026-04-26
-**Milestone:** v0.4.0 Open-Source Release
-**Triggered by:** Issue AGE-6 "Make repository public"
-**Core Value (carried from PROJECT.md):** An agent can be dropped into any supported Linux system and just work — provisioned correctly the first time. v0.4.0 does not change the product; it changes the repository's distribution model from private to public so the project can ride free GitHub Actions minutes and accept community contributions.
+**Defined:** 2026-05-09
+**Milestone:** v0.3.4 Aware Installation Process
+**Triggered by:** [AL-38 "Introduce proper migration pass for users with some AI setup already"](https://copiedwonder.atlassian.net/browse/AL-38)
+**Core Value (carried from PROJECT.md):** An agent can be dropped into any supported Linux system and just work — provisioned correctly the first time. v0.3.4 extends "just work" to brownfield hosts where the user has already installed an agent toolchain by hand: AgentLinux must detect what is there, reuse what fits, remediate what is fixable, and bail clearly when it is not — without ever clobbering the user's pre-existing state.
 
 ## Design Philosophy (read first)
 
-**Treat the visibility flip as one-way.** Re-private is technically possible but third parties can clone or fork the moment the repo is public; once material is out, it is out. Therefore:
+**Brownfield is the default, not the exception.** AL-38's reporter is the canonical user: an engineer running an agent in a long-lived VM that already has an `agent` user, Node.js, Claude Code, GSD, and likely Playwright. v0.3.0 assumed a fresh host and clobbers or aborts. v0.3.4 treats every component AgentLinux owns as potentially-already-present and decides per component.
 
-- Every Phase 7-10 outcome must be in place *before* Phase 11 flips visibility. Phase 11 is purely the trigger pull and the post-flip smoke test.
-- "Done" for the secret-scanning phase is **zero verifiable findings or every finding triaged with a documented decision** (rotate, accept, or rewrite history). It is not "we ran the scanner and looked at the report."
-- "Done" for CI/CD readiness includes a *concrete adversary check*: a hostile fork PR cannot exfiltrate secrets via the workflow. We do not assume — we audit.
-- The behavior-test-as-spec discipline from v0.3.0 carries over. Every requirement here gets at least one verifiable check before its phase closes (bats @test, CI workflow run citation, tooling output committed to `docs/audits/v0.4.0/`, or a documented manual verification with evidence).
+The four states are exhaustive and exclusive:
 
-## v0.4.0 Requirements
+| State | Meaning | Trigger |
+|-------|---------|---------|
+| **Reuse** | Detected component matches AgentLinux's contract; provisioner / recipe short-circuits | Detected + healthy + version-compatible + ownership-compatible |
+| **Create** | Component absent; provisioner / recipe runs as in v0.3.0 (greenfield path) | Not detected |
+| **Remediate** | Detected but with a fixable defect (wrong ownership, missing PATH wiring, drifted sudoers, broken install) | Detected + defect found + (interactive consent OR explicit flag) |
+| **Bail** | Detected but with an irreconcilable defect (wrong UID, conflicting home, wrong shell on existing user, etc.); the installer surfaces a clear error + remediation hint and exits with a structured non-zero code | Detected + defect not auto-fixable OR non-interactive without `--remediate` |
 
-Grouped by area. Each `XXX-NN` is a testable, verifiable outcome — auditable before the phase closes.
+**Detection is read-only.** The discovery layer never mutates host state. Mutation lives in the Reuse / Create / Remediate paths, which are gated by the pre-flight report. This makes `--dry-run` trivially correct (run discovery, print report, exit) and gives the user a deterministic preview of every change.
 
-### License & Documentation (LIC) — Phase 7
+**Non-interactive default is reuse-or-bail.** Cron, CI, ssh-non-interactive, and `curl | sudo bash` cannot safely make policy decisions about pre-existing user state. v0.3.4's non-interactive mode reuses compatible state, runs the greenfield Create path on absent components, and bails on anything that needs Remediate. The user passes a single `--yes` flag (Unix-convention shape, matching `apt install -y` / `pacman --noconfirm`) to opt into all remediations in one shot — there are no per-action flags. In TTY-interactive mode, every Remediate action is its own prompt (`Proceed? [Y/n]`); declining a prompt skips that one remediation, logs a warning, and continues the install with the remaining components.
 
-- [ ] **LIC-01**: A `LICENSE` file exists at the repository root containing an OSI-approved OSS license. MIT is the recommended pick (permissive, dependency-friendly, low community-adoption friction); Apache-2.0 is acceptable if a patent-grant rationale is recorded in `docs/decisions/`. The chosen license is logged as an ADR (`docs/decisions/ADR-013-license-choice.md`).
-- [ ] **LIC-02**: README references the license — at minimum a `License` section linking to `LICENSE`, ideally a license badge near the top. The README is reviewed for public-audience tone (no internal-only references, no "TODO" placeholders blocking comprehension).
-- [ ] **LIC-03**: Source files include SPDX license identifier headers where appropriate — bash entrypoints (`plugin/bin/*`), TypeScript sources under `plugin/cli/src/`, and any new contribution-template files. A repo-wide grep proves the convention is applied consistently to *new* files going forward (existing files may be batch-updated or left to organic touch — decision recorded in the ADR).
-- [ ] **LIC-04**: A `CONTRIBUTING.md` file exists at the repository root (or under `.github/`) documenting how to file issues, open PRs, run the test harness locally, and the expected review-loop conventions from `docs/HARNESS.md`. README links to it.
+**The brownfield path must not regress the greenfield path.** AGT-02 (Claude Code self-update with zero EACCES against the live Anthropic CDN) — v0.3.0's canonical acceptance test — must stay green on a host that completed an aware-install against a pre-populated environment. This is the v0.3.4 phase-close gate (analogous to v0.3.0's TST-07).
 
-### Secret Scanning & History Audit (SEC) — Phase 8
+**Behavior-test discipline carries over.** Every requirement closes with at least one verifiable check before its phase closes — bats @test, CI workflow citation, audit doc with command + output, or a documented manual smoke transcript. The TST-07 phase-close gate convention applies; behavior-coverage-auditor is invoked at every phase boundary.
 
-- [ ] **SEC-01**: `gitleaks detect --redact --no-banner --source . --log-opts="--all"` runs against full git history (every branch, every commit) with zero High/Critical findings, OR every finding is triaged in `docs/audits/v0.4.0/SEC-01-gitleaks-report.md` with a documented decision (rotate, accept-with-rotation, or remove-from-history).
-- [ ] **SEC-02**: `trufflehog git file://. --since-commit=$(git rev-list --max-parents=0 HEAD) --only-verified` runs against full history with zero **verified** findings, OR every verified finding is rotated and a remediation note exists in `docs/audits/v0.4.0/SEC-02-trufflehog-report.md`. (Unverified findings are listed for completeness but do not block — they are most often false positives or test fixtures.)
-- [ ] **SEC-03**: A targeted manual audit covers the four high-risk classes called out in issue AGE-6: (a) Buttondown API tokens used by the website signup flow; (b) GitHub / Anthropic / npm / package-registry credentials; (c) `.env` / `.npmrc` / `.git-credentials` / SSH key artifacts; (d) any `Authorization: Bearer ...` strings in committed logs, fixtures, or test recordings. Result: either "none found" with grep evidence, or each instance is itemized in `docs/audits/v0.4.0/SEC-03-targeted-audit.md` with a remediation entry.
-- [ ] **SEC-04**: For every secret found by SEC-01..03 that was real (not a false positive), the secret is rotated upstream (new token issued, old token revoked) AND the decision between "accept rotation as the remediation" vs. "rewrite history with `git filter-repo`" is recorded in the ADR `docs/decisions/ADR-014-secret-remediation.md`. Default decision: rotate without rewriting unless the secret grants ongoing access that cannot be revoked from upstream.
-- [ ] **SEC-05**: A `gitleaks` (or equivalent) gate runs on every PR going forward — either as a pre-commit hook in `.pre-commit-config.yaml` or as a GitHub Actions step in `.github/workflows/test.yml`. The gate catches any *new* secret-shaped string from being committed and is verified to fire on a contrived test commit (evidence: a test PR or local pre-commit run).
+## v0.3.4 Requirements
 
-### Repository Hygiene & Artifact Cleanup (CLEAN) — Phase 9
+Grouped by category. Each `XXX-NN` is a testable, verifiable outcome — auditable before the phase closes.
 
-- [ ] **CLEAN-01**: All remote branches are reviewed. Branches that are merged to `master` are deleted on the remote; branches that are stale (>90 days, no merges, no recent commits) are either documented in `docs/audits/v0.4.0/CLEAN-01-branch-review.md` with a keep-or-delete decision or deleted. Live work-in-progress branches are listed with their owner and ETA.
-- [ ] **CLEAN-02**: Files larger than 1 MB tracked anywhere in git history are inventoried (`git rev-list --all --objects | git cat-file --batch-check --batch-all-objects ...` or equivalent). Any large file that is not a legitimate release artifact is either removed (and history rewritten if necessary, decision recorded in the ADR) or moved to GitHub Releases / Git LFS. Result documented in `docs/audits/v0.4.0/CLEAN-02-large-files.md`.
-- [ ] **CLEAN-03**: `.gitignore` is audited for completeness. Build outputs, editor files, OS files (`.DS_Store`, `Thumbs.db`), virtualenvs, `node_modules/`, `dist/`, coverage reports, and any local test caches are covered. A pre-commit hook (`check-added-large-files`, already present per `.pre-commit-config.yaml`) is verified to be active. Result: `.gitignore` diff committed; hook smoke-test evidence in `docs/audits/v0.4.0/CLEAN-03-gitignore-audit.md`.
-- [ ] **CLEAN-04**: `.planning/` and `docs/` are reviewed for content that should not be public-facing — internal vendor names, customer references, unredacted incident notes, or experiment artifacts. Anything sensitive is redacted, moved to a private location, or kept after explicit decision recorded in the audit. `.planning/` is intentionally retained per project convention (it's the GSD workflow trail and provides context for new contributors).
+### Detection (DET) — read-only discovery layer
 
-### Public CI/CD Readiness (CIPUB) — Phase 10
+- [ ] **DET-01**: A pre-flight discovery pass identifies whether the install user (default `agent`, overridable via `--user=NAME`) already exists, and captures their UID, GID, login shell, home directory, group memberships (`id -nG`), and whether the home directory is writable. Captured in a structured pre-flight report.
+- [ ] **DET-02**: A pre-flight discovery pass identifies any pre-existing Node.js installation visible to the install user — sources covered: NodeSource APT, distro APT (`nodejs` package), nvm, fnm, volta, mise, asdf-node, pnpm-managed Node, and a manual `/usr/local/bin/node`. Captured per source: binary path, `node --version` output, install method, and "is the install user able to write to the global prefix" boolean.
+- [ ] **DET-03**: A pre-flight discovery pass identifies the npm global prefix that the install user would resolve to (`npm config get prefix --location=user` falling back to system), captures its filesystem path, ownership (`stat -c %U:%G`), and whether the install user can write to it. Multiple npm prefixes are surfaced (per-user override + system fallback both reported).
+- [ ] **DET-04**: A pre-flight discovery pass identifies pre-existing catalog agents (claude-code, gsd, playwright). For each: binary path on the install user's PATH, version (via the agent's documented version source — `claude --version`, `get-shit-done-cc --help` banner-grep, `playwright --version`), ownership of the binary, and a quick health probe (e.g. `claude --help` exit 0). Each is classified as `healthy`, `broken`, or `absent`.
+- [ ] **DET-05**: A pre-flight discovery pass identifies whether `/etc/sudoers.d/agentlinux` already exists. If present, captures the file's mode, ownership, and the SHA256 of its content; flags drift from ADR-012's expected exact-line content (`agent ALL=(ALL) NOPASSWD: ALL`). The detection pass never edits or removes the existing file.
+- [ ] **DET-06**: The pre-flight report is emitted in two formats — a human-readable text format (default, color-aware) and a stable JSON format (`--report-format=json`). Both formats expose the same information; the JSON format is suitable for parsing by CI, smoke tests, or downstream tooling. The JSON schema is documented and versioned.
 
-- [ ] **CIPUB-01**: Every GitHub Actions workflow (`test.yml`, `nightly-qemu.yml`, `nightly-mutation.yml`, `release.yml`, `deploy.yml`) is reviewed under public-repo permissions semantics. Each workflow's `permissions:` block is set to least-privilege (default `contents: read`; `contents: write` only on the publish job in `release.yml`). Result documented in `docs/audits/v0.4.0/CIPUB-01-workflow-audit.md`.
-- [ ] **CIPUB-02**: `pull_request_target` usage is audited for fork-PR exfiltration risk. If any workflow uses it, untrusted-input handling is verified (no `${{ github.event.pull_request.head.ref }}` injected into shell, no `actions/checkout@v* ref: <PR ref>` followed by privileged steps). Default posture: prefer `pull_request` over `pull_request_target`; if `pull_request_target` is required, the workflow runs on a curated, hardcoded ref. Evidence: workflow YAML diffs, audit notes.
-- [ ] **CIPUB-03**: Branch protection on `master` is configured: require at least 1 review approval; require all required status checks (CI green); require linear history (no force-push); restrict who can push directly to maintainers. The protection rule is captured in `docs/audits/v0.4.0/CIPUB-03-branch-protection.md` (a screenshot of the GitHub settings page or `gh api repos/:owner/:repo/branches/master/protection` JSON output).
-- [ ] **CIPUB-04**: `nightly-qemu.yml`, `nightly-mutation.yml`, and `release.yml` are smoke-run (`workflow_dispatch`) against the public-repo configuration before the visibility flip and exit zero. This catches any repo-name / token-name / runner-permission drift before it becomes a public-repo embarrassment. Evidence: GitHub Actions run URLs.
+### Reuse (REUSE) — short-circuit when detected component matches contract
 
-### Public Visibility Flip & Smoke Test (PUB) — Phase 11
+- [ ] **REUSE-01**: When DET-01 surfaces an existing install user with a compatible login shell (bash), a writable home directory, and (when `--user=NAME` was specified) the requested name, the user-creation provisioner (`10-agent-user.sh`) skips its `useradd` step and uses the existing user. The skip is logged with the resolved UID and a reference to the pre-flight report; subsequent provisioners (PATH wiring, sudoers, etc.) attach to the existing user.
+- [ ] **REUSE-02**: When DET-02 surfaces a Node.js installation that satisfies the project's pinned major version (Node 22 LTS line per ADR-005) AND has an npm global prefix the install user can write to, the Node.js provisioner (`30-nodejs.sh`) skips both the apt installation and the prefix bootstrap. The skip is logged with the resolved `node --version`, prefix path, and the source identifier (NodeSource / distro / nvm / etc.).
+- [ ] **REUSE-03**: When DET-04 surfaces a catalog agent that is `healthy`, installed at a path the agent recipe would have written to, and version-pinned within the catalog's compatibility window, `agentlinux install <agent>` is a no-op short-circuit. A `reused` sentinel record is written so subsequent `agentlinux list` / `upgrade` / `remove` operate on the detected install identically to one AgentLinux placed itself.
 
-- [ ] **PUB-01**: A pre-flip checklist is signed off in `docs/audits/v0.4.0/PUB-01-preflight-checklist.md`. Every Phase 7-10 requirement is checked off with a concrete artifact link. The checklist explicitly includes: license present, no verified secrets in history, scanner gate active, branch protection on, CI smoke-run green under public-repo simulation. Pre-flight is a hard blocker for PUB-02.
-- [ ] **PUB-02**: Repository visibility is flipped to public via `gh repo edit Roo4L/Agent-Linux --visibility public --accept-visibility-change-consequences` (or the equivalent GitHub UI action). The flip is performed by the maintainer; this requirement is "complete" when the GitHub repo settings page shows visibility = Public.
-- [ ] **PUB-03**: Post-flip smoke test: from a clean machine without a GitHub auth token, `git clone https://github.com/Roo4L/Agent-Linux.git` succeeds; `curl -fsSL https://agentlinux.org/install.sh | bash` (or the documented public install URL) succeeds against the v0.3.0 release tag; `agent` user is provisioned; `agentlinux list` works. Evidence: terminal session log committed to `docs/audits/v0.4.0/PUB-03-postflip-smoke.md`.
-- [ ] **PUB-04**: The first public release (`v0.3.0` GA, or a follow-on `v0.3.1`/`v0.4.0` documentation-only release) is tagged with a public-friendly release notes blurb (link to LICENSE, contributing guide, and a "what's in the box" summary). The release page is browsable anonymously.
+### Remediate (REMEDIATE) — fix the fixable, with explicit consent
+
+- [ ] **REMEDIATE-01**: When DET-03 finds the npm global prefix has wrong ownership (root-owned with no write access for the install user, or owned by an unexpected user), the installer either re-`chown`s the prefix to the install user (only if the prefix path resolves under the install user's home and is currently empty or trivially salvageable) or rebases npm-global to `~<install-user>/.npm-global` and migrates the existing global modules. Either action requires TTY-interactive confirmation (per-action prompt) OR the `--yes` flag in non-TTY mode.
+- [ ] **REMEDIATE-02**: When DET-01 surfaces an existing install user that is missing the six-mode PATH wiring (BHV-02..06: profile.d, .bashrc-at-top, agentlinux.env, cron.d), the PATH-wiring provisioner re-runs against that user using the existing `ensure_marker_block` primitives. The pre-existing shell init customizations of the user are never edited line-by-line — only the AgentLinux-managed marker block is added (or refreshed if drifted). No interactive consent required for PATH wiring (additive, idempotent, never overwrites user content).
+- [ ] **REMEDIATE-03**: When DET-05 finds `/etc/sudoers.d/agentlinux` is missing or its SHA256 does not match ADR-012's expected line, the sudoers provisioner installs the canonical version via the v0.3.0 visudo-gated install path. Drift overwrite requires TTY-interactive confirmation (per-action prompt) OR the `--yes` flag in non-TTY mode; a missing file installs without prompt (additive, not overwriting user state).
+- [ ] **REMEDIATE-04**: When DET-04 classifies a catalog agent as `broken` (binary present but health check fails, or version reports an unparseable string, or symlink target missing), the installer runs the recipe's `uninstall.sh` followed by `install.sh` to reinstall it cleanly. Reinstall requires TTY-interactive confirmation (per-action prompt) OR the `--yes` flag in non-TTY mode; the `uninstall.sh` step preserves user data per CAT-04.
+
+### UX (UX) — pre-flight report, dry-run, interactive vs. non-interactive
+
+- [ ] **UX-01**: `agentlinux install --dry-run` runs the full pre-flight discovery pass, prints the Reuse / Create / Remediate / Bail report (text format by default, JSON when `--report-format=json`), and exits 0 without writing any state to the host. Re-running `agentlinux install` immediately after `--dry-run` produces identical detection output (the dry-run is observably non-mutating).
+- [ ] **UX-02**: When stdin is a TTY (interactive mode), `agentlinux install` prints the pre-flight report and then issues a **per-action prompt** for each Remediate action that overwrites pre-existing user state (REMEDIATE-01 ownership chown, REMEDIATE-03 sudoers drift overwrite, REMEDIATE-04 reinstall-broken): `Proceed with this remediation? [Y/n]`. Declining a prompt **skips that one remediation, logs a warning to the install transcript, and continues the install** with the remaining components — the offending component is left as-is, treated as `Reuse-with-warning`. Additive actions (PATH wiring, missing-file sudoers install, fresh-component Create) run without confirmation.
+- [ ] **UX-03**: When stdin is NOT a TTY (cron, CI, `ssh host 'agentlinux install'`, automation, `curl | sudo bash`), `agentlinux install` runs in non-interactive mode: defaults to reuse-or-bail, never prompts, never overwrites pre-existing user state. A single `--yes` flag (Unix-convention shape, matching `apt install -y` / `pacman --noconfirm`) opts into all Remediate actions in one shot. Without `--yes`, any required Remediate action causes the installer to bail with a structured non-zero code; the bail message itemizes which components needed Remediate and points the user at the `--yes` flag and at `--dry-run` for inspection. There are **no per-action flags** — `--yes` is the only consent surface in non-TTY mode.
+- [ ] **UX-04**: When DET-01 surfaces an incompatible existing install user (wrong shell, no writable home, conflicting UID, or pre-existing user with `--user=` mismatch), interactive mode prompts for an alternate user name (with the user's default offer being a numerically-suffixed variant — e.g. `agent2`); non-interactive mode bails with exit code 65 (`EX_DATAERR`) and a remediation hint that names the conflicting attribute and suggests `--user=NAME` as the resolution.
+- [ ] **UX-05**: Pre-flight failures surface as structured exit codes so wrappers, CI, and documentation can branch on the failure mode: `64` (`EX_USAGE`) for bad command-line flags or contradictory options; `65` (`EX_DATAERR`) for incompatible host state surfaced by detection; `1` for runtime failures during the Create / Remediate path. The codes are documented in README and in `agentlinux install --help`.
+
+### Documentation (DOC)
+
+- [ ] **DOC-01**: README gains a "Brownfield install" section explaining the detection pass + dry-run + the four states (Reuse / Create / Remediate / Bail) with a worked example transcript on a host that has Claude Code already installed. The section is linked from the README's main "Install" section so a user landing on the canonical install path discovers the brownfield contract immediately.
+- [ ] **DOC-02**: A focused `docs/MIGRATION.md` walks through four representative pre-existing-setup scenarios: (a) `agent` user from a manual `useradd` setup, (b) Node.js from NodeSource that is already correct, (c) Claude Code installed under root that needs reinstall under the agent user, (d) Playwright with a broken chromium cache. Each scenario shows the pre-flight report output, the user's decision tree, the flags they would pass in non-interactive mode, and the resulting host state. README links to it.
 
 ## Future Requirements (not in this milestone)
 
-- Public package distribution beyond GitHub Releases (PPA, Homebrew tap, AUR) — deferred until adoption signals justify the maintenance cost.
-- Code of Conduct, security policy (`SECURITY.md`), issue templates, PR template — track separately as a documentation milestone if the contribution surface grows.
-- Additional distro targets (Fedora / CentOS / Alma / Arch) — feature milestone, separate from open-sourcing.
-- Mutation testing promoted to release gate — still planned for v0.5+ per ADR-010.
+- **Auto-migration of nvm / fnm / volta / mise managed Node.js to a system Node.js install.** Out of scope for v0.3.4; surfaced as `Bail` with a remediation hint pointing at the user-managed manager's own removal path.
+- **Detection and reuse of arbitrary user-installed npm globals beyond the catalog** (`npx`, `tsx`, `vercel`, `pnpm`, etc.). Out of scope; AgentLinux only owns its catalog.
+- **Brownfield support on Fedora / CentOS / Alma / Arch / openSUSE.** Out of scope for v0.3.4; brownfield-aware install is Ubuntu-only initially, the same OS surface as v0.3.0.
+- **Migrating an existing user's shell init files (`.bashrc`, `.profile`).** Out of scope; v0.3.4 preserves additive `ensure_marker_block` semantics and never edits pre-existing lines.
+- **Telemetry / opt-in pre-flight report upload for support purposes.** Out of scope; the report is local-only.
 
 ## Out of Scope (explicit exclusions)
 
-**v0.4.0 out of scope:**
-- New product features. v0.4.0 is a repository / process / governance milestone.
-- Migration to a different GitHub organization. The repo stays at `Roo4L/Agent-Linux` and only flips visibility.
-- Renaming the default branch from `master` to `main`. Cosmetic; not blocking the public flip and would invalidate downstream URL references for no functional gain. Track separately if desired.
-- Setting up GitHub Discussions, Sponsors, Pages-hosted documentation, or other community-platform features. Deferred to a community-launch milestone after the flip lands.
-- Re-licensing existing third-party content vendored under `vendor/` or similar. Out-of-scope here; flagged for review only if SEC/CLEAN audits surface a conflict.
+**v0.3.4 out of scope:**
+- Changing the v0.3.0 greenfield contract. Brownfield-aware install is additive: a fresh host without any of the detected components must produce a result indistinguishable from v0.3.0's greenfield install.
+- Non-Ubuntu distro detection (no Fedora / CentOS / Alma / Arch / openSUSE). The Ubuntu LTS surface (22.04 / 24.04 / 26.04) carried from v0.3.0 is the v0.3.4 surface.
+- Multi-arch (ARM). x86_64 only (carried forward).
+- A GUI or TUI for the pre-flight report. CLI-only; the report is plain text + machine-readable JSON.
+- Agent-tool detection beyond the existing three catalog agents. New agents land via catalog churn in feature milestones.
+- Editing pre-existing shell init lines. AgentLinux's writes are exclusively in `ensure_marker_block` regions; user content outside the marker is never touched.
+- Auto-rotating npm packages installed under a different user. If the install user's npm global prefix has unrelated content owned by another user, that is a `Bail`, not a `Remediate`.
 
 **Permanently out of scope (carried from prior milestones):**
 - User accounts or login functionality on website
@@ -80,27 +94,51 @@ Grouped by area. Each `XXX-NN` is a testable, verifiable outcome — auditable b
 
 ## REQ-ID Traceability
 
-| Phase | Requirements | Count |
-|-------|--------------|-------|
-| 7 License & Public-Ready Documentation | LIC-01, LIC-02, LIC-03, LIC-04 | 4 |
-| 8 Secret Scanning & History Audit | SEC-01, SEC-02, SEC-03, SEC-04, SEC-05 | 5 |
-| 9 Repository Hygiene & Artifact Cleanup | CLEAN-01, CLEAN-02, CLEAN-03, CLEAN-04 | 4 |
-| 10 Public CI/CD Verification & Branch Protection | CIPUB-01, CIPUB-02, CIPUB-03, CIPUB-04 | 4 |
-| 11 Public Visibility Flip & Smoke Test | PUB-01, PUB-02, PUB-03, PUB-04 | 4 |
-| **Total v0.4.0** | | **21** |
+Populated by gsd-roadmapper during ROADMAP creation. Empty initially.
 
-**Coverage check:** 21 requirements mapped to 5 phases. Zero orphans.
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| DET-01 | Phase 12 | Pending |
+| DET-02 | Phase 12 | Pending |
+| DET-03 | Phase 12 | Pending |
+| DET-04 | Phase 12 | Pending |
+| DET-05 | Phase 12 | Pending |
+| DET-06 | Phase 12 | Pending |
+| REUSE-01 | Phase 13 | Pending |
+| REUSE-02 | Phase 13 | Pending |
+| REUSE-03 | Phase 13 | Pending |
+| REMEDIATE-01 | Phase 14 | Pending |
+| REMEDIATE-02 | Phase 14 | Pending |
+| REMEDIATE-03 | Phase 14 | Pending |
+| REMEDIATE-04 | Phase 14 | Pending |
+| UX-01 | Phase 15 | Pending |
+| UX-02 | Phase 15 | Pending |
+| UX-03 | Phase 14 | Pending |
+| UX-04 | Phase 15 | Pending |
+| UX-05 | Phase 14 | Pending |
+| DOC-01 | Phase 16 | Pending |
+| DOC-02 | Phase 16 | Pending |
+
+**Coverage:**
+- v0.3.4 requirements: 20 total
+- Mapped to phases: 20 ✓ (filled by gsd-roadmapper 2026-05-09)
+- Unmapped: 0
+- Distribution: Phase 12 (DET-01..06) = 6; Phase 13 (REUSE-01..03) = 3; Phase 14 (REMEDIATE-01..04, UX-03, UX-05) = 6; Phase 15 (UX-01, UX-02, UX-04) = 3; Phase 16 (DOC-01..02) = 2.
 
 ## Verification Convention
 
-Each requirement must close with at least one verifiable artifact before its phase closes (TST-07 phase-close pattern from v0.3.0):
+Each requirement closes with at least one verifiable artifact before its phase closes (TST-07 phase-close pattern from v0.3.0):
 
 | Verification kind | Where it lives |
 |-------------------|----------------|
-| Tool output (gitleaks, trufflehog, large-file inventory) | `docs/audits/v0.4.0/<REQ-ID>-*.md` with the relevant command, output, and triage notes |
-| ADR | `docs/decisions/ADR-013-license-choice.md`, `docs/decisions/ADR-014-secret-remediation.md` |
-| Workflow run citation | GitHub Actions run URL captured in the audit doc |
-| Manual smoke transcript | Terminal-session paste committed to the audit doc with date and host |
-| Bats @test (rare in this milestone — most v0.4.0 work is repo-level, not behavior-level) | `tests/bats/*.bats` if a behavior contract is added (e.g., a license-header smoke test) |
+| Bats @test | `tests/bats/*.bats` (every DET / REUSE / REMEDIATE / UX requirement gets ≥1 @test referencing the REQ-ID in a comment or assertion) |
+| Audit doc | `docs/audits/v0.3.4/<REQ-ID>-*.md` for any requirement closed by a manual smoke or tooling output |
+| ADR | `docs/decisions/ADR-XXX-*.md` for design decisions surfaced during the milestone (e.g. report-JSON schema versioning, four-state taxonomy) |
+| Workflow run citation | GitHub Actions run URL captured in the audit doc when CI is the verification path |
+| Manual smoke transcript | Terminal-session paste committed to the audit doc with date and host, for the brownfield acceptance smoke |
 
-Phase-close gate (analogous to v0.3.0's TST-07): every requirement has at least one of the above evidence forms cited in its phase's AUDIT.md, and the phase's behavior-coverage-auditor (or a `gsd-eval-auditor` retrofit for this milestone) emits `GATE: GREEN`.
+The phase-close gate (analogous to v0.3.0's TST-07): every requirement has at least one of the above evidence forms cited in its phase's AUDIT.md, and the phase's behavior-coverage-auditor emits `GATE: GREEN`. The brownfield acceptance smoke (AGT-02 still green on a pre-populated host) is the milestone-close gate.
+
+---
+*Requirements defined: 2026-05-09*
+*Last updated: 2026-05-09 — Traceability table populated by gsd-roadmapper (5 phases 12-16, 20/20 requirements mapped 1:1).*
