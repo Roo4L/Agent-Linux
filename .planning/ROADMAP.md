@@ -28,7 +28,7 @@ Key locked decisions honored by this roadmap:
 - [x] **Phase 8: Secret Scanning & History Audit** — gitleaks (1 finding, triaged false positive — OpenNebula API hostname matched `generic-api-key` regex) + trufflehog (0 verified, 0 unverified) + targeted manual audit (8 patterns × 255 commits = 0 matches). SEC-04 closes as no-op (ADR-014). gitleaks gate wired in pre-commit + CI; smoke-test confirms gate fires on contrived secrets. ✓ 2026-04-26 (commit `c94920a`; 5/5 SEC-XX evidenced; phase-close gate: GREEN; `.planning/phases/08-secret-scanning/08-AUDIT.md`).
 - [x] **Phase 9: Repository Hygiene & Artifact Cleanup** — 2 branches (no stale, no merged-but-unpurged); zero blobs >500 KB anywhere in history; .gitignore hardened (env/npmrc/credentials/SSH keys/editor cruft/coverage/caches with deliberate allow-lists); `.planning/` retention is deliberate per CLAUDE.md convention. ✓ 2026-04-26 (commit `158e465`; 4/4 CLEAN-XX evidenced; phase-close gate: GREEN; `.planning/phases/09-repo-hygiene/09-AUDIT.md`).
 - [x] **Phase 10: Public CI/CD Verification & Branch Protection** — workflow `permissions:` blocks at least-privilege (test.yml gained explicit top-level); `pull_request_target` = 0; fork-PR exfiltration surface = empty. Branch protection on `master` designed and **staged for maintainer apply** via single `gh api -X PUT` command (CIPUB-03; Option A/B documented). CIPUB-04 de facto GREEN from PR #2 + recent nightly runs (<24h). ✓ 2026-04-26 (commit `446c89b`; 4/4 CIPUB-XX evidenced or staged; phase-close gate: GREEN-pending-2-maintainer-tasks; `.planning/phases/10-public-cicd/10-AUDIT.md`).
-- [ ] **Phase 11: Public Visibility Flip & Smoke Test** — PUB-01 pre-flight checklist fully prepared (`docs/audits/v0.4.0/PUB-01-preflight-checklist.md`) referencing every Phase 7-10 artifact; 13/17 items already evidenced; 2 close on staged Phase 10 maintainer commands. **PUB-02 (the flip itself) is the maintainer's hand on the trigger** — autonomous mode stops here per `/gsd-autonomous` invocation note. PUB-03 (anonymous clone + curl-pipe-bash smoke) and PUB-04 (release notes) execute post-flip. Status: ⏳ STOPPED FOR MAINTAINER SIGN-OFF (`.planning/phases/11-public-flip/11-AUDIT.md`).
+- [x] **Phase 11: Public Visibility Flip & Smoke Test** — Repository visibility flipped to PUBLIC at 2026-04-26T15:30Z; squash-merged as `c8a2787` on master; branch protection re-applied as Option A (enforce_admins, linear, no force-push, gitleaks status check). Public release published as **`v0.3.1 — Open-Source Flip`** (2026-05-02; the originally-tagged `v0.4.0` was renamed to `v0.3.1` for version-constant lockstep — see release notes). Post-flip smoke (anonymous clone + raw curl-installer fetch + SHA + syntax) green. End-to-end `curl … | sudo bash` install deferred to v0.3.x final-release event. ✓ shipped 2026-05-02 (commit `c8a2787`, tag `v0.3.1`; 4/4 PUB-XX evidenced; phase-close gate: GREEN; `.planning/phases/11-public-flip/11-AUDIT.md`).
 
 ## Phase Details
 
@@ -117,8 +117,8 @@ Phases execute in numeric order: 7 → 8 → 9 → 10 → 11
 | 8. Secret Scanning & History Audit | 3 | ✓ Complete (commit `c94920a`) | SEC-01..05 evidenced; gitleaks gate live |
 | 9. Repository Hygiene & Artifact Cleanup | 2 | ✓ Complete (commit `158e465`) | CLEAN-01..04 evidenced |
 | 10. Public CI/CD Verification & Branch Protection | 2 | ✓ Complete-pending-maintainer (commit `446c89b`) | CIPUB-01..02 evidenced; CIPUB-03..04 staged for maintainer apply |
-| 11. Public Visibility Flip & Smoke Test | 2 | ⏳ STOPPED for maintainer sign-off | PUB-01 checklist ready; PUB-02 is the flip; PUB-03/04 post-flip |
-| **Total** | **~11 plans** | 4/5 phases done; 5th awaits maintainer | — |
+| 11. Public Visibility Flip & Smoke Test | 2 | ✓ Shipped 2026-05-02 (commit `c8a2787`, tag `v0.3.1`) | PUB-01..04 evidenced; v0.4.0 originally tagged then renamed to `v0.3.1` for version-constant lockstep |
+| **Total** | **~11 plans** | 5/5 phases shipped — milestone complete | Per-phase work landed via direct commits + `*-AUDIT.md`; no per-plan PLAN/SUMMARY files (autonomous-deterministic path; documented in each AUDIT §"Deviations from PLAN") |
 
 ## Coverage Summary
 
@@ -151,3 +151,17 @@ These are open questions to resolve in `/gsd-discuss-phase 7` (and subsequent ph
 - **History rewrite vs. accept-and-rotate** for any leaked secrets: depends on what is found. Default-stance: rotate without rewrite unless the secret grants ongoing access — resolved in Phase 8 ADR-014.
 - **Default branch rename** (`master` → `main`): explicitly out of scope for v0.4.0; raise as a separate milestone if desired. (Cosmetic; would invalidate existing URL references.)
 - **Public install URL** for PUB-03 smoke: is it `agentlinux.org/install.sh` or `https://github.com/Roo4L/Agent-Linux/releases/download/v0.3.0/install.sh`? Resolve before Phase 11.
+
+### Phase 12: Developer documentation for installer, runtime, and CLI (AL-22)
+
+**Goal:** A reader landing on the AgentLinux repo can find a 60-second answer to "what value does AgentLinux provide for surface X" for every component (installer, agent user, sudo drop-in, Node.js runtime, the agent catalog, the registry CLI, and the curated agent set: Claude Code, GSD, Playwright). The docs stay in sync with the source via a project-scoped reviewer (`dev-docs-auditor`) embedded in the existing review loop — no new stop-hook is added (ADR-015 lands in Plan 12-05).
+**Requirements**: DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, DOC-06, DOC-07
+**Depends on:** Phase 11
+**Plans:** 5/5 plans complete
+
+Plans:
+- [x] 12-01-PLAN.md — docs/internals/ index + 4 install/runtime layer component docs (DOC-01, DOC-02)
+- [x] 12-02-PLAN.md — 5 agent + CLI/catalog component docs (DOC-02)
+- [x] 12-03-PLAN.md — dev-docs-auditor reviewer agent + dev-docs skill (DOC-03, DOC-04, DOC-06)
+- [x] 12-04-PLAN.md — CLAUDE.md Review Loop + Pointers wiring + top-level README.md discoverability (DOC-03, DOC-05)
+- [x] 12-05-PLAN.md — REQUIREMENTS.md DOC-XX entries + ADR-015 + Phase 12 AUDIT (DOC-01..DOC-07, phase-close) (completed 2026-05-10)
