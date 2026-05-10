@@ -32,14 +32,14 @@ Grouped by category. Each `XXX-NN` is a testable, verifiable outcome — auditab
 
 ### Detection (DET) — read-only discovery layer
 
-- [ ] **DET-01**: A pre-flight discovery pass identifies whether the install user (default `agent`, overridable via `--user=NAME`) already exists, and captures their UID, GID, login shell, home directory, group memberships (`id -nG`), and whether the home directory is writable. Captured in a structured pre-flight report.
+- [x] **DET-01**: A pre-flight discovery pass identifies whether the install user (default `agent`, overridable via `--user=NAME`) already exists, and captures their UID, GID, login shell, home directory, group memberships (`id -nG`), and whether the home directory is writable. Captured in a structured pre-flight report.
 - [ ] **DET-02**: A pre-flight discovery pass identifies any pre-existing Node.js installation visible to the install user — sources covered: NodeSource APT, distro APT (`nodejs` package), nvm, fnm, volta, mise, asdf-node, pnpm-managed Node, and a manual `/usr/local/bin/node`. Captured per source: binary path, `node --version` output, install method, and "is the install user able to write to the global prefix" boolean.
 - [ ] **DET-03**: A pre-flight discovery pass identifies the npm global prefix that the install user would resolve to (`npm config get prefix --location=user` falling back to system), captures its filesystem path, ownership (`stat -c %U:%G`), and whether the install user can write to it. Multiple npm prefixes are surfaced (per-user override + system fallback both reported).
 - [ ] **DET-04**: A pre-flight discovery pass identifies pre-existing catalog agents (catalog ids `claude-code`, `gsd`, `playwright-cli`; binary names on PATH: `claude`, `get-shit-done-cc`, `playwright-cli` respectively). For each: binary path on the install user's PATH, version (via the agent's documented version source — `claude --version`, `get-shit-done-cc --help` banner-grep, `playwright-cli --version`), ownership of the binary, and a quick health probe (e.g. `claude --help` exit 0). Each is classified as `healthy`, `broken`, or `absent`.
 
   _Amended in Phase 12 discuss (2026-05-10): catalog actually ships `playwright-cli` (id + binary), not `playwright`; binary names diverge from catalog ids per recipe install paths._
-- [ ] **DET-05**: A pre-flight discovery pass identifies whether `/etc/sudoers.d/agentlinux` already exists. If present, captures the file's mode, ownership, and the SHA256 of its content; flags drift from ADR-012's expected exact-line content (`agent ALL=(ALL) NOPASSWD: ALL`). The detection pass never edits or removes the existing file.
-- [ ] **DET-06**: <del>The pre-flight report is emitted in two formats — a human-readable text format (default, color-aware) and a stable JSON format (`--report-format=json`). Both formats expose the same information; the JSON format is suitable for parsing by CI, smoke tests, or downstream tooling. The JSON schema is documented and versioned.</del>
+- [x] **DET-05**: A pre-flight discovery pass identifies whether `/etc/sudoers.d/agentlinux` already exists. If present, captures the file's mode, ownership, and the SHA256 of its content; flags drift from ADR-012's expected exact-line content (`agent ALL=(ALL) NOPASSWD: ALL`). The detection pass never edits or removes the existing file.
+- [x] **DET-06**: <del>The pre-flight report is emitted in two formats — a human-readable text format (default, color-aware) and a stable JSON format (`--report-format=json`). Both formats expose the same information; the JSON format is suitable for parsing by CI, smoke tests, or downstream tooling. The JSON schema is documented and versioned.</del>
 
   _Amended in Phase 12 discuss (2026-05-10) — Area 2 / D-05:_ The detection report renders in a human-readable text format (default, TTY-aware color, `[DET-NN] key=value` markers for grep stability). An undocumented `--report-format=json` flag emits the same captured data as a `jq -n`-built object for test-only consumption. **No JSON Schema document. No `schema_version` field. No ADR ceremony.** Bats @tests parse via `jq` for structural assertions.
 
@@ -102,12 +102,12 @@ Populated by gsd-roadmapper during ROADMAP creation. Empty initially.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DET-01 | Phase 12 | Pending |
+| DET-01 | Phase 12 | Complete |
 | DET-02 | Phase 12 | Pending |
 | DET-03 | Phase 12 | Pending |
 | DET-04 | Phase 12 | Pending |
-| DET-05 | Phase 12 | Pending |
-| DET-06 | Phase 12 | Pending |
+| DET-05 | Phase 12 | Complete |
+| DET-06 | Phase 12 | Complete |
 | REUSE-01 | Phase 13 | Pending |
 | REUSE-02 | Phase 13 | Pending |
 | REUSE-03 | Phase 13 | Pending |
