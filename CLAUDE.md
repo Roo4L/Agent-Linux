@@ -60,6 +60,20 @@ Reviewers applied by file type:
 - Catalog recipes → `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`
 - Docs → `technical-writer`, `fact-checker`, `ai-deslop` (skip for ADRs and
   research summaries)
+- Externally-facing artifacts (top-level `README.md`, `CONTRIBUTING.md`,
+  `docs/internals/`, `docs/HARNESS.md`, `docs/STABILITY-MODEL.md`,
+  `docs/README.md`, release notes, blog/email drafts, `agentlinux.org` copy,
+  user-visible packaging strings) → also `external-audience-auditor`, in
+  addition to the per-file-type reviewers above
+
+`external-audience-auditor` flags internal vocabulary that leaks into copy a
+public-repo reader (or a blog/email/website excerpt) cannot resolve: AL Jira
+keys, GSD plan filenames, BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC requirement IDs,
+Phase/Plan numbering, bare ADR cross-refs, GSD orchestrator/executor/planner
+vocabulary, Claude Code self-references. Skip for `.planning/`,
+`docs/decisions/`, `docs/audits/`, `docs/research/`, `.claude/`, and source
+comments under `plugin/`/`packaging/`/`tests/` (only user-visible *strings*
+under `packaging/` are in scope).
 
 `dev-docs-auditor` keeps `docs/internals/<component>.md` in sync when changes
 touch `plugin/bin/`, `plugin/lib/`, `plugin/provisioner/`, `plugin/cli/src/`,
