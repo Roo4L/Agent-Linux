@@ -102,7 +102,23 @@ detect::render_text() {
   fi
 
   __det_section "DET-02" "Node.js Installations"
-  __det_field DET-02 nodejs.section_status "${DETECT_NODEJS_SECTION_STATUS:-stub}"
+  if [[ "${DETECT_NODEJS_COUNT:-0}" -gt 0 ]]; then
+    printf '%s present (%s source(s))\n' "$(__det_glyph ok)" "${DETECT_NODEJS_COUNT}"
+    local i s_var p_var v_var w_var
+    for ((i = 0; i < DETECT_NODEJS_COUNT; i++)); do
+      s_var="DETECT_NODEJS_${i}_SOURCE"
+      p_var="DETECT_NODEJS_${i}_PATH"
+      v_var="DETECT_NODEJS_${i}_VERSION"
+      w_var="DETECT_NODEJS_${i}_WRITABLE"
+      __det_field DET-02 "nodejs.${i}.source" "${!s_var:-}"
+      __det_field DET-02 "nodejs.${i}.path" "${!p_var:-}"
+      __det_field DET-02 "nodejs.${i}.version" "${!v_var:-}"
+      __det_field DET-02 "nodejs.${i}.install_user_can_write_prefix" "${!w_var:-false}"
+    done
+  else
+    printf '%s absent\n' "$(__det_glyph absent)"
+    __det_field DET-02 nodejs.count 0
+  fi
 
   __det_section "DET-03" "npm Global Prefix"
   __det_field DET-03 npm.section_status "${DETECT_NPM_PREFIX_SECTION_STATUS:-stub}"
