@@ -20,7 +20,13 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 @test "DET-01: --report-only --report-format=json reports install user UID + shell + home_writable" {
   run bash "$INSTALLER" --report-only --report-format=json
   assert_exit_zero "DET-01"
-  printf '%s' "$output" | jq -e '.user.present == true and (.user.uid | tonumber) > 0 and .user.home_writable == true' >/dev/null \
+  # Plan 12-03 wraps the merged-fragment cache under .components (CONTEXT.md
+  # Area 1). The `.components.X // .X` fallback keeps this @test green across
+  # the pre-12-03 flat shape and the post-12-03 wrapped shape.
+  printf '%s' "$output" | jq -e '
+    (.components.user // .user) as $u
+    | $u.present == true and ($u.uid | tonumber) > 0 and $u.home_writable == true
+  ' >/dev/null \
     || __fail "DET-01" "user.present + parsable uid + home_writable" "$output" "$LOG"
 }
 
@@ -36,10 +42,19 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 @test "DET-05: sudoers drop-in metadata captured (path + present + sha256 + nopasswd_line_present)" {
   run bash "$INSTALLER" --report-only --report-format=json
   assert_exit_zero "DET-05"
-  printf '%s' "$output" | jq -e '.sudoers.path == "/etc/sudoers.d/agentlinux" and (.sudoers.present == true or .sudoers.present == false)' >/dev/null \
+  # Plan 12-03 wraps the merged-fragment cache under .components (CONTEXT.md
+  # Area 1). The `.components.X // .X` fallback keeps this @test green across
+  # the pre-12-03 flat shape and the post-12-03 wrapped shape.
+  printf '%s' "$output" | jq -e '
+    (.components.sudoers // .sudoers) as $s
+    | $s.path == "/etc/sudoers.d/agentlinux" and ($s.present == true or $s.present == false)
+  ' >/dev/null \
     || __fail "DET-05" "sudoers.path + boolean .present" "$output" "$LOG"
   # When present, sha256 must be a 64-char hex string and nopasswd_line_present a bool.
-  printf '%s' "$output" | jq -e 'if .sudoers.present then (.sudoers.sha256 | test("^[0-9a-f]{64}$")) and ((.sudoers.nopasswd_line_present == true) or (.sudoers.nopasswd_line_present == false)) else true end' >/dev/null \
+  printf '%s' "$output" | jq -e '
+    (.components.sudoers // .sudoers) as $s
+    | if $s.present then ($s.sha256 | test("^[0-9a-f]{64}$")) and (($s.nopasswd_line_present == true) or ($s.nopasswd_line_present == false)) else true end
+  ' >/dev/null \
     || __fail "DET-05" "sha256 is 64-hex when present + nopasswd_line_present is bool" "$output" "$LOG"
 }
 
@@ -268,4 +283,118 @@ EOF
   [[ "$status" == "broken" ]] \
     || __fail "DET-04" "claude-code classified broken when --help exits non-zero (got '$status')" "$output" "$LOG"
   sudo rm -f /home/agent/.local/bin/claude
+}
+
+# ---- Plan 12-03 appends: read-only invariant + DET-06 acceptance + greenfield meta ----
+# Per .planning/phases/12-detection-layer/12-03-PLAN.md Task 5.
+# Every @test name starts with the REQ-ID (behavior-test-contract SKILL).
+
+@test "DET-01..06: detection writes zero bytes to /etc /home /usr/local/bin /opt" {
+  # Snapshot host paths before + after a full detect::run_once via --report-only.
+  # Per CONTEXT.md Area 4 Q2: scope is /etc /home /usr/local/bin /opt (helper).
+  # Per RESEARCH §Pitfall 9: jq must be pre-installed in the Docker image
+  # (Task 4 documented this); otherwise ensure_jq's apt-get install would
+  # mutate /var/lib/dpkg/* and false-positive this @test.
+  local pre post
+  pre=$(mktemp)
+  post=$(mktemp)
+  snapshot_paths >"$pre"
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-read-only"
+  snapshot_paths >"$post"
+  if ! diff -q "$pre" "$post" >/dev/null 2>&1; then
+    local delta
+    delta=$(diff -u "$pre" "$post" | head -40)
+    rm -f "$pre" "$post"
+    __fail "DET-read-only" "snapshot identity across detection pass" "$delta" "$LOG"
+  fi
+  rm -f "$pre" "$post"
+}
+
+@test "DET-06: text format renders [DET-NN] markers for every captured field" {
+  run bash "$INSTALLER" --report-only --report-format=text
+  assert_exit_zero "DET-06"
+  # Section presence: one '## DET-NN —' header per detector.
+  local nn
+  for nn in DET-01 DET-02 DET-03 DET-04 DET-05; do
+    printf '%s' "$output" | grep -qE "^## ${nn} —" \
+      || __fail "DET-06" "section header ## ${nn} present" "$output" "$LOG"
+  done
+  # Field markers — at minimum one [DET-NN] line per detector's primary key.
+  # Mirrors the LOCKED text-renderer contract from Plan 12-01 interfaces.
+  local required
+  for required in '\[DET-01\] user\.uid=' '\[DET-02\] nodejs\.' \
+    '\[DET-03\] npm\.' '\[DET-04\] agent\.claude-code\.status=' \
+    '\[DET-05\] sudoers\.path='; do
+    printf '%s' "$output" | grep -qE "$required" \
+      || __fail "DET-06" "marker pattern ${required} present in text output" "$output" "$LOG"
+  done
+}
+
+@test "DET-06: json format parses via jq with every captured field reachable" {
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-06"
+  # Top-level shape: {generated_at, host, components}.
+  printf '%s' "$output" | jq -e '
+    type == "object"
+    and .generated_at != null
+    and .host.os != null
+    and .host.version != null
+    and (.components | type) == "object"
+  ' >/dev/null \
+    || __fail "DET-06" "top-level shape {generated_at, host:{os,version}, components:{}}" "$output" "$LOG"
+  # Components: every detector reachable.
+  printf '%s' "$output" | jq -e '
+    .components.user.uid != null
+    and (.components.npm_prefix.effective_prefix != null or .components.npm_prefix.npm_present == false)
+    and .components.sudoers.path == "/etc/sudoers.d/agentlinux"
+    and (.components.nodejs | type) == "array"
+    and (.components.agents | type) == "array"
+    and (.components.agents | length) >= 3
+  ' >/dev/null \
+    || __fail "DET-06" "components.{user,npm_prefix,sudoers,nodejs[],agents[]} reachable + agents has all 3 catalog ids" "$output" "$LOG"
+}
+
+@test "DET-06: json output contains NO schema_version / \$schema / version field at top level" {
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-06"
+  # CONTEXT.md Area 2 amendment of DET-06: explicit prohibition.
+  printf '%s' "$output" | jq -e '
+    has("schema_version") == false
+    and has("$schema") == false
+    and has("version") == false
+  ' >/dev/null \
+    || __fail "DET-06" "no schema_version/\$schema/version at top level (CONTEXT.md Area 2)" "$output" "$LOG"
+}
+
+@test "DET-06: NO_COLOR env var honored — zero ANSI escapes in text output" {
+  NO_COLOR=1 run bash "$INSTALLER" --report-only --report-format=text
+  assert_exit_zero "DET-06"
+  # ANSI CSI sequence: ESC [ ... — bytes 0x1b 0x5b. Use printf to pin the
+  # ESC byte literally; LC_ALL=C ensures grep sees bytes, not glyphs.
+  local count
+  count=$(printf '%s' "$output" | LC_ALL=C grep -c $'\033\[' || true)
+  [[ "$count" -eq 0 ]] \
+    || __fail "DET-06" "NO_COLOR=1 strips all ANSI escapes (got $count escapes)" "$output" "$LOG"
+}
+
+@test "DET-06: piped (non-TTY) text output strips ANSI color escapes" {
+  # `run` already captures via subshell pipes (no TTY). Assert no ANSI escapes.
+  run bash "$INSTALLER" --report-only --report-format=text
+  assert_exit_zero "DET-06"
+  local count
+  count=$(printf '%s' "$output" | LC_ALL=C grep -c $'\033\[' || true)
+  [[ "$count" -eq 0 ]] \
+    || __fail "DET-06" "non-TTY stdout strips ANSI escapes (got $count escapes)" "$output" "$LOG"
+}
+
+@test "DET-01..06: greenfield baseline preserved — bats run-line count matches expected" {
+  # Meta-assertion: 15-detection.bats has at least the Plan 12-01 7 + Plan 12-02
+  # >=3 + Plan 12-03 7 = 17 @tests. Guards against accidental @test deletion
+  # during a future refactor. Runs INSIDE bats, so count via wc -l on the
+  # @test lines in the source file (not `bats --count` which would self-loop).
+  local tests_in_file
+  tests_in_file=$(grep -cE '^@test "' /opt/agentlinux-src/tests/bats/15-detection.bats)
+  [[ "$tests_in_file" -ge 17 ]] \
+    || __fail "DET-greenfield" "15-detection.bats has at least 17 @tests (got $tests_in_file)" "tests_in_file=$tests_in_file" "$LOG"
 }
