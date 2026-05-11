@@ -187,3 +187,67 @@ detect::render_text() {
     __det_field DET-05 sudoers.present false
   fi
 }
+
+# detect::render_json — emit the locked top-level shape on stdout.
+#
+# Reads the merged-fragment cache at $DETECT_CACHE_PATH (populated by
+# detect::run_once). Wraps it under {generated_at, host, components: {...}}.
+# Final output goes through `jq -S` for byte-stable key sort order
+# (RESEARCH §Open Question 4 — critical for Phase 13 REUSE-02 which may
+# re-run detection multiple times and compare outputs).
+#
+# Per CONTEXT.md Area 2 amendment of DET-06: the top-level object emits ONLY
+# generated_at + host + components. No phase-or-format version string, no
+# schema URL, no ADR-style consumer contract. Reviewers (security-engineer +
+# technical-writer) gate this on PR.
+#
+# T-12-02 mitigation (Plan 12-03 threat model): JSON construction uses the
+# `jq -n --arg / --slurpfile` family exclusively. The function NEVER builds
+# JSON via printf-with-quotes, shell-evaluator, or nested-shell interpolation.
+# Probed values that flow into this function (generated_at + host strings)
+# reach jq through --arg, which quotes the value as a JSON string regardless
+# of bytes — newlines, embedded quotes, dollar-signs, command-substitutions,
+# unicode escapes are all neutered by jq's string parser. The cache file is
+# read via --slurpfile, making jq own the parse — a malformed fragment fails
+# the merge instead of corrupting output.
+detect::render_json() {
+  [[ -r "$DETECT_CACHE_PATH" ]] || {
+    log_error "detect::render_json: cache file not found at $DETECT_CACHE_PATH (was detect::run_once called?)"
+    return 1
+  }
+
+  local generated_at os version
+  generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
+
+  # AGENTLINUX_DISTRO_VERSION is the only distro export emitted by
+  # plugin/lib/distro_detect.sh (the value is the VERSION_ID like "22.04").
+  # The locked CONTEXT.md Area 1 host shape requires {os, version}, so source
+  # /etc/os-release directly here for the ID. Sourcing in a function body
+  # scopes ID / VERSION_ID to this invocation — no caller-shell pollution.
+  # Falls back to "unknown" when /etc/os-release is missing (CI fixture / dev
+  # host that bypassed detect_distro).
+  os="unknown"
+  version="${AGENTLINUX_DISTRO_VERSION:-unknown}"
+  if [[ -r /etc/os-release ]]; then
+    local ID="" VERSION_ID=""
+    # shellcheck disable=SC1091
+    . /etc/os-release
+    os="${ID:-unknown}"
+    [[ "$version" == "unknown" ]] && version="${VERSION_ID:-unknown}"
+  fi
+
+  # Use --arg for strings + --slurpfile for the cache (slurpfile reads the
+  # file as a single-element array; [0] unwraps to the merged object). Final
+  # `jq -n -S` (capital S) sorts keys recursively for byte-stable output
+  # across runs on an unchanged host (RESEARCH §Open Question 4).
+  jq -n -S \
+    --arg generated_at "$generated_at" \
+    --arg os "$os" \
+    --arg version "$version" \
+    --slurpfile components "$DETECT_CACHE_PATH" \
+    '{
+      generated_at: $generated_at,
+      host: {os: $os, version: $version},
+      components: $components[0]
+    }'
+}
