@@ -111,7 +111,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 
 | Phase | Plans Estimated | Status | Completed |
 |-------|-----------------|--------|-----------|
-| 12. Detection Layer | 1/3 | In Progress|  |
+| 12. Detection Layer | 2/3 | In Progress|  |
 | 13. Reuse Wiring | ~2 | Not started | - |
 | 14. Remediate + Consent Flag + Exit Codes | ~3 | Not started | - |
 | 15. Pre-flight UX | ~2 | Not started | - |
