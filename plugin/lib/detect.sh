@@ -19,7 +19,8 @@
 #     keys for byte-stability, writes to /run/agentlinux-detect.json (tmpfs).
 #     Subsequent calls return 0 immediately.
 #   - detect::emit_report <text|json> — text → detect::render_text;
-#     json → jq '.' "$DETECT_CACHE_PATH"; unknown → log_error + return 64.
+#     json → detect::render_json (locked top-level shape per CONTEXT.md
+#     Area 1); unknown → log_error + return 64.
 #
 # Source-once guard.
 [[ -n "${AGENTLINUX_DETECT_SH_SOURCED:-}" ]] && return 0
@@ -111,13 +112,14 @@ detect::run_once() {
 #
 # Stdout-emit the detection report in the requested format. text →
 # detect::render_text (the renderer reads exported DETECT_* vars populated by
-# run_once); json → `jq '.' "$DETECT_CACHE_PATH"` (re-pretty-print of the
-# cached merge). Unknown format → log_error + return 64 (EX_USAGE).
+# run_once); json → detect::render_json (wraps the cached merge under the
+# locked CONTEXT.md Area 1 top-level shape {generated_at, host, components}).
+# Unknown format → log_error + return 64 (EX_USAGE).
 detect::emit_report() {
   local format=${1:-text}
   case "$format" in
     text) detect::render_text ;;
-    json) jq '.' "$DETECT_CACHE_PATH" ;;
+    json) detect::render_json ;;
     *)
       log_error "detect::emit_report: unknown format '$format' (expected text or json)"
       return 64
