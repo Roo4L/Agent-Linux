@@ -121,7 +121,19 @@ detect::render_text() {
   fi
 
   __det_section "DET-03" "npm Global Prefix"
-  __det_field DET-03 npm.section_status "${DETECT_NPM_PREFIX_SECTION_STATUS:-stub}"
+  if [[ "${DETECT_NPM_PREFIX_SECTION_STATUS:-stub}" == "present" ]]; then
+    printf '%s present\n' "$(__det_glyph ok)"
+    __det_field DET-03 npm.user_prefix "${DETECT_NPM_PREFIX_USER_VALUE:-}"
+    __det_field DET-03 npm.system_prefix "${DETECT_NPM_PREFIX_SYSTEM_VALUE:-}"
+    __det_field DET-03 npm.effective_prefix "${DETECT_NPM_PREFIX_PATH:-}"
+    __det_field DET-03 npm.effective_owner "${DETECT_NPM_PREFIX_EFFECTIVE_OWNER:-}"
+    __det_field DET-03 npm.effective_mode "${DETECT_NPM_PREFIX_EFFECTIVE_MODE:-}"
+    __det_field DET-03 npm.install_user_writable "${DETECT_NPM_PREFIX_USER_WRITABLE:-false}"
+    __det_field DET-03 npm.prefix_declarations "${DETECT_NPM_PREFIX_DECLARATIONS:-0}"
+  else
+    printf '%s absent — npm not installed\n' "$(__det_glyph absent)"
+    __det_field DET-03 npm.section_status "${DETECT_NPM_PREFIX_SECTION_STATUS:-stub}"
+  fi
 
   __det_section "DET-04" "Catalog Agents"
   __det_field DET-04 agents.section_status "${DETECT_AGENTS_SECTION_STATUS:-stub}"
