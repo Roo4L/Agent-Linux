@@ -15,9 +15,21 @@
 # `test-dummy` is `test_only: true` in catalog.json — explicitly EXCLUDED.
 #
 # Classification (RESEARCH §Pattern 4):
-#   absent  — `as_user agent command -v <binary>` exits non-zero.
+#   absent  — `as_user_login agent command -v <binary>` exits non-zero.
 #   healthy — binary present + version probe parses something + `--help` exit 0.
 #   broken  — binary present BUT (version probe yields empty OR `--help` non-zero).
+#
+# CRITICAL: PATH-resolving probes (`command -v <binary>`, `<binary> --version`,
+# `<binary> --help`) MUST go through as_user_login (sudo -i, login shell)
+# rather than bare as_user (sudo -E). Bare as_user uses sudo's secure_path —
+# which does NOT include /home/agent/.local/bin or /home/agent/.npm-global/bin
+# — so claude / get-shit-done-cc / playwright-cli would all classify as
+# `absent` even when they are installed and runnable in the user's actual
+# shell. as_user_login sources /etc/profile.d/agentlinux.sh which prepends
+# the agent-owned PATH entries. Same Pitfall 7 reasoning that makes
+# detect::npm_prefix_probe use as_user_login. (Rule 1 fix during Plan 12-02
+# Task 5 verification — bare as_user gave status=absent for the fake claude
+# fixture binary at /home/agent/.local/bin/claude.)
 #
 # READ-ONLY contract: never any package-manager mutation, never any write to
 # /etc /home /usr/local/bin /opt. Probed binary stdout is NEVER passed to a
@@ -62,20 +74,20 @@ __det_agent_version_probe() {
   local id=$1 user=$2 binary=$3
   case "$id" in
     claude-code)
-      as_user "$user" "$binary" --version 2>/dev/null \
+      as_user_login "$user" "$binary" --version 2>/dev/null \
         | head -1 \
         | tr -d '\r' \
         | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
         | head -1
       ;;
     gsd)
-      as_user "$user" "$binary" --help 2>/dev/null \
+      as_user_login "$user" "$binary" --help 2>/dev/null \
         | head -1 \
         | tr -d '\r' \
         | tr -d '\n'
       ;;
     playwright-cli)
-      as_user "$user" "$binary" --version 2>/dev/null \
+      as_user_login "$user" "$binary" --version 2>/dev/null \
         | head -1 \
         | tr -d '\r' \
         | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
@@ -104,10 +116,13 @@ detect::agents_probe() {
   for id in "${ids[@]}"; do
     binary=${DETECT_AGENT_BINARIES[$id]}
 
-    # Pitfall 4: `command -v` AS THE INSTALL USER. Root sees a different PATH
-    # (sudo's secure_path); only the install user's PATH is the source of
-    # truth for what Phase 13 will see when it invokes the agent.
-    bin_path=$(as_user "$user" command -v "$binary" 2>/dev/null || true)
+    # Pitfall 4: `command -v` AS THE INSTALL USER, with the install user's
+    # full login PATH. as_user_login (sudo -i) sources /etc/profile.d/
+    # agentlinux.sh which prepends /home/agent/.local/bin and
+    # /home/agent/.npm-global/bin. Bare as_user (sudo -E) uses sudo's
+    # secure_path which omits both — claude / get-shit-done-cc /
+    # playwright-cli would all classify as `absent` even when present.
+    bin_path=$(as_user_login "$user" command -v "$binary" 2>/dev/null || true)
 
     if [[ -z "$bin_path" ]]; then
       status=absent
@@ -120,7 +135,8 @@ detect::agents_probe() {
       # Health probe — independent from version. `--help` should always exit 0
       # for healthy CLIs; failures = broken. Capture the rc explicitly so
       # set -e in the entrypoint doesn't trip on a non-zero exit here.
-      if as_user "$user" "$binary" --help >/dev/null 2>&1; then
+      # Same as_user_login PATH-resolution reasoning as the version probe.
+      if as_user_login "$user" "$binary" --help >/dev/null 2>&1; then
         health_rc=0
       else
         health_rc=$?
