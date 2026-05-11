@@ -27,6 +27,15 @@
 # /etc /home /usr/local/bin /opt. Reading ~/.npmrc as root is fine (root can
 # stat + grep), only writing would violate the contract.
 #
+# npm log-file silencing: `npm config get` by default writes a debug log to
+# ~/.npm/_logs/<timestamp>-debug-N.log on every invocation (even non-mutating
+# reads). That violates the read-only contract Plan 12-03 enforces via its
+# snapshot @test. Setting `npm_config_logs_max=0` + `npm_config_loglevel=silent`
+# instructs npm to skip log file creation entirely — verified locally:
+# `HOME=$tmp npm_config_logs_max=0 npm_config_loglevel=silent npm config get
+# prefix` leaves $tmp/.npm/_logs nonexistent. Plan 12-03 Rule 1 fix (Plan 12-02
+# npm probe shipped without log-silencing; the read-only @test surfaced it).
+#
 # Source-once guard.
 [[ -n "${AGENTLINUX_DETECT_NPM_PREFIX_SH_SOURCED:-}" ]] && return 0
 readonly AGENTLINUX_DETECT_NPM_PREFIX_SH_SOURCED=1
@@ -62,25 +71,34 @@ detect::npm_prefix_probe() {
     return 0
   fi
 
+  # npm log-file silencing (Plan 12-03 Rule 1 fix per the read-only invariant
+  # @test). Every `npm config get` writes ~/.npm/_logs/<timestamp>-debug-N.log
+  # by default — even pure reads. Setting npm_config_logs_max=0 +
+  # npm_config_loglevel=silent skips log creation entirely. Verified locally:
+  # `HOME=$tmp npm_config_logs_max=0 npm_config_loglevel=silent npm config get
+  # prefix` leaves $tmp/.npm/_logs nonexistent. The vars are passed through
+  # the login shell via `env` (as_user_login uses `sudo -i`, which does not
+  # preserve caller env).
+
   # ---- user_prefix: per-user override (Pitfall 2 location semantics) ----
   # `--location=user` reads ONLY ~/.npmrc; returns /usr when the file lacks
   # a `prefix=` line. Disambiguated by prefix_declarations below.
   local user_prefix
-  user_prefix=$(as_user_login "$user" npm config get prefix --location=user 2>/dev/null | tr -d '[:space:]')
+  user_prefix=$(as_user_login "$user" env npm_config_logs_max=0 npm_config_loglevel=silent npm config get prefix --location=user 2>/dev/null | tr -d '[:space:]')
 
   # ---- system_prefix: npm builtin default ----
   # --no-userconfig instructs npm to ignore ~/.npmrc; env NPM_CONFIG_PREFIX=
   # clears the env override that sudo -E may have carried in. The builtin
   # default is typically /usr on Debian/Ubuntu.
   local system_prefix
-  system_prefix=$(as_user_login "$user" env NPM_CONFIG_PREFIX= npm config get prefix --no-userconfig 2>/dev/null | tr -d '[:space:]')
+  system_prefix=$(as_user_login "$user" env npm_config_logs_max=0 npm_config_loglevel=silent NPM_CONFIG_PREFIX= npm config get prefix --no-userconfig 2>/dev/null | tr -d '[:space:]')
 
   # ---- effective_prefix: resolved precedence (Pitfall 7 user-shell exports) ----
   # Precedence: env (NPM_CONFIG_PREFIX) > project .npmrc > user ~/.npmrc >
   # builtin. as_user_login sources the user's profile, so a user-shell
   # NPM_CONFIG_PREFIX export propagates.
   local effective_prefix
-  effective_prefix=$(as_user_login "$user" npm config get prefix 2>/dev/null | tr -d '[:space:]')
+  effective_prefix=$(as_user_login "$user" env npm_config_logs_max=0 npm_config_loglevel=silent npm config get prefix 2>/dev/null | tr -d '[:space:]')
 
   # ---- Ownership + mode + writability on effective_prefix ----
   local owner mode user_writable
