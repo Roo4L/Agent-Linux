@@ -69,6 +69,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # jq is REQUIRED by Phase 4's tests/bats/40-registry-cli.bats to parse
 # `agentlinux list --json` output and inspect sentinel JSON files
 # (/opt/agentlinux/state/installed.d/<id>.json). Plan 04-07 Rule 3 auto-fix.
+# Phase 12 (Plan 12-03): tests/bats/15-detection.bats's read-only invariant
+# @test snapshots /etc /home /usr/local/bin /opt before+after a detection
+# pass and asserts byte-equality. jq must be pre-installed here so the
+# detection-layer's ensure_jq fallback (apt-get install jq) is a no-op,
+# otherwise the snapshot would diff /var/lib/dpkg/* and fail.
 # curl is REQUIRED by Phase 5's claude-code install.sh recipe (AGT-02 path):
 # `curl -fsSL https://claude.ai/install.sh | bash -s $PINNED` fetches the
 # native-installer bootstrap. Ubuntu 22.04 minimal does NOT ship curl by
