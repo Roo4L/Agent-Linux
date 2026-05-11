@@ -27,7 +27,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
 - Integer phases (12, 13, 14, 15, 16): Planned milestone work, executed in numeric order
 - Decimal phases (e.g., 13.1) reserved for urgent insertions discovered during the milestone (precedent: v0.3.0 Phase 5.1)
 
-- [ ] **Phase 12: Detection Layer** — Read-only discovery primitives covering install user, Node.js sources, npm prefix, catalog agents, sudoers drop-in; pre-flight report in human text + stable JSON.
+- [x] **Phase 12: Detection Layer** — Read-only discovery primitives covering install user, Node.js sources, npm prefix, catalog agents, sudoers drop-in; pre-flight report in human text + stable JSON. (completed 2026-05-11)
 - [ ] **Phase 13: Reuse Wiring** — Plumb DET output into existing provisioners and the recipe runner so they short-circuit when detected components match contract; first end-to-end brownfield smoke.
 - [ ] **Phase 14: Remediate + Consent Flag + Exit Codes** — Mutating fix paths (chown npm prefix, refresh PATH wiring, install missing/drifted sudoers, reinstall broken catalog agent), single `--yes` consent flag for non-TTY mode (Unix-convention, matching `apt install -y`), structured exit codes 64/65/1 that downstream phases honor. Per-action TTY prompts land in Phase 15.
 - [ ] **Phase 15: Pre-flight UX** — `--dry-run`, interactive `Proceed? [y/N]` for state-overwriting actions, alt-user-name prompt for incompatible existing user, JSON-format finalization for the report.
@@ -111,7 +111,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 
 | Phase | Plans Estimated | Status | Completed |
 |-------|-----------------|--------|-----------|
-| 12. Detection Layer | 2/3 | In Progress|  |
+| 12. Detection Layer | 3/3 | Complete   | 2026-05-11 |
 | 13. Reuse Wiring | ~2 | Not started | - |
 | 14. Remediate + Consent Flag + Exit Codes | ~3 | Not started | - |
 | 15. Pre-flight UX | ~2 | Not started | - |
