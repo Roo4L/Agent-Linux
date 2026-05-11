@@ -104,16 +104,18 @@ detect::render_text() {
   __det_section "DET-02" "Node.js Installations"
   if [[ "${DETECT_NODEJS_COUNT:-0}" -gt 0 ]]; then
     printf '%s present (%s source(s))\n' "$(__det_glyph ok)" "${DETECT_NODEJS_COUNT}"
-    local i s_var p_var v_var w_var
+    local i s_var p_var v_var w_var r_var
     for ((i = 0; i < DETECT_NODEJS_COUNT; i++)); do
       s_var="DETECT_NODEJS_${i}_SOURCE"
       p_var="DETECT_NODEJS_${i}_PATH"
       v_var="DETECT_NODEJS_${i}_VERSION"
       w_var="DETECT_NODEJS_${i}_WRITABLE"
+      r_var="DETECT_NODEJS_${i}_PREFIX_ROOT"
       __det_field DET-02 "nodejs.${i}.source" "${!s_var:-}"
       __det_field DET-02 "nodejs.${i}.path" "${!p_var:-}"
       __det_field DET-02 "nodejs.${i}.version" "${!v_var:-}"
       __det_field DET-02 "nodejs.${i}.install_user_can_write_prefix" "${!w_var:-false}"
+      __det_field DET-02 "nodejs.${i}.prefix_root" "${!r_var:-}"
     done
   else
     printf '%s absent\n' "$(__det_glyph absent)"
@@ -138,22 +140,37 @@ detect::render_text() {
   __det_section "DET-04" "Catalog Agents"
   if [[ "${DETECT_AGENTS_SECTION_STATUS:-stub}" == "present" ]]; then
     printf '%s present (%s agent(s))\n' "$(__det_glyph ok)" "${DETECT_AGENTS_COUNT:-0}"
-    local id upper s_var p_var v_var o_var
+    local id upper s_var p_var v_var o_var status path version glyph
     for id in claude-code gsd playwright-cli; do
+      # Sanitize id to suffix used in DETECT_AGENT_* export names. Plan 12-02
+      # convention: uppercase + replace '-' with '_' (e.g. claude-code → CLAUDE_CODE).
       upper=${id^^}
       upper=${upper//-/_}
       s_var="DETECT_AGENT_${upper}_STATUS"
       p_var="DETECT_AGENT_${upper}_PATH"
       v_var="DETECT_AGENT_${upper}_VERSION"
       o_var="DETECT_AGENT_${upper}_OWNER"
-      __det_field DET-04 "agents.${id}.status" "${!s_var:-absent}"
-      __det_field DET-04 "agents.${id}.path" "${!p_var:-}"
-      __det_field DET-04 "agents.${id}.version" "${!v_var:-}"
-      __det_field DET-04 "agents.${id}.owner" "${!o_var:-}"
+      status="${!s_var:-absent}"
+      path="${!p_var:-}"
+      version="${!v_var:-}"
+      case "$status" in
+        healthy) glyph=$(__det_glyph ok) ;;
+        broken) glyph=$(__det_glyph bad) ;;
+        absent) glyph=$(__det_glyph absent) ;;
+        *) glyph=$(__det_glyph warn) ;;
+      esac
+      printf '%s %s: %s' "$glyph" "$id" "$status"
+      [[ -n "$path" ]] && printf ' at %s' "$path"
+      [[ -n "$version" ]] && printf ' (%s)' "$version"
+      printf '\n'
+      __det_field DET-04 "agent.${id}.status" "$status"
+      __det_field DET-04 "agent.${id}.path" "$path"
+      __det_field DET-04 "agent.${id}.version" "$version"
+      __det_field DET-04 "agent.${id}.owner" "${!o_var:-}"
     done
   else
-    printf '%s stub\n' "$(__det_glyph absent)"
-    __det_field DET-04 agents.section_status "${DETECT_AGENTS_SECTION_STATUS:-stub}"
+    printf '%s absent\n' "$(__det_glyph absent)"
+    __det_field DET-04 agent.section_status "${DETECT_AGENTS_SECTION_STATUS:-stub}"
   fi
 
   __det_section "DET-05" "Sudoers Drop-In"
