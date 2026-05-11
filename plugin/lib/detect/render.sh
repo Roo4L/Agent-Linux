@@ -136,7 +136,25 @@ detect::render_text() {
   fi
 
   __det_section "DET-04" "Catalog Agents"
-  __det_field DET-04 agents.section_status "${DETECT_AGENTS_SECTION_STATUS:-stub}"
+  if [[ "${DETECT_AGENTS_SECTION_STATUS:-stub}" == "present" ]]; then
+    printf '%s present (%s agent(s))\n' "$(__det_glyph ok)" "${DETECT_AGENTS_COUNT:-0}"
+    local id upper s_var p_var v_var o_var
+    for id in claude-code gsd playwright-cli; do
+      upper=${id^^}
+      upper=${upper//-/_}
+      s_var="DETECT_AGENT_${upper}_STATUS"
+      p_var="DETECT_AGENT_${upper}_PATH"
+      v_var="DETECT_AGENT_${upper}_VERSION"
+      o_var="DETECT_AGENT_${upper}_OWNER"
+      __det_field DET-04 "agents.${id}.status" "${!s_var:-absent}"
+      __det_field DET-04 "agents.${id}.path" "${!p_var:-}"
+      __det_field DET-04 "agents.${id}.version" "${!v_var:-}"
+      __det_field DET-04 "agents.${id}.owner" "${!o_var:-}"
+    done
+  else
+    printf '%s stub\n' "$(__det_glyph absent)"
+    __det_field DET-04 agents.section_status "${DETECT_AGENTS_SECTION_STATUS:-stub}"
+  fi
 
   __det_section "DET-05" "Sudoers Drop-In"
   if [[ "${DETECT_SUDOERS_PRESENT:-false}" == "true" ]]; then
