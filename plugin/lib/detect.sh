@@ -72,6 +72,25 @@ detect::run_once() {
   local user=${1:-agent}
   [[ -n "${DETECT_RAN:-}" ]] && return 0
 
+  # Plan 13-01 Rule 1 fix: when this function is called from a caller that has
+  # functrace enabled (`set -T`), the RETURN trap installed below is INHERITED
+  # by every function this function calls (detect::*_probe). The first such
+  # inner-function RETURN fires the trap, deleting $tmpdir mid-stream, and
+  # subsequent probes fail with "No such file or directory" on their fragment
+  # writes. bats enables `set -ET` per @test (see /usr/lib/bats-core/
+  # test_functions.bash:368 `set +eET` inside the `run` builtin — confirms the
+  # outer test body runs WITH `-T`), so direct `detect::run_once` calls from
+  # tests/bats/13-reuse.bats surface the bug. Phase 12's entrypoint integration
+  # does not trigger it because plugin/bin/agentlinux-install does not set
+  # functrace. Mitigation: save the functrace shellopt, disable it for the
+  # scope of this function, restore it before the trap fires (the trap is set
+  # AFTER `set +T`, so the trap installation captures the disabled state for
+  # this scope; restoration before the body's last line keeps the caller-side
+  # shellopt intact). Verified locally + in Docker bats run.
+  local _saved_functrace=
+  [[ $- == *T* ]] && _saved_functrace=1
+  set +T
+
   local tmpdir
   tmpdir=$(mktemp -d)
   # shellcheck disable=SC2064
@@ -106,6 +125,16 @@ detect::run_once() {
 
   export DETECT_RAN=1
   export DETECT_CACHE_PATH
+
+  # Restore caller-side functrace shellopt (Plan 13-01 Rule 1 fix — see header
+  # above for context). Set BEFORE the function returns so the RETURN trap
+  # (which fires AFTER this line) does not capture the +T state and leak it
+  # back to the caller. The `if` form (vs `[[ ]] && set -T`) keeps the function
+  # exit status at zero when _saved_functrace is empty — under `set -e` the
+  # short-circuit form would make the function return 1 because the `[[ ]]`
+  # test is the function's last command and evaluates false.
+  if [[ -n "$_saved_functrace" ]]; then set -T; fi
+  return 0
 }
 
 # detect::emit_report <format>

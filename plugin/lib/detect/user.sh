@@ -35,7 +35,7 @@ fi
 detect::user_probe() {
   local user=${1:-agent} fragment_path=$2
 
-  local pwent uid gid shell home groups present home_writable
+  local pwent uid gid shell home groups present home_writable can_sudo_apt
   if pwent=$(getent passwd "$user" 2>/dev/null); then
     present=true
     # passwd format: name:x:uid:gid:gecos:home:shell
@@ -49,6 +49,28 @@ detect::user_probe() {
     else
       home_writable=false
     fi
+    # NEW Phase 13 (REUSE-01 sudo bar — CONTEXT.md Area 1 Q1 amendment
+    # 2026-05-16): can the user run `apt-get` non-interactively via sudo?
+    #
+    # T-13-02 mitigation: use ABSOLUTE path /usr/bin/apt-get (NOT bare
+    # `apt-get`). A user with NOPASSWD for `/usr/bin/apt-get` who also has
+    # write access to an earlier-PATH dir (e.g. ~/.local/bin) could otherwise
+    # shadow apt-get with a malicious binary the probe would happily run; the
+    # absolute-path form forces sudo to resolve the argument literally, so the
+    # NOPASSWD grant is anchored to the real apt-get binary.
+    #
+    # NOT routed through `as_user` (which adds -H -E -- and would carry caller
+    # env). The probe needs the raw `sudo -u <user> -n` shape so passwordless
+    # failure surfaces as exit 1 (not a hanging password prompt).
+    #
+    # `--help` is read-side (no package mutation, no network); satisfies the
+    # DET-* read-only invariant (Q4 contract — never any package-manager
+    # mutation). Exit 0 iff user has NOPASSWD for at least apt-get.
+    if sudo -u "$user" -n /usr/bin/apt-get --help >/dev/null 2>&1; then
+      can_sudo_apt=true
+    else
+      can_sudo_apt=false
+    fi
   else
     present=false
     uid=""
@@ -57,6 +79,7 @@ detect::user_probe() {
     home=""
     groups=""
     home_writable=false
+    can_sudo_apt=false
   fi
 
   # Export for in-process readers (Phase 13 reader functions consume these).
@@ -68,6 +91,7 @@ detect::user_probe() {
   export DETECT_USER_HOME="$home"
   export DETECT_USER_GROUPS="$groups"
   export DETECT_USER_HOME_WRITABLE="$home_writable"
+  export DETECT_USER_CAN_SUDO_APT="$can_sudo_apt"
 
   # Emit JSON fragment for orchestrator slurping. `--arg` quotes strings; jq
   # handles escape edge cases (newlines, quotes, unicode) correctly. Splitting
@@ -81,7 +105,8 @@ detect::user_probe() {
     --arg home "${home:-}" \
     --arg groups "${groups:-}" \
     --argjson home_writable "$home_writable" \
-    '{user: {name: $name, present: $present, uid: $uid, gid: $gid, shell: $shell, home: $home, groups: ($groups | split(" ")), home_writable: $home_writable}}' \
+    --argjson can_sudo_apt "$can_sudo_apt" \
+    '{user: {name: $name, present: $present, uid: $uid, gid: $gid, shell: $shell, home: $home, groups: ($groups | split(" ")), home_writable: $home_writable, can_sudo_apt: $can_sudo_apt}}' \
     >"$fragment_path"
 }
 
@@ -93,3 +118,12 @@ detect::user_present() { [[ "${DETECT_USER_PRESENT:-false}" == "true" ]]; }
 detect::user_uid() { printf '%s' "${DETECT_USER_UID:-}"; }
 detect::user_shell() { printf '%s' "${DETECT_USER_SHELL:-}"; }
 detect::user_home_writable() { [[ "${DETECT_USER_HOME_WRITABLE:-false}" == "true" ]]; }
+
+# detect::user_can_sudo_apt — exit 0 if DETECT_USER_CAN_SUDO_APT == true.
+#
+# NOPASSWD-for-apt is the REUSE-01 sudo bar (per CONTEXT.md Area 1 / Q1 user
+# amendment 2026-05-16). T-13-02 mitigation: the probe in detect::user_probe
+# uses the absolute path /usr/bin/apt-get to defeat a PATH-shim attack against
+# bare apt-get. This reader is a thin accessor over the export — Phase 13
+# REUSE-01 consults it to gate the reuse decision.
+detect::user_can_sudo_apt() { [[ "${DETECT_USER_CAN_SUDO_APT:-false}" == "true" ]]; }

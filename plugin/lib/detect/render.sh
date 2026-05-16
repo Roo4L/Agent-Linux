@@ -94,11 +94,13 @@ detect::render_text() {
     __det_field DET-01 user.shell "${DETECT_USER_SHELL:-}"
     __det_field DET-01 user.home "${DETECT_USER_HOME:-}"
     __det_field DET-01 user.home_writable "${DETECT_USER_HOME_WRITABLE:-false}"
+    __det_field DET-01 user.can_sudo_apt "${DETECT_USER_CAN_SUDO_APT:-false}"
     __det_field DET-01 user.groups "${DETECT_USER_GROUPS:-}"
   else
     printf '%s absent\n' "$(__det_glyph absent)"
     __det_field DET-01 user.name "${DETECT_USER_NAME:-}"
     __det_field DET-01 user.present false
+    __det_field DET-01 user.can_sudo_apt false
   fi
 
   __det_section "DET-02" "Node.js Installations"
