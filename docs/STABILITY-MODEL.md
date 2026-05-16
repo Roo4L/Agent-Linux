@@ -122,3 +122,5 @@ behind is supported (`pin =<semver>`); reconciling is one command
 - [ADR-006 — curl-pipe-bash primary + optional .deb distribution](decisions/006-curl-pipe-bash-plus-deb.md)
   — how the release tarball + catalog snapshot + SHA256 sidecar get to users.
 - [README.md](../README.md) — the top-level install + verify story.
+- [docs/VISION.md — Pillar 2: Stability](VISION.md)
+  — the canonical framing this stability model implements. Pillar 2 names what the optimization target is; this doc names the mechanism (the `pinned_version` contract + the explicit reconciliation verbs).

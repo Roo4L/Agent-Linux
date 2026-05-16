@@ -3,6 +3,20 @@
 Thanks for considering a contribution. AgentLinux is small, opinionated, and
 behavior-test-driven — that shapes how we accept changes.
 
+## Why this project exists
+
+AgentLinux is framed around two pillars: **Time-to-productive** (the
+work that gets a user from `curl | bash` to a first useful agent run on
+a fresh box) and **Stability** (the curated toolchain holds compatible
+across upstream churn). See [docs/VISION.md](docs/VISION.md) for the
+full framing. Pillar 1 is what v0.3.0 already shipped — contributions
+landing in the agent-user / runtime / catalog surface area are welcome
+today. Pillar 2 is early-stage — the supply-chain monitoring + curated
+catalog admission sub-concern (Phase 13 verdict, folded into Pillar 2)
+locks at v0.3.3, but the mechanism work lands later (v0.6+). Pillar-2
+contributions are welcome with the heads-up that the framing locked in
+v0.3.3 and the implementation primitives ship in a later milestone.
+
 ## Quick start
 
 1. **File an issue first** for anything non-trivial. We avoid surprise PRs that
