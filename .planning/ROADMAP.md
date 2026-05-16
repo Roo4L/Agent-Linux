@@ -74,9 +74,9 @@ Key locked decisions honored by this roadmap:
   10. **DOC propagation.** Each of these files shows a commit in the Phase 14 window touching the named section: `README.md` (About + Links sections gain pillar-naming sentence + Vision link — DOC-01); `CONTRIBUTING.md` ("Why this project exists" paragraph + pillar-status callout — DOC-02); `.planning/PROJECT.md` (Core Value + Current Milestone sections cross-reference VISION.md; Out-of-Scope reflects EXPL-01/02-surfaced non-goals — DOC-03); `docs/STABILITY-MODEL.md` (Related section with back-link to VISION.md Pillar 2 — DOC-04). Phase-close audit cites the commit hash + line range for each. — DOC-01..04.
   11. **DOC-05 closes N/A.** Phase 13 verdict (b) — pillar 3 did NOT survive. No edit to `docs/decisions/012-agent-user-full-sudo.md` (ADR-012) needed. Phase 14 audit records DOC-05 as N/A with a one-line decision: "no edit needed because pillar 3 did not survive Phase 13"; audit explicitly cites EXPL-02's `## Verdict` line. — DOC-05.
   12. Phase-close audit `.planning/phases/14-vision-doc-and-downstream/14-AUDIT.md` cites every VIS-XX + DOC-XX evidence (file path / line range / commit hash / grep transcript per requirement); gate emits GREEN.
-**Plans**: estimated 2 plans
-- [ ] 14-01-PLAN.md — Author `docs/VISION.md` from Phase 12 + Phase 13 verdicts (already committed as draft `f95a4ee` 2026-05-16); author ADR-015 alongside; voice-rule grep gate verified locally (VIS-01..09)
-- [ ] 14-02-PLAN.md — Downstream surface updates: README + CONTRIBUTING + PROJECT.md + STABILITY-MODEL.md back-pointers; DOC-05 N/A close; Phase 14 phase-close audit (DOC-01..05)
+**Plans**: 2 plans
+- [ ] 14-01-PLAN.md — Verify committed `docs/VISION.md` against VIS-01..VIS-07 (capture transcripts in `14-01-EVIDENCE.md`); author ADR-015 (VIS-09); reviewer pass (VIS-01..07, VIS-09)
+- [ ] 14-02-PLAN.md — Downstream surface updates: README + CONTRIBUTING + PROJECT.md + STABILITY-MODEL.md back-pointers (VIS-08, DOC-01..04); DOC-05 N/A close; Phase 14 phase-close audit `14-AUDIT.md` (gate emits GREEN)
 
 ### Phase 15: Strategy + Roadmap Doc
 **Goal**: Land the canonical product strategy/roadmap document (`docs/STRATEGY.md`) — the "how we get there" companion to `docs/VISION.md`'s "what we want to be." Covers execution rules (the process-level principles cut from the vision doc), theme sequencing for v0.6+, near-term focus, what we're working on now and next. Voice-rule grep gate enforced.
