@@ -98,3 +98,169 @@ __source_lib_chain_with_reuse() {
   printf '%s' "$output" | grep -qE '^\[DET-01\] user\.can_sudo_apt=' \
     || __fail "REUSE-01" "[DET-01] user.can_sudo_apt= marker line in text output" "$output" "$LOG"
 }
+
+# ---- Task 2: REUSE decision functions + entrypoint sourcing order ------------
+
+@test "REUSE-01: reuse::user_decision returns 'reuse' on post-installer host (5 predicates pass)" {
+  # REQ: REUSE-01 (all five predicates hold on the post-installer host —
+  # agent user present + /bin/bash + writable home + name match + NOPASSWD-for-apt
+  # via ADR-012's NOPASSWD: ALL which subsumes apt).
+  __source_lib_chain_with_reuse
+  detect::run_once agent
+  run reuse::user_decision agent
+  assert_exit_zero "REUSE-01"
+  [[ "$output" == "reuse" ]] \
+    || __fail "REUSE-01" "reuse::user_decision agent == 'reuse' on post-installer host" "$output (DETECT_USER_PRESENT=$DETECT_USER_PRESENT shell=$DETECT_USER_SHELL home_writable=$DETECT_USER_HOME_WRITABLE can_sudo_apt=$DETECT_USER_CAN_SUDO_APT)" "$LOG"
+}
+
+@test "REUSE-01: reuse::user_decision returns 'create' when DETECT_USER_PRESENT=false (greenfield)" {
+  # REQ: REUSE-01 (predicate 1 — user absent falls through to CREATE).
+  __source_lib_chain_with_reuse
+  DETECT_USER_PRESENT=false run reuse::user_decision agent
+  assert_exit_zero "REUSE-01"
+  [[ "$output" == "create" ]] \
+    || __fail "REUSE-01" "reuse::user_decision agent == 'create' when DETECT_USER_PRESENT=false" "$output" "$LOG"
+}
+
+@test "REUSE-01: reuse::user_decision returns 'remediate' when sudo_apt=false but other predicates hold" {
+  # REQ: REUSE-01 (predicate 4 — fixable defect; Phase 14 REMEDIATE-03 will register
+  # a real handler on this branch without changing the dispatch shape).
+  __source_lib_chain_with_reuse
+  DETECT_USER_PRESENT=true \
+    DETECT_USER_NAME=agent \
+    DETECT_USER_SHELL=/bin/bash \
+    DETECT_USER_HOME=/home/agent \
+    DETECT_USER_HOME_WRITABLE=true \
+    DETECT_USER_CAN_SUDO_APT=false \
+    run reuse::user_decision agent
+  assert_exit_zero "REUSE-01"
+  [[ "$output" == "remediate" ]] \
+    || __fail "REUSE-01" "reuse::user_decision == 'remediate' when only sudo_apt fails" "$output" "$LOG"
+}
+
+@test "REUSE-01: reuse::user_decision returns 'bail' when shell is /usr/sbin/nologin (irreconcilable)" {
+  # REQ: REUSE-01 (predicate 2 — wrong shell is irreconcilable per CONTEXT.md Area 1 Q1).
+  __source_lib_chain_with_reuse
+  DETECT_USER_PRESENT=true \
+    DETECT_USER_NAME=agent \
+    DETECT_USER_SHELL=/usr/sbin/nologin \
+    DETECT_USER_HOME=/home/agent \
+    DETECT_USER_HOME_WRITABLE=true \
+    DETECT_USER_CAN_SUDO_APT=true \
+    run reuse::user_decision agent
+  assert_exit_zero "REUSE-01"
+  [[ "$output" == "bail" ]] \
+    || __fail "REUSE-01" "reuse::user_decision == 'bail' when shell=/usr/sbin/nologin" "$output" "$LOG"
+}
+
+@test "REUSE-01: reuse::user_decision returns 'bail' when home is not writable (irreconcilable)" {
+  # REQ: REUSE-01 (predicate 3 — read-only home is irreconcilable).
+  __source_lib_chain_with_reuse
+  DETECT_USER_PRESENT=true \
+    DETECT_USER_NAME=agent \
+    DETECT_USER_SHELL=/bin/bash \
+    DETECT_USER_HOME=/home/agent \
+    DETECT_USER_HOME_WRITABLE=false \
+    DETECT_USER_CAN_SUDO_APT=true \
+    run reuse::user_decision agent
+  assert_exit_zero "REUSE-01"
+  [[ "$output" == "bail" ]] \
+    || __fail "REUSE-01" "reuse::user_decision == 'bail' when home_writable=false" "$output" "$LOG"
+}
+
+@test "REUSE-01: reuse::user_decision returns 'bail' when --user=NAME mismatches DETECT_USER_NAME" {
+  # REQ: REUSE-01 (predicate 5 — --user=NAME mismatch is its own incompatibility class).
+  # Defensive check: the orchestrator passes the requested user; if DETECT_USER_NAME
+  # diverges (manual export, future cross-user code path), bail rather than risk
+  # adopting the wrong user.
+  __source_lib_chain_with_reuse
+  DETECT_USER_PRESENT=true \
+    DETECT_USER_NAME=alice \
+    DETECT_USER_SHELL=/bin/bash \
+    DETECT_USER_HOME=/home/alice \
+    DETECT_USER_HOME_WRITABLE=true \
+    DETECT_USER_CAN_SUDO_APT=true \
+    run reuse::user_decision agent
+  assert_exit_zero "REUSE-01"
+  [[ "$output" == "bail" ]] \
+    || __fail "REUSE-01" "reuse::user_decision == 'bail' when requested=agent but DETECT_USER_NAME=alice" "$output" "$LOG"
+}
+
+@test "REUSE-02: reuse::nodejs_decision returns 'reuse' when DETECT exports satisfy BOTH predicates (Node 22 + writable prefix)" {
+  # REQ: REUSE-02 (both predicates satisfied — Node 22 LTS pin matches AND
+  # install user can write to the prefix). Force the exports inline because
+  # the post-installer host's NodeSource Node lives at /usr (root-owned, not
+  # writable by agent) — agent owns its OWN prefix at ~/.npm-global but the
+  # detect::nodejs_probe records install_user_can_write_prefix per-Node-binary
+  # (the /usr/bin/node binary's prefix is /usr, which agent cannot write to
+  # without sudo). The reuse predicate is per the CONTEXT.md Area 1 Q2 contract
+  # — version + writability — so the inline-export shape is the contract test
+  # here. Plan 13-02's brownfield smoke uses a Docker fixture where Node 22 is
+  # installed under the agent's own home (writable), exercising the end-to-end
+  # `reuse` branch via real-state predicates rather than forced exports.
+  __source_lib_chain_with_reuse
+  DETECT_NODEJS_COUNT=1 \
+    DETECT_NODEJS_0_SOURCE=nodesource \
+    DETECT_NODEJS_0_VERSION=v22.4.0 \
+    DETECT_NODEJS_0_WRITABLE=true \
+    DETECT_NODEJS_0_PREFIX_ROOT=/home/agent/.npm-global \
+    run reuse::nodejs_decision
+  assert_exit_zero "REUSE-02"
+  [[ "$output" == "reuse" ]] \
+    || __fail "REUSE-02" "reuse::nodejs_decision == 'reuse' when one entry has v22.x + writable=true" "$output" "$LOG"
+}
+
+@test "REUSE-02: reuse::nodejs_decision returns 'create' on post-installer host (Node 22 present but /usr prefix not agent-writable)" {
+  # REQ: REUSE-02 (CREATE branch when no entry has BOTH predicates true — the
+  # canonical greenfield-post-Phase-3 shape where NodeSource Node lives at /usr
+  # and agent cannot write to that prefix. This is the EXPECTED post-installer
+  # observation: AgentLinux's prefix discipline keeps the npm globals at
+  # ~/.npm-global, NOT at the Node binary's install prefix. REUSE-02 fires only
+  # on brownfield hosts where Node 22 is already installed under a path the
+  # install user owns — Plan 13-02's brownfield fixture exercises that case.
+  __source_lib_chain_with_reuse
+  detect::run_once agent
+  run reuse::nodejs_decision
+  assert_exit_zero "REUSE-02"
+  [[ "$output" == "create" ]] \
+    || __fail "REUSE-02" "reuse::nodejs_decision == 'create' on post-installer host (Node 22 at /usr, not agent-writable)" "$output (DETECT_NODEJS_COUNT=${DETECT_NODEJS_COUNT:-0} DETECT_NODEJS_0_WRITABLE=${DETECT_NODEJS_0_WRITABLE:-unset})" "$LOG"
+}
+
+@test "REUSE-02: reuse::nodejs_decision returns 'create' when DETECT_NODEJS_COUNT=0 (greenfield no-node)" {
+  # REQ: REUSE-02 (no detected Node → fall through to CREATE; no remediate branch
+  # for nodejs per CONTEXT.md Area 1 Q2).
+  __source_lib_chain_with_reuse
+  DETECT_NODEJS_COUNT=0 run reuse::nodejs_decision
+  assert_exit_zero "REUSE-02"
+  [[ "$output" == "create" ]] \
+    || __fail "REUSE-02" "reuse::nodejs_decision == 'create' when DETECT_NODEJS_COUNT=0" "$output" "$LOG"
+}
+
+@test "REUSE-02: reuse::nodejs_decision returns 'create' when Node version is < 22 (Node 20 case)" {
+  # REQ: REUSE-02 (version predicate failure → CREATE; defensive coverage that
+  # the satisfies_pin reader rejects Node < 22).
+  __source_lib_chain_with_reuse
+  DETECT_NODEJS_COUNT=1 \
+    DETECT_NODEJS_0_SOURCE=nvm \
+    DETECT_NODEJS_0_VERSION=v20.10.0 \
+    DETECT_NODEJS_0_WRITABLE=true \
+    DETECT_NODEJS_0_PREFIX_ROOT=/home/agent/.nvm/versions/node/v20.10.0 \
+    run reuse::nodejs_decision
+  assert_exit_zero "REUSE-02"
+  [[ "$output" == "create" ]] \
+    || __fail "REUSE-02" "reuse::nodejs_decision == 'create' when only Node 20 is present" "$output" "$LOG"
+}
+
+@test "REUSE-01 + REUSE-02: agentlinux-install sources reuse.sh AFTER detect.sh (entrypoint order)" {
+  # REQ: REUSE-01 + REUSE-02 (T-13-01 mitigation — detect::run_once populates
+  # DETECT_* exports before any reuse:: call can consume them; verify by source-
+  # order grep on the entrypoint).
+  local entry=/opt/agentlinux-src/plugin/bin/agentlinux-install
+  local d_line r_line
+  d_line=$(grep -nF '. "$LIB_DIR/detect.sh"' "$entry" | head -1 | cut -d: -f1)
+  r_line=$(grep -nF '. "$LIB_DIR/reuse.sh"' "$entry" | head -1 | cut -d: -f1)
+  [[ -n "$d_line" && -n "$r_line" ]] \
+    || __fail "REUSE-01" "both detect.sh + reuse.sh source lines present" "detect@${d_line:-MISSING} reuse@${r_line:-MISSING}" "$entry"
+  [[ "$r_line" -gt "$d_line" ]] \
+    || __fail "REUSE-01" "reuse.sh sourced AFTER detect.sh (reuse@$r_line > detect@$d_line)" "reuse@$r_line not > detect@$d_line" "$entry"
+}

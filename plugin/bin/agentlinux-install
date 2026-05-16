@@ -444,6 +444,18 @@ main() {
   else
     detect::run_once "$INSTALL_USER"
   fi
+  # Phase 13 (Plan 13-01): source the reuse-decision orchestrator AFTER
+  # detect::run_once has populated DETECT_* exports, BEFORE run_provisioners.
+  # Sourcing is unconditional (independent of --report-only) so the dispatch
+  # surface is available to any future Phase 15 dry-run that wants to surface
+  # reuse decisions; reuse.sh emits no output by itself so the JSON-quiet
+  # branch above is unaffected. The provisioners (10-agent-user.sh,
+  # 30-nodejs.sh) consult reuse::user_decision + reuse::nodejs_decision via
+  # case-branch dispatchers near their top — Phase 14 extends the remediate /
+  # bail branches without changing the dispatch shape (CONTEXT.md "Phase 13 →
+  # Phase 14 contract").
+  # shellcheck source=../lib/reuse.sh
+  . "$LIB_DIR/reuse.sh"
   if [[ $REPORT_ONLY == true ]]; then
     detect::emit_report "$REPORT_FORMAT"
     exit 0
