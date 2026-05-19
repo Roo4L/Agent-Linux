@@ -90,8 +90,9 @@ Key locked decisions honored by this roadmap:
   5. The first non-blank line after the H1 is a `> Last reviewed:` blockquote. `head -5 docs/STRATEGY.md | grep -E '^> Last reviewed: 2026-05'` returns 1 match. — STRATR-05.
   6. **Voice-rule grep gate (HARD GATE).** `grep -nE '^[^a-z]*AgentLinux (provides|offers|ensures|protects|defends|benchmarks|measures|hardens|isolates|detects|prevents)\b' docs/STRATEGY.md` returns zero matches. Command + output committed verbatim to `.planning/phases/15-strategy-roadmap-doc/15-AUDIT.md`. Phase-close gate fails on any match. — STRATR-06.
   7. Phase-close audit `.planning/phases/15-strategy-roadmap-doc/15-AUDIT.md` cites every STRATR-XX evidence; gate emits GREEN.
-**Plans**: estimated 1 plan
-- [ ] 15-01-PLAN.md — Author `docs/STRATEGY.md` from VISION.md + Phase 12 + Phase 13 substance (execution-flavored content cut from vision); voice-rule grep gate; phase-close audit (STRATR-01..06)
+**Plans**: 2 plans
+- [ ] 15-01-PLAN.md — Amend REQUIREMENTS.md STRATR-02 (Rumelt-style 5-section spine + ≥ 5 grep gate; append 2026-05-19 Superseded-items block); author `docs/STRATEGY.md` from VISION.md + Phase 12 + Phase 13 substance with locked 5-section spine + 4 themes + 5-7 execution principles; voice-rule grep gate; capture 15-01-EVIDENCE.md (STRATR-01..06)
+- [ ] 15-02-PLAN.md — Reviewer pass on docs/STRATEGY.md (technical-writer + fact-checker, parallel; mirror Phase 14 / docs/VISION.md `f95a4ee` precedent); apply triaged feedback; author phase-close audit `15-AUDIT.md` (STRATR-01..06 lifted verbatim from 15-01-EVIDENCE.md; Phase 15 GREEN gate emission)
 
 ### Phase 16: Website Refresh (agentlinux.org)
 **Goal**: Repair the agentlinux.org landing page so its framing matches the post-Phase-14 vision (two pillars), the post-Phase-15 strategy, the v0.3.0/v0.4.0 product reality, and the locked pillar count. The site is currently two pivots stale (hero says "purpose-built Linux distribution"; features advertise QEMU/Docker micro-VM distribution) — refreshing it is required regardless. Voice-rule grep gate applies to the rendered HTML, with the same hard-gate semantics as Phase 14 VIS-07 / Phase 15 STRATR-06. Visual redesign is explicitly out of scope; the dark JetBrains Mono aesthetic + crab mascot stay.
@@ -124,9 +125,9 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Phase 12 → Ph
 | 12. Pillar 2 Exploration | 1/1 | Complete | 2026-05-10 |
 | 13. Pillar 3 Candidate Exploration | 1/1 | Complete | 2026-05-10 |
 | 14. Vision Doc + ADR-015 + Downstream Surface Updates | 2 | In progress | Reframed from "Strategy Doc..." on 2026-05-16; vision-doc draft committed; ADR-015 + downstream propagation pending |
-| 15. Strategy + Roadmap Doc | 1 | Not started | New phase inserted 2026-05-16 to host the execution-rules + roadmap content cut from the vision doc |
+| 15. Strategy + Roadmap Doc | 2 | Planned | New phase inserted 2026-05-16; planned 2026-05-19 with Rumelt-style 5-section spine reframe (15-01: REQUIREMENTS.md amendment + STRATEGY.md draft + evidence; 15-02: reviewer pass + 15-AUDIT.md GREEN) |
 | 16. Website Refresh | 1 | Not started | Renumbered from Phase 15 on 2026-05-16 |
-| **Total** | **~6 plans** | 2/5 phases done | — |
+| **Total** | **~7 plans** | 2/5 phases done | — |
 
 ## Coverage Summary
 
