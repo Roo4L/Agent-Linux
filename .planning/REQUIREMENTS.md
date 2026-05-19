@@ -52,7 +52,7 @@ Grouped by category. Each `XXX-NN` is a verifiable outcome — a document sectio
 
 - [ ] **STRATR-01**: `docs/STRATEGY.md` exists at the repo path (single Markdown file, sibling to VISION.md). The file is at most 8 KB on first cut. Lands AFTER VISION.md so it can cite VISION.md as upstream "what."
 
-- [ ] **STRATR-02**: The doc's spine reflects strategy/roadmap content. At minimum: `## Where we are now` (current state of v0.3.0/v0.4.0 + recently shipped), `## What we're working on next` (near-term focus, milestone-level), `## Themes for v0.6+` (forward-looking themes with sequencing rationale), `## Execution principles` (the process-level principles cut from VISION.md). `grep -nE '^## (Where we are now|What we'\''re working on next|Themes for|Execution principles)' docs/STRATEGY.md` returns ≥ 4 matches.
+- [ ] **STRATR-02**: The doc's spine reflects Rumelt-style strategy structure (diagnosis + guiding policy + state + plan + principles), in this order: `## What we're solving` (the diagnosis — narrow bug-class AgentLinux eliminates, grounded against VISION.md upstream), `## Our bets` (the guiding policy — 2-3 load-bearing strategic choices with one-line why each), `## Where we are now` (honest current state ≤ 1 paragraph; load-bearing current goal: ship first usable release per AL-38 + AlmaLinux), `## What's next` (fused near-term + v0.6+ section — `### Near-term` subsection + `### Themes for v0.6+` subsection), `## Execution principles` (process-level rules cut from VISION.md). `grep -nE '^## (What we'\''re solving|Our bets|Where we are now|What'\''s next|Execution principles)' docs/STRATEGY.md` returns ≥ 5 matches in the prescribed order. Amendment 2026-05-19 (mid-discuss research-driven reframe): supersedes the original 4-section spine (`Where we are now` / `What we're working on next` / `Themes for` / `Execution principles`) which was diagnosed as "roadmap with execution principles bolted on" — missing the diagnosis + guiding-policy moves that distinguish strategy from roadmap per Rumelt, Cagan, Pichler.
 
 - [ ] **STRATR-03**: The `## Themes for v0.6+` section lists 2–4 forward-looking themes with `### Sequencing rationale` lines. At minimum:
    - `Security Hardening` (Phase 13 opportunistic theme — capability-scoped sudoers replacing ADR-012 NOPASSWD ALL, cosign-signed catalog releases, npm provenance verification, bubblewrap-based per-recipe sandbox profile, iptables egress allowlist).
@@ -205,6 +205,14 @@ The following requirements were superseded by the 2026-05-16 vision/strategy spl
 | STRAT-11 (Voice-rule grep gate on STRATEGY.md) | Split: VIS-07 (gate on VISION.md) + STRATR-06 (gate on STRATEGY.md) |
 | STRAT-12 (Cross-link map) | Reshaped: VIS-08 (back-pointers point to VISION.md) |
 | STRAT-13 (ADR-015) | Renamed: VIS-09 (same substance, references VISION.md) |
+
+## Superseded Items (2026-05-19 Phase 15 spine reframe)
+
+The following requirement was amended in the Phase 15 commit window per the mid-discuss research-driven spine reframe (precedent: 2026-05-16 STRAT-* → VIS-* + STRATR-* reframe in Phase 14 / Plan 14-02 commit window).
+
+| Old ID | Disposition |
+|--------|-------------|
+| STRATR-02 (4-section spine: `Where we are now` / `What we're working on next` / `Themes for` / `Execution principles`; ≥ 4 grep matches) | Amended in-place: STRATR-02 (5-section Rumelt-style spine: `What we're solving` / `Our bets` / `Where we are now` / `What's next` / `Execution principles`; ≥ 5 grep matches; `### Near-term` + `### Themes for v0.6+` as subsections under `## What's next`). Substance preserved (status content moves into `## Where we are now`; near-term content moves into `### Near-term` subsection; themes move into `### Themes for v0.6+` subsection); diagnosis + guiding-policy moves added (`## What we're solving` + `## Our bets`). |
 
 ## Deferred Items
 
