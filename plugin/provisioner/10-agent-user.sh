@@ -21,46 +21,97 @@
 
 log_info "10-agent-user: starting"
 
-# Step 1: agent user (BHV-01 — bash shell, home directory).
-# ensure_user is a no-op if `agent` already exists (T-02-05 mitigation:
-# existing `agent` user belonging to a different human is not modified; we
-# only assert existence). ensure_dir then asserts mode/ownership on the
-# already-created /home/agent to correct any out-of-band drift on re-run.
-ensure_user agent
-ensure_dir /home/agent 0755 agent:agent
-
-# Step 2: Locale (BHV-01 — LANG=C.UTF-8, LC_ALL=C.UTF-8 system-wide).
+# Phase 13 (REUSE-01) — dispatch on reuse::user_decision before any state
+# mutation. When the install user is REUSE-compatible (CONTEXT.md Area 1 Q1's
+# five predicates — present, /bin/bash shell, writable home, NOPASSWD-for-apt,
+# --user-name match), skip useradd + locale-gen + ensure_dir on the existing
+# home. Step 3 (DOC-02 CLAUDE.md ensure_marker_block) and 40-path-wiring.sh
+# still run UNCONDITIONALLY — additive against existing user content per the
+# non-mutating REUSE semantics for "attach to existing user".
 #
-# Pitfall 5 (02-RESEARCH.md): `locale-gen C.UTF-8` is a no-op on glibc 2.35+
-# (Ubuntu 22.04 and later) because C.UTF-8 is a built-in locale. That is why
-# we do NOT rely on its exit code — it may legitimately succeed without doing
-# anything — and instead verify outcome with `locale -a` below.
+# Phase 14 will replace the `remediate)` and `bail)` branches with real
+# handlers WITHOUT changing the dispatch shape (CONTEXT.md "Phase 13 → Phase
+# 14 contract"). The case enumerates all four dispatch tokens even though
+# Phase 13's reuse::user_decision emits all four — explicit-enumeration form
+# keeps the surface stable across the contract.
 #
-# Docker slim images strip the `locales` package entirely, so ensure it is
-# installed before invoking locale-gen / update-locale. DEBIAN_FRONTEND +
-# --no-install-recommends keep the install non-interactive and minimal.
-if ! command -v locale-gen >/dev/null 2>&1; then
-  log_warn "locale-gen not found; installing 'locales' package"
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales
-fi
+# CRITICAL caveat — 10-agent-user.sh hardcodes literal `agent` paths
+# throughout (Step 1 ensure_dir /home/agent, Step 3 DOC-02 CLAUDE.md path).
+# When --user=NAME is supplied and the user IS REUSE-compatible, those literal
+# paths still resolve correctly only because CONTEXT.md Area 1 Q1 predicate 5
+# bails on name mismatch — i.e., REUSE only fires when the requested user is
+# named `agent` OR no --user was supplied. Phase 14/15 will extend to alt-user
+# names; Phase 13 keeps the literal `agent` paths intact under REUSE-compatible
+# cases.
+REUSED_USER=false
+case "$(reuse::user_decision "${INSTALL_USER:-agent}")" in
+  reuse)
+    reuse::log_user_reuse "${INSTALL_USER:-agent}"
+    log_info "10-agent-user: REUSE branch — skipping useradd + locale-gen for existing user"
+    REUSED_USER=true
+    ;;
+  create)
+    # Fall through to the existing CREATE path (unchanged from v0.3.0).
+    REUSED_USER=false
+    ;;
+  remediate | bail)
+    # Phase 14 registers real handlers on these two branches. Phase 13 surfaces
+    # the decision as a log_warn (visible in the install transcript) and
+    # returns non-zero so the entrypoint ERR trap fires with src:line
+    # attribution. reuse::user_decision DOES emit all four tokens in Phase 13:
+    # `remediate` when only NOPASSWD-for-apt fails (fixable via REMEDIATE-03);
+    # `bail` when shell/home/--user predicates fail (irreconcilable).
+    log_warn "10-agent-user: REUSE-01 returned non-actionable decision for user '${INSTALL_USER:-agent}' — Phase 14 will handle (currently fatal)"
+    return 1
+    ;;
+esac
 
-# The one documented `|| true` skip-path in this provisioner (per CLAUDE.md
-# "unconditional || true hides real failures" rule). Allowed here because
-# C.UTF-8 is a glibc built-in on every supported host — locale-gen may exit
-# non-zero if /etc/locale.gen has no matching line, which is the expected
-# state on Ubuntu 22.04+. The `locale -a` verification below is the real
-# correctness check.
-locale-gen C.UTF-8 >/dev/null 2>&1 || true
-update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
+# Steps 1 + 2 (CREATE path) are wrapped in the REUSED_USER guard so the REUSE
+# branch skips them entirely; the existing user's identity + locale state is
+# the user's own configuration (idempotent re-runs against a REUSE branch were
+# never the use case here — REUSE is "do nothing" and we mean it).
+if [[ "${REUSED_USER:-false}" != true ]]; then
+  # Step 1: agent user (BHV-01 — bash shell, home directory).
+  # ensure_user is a no-op if `agent` already exists (T-02-05 mitigation:
+  # existing `agent` user belonging to a different human is not modified; we
+  # only assert existence). ensure_dir then asserts mode/ownership on the
+  # already-created /home/agent to correct any out-of-band drift on re-run.
+  ensure_user agent
+  ensure_dir /home/agent 0755 agent:agent
 
-# Outcome verification: accept both `C.UTF-8` (canonical) and `C.utf8` (the
-# form Ubuntu 24.04 reports via `locale -a`). Case-insensitive; optional dash
-# before the `8` per RESEARCH Pitfall 5's verification regex.
-if ! locale -a 2>/dev/null | grep -Eiq '^c\.utf-?8$'; then
-  log_error "C.UTF-8 locale not available after locale-gen + update-locale"
-  return 1
+  # Step 2: Locale (BHV-01 — LANG=C.UTF-8, LC_ALL=C.UTF-8 system-wide).
+  #
+  # Pitfall 5 (02-RESEARCH.md): `locale-gen C.UTF-8` is a no-op on glibc 2.35+
+  # (Ubuntu 22.04 and later) because C.UTF-8 is a built-in locale. That is why
+  # we do NOT rely on its exit code — it may legitimately succeed without doing
+  # anything — and instead verify outcome with `locale -a` below.
+  #
+  # Docker slim images strip the `locales` package entirely, so ensure it is
+  # installed before invoking locale-gen / update-locale. DEBIAN_FRONTEND +
+  # --no-install-recommends keep the install non-interactive and minimal.
+  if ! command -v locale-gen >/dev/null 2>&1; then
+    log_warn "locale-gen not found; installing 'locales' package"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales
+  fi
+
+  # The one documented `|| true` skip-path in this provisioner (per CLAUDE.md
+  # "unconditional || true hides real failures" rule). Allowed here because
+  # C.UTF-8 is a glibc built-in on every supported host — locale-gen may exit
+  # non-zero if /etc/locale.gen has no matching line, which is the expected
+  # state on Ubuntu 22.04+. The `locale -a` verification below is the real
+  # correctness check.
+  locale-gen C.UTF-8 >/dev/null 2>&1 || true
+  update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
+
+  # Outcome verification: accept both `C.UTF-8` (canonical) and `C.utf8` (the
+  # form Ubuntu 24.04 reports via `locale -a`). Case-insensitive; optional dash
+  # before the `8` per RESEARCH Pitfall 5's verification regex.
+  if ! locale -a 2>/dev/null | grep -Eiq '^c\.utf-?8$'; then
+    log_error "C.UTF-8 locale not available after locale-gen + update-locale"
+    return 1
+  fi
+  log_info "locale C.UTF-8 enforced (LANG + LC_ALL in /etc/default/locale)"
 fi
-log_info "locale C.UTF-8 enforced (LANG + LC_ALL in /etc/default/locale)"
 
 # Step 3: DOC-02 — /home/agent/CLAUDE.md with anti-pattern guidance.
 #

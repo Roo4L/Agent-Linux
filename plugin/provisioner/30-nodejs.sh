@@ -23,6 +23,38 @@
 
 log_info "30-nodejs: starting"
 
+# Phase 13 (REUSE-02) — dispatch on reuse::nodejs_decision before any state
+# mutation. When at least one detected Node entry has VERSION matching ^v?22\.
+# AND install_user_can_write_prefix=true, skip both the NodeSource apt install
+# AND the per-user .npmrc prefix bootstrap. 40-path-wiring.sh still runs
+# unconditionally and writes PATH artefacts (NPM_CONFIG_PREFIX in
+# /etc/agentlinux.env surfaces the prefix to systemd/cron consumers — Pitfall 5
+# belt-and-braces remains in force regardless of REUSE branch).
+#
+# No remediate branch here — REMEDIATE-01 lives in the npm-prefix layer
+# (Phase 14), NOT the Node-install layer. CONTEXT.md Area 1 Q2: "there's no
+# Remediate path for 'no compatible Node', just 'install one'". The case
+# enumerates {reuse, create} explicitly; the dispatch shape is locked.
+case "$(reuse::nodejs_decision)" in
+  reuse)
+    reuse::log_nodejs_reuse
+    log_info "30-nodejs: REUSE branch — skipping apt-get install nodejs + .npmrc bootstrap"
+    # Defensive log: even when REUSE-02 fires on per-Node-binary writability,
+    # the ACTIVE npm prefix (DET-03) may diverge from the reused Node's prefix
+    # (e.g., npm config get prefix resolves to /usr via /etc/npmrc but the
+    # reused Node lives under ~/.local/...). Phase 14 REMEDIATE-01 handles the
+    # divergence — Phase 13 surfaces it as a warn and does NOT block (REUSE-02
+    # decision is final per CONTEXT.md Area 1 Q2).
+    if ! detect::npm_prefix_writable_by_install_user; then
+      log_warn "30-nodejs: REUSE-02 succeeded but detect::npm_prefix_writable_by_install_user is false — Phase 14 REMEDIATE-01 will address"
+    fi
+    return 0
+    ;;
+  create)
+    # Fall through to the existing CREATE path (unchanged from v0.3.0).
+    ;;
+esac
+
 # Step 1: pre-reqs for NodeSource's setup_22.x script.
 # NodeSource's setup script installs these itself, but we pre-install for
 # installer-log visibility (per D-02 + Research §Open Questions Q2).

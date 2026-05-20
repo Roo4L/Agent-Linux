@@ -264,3 +264,127 @@ __source_lib_chain_with_reuse() {
   [[ "$r_line" -gt "$d_line" ]] \
     || __fail "REUSE-01" "reuse.sh sourced AFTER detect.sh (reuse@$r_line > detect@$d_line)" "reuse@$r_line not > detect@$d_line" "$entry"
 }
+
+# ---- Task 3: provisioner wiring — case-branch dispatch + marker presence -----
+# Comprehensive end-to-end brownfield smoke @tests for behaviors 1/3/4/5 land
+# in Plan 13-02 (which owns the brownfield fixture helper). Plan 13-01 ships
+# the dispatch-shape + marker-presence gates sufficient to verify the wiring.
+
+@test "REUSE-01: re-running installer on post-installer host emits [REUSE-01] marker (REUSE branch fires)" {
+  # REQ: REUSE-01 (post-installer host has agent + NOPASSWD: ALL via ADR-012 →
+  # 5/5 predicates pass → second install run reuses, NOT recreates). Marker
+  # presence in the tee'd transcript proves the case-branch dispatch fired the
+  # `reuse)` arm; the surrounding log_info from reuse::log_user_reuse confirms
+  # the existing user was adopted. The earlier 10-installer.bats INST-02 @test
+  # uses this same re-run pattern (run bash "$INSTALLER") for byte-stability.
+  #
+  # NB: the entrypoint TRUNCATES the log on every run (plugin/bin/agentlinux-install
+  # line 114: `install -m 0644 /dev/null "$LOG_FILE"`), so the captured `$output`
+  # of the bats `run` is the authoritative transcript here — NOT the on-disk log
+  # (which contains only the just-completed install's transcript by the time we
+  # grep it). Capturing $output preserves the second-install transcript even
+  # after subsequent @tests re-run the installer (which would truncate again).
+  run bash "$INSTALLER"
+  assert_exit_zero "REUSE-01"
+  printf '%s' "$output" | grep -qF '[REUSE-01]' \
+    || __fail "REUSE-01" "[REUSE-01] marker present in re-run install transcript (captured \$output)" "$output" "$LOG"
+  # Defensive: the REUSE branch must NOT issue a 'useradd agent' invocation in
+  # the re-run transcript (the entire CREATE-path block is wrapped in
+  # `if [[ REUSED_USER != true ]]; then` so ensure_user is not even CALLED on
+  # the REUSE branch). Excludes the literal log_info message "skipping useradd"
+  # — that's the EXPECTED REUSE-branch line proving the wrapping took effect,
+  # NOT a real useradd invocation. Real invocations would be `+ useradd ...`
+  # under set -x trace, or appear without a "skipping" qualifier. Filtering
+  # out the marker lines (which we ASSERTED are present above) leaves only
+  # actual invocations.
+  local without_markers
+  without_markers=$(printf '%s' "$output" | grep -vE 'skipping useradd|\[REUSE-01\]')
+  printf '%s' "$without_markers" | grep -qE '\busers add\b|\buseradd\b' \
+    && __fail "REUSE-01" "ZERO real useradd invocations in REUSE-branch transcript (excluding REUSE marker lines)" "$without_markers" "$LOG"
+  true
+}
+
+@test "REUSE-01: re-run REUSE branch still ensures DOC-02 CLAUDE.md marker block (additive against existing user)" {
+  # REQ: REUSE-01 (CONTEXT.md "REUSE-01 fires + 40-path-wiring.sh still runs +
+  # DOC-02 CLAUDE.md ensure_marker_block stays unconditional"). Verify the
+  # anti-pattern strings are still present after a REUSE-branch re-run. Three
+  # canonical strings are required by the v0.3.0 contract (per 02-RESEARCH.md
+  # Pitfall 5 / DOC-02 grep targets).
+  [[ -f /home/agent/CLAUDE.md ]] \
+    || __fail "REUSE-01" "/home/agent/CLAUDE.md exists" "missing file" "$LOG"
+  for needle in 'usr/local/bin' 'sudo npm install -g' 'second Node.js install'; do
+    grep -qF -- "$needle" /home/agent/CLAUDE.md \
+      || __fail "REUSE-01" "DOC-02 anti-pattern string '${needle}' present in /home/agent/CLAUDE.md after REUSE branch" "missing" "/home/agent/CLAUDE.md"
+  done
+}
+
+@test "REUSE-01: case-branch in 10-agent-user.sh dispatches on reuse::user_decision (dispatch-shape check)" {
+  # REQ: REUSE-01 (CONTEXT.md "Phase 13 → Phase 14 contract" — case-branch
+  # MUST enumerate all four dispatch tokens so Phase 14 can extend the
+  # remediate/bail handlers without changing the surface). Grep-verify the
+  # source so a future refactor that removes the case-shape fails this @test.
+  local prov=/opt/agentlinux-src/plugin/provisioner/10-agent-user.sh
+  grep -qF 'reuse::user_decision' "$prov" \
+    || __fail "REUSE-01" "10-agent-user.sh calls reuse::user_decision" "no call found" "$prov"
+  # Extract the case-block body and check all four tokens are enumerated.
+  local case_body
+  case_body=$(awk '/case .*reuse::user_decision/,/esac/' "$prov")
+  for token in 'reuse)' 'create)' 'remediate' 'bail'; do
+    printf '%s' "$case_body" | grep -qF "$token" \
+      || __fail "REUSE-01" "case-branch enumerates dispatch token '$token'" "case body: $case_body" "$prov"
+  done
+  # REUSED_USER guard wraps Steps 1+2 (CREATE path) but NOT Step 3 (DOC-02
+  # ensure_marker_block). Verify by awk-extracting the REUSED_USER block and
+  # asserting it does NOT contain the CLAUDE.md ensure_marker_block call.
+  local guarded
+  guarded=$(awk '/if \[\[ "\${REUSED_USER:-false}" != true \]\]/,/^fi$/' "$prov")
+  printf '%s' "$guarded" | grep -qF 'ensure_marker_block /home/agent/CLAUDE.md' \
+    && __fail "REUSE-01" "DOC-02 ensure_marker_block is OUTSIDE the REUSED_USER guard" "found inside guard" "$prov"
+  true
+}
+
+@test "REUSE-02: case-branch in 30-nodejs.sh dispatches on reuse::nodejs_decision (dispatch-shape check)" {
+  # REQ: REUSE-02 (CONTEXT.md "Phase 13 → Phase 14 contract" — case-branch
+  # MUST enumerate both reuse and create tokens; no remediate branch on this
+  # surface per Area 1 Q2 — REMEDIATE-01 lives in npm-prefix layer instead).
+  local prov=/opt/agentlinux-src/plugin/provisioner/30-nodejs.sh
+  grep -qF 'reuse::nodejs_decision' "$prov" \
+    || __fail "REUSE-02" "30-nodejs.sh calls reuse::nodejs_decision" "no call found" "$prov"
+  local case_body
+  case_body=$(awk '/case .*reuse::nodejs_decision/,/esac/' "$prov")
+  for token in 'reuse)' 'create)'; do
+    printf '%s' "$case_body" | grep -qF "$token" \
+      || __fail "REUSE-02" "case-branch enumerates dispatch token '$token'" "case body: $case_body" "$prov"
+  done
+  # Marker emission helper must be called from the reuse) arm.
+  printf '%s' "$case_body" | grep -qF 'reuse::log_nodejs_reuse' \
+    || __fail "REUSE-02" "reuse::log_nodejs_reuse called from reuse) arm" "$case_body" "$prov"
+}
+
+@test "REUSE-01 + REUSE-02: no --reuse-strict / --reuse-best-effort / --no-reuse flags introduced (per-component, no mode flags)" {
+  # REQ: REUSE-01 + REUSE-02 (CONTEXT.md Q4 user-locked decision — no mode
+  # flags; per-component decisions only). Grep-verify the entrypoint + reuse
+  # libs do not learn any such flag.
+  local files=(
+    /opt/agentlinux-src/plugin/bin/agentlinux-install
+    /opt/agentlinux-src/plugin/lib/reuse.sh
+    /opt/agentlinux-src/plugin/lib/reuse/user.sh
+    /opt/agentlinux-src/plugin/lib/reuse/nodejs.sh
+  )
+  for f in "${files[@]}"; do
+    grep -qE 'reuse-strict|reuse-best-effort|no-reuse' "$f" \
+      && __fail "REUSE-01" "no reuse-mode flags in $f" "found flag" "$f"
+  done
+  true
+}
+
+@test "REUSE: greenfield invariant preserved — bats @test count unchanged from baseline (defense against accidental @test deletion)" {
+  # REQ: REUSE-01 + REUSE-02 (CONTEXT.md "greenfield invariant — first-install
+  # run on a fresh container completes identically to v0.3.0 + Phase 12
+  # baseline"). The post-Plan-13-01 baseline is 97 + 15 (this file) = 112.
+  # Defensive check that no existing bats file lost @tests.
+  local total
+  total=$(grep -cE '^@test "' /opt/agentlinux-src/tests/bats/*.bats | awk -F: '{s+=$2} END {print s}')
+  [[ "$total" -ge 112 ]] \
+    || __fail "REUSE-01" "bats @test count >= 112 (post-Plan-13-01 baseline)" "total=$total" "$LOG"
+}

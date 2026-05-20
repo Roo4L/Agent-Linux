@@ -45,8 +45,8 @@ Grouped by category. Each `XXX-NN` is a testable, verifiable outcome — auditab
 
 ### Reuse (REUSE) — short-circuit when detected component matches contract
 
-- [ ] **REUSE-01**: When DET-01 surfaces an existing install user with a compatible login shell (bash), a writable home directory, and (when `--user=NAME` was specified) the requested name, the user-creation provisioner (`10-agent-user.sh`) skips its `useradd` step and uses the existing user. The skip is logged with the resolved UID and a reference to the pre-flight report; subsequent provisioners (PATH wiring, sudoers, etc.) attach to the existing user.
-- [ ] **REUSE-02**: When DET-02 surfaces a Node.js installation that satisfies the project's pinned major version (Node 22 LTS line per ADR-005) AND has an npm global prefix the install user can write to, the Node.js provisioner (`30-nodejs.sh`) skips both the apt installation and the prefix bootstrap. The skip is logged with the resolved `node --version`, prefix path, and the source identifier (NodeSource / distro / nvm / etc.).
+- [x] **REUSE-01**: When DET-01 surfaces an existing install user with a compatible login shell (bash), a writable home directory, and (when `--user=NAME` was specified) the requested name, the user-creation provisioner (`10-agent-user.sh`) skips its `useradd` step and uses the existing user. The skip is logged with the resolved UID and a reference to the pre-flight report; subsequent provisioners (PATH wiring, sudoers, etc.) attach to the existing user.
+- [x] **REUSE-02**: When DET-02 surfaces a Node.js installation that satisfies the project's pinned major version (Node 22 LTS line per ADR-005) AND has an npm global prefix the install user can write to, the Node.js provisioner (`30-nodejs.sh`) skips both the apt installation and the prefix bootstrap. The skip is logged with the resolved `node --version`, prefix path, and the source identifier (NodeSource / distro / nvm / etc.).
 - [ ] **REUSE-03**: When DET-04 surfaces a catalog agent that is `healthy`, installed at a path the agent recipe would have written to, and version-pinned within the catalog's compatibility window, `agentlinux install <agent>` is a no-op short-circuit. A `reused` sentinel record is written so subsequent `agentlinux list` / `upgrade` / `remove` operate on the detected install identically to one AgentLinux placed itself.
 
 ### Remediate (REMEDIATE) — fix the fixable, with explicit consent
@@ -108,8 +108,8 @@ Populated by gsd-roadmapper during ROADMAP creation. Empty initially.
 | DET-04 | Phase 12 | Complete |
 | DET-05 | Phase 12 | Complete |
 | DET-06 | Phase 12 | Complete |
-| REUSE-01 | Phase 13 | Pending |
-| REUSE-02 | Phase 13 | Pending |
+| REUSE-01 | Phase 13 | Complete |
+| REUSE-02 | Phase 13 | Complete |
 | REUSE-03 | Phase 13 | Pending |
 | REMEDIATE-01 | Phase 14 | Pending |
 | REMEDIATE-02 | Phase 14 | Pending |

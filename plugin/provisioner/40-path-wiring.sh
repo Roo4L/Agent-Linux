@@ -47,6 +47,14 @@
 #     (would pollute root's environment). It is written once, read later
 #     by the login shells that source /etc/profile.
 
+# Phase 13: this provisioner runs UNCONDITIONALLY — for both the CREATE path
+# (10-agent-user.sh created the user) and the REUSE path (10-agent-user.sh
+# found an existing compatible user and short-circuited). PATH artefacts are
+# additive against existing user state — ensure_marker_block preserves user
+# content outside the AGENTLINUX-managed marker block, and the three
+# installer-owned files (profile.d, agentlinux.env, cron.d) are root-owned
+# system files that are written-or-overwritten by the installer regardless of
+# REUSE branch. No reuse::-driven case here.
 log_info "40-path-wiring: starting"
 
 # Ensure /home/agent/.local/bin exists so the PATH prefix written below is not
