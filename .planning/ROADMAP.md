@@ -62,7 +62,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
   4. End-to-end brownfield smoke: a Docker container pre-populated with a manually-created `agent` user + NodeSource Node 22 + `claude-code` global completes `agentlinux install` without any `useradd` / apt-install / `npm install -g claude-code` invocation; transcript captured to a phase audit doc.
   5. Greenfield invariant: the existing v0.3.0 bats matrix on a fresh container stays green (66/66 on Ubuntu 22.04 + 24.04). Phase 12's read-only invariant remains intact (Phase 13 is the first phase that mutates state, but only on the Create branch — Reuse and Bail still write zero).
 **Plans**: 2 plans
-- [ ] 13-01-PLAN.md — REUSE decision library + provisioner short-circuits (REUSE-01, REUSE-02) + new detect::user_can_sudo_apt NOPASSWD-for-apt reader
+- [x] 13-01-PLAN.md — REUSE decision library + provisioner short-circuits (REUSE-01, REUSE-02) + new detect::user_can_sudo_apt NOPASSWD-for-apt reader
 - [ ] 13-02-PLAN.md — Catalog-agent REUSE + CLI/sentinel integration + brownfield E2E smoke (REUSE-03)
 **UI hint**: no
 
@@ -114,7 +114,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 | Phase | Plans Estimated | Status | Completed |
 |-------|-----------------|--------|-----------|
 | 12. Detection Layer | 3/3 | Complete   | 2026-05-11 |
-| 13. Reuse Wiring | 2/2 | Planning complete | - |
+| 13. Reuse Wiring | 1/2 | In Progress|  |
 | 14. Remediate + Consent Flag + Exit Codes | ~3 | Not started | - |
 | 15. Pre-flight UX | ~2 | Not started | - |
 | 16. Documentation + Brownfield Acceptance Gate | ~2 | Not started | - |
