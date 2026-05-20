@@ -80,13 +80,19 @@ function tryReuse(entry: CatalogEntry): ReuseHit | null {
   const canonical = CANONICAL_PATHS[entry.id];
   if (!canonical) return null;
 
-  let cache: { components?: { agents?: DetectCacheAgent[] } };
+  // Cache shape: `agents` may be at the top level (the actual on-disk shape
+  // written by detect::run_once at /run/agentlinux-detect.json) OR under
+  // `.components.agents` (the wrapped shape that the `--report-only` formatter
+  // emits). Accept both for compatibility — matches the `(.components.agents
+  // // .agents)` fallback that tests/bats/15-detection.bats uses.
+  let cache: { agents?: DetectCacheAgent[]; components?: { agents?: DetectCacheAgent[] } };
   try {
     cache = JSON.parse(readFileSync(cachePath, "utf8"));
   } catch {
     return null;
   }
-  const detected = cache.components?.agents?.find((a) => a.id === entry.id);
+  const agents = cache.agents ?? cache.components?.agents;
+  const detected = agents?.find((a) => a.id === entry.id);
   if (!detected) return null;
   if (detected.status !== "healthy") return null;
   if (detected.path !== canonical) return null;

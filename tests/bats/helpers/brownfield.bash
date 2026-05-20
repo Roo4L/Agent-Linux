@@ -35,9 +35,16 @@
 # Emits to FD 3 (bats detail channel) with a stable [brownfield] prefix so
 # the brownfield smoke @test can awk-split the install log on the "setup
 # complete" marker (used to filter out the npm install that ran DURING setup
-# from the assertions on the installer's own transcript).
+# from the assertions on the installer's own transcript). Falls back to
+# stderr when FD 3 is not open (helper sourced outside bats — e.g. ad-hoc
+# debug sessions); the `2>/dev/null || true` guards against `set -e` callers
+# tripping when the FD-3 write fails.
 log_brownfield() {
-  printf '# [brownfield] %s\n' "$*" >&3 2>/dev/null || true
+  if { true >&3; } 2>/dev/null; then
+    printf '# [brownfield] %s\n' "$*" >&3
+  else
+    printf '# [brownfield] %s\n' "$*" >&2
+  fi
 }
 
 # setup_brownfield_host
