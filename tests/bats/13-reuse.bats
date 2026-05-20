@@ -582,6 +582,9 @@ __source_lib_chain_with_reuse() {
     || __fail "REUSE-03" "sentinel has status=reused" "$(cat "$sentinel")" "$LOG"
   jq -e '.binary_path == "/home/agent/.local/bin/claude"' "$sentinel" >/dev/null \
     || __fail "REUSE-03" "sentinel binary_path == canonical claude path" "$(cat "$sentinel")" "$LOG"
+  # NB: the next @test (list-suffix) reads + then cleans up this sentinel so
+  # downstream CAT-02 @test stays green. The sentinel is intentionally LEFT
+  # here as a handoff to the next @test — DO NOT remove it inline.
 }
 
 @test "REUSE-03 brownfield E2E: agentlinux list shows (reused — managed) suffix on the reused entry" {
@@ -601,4 +604,10 @@ __source_lib_chain_with_reuse() {
   assert_exit_zero "REUSE-03"
   printf '%s' "$output" | grep -qF 'reused — managed by agentlinux upgrade/remove' \
     || __fail "REUSE-03" "reused suffix present in list output" "$output" "$LOG"
+
+  # Cleanup: remove the claude-code sentinel left by the brownfield E2E
+  # fixture so the downstream CAT-02 @test (zero residual sentinels in
+  # installed.d) keeps passing. Idempotent — works whether the prior @test
+  # wrote the sentinel or skipped.
+  rm -f "$sentinel"
 }

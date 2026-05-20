@@ -49,7 +49,14 @@ fi
 # CANONICAL_PATHS object in plugin/cli/src/commands/install.ts. Drift surfaces
 # immediately in the brownfield E2E smoke @test (REUSE-03 path-match check
 # fails → emits `remediate` instead of `reuse`).
-declare -A REUSE_AGENT_CANONICAL_PATHS=(
+#
+# `declare -gA`: -g forces global scope. Without it, when this library is
+# sourced from inside a function (as bats @tests do via __source_lib_chain),
+# the array is declared as a function-local and is invisible to reuse::agent_decision
+# called later in the same @test. Same idiom plugin/lib/detect/agents.sh uses for
+# its DETECT_AGENT_BINARIES map — note that file declares it at file scope so
+# the issue never surfaces, but our sourcing pattern requires -g for safety.
+declare -gA REUSE_AGENT_CANONICAL_PATHS=(
   [claude-code]="/home/agent/.local/bin/claude"
   [gsd]="/home/agent/.npm-global/bin/get-shit-done-cc"
   [playwright-cli]="/home/agent/.npm-global/bin/playwright-cli"
