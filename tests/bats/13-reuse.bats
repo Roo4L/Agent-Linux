@@ -403,8 +403,14 @@ __source_lib_chain_with_reuse() {
 
 @test "REUSE-03: reuse::agent_decision returns 'create' when DETECT_AGENT_<ID>_STATUS=absent" {
   # REQ: REUSE-03 (predicate 1 — agent absent → fall through to CREATE).
+  # NB: `export` is required because detect::agent_status performs an indirect
+  # variable lookup (${!var:-absent}) inside a subshell spawned by bats `run`
+  # via command substitution — env-prefix `X=y run ...` does not propagate
+  # through nested subshell chains the way exported vars do.
   __source_lib_chain_with_reuse
-  DETECT_AGENT_CLAUDE_CODE_STATUS=absent run reuse::agent_decision claude-code
+  export DETECT_AGENT_CLAUDE_CODE_STATUS=absent
+  run reuse::agent_decision claude-code
+  unset DETECT_AGENT_CLAUDE_CODE_STATUS
   assert_exit_zero "REUSE-03"
   [[ "$output" == "create" ]] \
     || __fail "REUSE-03" "reuse::agent_decision claude-code == 'create' when status=absent" "$output" "$LOG"
@@ -415,10 +421,11 @@ __source_lib_chain_with_reuse() {
   # version-in-window predicate (predicate 3) is layered on by the CLI
   # install.ts; the bash function returns `reuse` on healthy + path-match alone.
   __source_lib_chain_with_reuse
-  DETECT_AGENT_CLAUDE_CODE_STATUS=healthy \
-    DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.local/bin/claude \
-    DETECT_AGENT_CLAUDE_CODE_VERSION=2.1.98 \
-    run reuse::agent_decision claude-code
+  export DETECT_AGENT_CLAUDE_CODE_STATUS=healthy
+  export DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.local/bin/claude
+  export DETECT_AGENT_CLAUDE_CODE_VERSION=2.1.98
+  run reuse::agent_decision claude-code
+  unset DETECT_AGENT_CLAUDE_CODE_STATUS DETECT_AGENT_CLAUDE_CODE_PATH DETECT_AGENT_CLAUDE_CODE_VERSION
   assert_exit_zero "REUSE-03"
   [[ "$output" == "reuse" ]] \
     || __fail "REUSE-03" "reuse::agent_decision claude-code == 'reuse' when healthy + canonical path" "$output" "$LOG"
@@ -431,10 +438,11 @@ __source_lib_chain_with_reuse() {
   # ~/.npm-global/bin/claude rather than the native installer's
   # ~/.local/bin/claude — DIFFERENT path → REUSE-03 path-match check FAILS.
   __source_lib_chain_with_reuse
-  DETECT_AGENT_CLAUDE_CODE_STATUS=healthy \
-    DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.npm-global/bin/claude \
-    DETECT_AGENT_CLAUDE_CODE_VERSION=2.1.98 \
-    run reuse::agent_decision claude-code
+  export DETECT_AGENT_CLAUDE_CODE_STATUS=healthy
+  export DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.npm-global/bin/claude
+  export DETECT_AGENT_CLAUDE_CODE_VERSION=2.1.98
+  run reuse::agent_decision claude-code
+  unset DETECT_AGENT_CLAUDE_CODE_STATUS DETECT_AGENT_CLAUDE_CODE_PATH DETECT_AGENT_CLAUDE_CODE_VERSION
   assert_exit_zero "REUSE-03"
   [[ "$output" == "remediate" ]] \
     || __fail "REUSE-03" "reuse::agent_decision == 'remediate' on healthy + path-mismatch" "$output" "$LOG"
@@ -444,10 +452,11 @@ __source_lib_chain_with_reuse() {
   # REQ: REUSE-03 (broken catalog agent always → Phase 14 REMEDIATE-04 territory:
   # uninstall + reinstall via the recipe).
   __source_lib_chain_with_reuse
-  DETECT_AGENT_CLAUDE_CODE_STATUS=broken \
-    DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.local/bin/claude \
-    DETECT_AGENT_CLAUDE_CODE_VERSION="" \
-    run reuse::agent_decision claude-code
+  export DETECT_AGENT_CLAUDE_CODE_STATUS=broken
+  export DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.local/bin/claude
+  export DETECT_AGENT_CLAUDE_CODE_VERSION=""
+  run reuse::agent_decision claude-code
+  unset DETECT_AGENT_CLAUDE_CODE_STATUS DETECT_AGENT_CLAUDE_CODE_PATH DETECT_AGENT_CLAUDE_CODE_VERSION
   assert_exit_zero "REUSE-03"
   [[ "$output" == "remediate" ]] \
     || __fail "REUSE-03" "reuse::agent_decision == 'remediate' on broken catalog agent" "$output" "$LOG"
@@ -457,9 +466,10 @@ __source_lib_chain_with_reuse() {
   # REQ: REUSE-03 (defensive — future catalog ids not in the hardcoded
   # canonical-path map fall through to install rather than incorrectly REUSE).
   __source_lib_chain_with_reuse
-  DETECT_AGENT_NEW_THING_STATUS=healthy \
-    DETECT_AGENT_NEW_THING_PATH=/usr/local/bin/new-thing \
-    run reuse::agent_decision new-thing
+  export DETECT_AGENT_NEW_THING_STATUS=healthy
+  export DETECT_AGENT_NEW_THING_PATH=/usr/local/bin/new-thing
+  run reuse::agent_decision new-thing
+  unset DETECT_AGENT_NEW_THING_STATUS DETECT_AGENT_NEW_THING_PATH
   assert_exit_zero "REUSE-03"
   [[ "$output" == "create" ]] \
     || __fail "REUSE-03" "reuse::agent_decision == 'create' on unknown catalog id" "$output" "$LOG"
@@ -508,18 +518,26 @@ __source_lib_chain_with_reuse() {
 # at ~/.npm-global/bin/claude → emits `remediate`) is Phase 14 REMEDIATE-04
 # territory and is NOT exercised here.
 
-@test "REUSE-03 brownfield E2E: agentlinux-install on pre-populated host runs with ZERO useradd/apt-install + REUSE markers + reused sentinel" {
-  # REQ: REUSE-01 + REUSE-02 + REUSE-03 (the canonical brownfield smoke —
-  # CANONICAL-PATH-MATCH case per CONTEXT.md Area 2 Q3 + Q4). Asserts the
-  # installer detects the pre-populated agent + Node + claude-code and adopts
-  # them under aggressive ownership semantics WITHOUT recreating any of them.
+@test "REUSE-03 brownfield E2E: agentlinux-install on pre-populated host fires REUSE-01 + REUSE-03 + writes reused sentinel" {
+  # REQ: REUSE-01 + REUSE-03 (the canonical brownfield smoke — CANONICAL-PATH-MATCH
+  # case per CONTEXT.md Area 2 Q3 + Q4). Asserts the installer detects the
+  # pre-populated agent user (REUSE-01 fires) and the CLI install adopts the
+  # pre-existing claude-code at the canonical path (REUSE-03 fires).
   #
-  # The helper requires network access to NodeSource (setup_22.x) and claude.ai
-  # (native installer). Skip when the test image lacks outbound HTTP (offline
-  # CI mode); the docker harness has these in CI.
-  if ! curl -fsSL --max-time 5 -o /dev/null https://deb.nodesource.com/ 2>/dev/null \
-     && ! curl -fsSL --max-time 5 -o /dev/null https://claude.ai/install.sh 2>/dev/null; then
-    skip "no network access to NodeSource / claude.ai (offline test mode)"
+  # NB on REUSE-02: the brownfield helper installs NodeSource Node 22 at /usr
+  # (root-owned prefix, not agent-writable). REUSE-02's predicate requires
+  # nodejs_prefix_writable=true, which fails for /usr → REUSE-02 returns
+  # `create` and 30-nodejs.sh re-runs (apt-get install is itself idempotent
+  # when nodejs is already installed; the line appears in the log even on the
+  # no-op happy path). A future brownfield variant could install Node via nvm
+  # at ~/.nvm to exercise REUSE-02; gated as Phase-14 work to keep the fixture
+  # small here. Plan 13-01's "REUSE-02: reuse::nodejs_decision returns 'create'
+  # on post-installer host" @test documents this exact case.
+  #
+  # The helper requires network access to NodeSource + claude.ai. Skip when
+  # the test image lacks outbound HTTP (offline CI mode).
+  if ! curl -fsSL --max-time 5 -o /dev/null https://claude.ai/install.sh 2>/dev/null; then
+    skip "no network access to claude.ai (offline test mode)"
   fi
 
   setup_brownfield_host
@@ -530,33 +548,21 @@ __source_lib_chain_with_reuse() {
   run bash "$INSTALLER"
   assert_exit_zero "REUSE-03"
 
-  # ZERO useradd of agent in transcript — REUSE-01 must have fired.
-  # Filter out the REUSE marker line + skipping-useradd diagnostic which both
-  # contain the literal string "useradd" but are NOT real invocations.
+  # ZERO real `useradd agent` invocations in transcript — REUSE-01 must have
+  # fired. Filter out the REUSE marker line + skipping-useradd diagnostic which
+  # both contain "useradd" but are NOT real invocations.
   local without_markers
   without_markers=$(printf '%s' "$output" | grep -vE 'skipping useradd|\[REUSE-01\]')
   if printf '%s' "$without_markers" | grep -qE '\buseradd\b'; then
     __fail "REUSE-03" "ZERO real useradd invocations on brownfield host" "$without_markers" "$LOG"
   fi
 
-  # ZERO `apt-get install -y --no-install-recommends nodejs` in transcript —
-  # REUSE-02 must have fired against the pre-installed NodeSource Node 22.
-  if printf '%s' "$output" | grep -qF 'apt-get install -y --no-install-recommends nodejs'; then
-    __fail "REUSE-03" "ZERO nodejs apt-install on brownfield host" "$output" "$LOG"
-  fi
-
   # AT LEAST one [REUSE-01] marker.
   printf '%s' "$output" | grep -qF '[REUSE-01]' \
     || __fail "REUSE-03" "[REUSE-01] marker in install transcript" "$output" "$LOG"
 
-  # AT LEAST one [REUSE-02] marker.
-  printf '%s' "$output" | grep -qF '[REUSE-02]' \
-    || __fail "REUSE-03" "[REUSE-02] marker in install transcript" "$output" "$LOG"
-
   # Trigger REUSE-03 via the CLI install (the bash entrypoint does NOT trigger
   # REUSE-03 — that's per-catalog-agent and dispatched by the CLI).
-  # The CLI path resolves to /opt/agentlinux/cli/<version>/dist/index.js;
-  # use a glob to avoid pinning the version.
   local cli
   cli=$(find /opt/agentlinux/cli -maxdepth 3 -name index.js -path '*/dist/*' 2>/dev/null | head -1)
   [[ -n "$cli" ]] \
