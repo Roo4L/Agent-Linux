@@ -388,3 +388,108 @@ __source_lib_chain_with_reuse() {
   [[ "$total" -ge 112 ]] \
     || __fail "REUSE-01" "bats @test count >= 112 (post-Plan-13-01 baseline)" "total=$total" "$LOG"
 }
+
+# ---- Plan 13-02 Task 1: REUSE-03 reuse::agent_decision (catalog-agent) -------
+# Behaviors 1-4 of Task 1: schema validates compatibility_window; reuse::agent_decision
+# returns reuse / remediate / create per the 3-predicate check (+ defensive
+# unknown-id path). Predicate 3 (version-in-window) is layered on top by the CLI
+# install.ts (Task 2); the bash decision function returns reuse on healthy +
+# path-match + status=healthy alone.
+
+@test "REUSE-03: reuse::agent_decision returns 'create' when DETECT_AGENT_<ID>_STATUS=absent" {
+  # REQ: REUSE-03 (predicate 1 — agent absent → fall through to CREATE).
+  __source_lib_chain_with_reuse
+  DETECT_AGENT_CLAUDE_CODE_STATUS=absent run reuse::agent_decision claude-code
+  assert_exit_zero "REUSE-03"
+  [[ "$output" == "create" ]] \
+    || __fail "REUSE-03" "reuse::agent_decision claude-code == 'create' when status=absent" "$output" "$LOG"
+}
+
+@test "REUSE-03: reuse::agent_decision returns 'reuse' when status=healthy AND path matches canonical" {
+  # REQ: REUSE-03 (predicates 1 + 2 — healthy + canonical-path-match). The
+  # version-in-window predicate (predicate 3) is layered on by the CLI
+  # install.ts; the bash function returns `reuse` on healthy + path-match alone.
+  __source_lib_chain_with_reuse
+  DETECT_AGENT_CLAUDE_CODE_STATUS=healthy \
+    DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.local/bin/claude \
+    DETECT_AGENT_CLAUDE_CODE_VERSION=2.1.98 \
+    run reuse::agent_decision claude-code
+  assert_exit_zero "REUSE-03"
+  [[ "$output" == "reuse" ]] \
+    || __fail "REUSE-03" "reuse::agent_decision claude-code == 'reuse' when healthy + canonical path" "$output" "$LOG"
+}
+
+@test "REUSE-03: reuse::agent_decision returns 'remediate' when status=healthy BUT path != canonical (path-mismatch)" {
+  # REQ: REUSE-03 (path-mismatch case — Phase 14 REMEDIATE-04 reinstalls at
+  # the canonical path per CONTEXT.md Area 1 Q3 fall-through). The classic
+  # case: claude installed via `npm install -g @anthropic-ai/claude-code` at
+  # ~/.npm-global/bin/claude rather than the native installer's
+  # ~/.local/bin/claude — DIFFERENT path → REUSE-03 path-match check FAILS.
+  __source_lib_chain_with_reuse
+  DETECT_AGENT_CLAUDE_CODE_STATUS=healthy \
+    DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.npm-global/bin/claude \
+    DETECT_AGENT_CLAUDE_CODE_VERSION=2.1.98 \
+    run reuse::agent_decision claude-code
+  assert_exit_zero "REUSE-03"
+  [[ "$output" == "remediate" ]] \
+    || __fail "REUSE-03" "reuse::agent_decision == 'remediate' on healthy + path-mismatch" "$output" "$LOG"
+}
+
+@test "REUSE-03: reuse::agent_decision returns 'remediate' when status=broken" {
+  # REQ: REUSE-03 (broken catalog agent always → Phase 14 REMEDIATE-04 territory:
+  # uninstall + reinstall via the recipe).
+  __source_lib_chain_with_reuse
+  DETECT_AGENT_CLAUDE_CODE_STATUS=broken \
+    DETECT_AGENT_CLAUDE_CODE_PATH=/home/agent/.local/bin/claude \
+    DETECT_AGENT_CLAUDE_CODE_VERSION="" \
+    run reuse::agent_decision claude-code
+  assert_exit_zero "REUSE-03"
+  [[ "$output" == "remediate" ]] \
+    || __fail "REUSE-03" "reuse::agent_decision == 'remediate' on broken catalog agent" "$output" "$LOG"
+}
+
+@test "REUSE-03: reuse::agent_decision returns 'create' on unknown catalog id (defensive)" {
+  # REQ: REUSE-03 (defensive — future catalog ids not in the hardcoded
+  # canonical-path map fall through to install rather than incorrectly REUSE).
+  __source_lib_chain_with_reuse
+  DETECT_AGENT_NEW_THING_STATUS=healthy \
+    DETECT_AGENT_NEW_THING_PATH=/usr/local/bin/new-thing \
+    run reuse::agent_decision new-thing
+  assert_exit_zero "REUSE-03"
+  [[ "$output" == "create" ]] \
+    || __fail "REUSE-03" "reuse::agent_decision == 'create' on unknown catalog id" "$output" "$LOG"
+}
+
+@test "REUSE-03: catalog.json has compatibility_window on exactly 3 non-test entries" {
+  # REQ: REUSE-03 (catalog.json compatibility_window field — semver range used
+  # by the CLI install.ts to layer the version-in-window predicate on top of
+  # reuse::agent_decision's path-match decision).
+  local catalog=/opt/agentlinux-src/plugin/catalog/catalog.json
+  local count
+  count=$(grep -c 'compatibility_window' "$catalog")
+  [[ "$count" -eq 3 ]] \
+    || __fail "REUSE-03" "catalog.json has compatibility_window on exactly 3 non-test entries" "count=$count" "$catalog"
+  # test-dummy entry MUST NOT have compatibility_window (test_only: true; never
+  # participates in REUSE).
+  if jq -e '.agents[] | select(.test_only == true) | has("compatibility_window")' "$catalog" >/dev/null; then
+    __fail "REUSE-03" "test-dummy MUST NOT carry compatibility_window" "found compatibility_window on a test_only entry" "$catalog"
+  fi
+}
+
+@test "REUSE-03: schema.json declares compatibility_window field" {
+  # REQ: REUSE-03 (schema-validator accepts the new field; node-side ajv
+  # validation passes — bats only grep-asserts the declaration here since the
+  # CLI test suite covers full validate-catalog.mjs round-tripping).
+  local schema=/opt/agentlinux-src/plugin/catalog/schema.json
+  jq -e '.["$defs"].agent.properties.compatibility_window.type == "string"' "$schema" >/dev/null \
+    || __fail "REUSE-03" 'schema.json $defs.agent.properties.compatibility_window is type=string' "$(jq '.["$defs"].agent.properties.compatibility_window // {}' "$schema")" "$schema"
+}
+
+@test "REUSE-03: plugin/lib/reuse.sh sources reuse/agents.sh (dispatch surface includes catalog-agent decision)" {
+  # REQ: REUSE-03 (orchestrator extends the per-component decision pattern by
+  # sourcing the new file; Phase 14 may add reuse::agent_remediate functions
+  # alongside without changing this surface).
+  local orch=/opt/agentlinux-src/plugin/lib/reuse.sh
+  grep -qF '. "$REUSE_LIB_DIR/agents.sh"' "$orch" \
+    || __fail "REUSE-03" "reuse.sh sources reuse/agents.sh" "no source line for agents.sh" "$orch"
+}

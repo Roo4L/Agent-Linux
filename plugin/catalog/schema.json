@@ -49,6 +49,11 @@
           "type": "string",
           "description": "Optional semver range (e.g. '^2.1') that --all-latest upper-bounds against"
         },
+        "compatibility_window": {
+          "type": "string",
+          "description": "Semver range (e.g., '>=2.0.0 <3.0.0'); REUSE-03 (Plan 13-02) accepts a detected install whose version satisfies this range. Optional — present on non-test entries only.",
+          "minLength": 1
+        },
         "install_recipe_path": {
           "type": "string",
           "pattern": "^[a-z0-9_./-]+\\.sh$"

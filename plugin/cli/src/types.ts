@@ -37,6 +37,15 @@ export interface Sentinel {
   source: "curated" | "override" | "latest" | "pinned";
   sticky: boolean;
   installed_at: string; // ISO-8601
+  // Phase 13 (REUSE-03): when AgentLinux ADOPTED a pre-existing healthy
+  // install rather than running install.sh. Optional + defaults-to-"installed"
+  // for backwards-compat with Phase 4-shipped sentinels (which have no status
+  // field; readSentinel treats missing as "installed").
+  status?: "installed" | "reused";
+  binary_path?: string; // canonical-path-matched binary; only set when status="reused"
+  detected_source?: string; // e.g., "pre-existing"; only set when status="reused"
+  reused_at?: string; // ISO-8601; only set when status="reused"
+  compatibility_window_at_reuse?: string; // semver range at adoption time (audit trail); only set when status="reused"
 }
 
 export interface VersionDecision {

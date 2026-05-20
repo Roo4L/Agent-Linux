@@ -95,4 +95,30 @@ describe("sentinel roundtrip + atomicity", () => {
     const ids = list.map((s) => s.id).sort();
     assert.deepEqual(ids, ["bar", "foo"]);
   });
+
+  // Plan 13-02: widened Sentinel type accepts the REUSE-03 discriminator shape
+  // (status: "reused" + binary_path + detected_source + reused_at +
+  // compatibility_window_at_reuse). Legacy sentinels (no status field) still
+  // pass roundtrip because the discriminator is optional.
+  test("widened Sentinel accepts reused status with binary_path + reused_at fields (REUSE-03)", async () => {
+    const reusedSentinel: Sentinel = {
+      ...baseSentinel,
+      id: "claude-code",
+      version: "2.1.98",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "reused",
+      binary_path: "/home/agent/.local/bin/claude",
+      detected_source: "pre-existing",
+      reused_at: "2026-05-16T00:00:00.000Z",
+      compatibility_window_at_reuse: ">=2.0.0 <3.0.0",
+    };
+    await writeSentinel(reusedSentinel);
+    const got = await readSentinel("claude-code");
+    assert.deepEqual(got, reusedSentinel);
+    assert.equal(got?.status, "reused");
+    assert.equal(got?.binary_path, "/home/agent/.local/bin/claude");
+    assert.equal(got?.compatibility_window_at_reuse, ">=2.0.0 <3.0.0");
+  });
 });

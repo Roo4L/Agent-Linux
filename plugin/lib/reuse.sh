@@ -41,6 +41,7 @@ readonly REUSE_LIB_DIR
 . "$REUSE_LIB_DIR/user.sh"
 # shellcheck source=reuse/nodejs.sh
 . "$REUSE_LIB_DIR/nodejs.sh"
-
-# Plan 13-02 will append a `. "$REUSE_LIB_DIR/agents.sh"` line here for the
-# REUSE-03 catalog-agent decision; the dispatch surface stays unchanged.
+# shellcheck source=reuse/agents.sh
+# Plan 13-02: REUSE-03 catalog-agent decision (reuse::agent_decision). Layered
+# alongside user.sh + nodejs.sh per the per-component decision-function pattern.
+. "$REUSE_LIB_DIR/agents.sh"
