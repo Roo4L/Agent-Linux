@@ -25,6 +25,7 @@
 
 load 'helpers/assertions'
 load 'helpers/detection'
+load 'helpers/brownfield'
 
 LOG=/var/log/agentlinux-install.log
 INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
@@ -382,11 +383,15 @@ __source_lib_chain_with_reuse() {
   # REQ: REUSE-01 + REUSE-02 (CONTEXT.md "greenfield invariant — first-install
   # run on a fresh container completes identically to v0.3.0 + Phase 12
   # baseline"). The post-Plan-13-01 baseline is 97 + 15 (this file) = 112.
-  # Defensive check that no existing bats file lost @tests.
+  # Defensive check that no existing bats file lost @tests. Plan 13-02 raises
+  # the baseline to 119 (Plan 13-01 = 112; + 7 task-1 REUSE-03 decision @tests).
+  # Plan 13-02 Task 3 adds 2 more E2E smoke @tests that may skip without
+  # network; the count check uses the raw `grep -cE '^@test "'` total which
+  # is independent of skip status (skipped @tests are still counted).
   local total
   total=$(grep -cE '^@test "' /opt/agentlinux-src/tests/bats/*.bats | awk -F: '{s+=$2} END {print s}')
-  [[ "$total" -ge 112 ]] \
-    || __fail "REUSE-01" "bats @test count >= 112 (post-Plan-13-01 baseline)" "total=$total" "$LOG"
+  [[ "$total" -ge 119 ]] \
+    || __fail "REUSE-01" "bats @test count >= 119 (post-Plan-13-02 Task-1 baseline)" "total=$total" "$LOG"
 }
 
 # ---- Plan 13-02 Task 1: REUSE-03 reuse::agent_decision (catalog-agent) -------
@@ -492,4 +497,102 @@ __source_lib_chain_with_reuse() {
   local orch=/opt/agentlinux-src/plugin/lib/reuse.sh
   grep -qF '. "$REUSE_LIB_DIR/agents.sh"' "$orch" \
     || __fail "REUSE-03" "reuse.sh sources reuse/agents.sh" "no source line for agents.sh" "$orch"
+}
+
+# ---- Plan 13-02 Task 3: brownfield E2E smoke (REUSE-01 + REUSE-02 + REUSE-03) ----
+#
+# FIXTURE-CHOICE NOTE (mirrors brownfield.bash disclosure): the brownfield
+# helper installs claude via the native installer at ~/.local/bin/claude —
+# the catalog canonical path. The @tests below assert the CANONICAL-PATH-MATCH
+# case for REUSE-03 (fires `reuse`). The PATH-MISMATCH case (npm install -g
+# at ~/.npm-global/bin/claude → emits `remediate`) is Phase 14 REMEDIATE-04
+# territory and is NOT exercised here.
+
+@test "REUSE-03 brownfield E2E: agentlinux-install on pre-populated host runs with ZERO useradd/apt-install + REUSE markers + reused sentinel" {
+  # REQ: REUSE-01 + REUSE-02 + REUSE-03 (the canonical brownfield smoke —
+  # CANONICAL-PATH-MATCH case per CONTEXT.md Area 2 Q3 + Q4). Asserts the
+  # installer detects the pre-populated agent + Node + claude-code and adopts
+  # them under aggressive ownership semantics WITHOUT recreating any of them.
+  #
+  # The helper requires network access to NodeSource (setup_22.x) and claude.ai
+  # (native installer). Skip when the test image lacks outbound HTTP (offline
+  # CI mode); the docker harness has these in CI.
+  if ! curl -fsSL --max-time 5 -o /dev/null https://deb.nodesource.com/ 2>/dev/null \
+     && ! curl -fsSL --max-time 5 -o /dev/null https://claude.ai/install.sh 2>/dev/null; then
+    skip "no network access to NodeSource / claude.ai (offline test mode)"
+  fi
+
+  setup_brownfield_host
+
+  # Run the installer; capture the full transcript via $output (the entrypoint
+  # truncates /var/log/agentlinux-install.log at start so $output is the
+  # authoritative capture).
+  run bash "$INSTALLER"
+  assert_exit_zero "REUSE-03"
+
+  # ZERO useradd of agent in transcript — REUSE-01 must have fired.
+  # Filter out the REUSE marker line + skipping-useradd diagnostic which both
+  # contain the literal string "useradd" but are NOT real invocations.
+  local without_markers
+  without_markers=$(printf '%s' "$output" | grep -vE 'skipping useradd|\[REUSE-01\]')
+  if printf '%s' "$without_markers" | grep -qE '\buseradd\b'; then
+    __fail "REUSE-03" "ZERO real useradd invocations on brownfield host" "$without_markers" "$LOG"
+  fi
+
+  # ZERO `apt-get install -y --no-install-recommends nodejs` in transcript —
+  # REUSE-02 must have fired against the pre-installed NodeSource Node 22.
+  if printf '%s' "$output" | grep -qF 'apt-get install -y --no-install-recommends nodejs'; then
+    __fail "REUSE-03" "ZERO nodejs apt-install on brownfield host" "$output" "$LOG"
+  fi
+
+  # AT LEAST one [REUSE-01] marker.
+  printf '%s' "$output" | grep -qF '[REUSE-01]' \
+    || __fail "REUSE-03" "[REUSE-01] marker in install transcript" "$output" "$LOG"
+
+  # AT LEAST one [REUSE-02] marker.
+  printf '%s' "$output" | grep -qF '[REUSE-02]' \
+    || __fail "REUSE-03" "[REUSE-02] marker in install transcript" "$output" "$LOG"
+
+  # Trigger REUSE-03 via the CLI install (the bash entrypoint does NOT trigger
+  # REUSE-03 — that's per-catalog-agent and dispatched by the CLI).
+  # The CLI path resolves to /opt/agentlinux/cli/<version>/dist/index.js;
+  # use a glob to avoid pinning the version.
+  local cli
+  cli=$(find /opt/agentlinux/cli -maxdepth 3 -name index.js -path '*/dist/*' 2>/dev/null | head -1)
+  [[ -n "$cli" ]] \
+    || __fail "REUSE-03" "CLI index.js exists under /opt/agentlinux/cli/<ver>/dist/" "no match" "/opt/agentlinux/cli/"
+
+  run sudo -u agent "$cli" install claude-code
+  assert_exit_zero "REUSE-03"
+  printf '%s' "$output" | grep -qF '[REUSE-03]' \
+    || __fail "REUSE-03" "[REUSE-03] marker in CLI install output" "$output" "$LOG"
+
+  # Sentinel exists with status=reused. The CLI writes sentinels at the
+  # state dir (defaults to /opt/agentlinux/state/installed.d).
+  local sentinel=/opt/agentlinux/state/installed.d/claude-code.json
+  [[ -f "$sentinel" ]] \
+    || __fail "REUSE-03" "sentinel written at $sentinel" "(missing)" "$LOG"
+  jq -e '.status == "reused"' "$sentinel" >/dev/null \
+    || __fail "REUSE-03" "sentinel has status=reused" "$(cat "$sentinel")" "$LOG"
+  jq -e '.binary_path == "/home/agent/.local/bin/claude"' "$sentinel" >/dev/null \
+    || __fail "REUSE-03" "sentinel binary_path == canonical claude path" "$(cat "$sentinel")" "$LOG"
+}
+
+@test "REUSE-03 brownfield E2E: agentlinux list shows (reused — managed) suffix on the reused entry" {
+  # REQ: REUSE-03 (AGGRESSIVE-ownership disclosure surface — CONTEXT.md Area 2
+  # Q2; the suffix wording is binding). Depends on the previous brownfield E2E
+  # @test having left a reused sentinel; skip if not present (e.g. running this
+  # @test in isolation or after the previous one was skipped due to no network).
+  local sentinel=/opt/agentlinux/state/installed.d/claude-code.json
+  [[ -f "$sentinel" ]] || skip "no claude-code sentinel from prior brownfield @test"
+  jq -e '.status == "reused"' "$sentinel" >/dev/null || skip "claude-code sentinel is not reused"
+
+  local cli
+  cli=$(find /opt/agentlinux/cli -maxdepth 3 -name index.js -path '*/dist/*' 2>/dev/null | head -1)
+  [[ -n "$cli" ]] || skip "no CLI index.js found"
+
+  run sudo -u agent "$cli" list
+  assert_exit_zero "REUSE-03"
+  printf '%s' "$output" | grep -qF 'reused — managed by agentlinux upgrade/remove' \
+    || __fail "REUSE-03" "reused suffix present in list output" "$output" "$LOG"
 }
