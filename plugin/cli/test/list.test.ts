@@ -179,4 +179,95 @@ describe("listCmd — text + JSON + test_only filter", () => {
     assert.equal(parsed.length, 1);
     assert.equal(parsed[0].id, "real-agent");
   });
+
+  // Plan 13-02: AGGRESSIVE-ownership disclosure suffix on the INSTALLED column.
+  // CONTEXT.md Area 2 Q2 binding: ` (reused — managed by agentlinux upgrade/remove)`.
+  test("REUSE-03: reused sentinel renders the (reused — managed) suffix in text output", async () => {
+    const reusedSentinel: Sentinel = {
+      id: "real-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "reused",
+      binary_path: "/home/agent/.local/bin/real",
+      detected_source: "pre-existing",
+      reused_at: "2026-05-16T00:00:00.000Z",
+      compatibility_window_at_reuse: ">=1.0.0 <2.0.0",
+    };
+    await writeSentinel(reusedSentinel);
+    try {
+      const cap = captureStdout();
+      try {
+        await listCmd({});
+      } finally {
+        cap.restore();
+      }
+      const joined = cap.lines.join("\n");
+      // Em-dash + parenthesized form — bats greps the literal string too.
+      assert.match(joined, /\(reused — managed by agentlinux upgrade\/remove\)/);
+      // The suffix lives in the INSTALLED column of the real-agent row.
+      const realRow = cap.lines.find((l) => l.startsWith("real-agent"));
+      assert.ok(realRow);
+      assert.match(realRow ?? "", /reused — managed/);
+    } finally {
+      await deleteSentinel("real-agent");
+    }
+  });
+
+  test("REUSE-03: --json includes sentinel_status field for reused entries", async () => {
+    const reusedSentinel: Sentinel = {
+      id: "real-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "reused",
+      binary_path: "/home/agent/.local/bin/real",
+      detected_source: "pre-existing",
+      reused_at: "2026-05-16T00:00:00.000Z",
+      compatibility_window_at_reuse: ">=1.0.0 <2.0.0",
+    };
+    await writeSentinel(reusedSentinel);
+    try {
+      const cap = captureStdout();
+      try {
+        await listCmd({ json: true });
+      } finally {
+        cap.restore();
+      }
+      const parsed = JSON.parse(cap.lines.join("\n"));
+      const row = parsed.find((r: { id: string }) => r.id === "real-agent");
+      assert.ok(row);
+      assert.equal(row.reused, true);
+      assert.equal(row.sentinel_status, "reused");
+      // JSON output does NOT carry the text suffix in the installed field.
+      assert.equal(row.installed, "1.0.0");
+    } finally {
+      await deleteSentinel("real-agent");
+    }
+  });
+
+  test("REUSE-03: status:installed sentinels do NOT get the reused suffix", async () => {
+    await writeSentinel({
+      id: "real-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "installed",
+    });
+    try {
+      const cap = captureStdout();
+      try {
+        await listCmd({});
+      } finally {
+        cap.restore();
+      }
+      const joined = cap.lines.join("\n");
+      assert.doesNotMatch(joined, /reused — managed/);
+    } finally {
+      await deleteSentinel("real-agent");
+    }
+  });
 });

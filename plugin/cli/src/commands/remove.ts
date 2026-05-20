@@ -15,6 +15,7 @@
 // installCmd). Default routes through the real runner; tests inject a
 // capturing mock.
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadCatalog } from "../catalog/loader.js";
 import { type Dispatcher, dispatchRecipe } from "../runner.js";
@@ -44,6 +45,20 @@ export async function removeCmd(
       process.exit(1);
     }
     return; // --force + not-installed = idempotent exit 0
+  }
+
+  // Plan 13-02 (T-13-07 mitigation): when sentinel.status === "reused", the
+  // binary lives at sentinel.binary_path (adopted, not installed by us). If
+  // the binary has been removed by an unrelated process since adoption,
+  // running uninstall.sh against a missing binary is wasteful at best and
+  // can fail noisily at worst. Skip dispatchRecipe and just delete the
+  // sentinel — the user's intent (have this entry not be tracked) is met.
+  if (sentinel.status === "reused" && sentinel.binary_path && !existsSync(sentinel.binary_path)) {
+    await deleteSentinel(entry.id);
+    console.log(
+      `${entry.id}: sentinel removed (binary at ${sentinel.binary_path} was already gone — adopted binary no longer present)`,
+    );
+    return;
   }
 
   const recipePath = join(catalog.catalogDir, "agents", entry.id, entry.uninstall_recipe_path);

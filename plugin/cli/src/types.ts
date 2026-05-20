@@ -18,6 +18,7 @@ export interface CatalogEntry {
   npm_package_name?: string; // required when source_kind === 'npm' (allOf clause)
   pinned_version: string; // exact semver — CAT-04 / ADR-011
   version_constraint?: string; // e.g. '^2.1' — --all-latest upper-bound
+  compatibility_window?: string; // Phase 13 (REUSE-03): semver range — pre-existing install adopted via REUSE-03 when version satisfies this
   install_recipe_path: string; // e.g. 'install.sh'
   uninstall_recipe_path: string; // e.g. 'uninstall.sh'
   post_install_verify?: string;

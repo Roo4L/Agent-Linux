@@ -27,6 +27,13 @@ interface Row {
   installed: string; // sentinel?.version ?? '-'
   description: string;
   source: Sentinel["source"] | "-";
+  // Plan 13-02 (REUSE-03): when sentinel.status === "reused", AGGRESSIVE
+  // ownership semantics apply — `agentlinux upgrade/remove` will act on the
+  // adopted binary. JSON output includes the field verbatim; text output gets
+  // a `(reused — managed by agentlinux upgrade/remove)` suffix on the
+  // INSTALLED column to disclose this contract to users (CONTEXT.md Area 2 Q2).
+  reused: boolean;
+  sentinel_status?: "installed" | "reused";
 }
 
 function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
@@ -36,6 +43,7 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
     // Phase 4: installed = sentinel.version (no npm ls cross-check yet).
     const installed = sentinel?.version ?? null;
     const status = classify({ entry, sentinel, installed });
+    const reused = sentinel?.status === "reused";
     return {
       id: entry.id,
       display_name: entry.display_name,
@@ -44,6 +52,8 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
       installed: installed ?? "-",
       description: entry.description,
       source: sentinel?.source ?? "-",
+      reused,
+      sentinel_status: sentinel?.status,
     };
   });
 }
@@ -63,8 +73,21 @@ export async function listCmd(opts: ListOpts): Promise<void> {
 
   // Text table: grep-friendly, no color, no box chars.
   // Columns per CONTEXT §CLI UX: NAME STATUS CURATED INSTALLED DESCRIPTION.
+  //
+  // Plan 13-02 (REUSE-03): when sentinel.status === "reused", append the
+  // AGGRESSIVE-ownership disclosure suffix to the INSTALLED column. Visible
+  // WITHOUT --verbose per CONTEXT.md Area 2 Q2 — users glance at `list` and
+  // form mental models from what they see. The em-dash + parenthesized form
+  // is binding wording; bats greps the literal string.
+  const REUSED_SUFFIX = " (reused — managed by agentlinux upgrade/remove)";
   const header = ["NAME", "STATUS", "CURATED", "INSTALLED", "DESCRIPTION"];
-  const data = rows.map((r) => [r.id, r.status, r.curated, r.installed, r.description]);
+  const data = rows.map((r) => [
+    r.id,
+    r.status,
+    r.curated,
+    r.reused ? `${r.installed}${REUSED_SUFFIX}` : r.installed,
+    r.description,
+  ]);
   const all = [header, ...data];
   const widths = header.map((_, i) => Math.max(...all.map((row) => row[i].length)));
   for (const row of all) {

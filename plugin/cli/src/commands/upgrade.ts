@@ -29,6 +29,7 @@
 // queryGlobalNpm, queryNpmViewLatest so no sudo/network happens under
 // `pnpm test`. Same pattern used in install.ts / remove.ts.
 
+import { statSync } from "node:fs";
 import { join } from "node:path";
 import { loadCatalog } from "../catalog/loader.js";
 import { dispatchRecipe as realDispatchRecipe } from "../runner.js";
@@ -40,6 +41,20 @@ import {
   queryGlobalNpm as realQueryGlobalNpm,
   queryNpmViewLatest as realQueryNpmViewLatest,
 } from "../upgrade/npm_ls.js";
+
+// T-13-07 mitigation (Plan 13-02): a sentinel with status: "reused" whose
+// binary_path no longer exists at upgrade-time has drifted out from under us.
+// Treat as un-installed for reconciliation purposes (force reinstall, do not
+// trust the stale sentinel's binary_path). Returns true when the sentinel is
+// non-reused (no validation needed) OR when the reused binary still exists.
+function validateReusedBinary(sentinel: Sentinel | null): boolean {
+  if (!sentinel || sentinel.status !== "reused" || !sentinel.binary_path) return true;
+  try {
+    return statSync(sentinel.binary_path).isFile();
+  } catch {
+    return false;
+  }
+}
 
 export interface UpgradeOpts {
   resetAllCurated?: boolean;
@@ -173,7 +188,26 @@ export async function upgradeCmd(opts: UpgradeOpts, deps: UpgradeDeps = {}): Pro
   // deterministic log ordering for debugging failed upgrades.
   const entryById = new Map(catalog.agents.map((e) => [e.id, e]));
   for (const report of reports) {
-    const target = shouldReinstall(report, opts);
+    const sentinel = bySentinel.get(report.id) ?? null;
+
+    // Plan 13-02 (REUSE-03): pre-upgrade visibility. When the prior sentinel
+    // had status: "reused", surface that this upgrade flips ownership from
+    // adopted to AgentLinux-managed.
+    if (sentinel?.status === "reused") {
+      console.log(
+        `${report.id}: upgrading reused install (binary=${sentinel.binary_path ?? "?"} -> catalog pin)`,
+      );
+    }
+
+    // T-13-07 mitigation: if a reused sentinel's binary_path is gone, we MUST
+    // reinstall — the adopted binary has drifted. shouldReinstall may have
+    // returned null for a "synced" report; override that to force a curated
+    // reinstall when the underlying binary disappeared.
+    const reusedBinaryGone = sentinel?.status === "reused" && !validateReusedBinary(sentinel);
+    let target = shouldReinstall(report, opts);
+    if (reusedBinaryGone && !target) {
+      target = "curated";
+    }
     if (!target) continue;
 
     const entry = entryById.get(report.id);
@@ -221,12 +255,19 @@ export async function upgradeCmd(opts: UpgradeOpts, deps: UpgradeDeps = {}): Pro
       sticky = prior?.sticky ?? false;
     }
 
+    // Plan 13-02 (REUSE-03): post-upgrade sentinel has status: "installed"
+    // unconditionally. The REUSE-only fields (binary_path, detected_source,
+    // reused_at, compatibility_window_at_reuse) are cleared by omission —
+    // the widened type makes them optional. After upgrade, the sentinel
+    // describes an AgentLinux-managed install (we just ran install.sh against
+    // it), not a passively-adopted one.
     await writeSentinel({
       id: entry.id,
       version,
       source,
       sticky,
       installed_at: new Date().toISOString(),
+      status: "installed",
     });
   }
 }
