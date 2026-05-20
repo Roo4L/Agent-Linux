@@ -28,7 +28,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
 - Decimal phases (e.g., 13.1) reserved for urgent insertions discovered during the milestone (precedent: v0.3.0 Phase 5.1)
 
 - [x] **Phase 12: Detection Layer** — Read-only discovery primitives covering install user, Node.js sources, npm prefix, catalog agents, sudoers drop-in; pre-flight report in human text + stable JSON. (completed 2026-05-11)
-- [ ] **Phase 13: Reuse Wiring** — Plumb DET output into existing provisioners and the recipe runner so they short-circuit when detected components match contract; first end-to-end brownfield smoke.
+- [x] **Phase 13: Reuse Wiring** — Plumb DET output into existing provisioners and the recipe runner so they short-circuit when detected components match contract; first end-to-end brownfield smoke. (completed 2026-05-20)
 - [ ] **Phase 14: Remediate + Consent Flag + Exit Codes** — Mutating fix paths (chown npm prefix, refresh PATH wiring, install missing/drifted sudoers, reinstall broken catalog agent), single `--yes` consent flag for non-TTY mode (Unix-convention, matching `apt install -y`), structured exit codes 64/65/1 that downstream phases honor. Per-action TTY prompts land in Phase 15.
 - [ ] **Phase 15: Pre-flight UX** — `--dry-run`, interactive `Proceed? [y/N]` for state-overwriting actions, alt-user-name prompt for incompatible existing user, JSON-format finalization for the report.
 - [ ] **Phase 16: Documentation + Brownfield Acceptance Gate** — README "Brownfield install" section, `docs/MIGRATION.md` with four worked scenarios, milestone-close brownfield-AGT-02 smoke transcript on a pre-populated host.
@@ -63,7 +63,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
   5. Greenfield invariant: the existing v0.3.0 bats matrix on a fresh container stays green (66/66 on Ubuntu 22.04 + 24.04). Phase 12's read-only invariant remains intact (Phase 13 is the first phase that mutates state, but only on the Create branch — Reuse and Bail still write zero).
 **Plans**: 2 plans
 - [x] 13-01-PLAN.md — REUSE decision library + provisioner short-circuits (REUSE-01, REUSE-02) + new detect::user_can_sudo_apt NOPASSWD-for-apt reader
-- [ ] 13-02-PLAN.md — Catalog-agent REUSE + CLI/sentinel integration + brownfield E2E smoke (REUSE-03)
+- [x] 13-02-PLAN.md — Catalog-agent REUSE + CLI/sentinel integration + brownfield E2E smoke (REUSE-03)
 **UI hint**: no
 
 ### Phase 14: Remediate + Consent Flag + Exit Codes
@@ -114,7 +114,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 | Phase | Plans Estimated | Status | Completed |
 |-------|-----------------|--------|-----------|
 | 12. Detection Layer | 3/3 | Complete   | 2026-05-11 |
-| 13. Reuse Wiring | 1/2 | In Progress|  |
+| 13. Reuse Wiring | 2/2 | Complete   | 2026-05-20 |
 | 14. Remediate + Consent Flag + Exit Codes | ~3 | Not started | - |
 | 15. Pre-flight UX | ~2 | Not started | - |
 | 16. Documentation + Brownfield Acceptance Gate | ~2 | Not started | - |
