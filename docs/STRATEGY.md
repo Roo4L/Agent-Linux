@@ -125,7 +125,7 @@ them.
   even when the implementation underneath is intricate.
 
 - **Three dimensions of package readiness.** A catalog package is ready
-  to ship when our tests verify all three:
+  to ship when we have verified all three:
   1. **Clean install** — no warnings, errors, or recovery prompts.
   2. **Clean usage path** — the package works as advertised on first
      use. Claude Code is ready to run; GSD's commands surface inside

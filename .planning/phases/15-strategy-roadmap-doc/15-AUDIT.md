@@ -434,9 +434,37 @@ Verdict: PASS (HARD GATE GREEN).
 
 **Phase 15 gate: GREEN (post-2026-05-23 amendment).**
 
-Reviewer pass on the 2026-05-23 rewrite: skipped per the post-execute
-review-loop exception ("changed only `.planning/` or docs/STRATEGY.md
-under maintainer-authored content; reviewer pass was already run on the
-2026-05-19 base prose"). The substantive change is the user's own voice
-applied directly; ai-deslop / technical-writer / fact-checker would have
-no actionable feedback on principle prose the user wrote themselves.
+### Reviewer pass record (2026-05-23 amendment)
+
+Parallel reviewer pass on the rewritten `## Execution principles` section
+(technical-writer + fact-checker + ai-deslop).
+
+| Reviewer | Findings | Disposition |
+|----------|----------|-------------|
+| technical-writer | 1 MEDIUM (L128 "our tests verify all three" reads as a delivered gate the bats suite doesn't enforce); 1 LOW (mid-bullet staccato rhythm — leave if intentional) | MEDIUM applied; LOW declined as intentional |
+| fact-checker | 2 CRITICAL (same L128 issue; "interactive confirmation" forward-looking phrasing not delivered); 2 MEDIUM (stylized auto-update-failed string; "no warnings" untested); 2 LOW (already-shipped nightly retest under-claimed as forward; "progressive docs" subjective) | L128 applied (overlaps tech-writer MEDIUM); rest declined — principles are prescriptive criteria, not descriptions of current state; voice-rule grep gate passes on all of them |
+| ai-deslop | 0 CRITICAL, 0 MEDIUM, 1 LOW (auto-update-failed string inline-quoting unusual register — but in-register for this repo per STABILITY-MODEL.md L58-60 precedent) | LOW declined; in-register |
+
+**Edit applied:** L128 `"our tests verify all three"` → `"we have verified all three"`. Removes the inaccurate claim about test-suite coverage of the three dimensions while preserving the prescriptive principle. Maintainer's voice unchanged.
+
+**Substance trail for declined findings:**
+
+- "Interactive confirmation" (fact-checker CRITICAL): the maintainer's principle is criterion ("Clean uninstall MAY preserve user data IF behind interactive confirmation"). Current `claude-code/uninstall.sh:24` preserves silently and is therefore a gap to close under the principle, not a contradiction of it. Forward-looking criterion is intentional.
+- Auto-update-failed string (fact-checker MEDIUM, ai-deslop LOW): illustrative of the bug-class the principle rules out. Not a verbatim quotation requirement; sibling STABILITY-MODEL.md uses inline terminal output in the same register.
+- "Curated combo retesting itself on a schedule" (fact-checker LOW): already shipped via `.github/workflows/nightly-qemu.yml`, but the broader principle ("Survives without the maintainer") is forward-looking goal; framing under "Our roadmap commits to ..." covers both delivered and forward-looking elements.
+- "Documentation is progressive" (fact-checker LOW): subjective criterion authored by the maintainer; not a falsifiable claim to verify.
+
+**Re-verified gates after the surgical edit:**
+
+```
+$ wc -c docs/STRATEGY.md
+8445 docs/STRATEGY.md
+
+$ grep -nE '^[^a-z]*AgentLinux (provides|offers|ensures|protects|defends|benchmarks|measures|hardens|isolates|detects|prevents)\b' docs/STRATEGY.md ; echo "exit=$?"
+exit=1
+
+$ awk '/^## Execution principles/{flag=1;next} /^## /{flag=0} flag && /^- \*\*/{c++} END{print c}' docs/STRATEGY.md
+4
+```
+
+STRATR-01 PASS (8445 ≤ 10240); STRATR-04 PASS (4 entries); STRATR-06 PASS (exit=1).
