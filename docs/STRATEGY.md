@@ -20,29 +20,29 @@ Each user is forced to be the integrator, and each user gets the
 integration wrong in their own way.
 
 AgentLinux exists to own those gaps. The v0.3.0 plugin closed the
-install-ownership gap on clean Ubuntu hosts (AGT-02 green against the
-live Anthropic CDN). The other gaps remain open; closing them as a
-coherent set — not as one-off workarounds — is the multi-year work that
-justifies the project beyond v0.3.0.
+install-ownership gap on clean Ubuntu hosts — every release verifies
+the agent's self-update against the live Anthropic CDN end-to-end. The
+other gaps remain open; closing them as a coherent set — not as
+one-off workarounds — is the multi-year work that justifies the
+project beyond v0.3.0.
 
 ## Our bets
 
 - **Installable plugin over custom distro.** v0.2.0 was a custom Ubuntu
   spin. The v0.2.0 → v0.3.0 pivot on 2026-04-18 traded the boot-image
   surface for a curl-pipe-bash plugin that meets users where they are.
-  (ADR-001; VISION.md "We meet users on their distribution.")
-- **Behaviors as spec, not implementation.** The bats suite at
-  `tests/bats/` is the contract. Implementation can change freely as long
-  as the BHV / RT / AGT / CLI / CAT / INST tests stay green. (ADR-002.)
+- **Behaviors as spec, not implementation.** The behavior tests under
+  `tests/bats/` are the contract. Implementation can change freely as
+  long as the tests stay green.
 - **Curated combos over user-assembled stacks.** Every release ships a
-  `pinned_version` set we have exercised together on the Docker + QEMU
+  pinned version set we have exercised together on the Docker + QEMU
   matrix. We hold at the last-known-good combination; the user decides
-  when to move. ([ADR-011](decisions/011-stability-first-version-pinning.md),
-  [STABILITY-MODEL.md](STABILITY-MODEL.md).)
+  when to move. See [the stability model](STABILITY-MODEL.md) for the
+  mechanism.
 - **Infrastructure, not an agent product.** We provision the environment
-  in which agents run. We do not build agents, prompt-injection guardrails,
-  or model-layer defenses. The catalog stays narrow as a consequence.
-  (VISION.md non-goal.)
+  in which agents run. We do not build agents, prompt-injection
+  guardrails, or model-layer defenses. The catalog stays narrow as a
+  consequence.
 
 These choices reinforce each other. The plugin format (bet #1) lets us
 version a curated combo (bet #3) without owning a distribution
@@ -142,12 +142,12 @@ Time-ordered work against these conditions lives in
 
 ## Related
 
-- [docs/VISION.md](VISION.md) — the canonical "what we want to be" doc this strategy operationalizes.
-- [docs/ROADMAP.md](ROADMAP.md) — the time-ordered work that follows from this strategy.
-- [ADR-015](decisions/015-agenda-redefinition.md) — the framing decision (two pillars + vision/strategy split, 2026-05-16).
-- [ADR-002](decisions/002-behavior-contract-framing.md) — behavior tests are the spec.
-- [ADR-004](decisions/004-per-user-npm-prefix.md) — per-user npm prefix (no `sudo npm install -g`).
-- [ADR-011](decisions/011-stability-first-version-pinning.md) — stability-first version pinning.
-- [docs/STABILITY-MODEL.md](STABILITY-MODEL.md) — the user companion to ADR-011; mechanizes the "curated combos" bet.
-- [docs/HARNESS.md](HARNESS.md) — review feedback loop + reviewer-by-file-type matrix.
-- [Jira AL-7](https://copiedwonder.atlassian.net/browse/AL-7) — v0.3.3 agenda redefinition epic.
+- [Vision](VISION.md) — the canonical "what we want to be" doc this strategy operationalizes.
+- [Roadmap](ROADMAP.md) — the time-ordered work that follows from this strategy.
+- [Agenda redefinition](decisions/015-agenda-redefinition.md) — the 2026-05-16 framing decision (two pillars + vision / strategy split).
+- [Behavior tests as spec](decisions/002-behavior-contract-framing.md) — the bats suite is the contract; implementation can vary.
+- [Per-user npm prefix](decisions/004-per-user-npm-prefix.md) — why we never `sudo npm install -g`.
+- [Stability-first version pinning](decisions/011-stability-first-version-pinning.md) — the curated-combo bet's underlying decision.
+- [Stability model](STABILITY-MODEL.md) — user companion to the stability-pinning decision; mechanizes the "curated combos" bet.
+- [Harness](HARNESS.md) — review feedback loop + reviewer-by-file-type matrix.
+- [v0.3.3 agenda redefinition epic](https://copiedwonder.atlassian.net/browse/AL-7) — the Jira epic anchoring this milestone.

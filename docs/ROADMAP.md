@@ -18,8 +18,9 @@ with a consent gate for mutations — followed by AlmaLinux support, the
 first distro expansion past Ubuntu.
 
 The v0.3.0 plugin ships against Ubuntu 22.04 / 24.04 / 26.04 with the
-agent's zero-EACCES self-update behaviour locked by AGT-02; the v0.4.0
-license flip made the project OSS-MIT on 2026-05-09. The v0.3.3
+agent's zero-EACCES self-update verified end-to-end against the live
+Anthropic CDN on every release; the v0.4.0 license flip made the project
+OSS-MIT on 2026-05-09. The v0.3.3
 milestone — the strategy / roadmap framing — closes once Phase 16's
 website refresh ships.
 
@@ -40,11 +41,11 @@ website refresh ships.
 
 #### Security Hardening
 
-We carry an opportunistic security-hardening theme from Phase 13: a
-capability-scoped sudoers profile replacing ADR-012's NOPASSWD ALL,
-cosign-signed catalog releases, npm provenance verification at install
-time, a bubblewrap-based per-recipe sandbox, and an iptables egress
-allowlist for catalog recipes.
+We carry an opportunistic security-hardening theme from the Phase 13
+exploration: a capability-scoped sudoers profile replacing the current
+passwordless-sudo-for-everything default, cosign-signed catalog releases,
+npm provenance verification at install time, a bubblewrap-based per-recipe
+sandbox, and an iptables egress allowlist for catalog recipes.
 **Sequencing rationale:** Independent of the catalog-expansion track. We
 pick the first defense to mature once the AL-38 brownfield work surfaces
 which capabilities the agent actually needs in practice — that is the
