@@ -468,3 +468,137 @@ $ awk '/^## Execution principles/{flag=1;next} /^## /{flag=0} flag && /^- \*\*/{
 ```
 
 STRATR-01 PASS (8445 ≤ 10240); STRATR-04 PASS (4 entries); STRATR-06 PASS (exit=1).
+
+---
+
+## Amendment 2026-05-23 (Round 2) — Strategy / roadmap split + diagnosis at altitude
+
+The maintainer identified that `docs/STRATEGY.md` combined strategy with
+roadmap content. Per Rumelt's "good strategy" traits (clear diagnosis,
+chosen battlefield, explicit trade-offs, reinforcing actions, falsifiability),
+the doc was restructured as follows:
+
+- The diagnosis (`## What we're solving`) was sharpened from a narrow
+  bug-class framing ("EACCES + recursive shim on stock Ubuntu") to a
+  multi-year integration-gap framing ("no one is responsible for making
+  the agent-on-Linux story work end to end; the gaps between distro /
+  language vendor / agent vendor are where users live"). Today's
+  brownfield + AlmaLinux work is positioned as one instance of closing
+  those gaps, not as the whole problem.
+- `## Our bets` gained a closing paragraph showing how the four bets
+  reinforce each other (plugin format + curated combo + behavior
+  contracts + infrastructure framing = a project that survives without
+  a full-time maintainer).
+- `## Guiding policy` (new) replaces `## Where we are now` + `## What's next`.
+  Carries prioritize list (close gaps that bite the maintainer first;
+  close as primitives not workarounds; extend what works) + downprioritize
+  list (no gaps without first-person friction; no surface growth before
+  current gap is closed; no owning other actors' gaps; no workarounds in
+  place of primitives) + falsifiability ("how we'd know the strategy was
+  wrong" — vendor closes the gaps first / users prefer velocity over
+  stability / brownfield lands but maintainer still doesn't use daily).
+- `## Where we are now` and `## What's next` (Near-term + Themes for v0.6+)
+  moved to new sibling doc `docs/ROADMAP.md`.
+
+Pre-split state preserved at git tag `strategy-pre-gaps-rewrite`.
+
+REQUIREMENTS.md amendments in same commit window:
+
+- STRATR-02 — 5-section spine → 4-section strategy-only spine.
+- STRATR-03 — themes content moved to ROADMAP.md (no substantive change to the themes themselves; grep target moves from STRATEGY.md to ROADMAP.md).
+- STRATR-06 — voice-rule grep extended from STRATEGY.md-only to both STRATEGY.md and ROADMAP.md.
+- STRATR-07 (new) — ROADMAP.md exists with the moved content.
+
+Amendments recorded in REQUIREMENTS.md § "Superseded Items (2026-05-23 Round 2 — strategy / roadmap split)".
+
+### STRATR-01 (re-verified)
+
+```
+$ wc -c docs/STRATEGY.md
+8426 docs/STRATEGY.md
+```
+
+Verdict: PASS (size 8426 ≤ 10240).
+
+### STRATR-02 (re-verified — 4-section strategy-only spine)
+
+```
+$ grep -nE '^## (What we'\''re solving|Our bets|Guiding policy|Execution principles)' docs/STRATEGY.md
+5:## What we're solving
+25:## Our bets
+54:## Guiding policy
+107:## Execution principles
+```
+
+Verdict: PASS (4 H2 in prescribed order; spine 4 sections matches amended STRATR-02).
+
+### STRATR-03 + STRATR-07 (re-verified — ROADMAP.md exists; themes moved with content intact)
+
+```
+$ wc -c docs/ROADMAP.md
+4146 docs/ROADMAP.md
+
+$ grep -nE '^## (Where we are now|What'\''s next)' docs/ROADMAP.md
+10:## Where we are now
+26:## What's next
+
+$ grep -nE '^### (Near-term|Themes for v0\.6\+)' docs/ROADMAP.md
+28:### Near-term
+40:### Themes for v0.6+
+
+$ awk '/^### Themes for v0\.6\+/{flag=1;next} /^## /{flag=0} flag && /^#### /{c++} END{print c}' docs/ROADMAP.md
+4
+
+$ grep -c '\*\*Sequencing rationale:\*\*' docs/ROADMAP.md
+4
+
+$ sed -n '1,5p' docs/ROADMAP.md | grep -E '^> Last reviewed: 2026-05-23'
+> Last reviewed: 2026-05-23
+```
+
+Verdict: PASS (ROADMAP.md exists at the path; size 4146 ≤ 6144; 2 H2 + 2 H3 sections in prescribed shape; 4 themes; 4 sequencing-rationale lines; `> Last reviewed:` blockquote present).
+
+### STRATR-04 (re-verified — unchanged from prior amendment)
+
+```
+$ awk '/^## Execution principles/{flag=1;next} /^## /{flag=0} flag && /^- \*\*/{c++} END{print c}' docs/STRATEGY.md
+4
+```
+
+Verdict: PASS (4 entries; the maintainer-authored set unchanged).
+
+### STRATR-05 (re-verified — `> Last reviewed:` blockquote)
+
+```
+$ sed -n '1,5p' docs/STRATEGY.md | grep -E '^> Last reviewed: 2026-05-23'
+> Last reviewed: 2026-05-23
+```
+
+Verdict: PASS.
+
+### STRATR-06 (re-verified — voice-rule HARD GATE on both files)
+
+```
+$ grep -nE '^[^a-z]*AgentLinux (provides|offers|ensures|protects|defends|benchmarks|measures|hardens|isolates|detects|prevents)\b' docs/STRATEGY.md docs/ROADMAP.md ; echo "exit=$?"
+exit=1
+```
+
+Verdict: PASS (HARD GATE GREEN; zero matches across both files).
+
+### Aggregate gate status (post-Round-2 amendment)
+
+| Requirement | Verdict | Evidence source |
+|-------------|---------|----------------|
+| STRATR-01 — STRATEGY.md exists, size ≤ 10240 | PASS | 15-AUDIT.md § Amendment 2026-05-23 Round 2 § STRATR-01 |
+| STRATR-02 — 4-section strategy-only spine (amended 2026-05-23 Round 2) | PASS | 15-AUDIT.md § Amendment 2026-05-23 Round 2 § STRATR-02 |
+| STRATR-03 — 4 themes + sequencing rationales (relocated to ROADMAP.md) | PASS | 15-AUDIT.md § Amendment 2026-05-23 Round 2 § STRATR-03 + STRATR-07 |
+| STRATR-04 — 4 maintainer-authored entries | PASS | 15-AUDIT.md § Amendment 2026-05-23 (Round 1) § STRATR-04 (unchanged) |
+| STRATR-05 — `> Last reviewed: 2026-05-23` blockquote on STRATEGY.md | PASS | 15-AUDIT.md § Amendment 2026-05-23 Round 2 § STRATR-05 |
+| STRATR-06 — voice-rule HARD GATE on STRATEGY.md + ROADMAP.md (amended 2026-05-23 Round 2) | PASS | 15-AUDIT.md § Amendment 2026-05-23 Round 2 § STRATR-06 |
+| STRATR-07 — ROADMAP.md exists + 2 H2 + 2 H3 + 4 themes + 4 sequencing rationales + `> Last reviewed:` (added 2026-05-23 Round 2) | PASS | 15-AUDIT.md § Amendment 2026-05-23 Round 2 § STRATR-03+STRATR-07 |
+
+**Phase 15 gate: GREEN (post-2026-05-23 Round 2 amendment).**
+
+All 7 STRATR-XX requirements close PASS. The strategy doc carries the
+strategy-only content at altitude; the roadmap doc carries the time-ordered
+work that follows.

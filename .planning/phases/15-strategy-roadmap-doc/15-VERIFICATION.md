@@ -2,9 +2,9 @@
 phase: 15-strategy-roadmap-doc
 verified: 2026-05-23T00:00:00Z
 status: passed
-score: 6/6 must-haves verified
+score: 7/7 must-haves verified
 overrides_applied: 0
-amendments: 1 (2026-05-23 execution-principles rewrite + STRATR-01/04 amendments)
+amendments: 2 (2026-05-23 Round 1 — execution-principles rewrite + STRATR-01/04; 2026-05-23 Round 2 — strategy / roadmap split + diagnosis at altitude + new STRATR-07)
 ---
 
 # Phase 15: Strategy + Roadmap Doc — Verification Report
@@ -180,7 +180,7 @@ None on substance. Two execution-only deviations:
 **2026-05-19 (initial):** All 6 STRATR-XX requirements passed on the first
 verification run. No prior runs to compare against.
 
-**2026-05-23 (amendment — execution-principles rewrite + STRATR-01/04
+**2026-05-23 Round 1 (amendment — execution-principles rewrite + STRATR-01/04
 amendments):** Triggered by maintainer rejection of the original
 execution-principles section as either generic ("evidence-cite"),
 out-of-category ("voice rule"), or duplicative of `## Our bets` and
@@ -201,20 +201,52 @@ All 6 STRATR-XX requirements still pass. The amendment is recorded in
 § "Superseded Items (2026-05-23 execution-principles rewrite + STRATR-01
 size bump)". Phase 15 gate stays GREEN.
 
+**2026-05-23 Round 2 (amendment — strategy / roadmap split + diagnosis
+at altitude + new STRATR-07):** Triggered by maintainer diagnosis that
+the strategy doc combined strategy with roadmap content. Per Rumelt's
+"good strategy" traits (clear diagnosis, chosen battlefield, explicit
+trade-offs, reinforcing actions, falsifiability), the doc was
+restructured. `## Where we are now` + `## What's next` moved to new
+sibling doc `docs/ROADMAP.md`; STRATEGY.md gained `## Guiding policy`
+(prioritize + downprioritize + falsifiability). Diagnosis sharpened from
+narrow bug-class framing to multi-year integration-gap framing.
+REQUIREMENTS.md amendments: STRATR-02 (5-section spine → 4-section
+strategy-only); STRATR-03 (themes relocated to ROADMAP.md); STRATR-06
+(voice-rule extended to both files); STRATR-07 (new — ROADMAP.md
+exists). Pre-split state preserved at git tag
+`strategy-pre-gaps-rewrite`. Re-run gates:
+
+| Gate | Pre-Round-2 | Post-Round-2 | Verdict |
+|------|-------------|--------------|---------|
+| STRATR-01 (STRATEGY.md size ≤ 10240) | 8445 | 8426 | PASS |
+| STRATR-02 (spine — 5 sections → 4 sections, amended) | 5 H2 in old order | 4 H2 in new order | PASS |
+| STRATR-03 (4 themes — grep target moves to ROADMAP.md) | in STRATEGY.md | in ROADMAP.md | PASS |
+| STRATR-04 (4 maintainer-authored entries) | 4 | 4 | PASS (unchanged) |
+| STRATR-05 (`> Last reviewed:` blockquote) | 2026-05-19 | 2026-05-23 | PASS |
+| STRATR-06 (voice-rule HARD GATE on STRATEGY.md → both files) | exit=1 on STRATEGY.md | exit=1 on both | PASS |
+| STRATR-07 (NEW — ROADMAP.md exists, ≤ 6 KB, 2 H2 + 2 H3 + 4 themes + 4 rationales + `> Last reviewed:`) | n/a | 4146 bytes; 2 H2; 2 H3; 4 themes; 4 rationales; header present | PASS |
+
+All 7 STRATR-XX requirements pass. The amendment is recorded in
+`15-AUDIT.md` § "Amendment 2026-05-23 (Round 2)" and in REQUIREMENTS.md
+§ "Superseded Items (2026-05-23 Round 2 — strategy / roadmap split)".
+Phase 15 gate stays GREEN.
+
 ## Outcome
 
 **status: passed**
 
-- 6/6 must-haves verified (post-2026-05-23 amendment)
+- 7/7 must-haves verified (post-2026-05-23 Round 2 amendment; STRATR-07 added)
 - 0 overrides applied
-- 1 amendment applied (2026-05-23 — execution-principles rewrite + STRATR-01/04 amendments)
-- STRATR-06 HARD GATE clean on `docs/STRATEGY.md` AND on `15-AUDIT.md` (defensive)
-- Phase 15 gate emits GREEN via `15-AUDIT.md` (lines: `**Phase 15 gate: GREEN.**` original + `**Phase 15 gate: GREEN (post-2026-05-23 amendment).**` post-amendment)
-- Phase 15 stays closed; downstream Phase 16 (Website Refresh) can consume `docs/STRATEGY.md` for SITE-04 / SITE-07
+- 2 amendments applied (2026-05-23 Round 1 — execution-principles rewrite + STRATR-01/04; 2026-05-23 Round 2 — strategy / roadmap split + diagnosis at altitude + new STRATR-07)
+- STRATR-06 HARD GATE clean on `docs/STRATEGY.md` AND `docs/ROADMAP.md` (extended scope) AND on `15-AUDIT.md` (defensive)
+- Phase 15 gate emits GREEN via `15-AUDIT.md` (lines: `**Phase 15 gate: GREEN.**` original + `**Phase 15 gate: GREEN (post-2026-05-23 amendment).**` Round 1 + `**Phase 15 gate: GREEN (post-2026-05-23 Round 2 amendment).**` Round 2)
+- Phase 15 stays closed; downstream Phase 16 (Website Refresh) can consume `docs/STRATEGY.md` for SITE-04 / SITE-07 and `docs/ROADMAP.md` for the same footer-link surface
 
 ## Plan commits
 
 - `35b2633` — `docs(15-01): land docs/STRATEGY.md + amend REQUIREMENTS.md STRATR-02`
 - `4e09707` — `docs(15-02): phase-close audit 15-AUDIT.md (Phase 15 GREEN)`
 - `24c6072` — `docs(15-02): plan summary 15-02-SUMMARY.md`
-- (this commit) — `docs(15): rewrite execution principles + amend STRATR-01/04`
+- `4bf37e4` — `docs(15): rewrite execution principles + amend STRATR-01/04`
+- `30e9f3c` — `docs(15): apply reviewer fact-check finding on package-readiness principle` (tag `strategy-pre-gaps-rewrite` pins this commit for revert)
+- (this commit) — `docs(15): strategy / roadmap split + diagnosis at altitude + STRATR-07`

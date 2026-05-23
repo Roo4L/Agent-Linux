@@ -1,22 +1,26 @@
 # AgentLinux — Strategy
 
-> Last reviewed: 2026-05-19
+> Last reviewed: 2026-05-23
 
 ## What we're solving
 
-[docs/VISION.md](VISION.md) names what we want to be. This doc names the
-bug-class we exist to eliminate so the bets that follow make sense.
+No one is currently responsible for making the agent-on-Linux story work
+end to end. The distro maintainer ships Linux; the language vendor ships
+Node.js; the agent vendor ships Claude Code. Each works correctly on its
+own. The gaps between them do not — and the gaps are where users live:
+install ownership (EACCES on `sudo npm install -g`), version compatibility
+(upstream releases that break the combo with the rest of the agent
+toolchain), distro fragmentation (apt vs dnf vs Arch packaging),
+brownfield migration (every host has its own pre-existing setup),
+supply-chain trust (no honest signal of which upstream releases are safe
+to bump to). Each user is forced to be the integrator, and each user
+gets the integration wrong in their own way.
 
-On a stock Ubuntu host, `sudo npm install -g claude` writes binaries that
-root owns; the agent then cannot self-update, and `claude update` either
-fails with EACCES or silently re-writes a `/usr/local/bin/` shim that
-breaks on the next launch. Around that core failure sit smaller ones:
-dependency drift from un-curated `npm install -g` paths, inconsistent
-agent-friendly defaults the user is expected to maintain, and missing
-PATH wiring across cron, systemd, sudo, and non-interactive SSH. The
-v0.3.0 plugin folds all of that into one install — agent user, per-user
-npm prefix, six invocation modes, curated catalog. The EACCES class is
-gone from the install path (AGT-02); the brownfield class is next.
+AgentLinux exists to own those gaps. The v0.3.0 plugin closed the
+install-ownership gap on clean Ubuntu hosts (AGT-02 green against the
+live Anthropic CDN). The other gaps remain open; closing them as a
+coherent set — not as one-off workarounds — is the multi-year work that
+justifies the project beyond v0.3.0.
 
 ## Our bets
 
@@ -37,77 +41,68 @@ gone from the install path (AGT-02); the brownfield class is next.
   or model-layer defenses. The catalog stays narrow as a consequence.
   (VISION.md non-goal.)
 
-## Where we are now
+These choices reinforce each other. The plugin format (bet #1) lets us
+version a curated combo (bet #3) without owning a distribution
+maintainer's work. Behavior-test contracts (bet #2) make the curated
+combo (bet #3) safe to bump — implementation can change as long as the
+contracts hold. Infrastructure framing (bet #4) keeps the catalog small
+enough for one maintainer plus AI agents to keep curated combos green.
+Together they describe a project that can survive without a full-time
+maintainer in the loop — which is what the execution principles below
+codify.
 
-Our current goal is to ship the first usable release of AgentLinux for the
-maintainer as canonical user. That means v0.3.4 Aware Installation Process
-([AL-38](https://copiedwonder.atlassian.net/browse/AL-38)) — a
-brownfield-aware installer that detects existing agent user / Node.js /
-catalog packages, reuses what is compatible, remediates what is broken,
-with a consent gate for mutations — followed by AlmaLinux support, the
-first distro expansion past Ubuntu.
+## Guiding policy
 
-The v0.3.0 plugin ships against Ubuntu 22.04 / 24.04 / 26.04 with the
-agent's zero-EACCES self-update behaviour locked by AGT-02; the v0.4.0
-license flip made the project OSS-MIT on 2026-05-09. The v0.3.3
-milestone — this strategy framing — closes once Phase 16's website
-refresh ships.
+The strategy is to close the gaps listed above in a coherent set, not as
+one-off workarounds. The policy decides which gap to close next and what
+to say no to until that work lands.
 
-## What's next
+**What we prioritize:**
 
-### Near-term
+- Close the gaps that bite the maintainer first. First-person friction
+  is the canonical signal for which gap to attack next; without it we are
+  guessing. Today that means brownfield Ubuntu support followed by
+  AlmaLinux (the maintainer's work environment).
+- Close each gap as infrastructure that other gap-closing work can build
+  on, not as a one-off workaround. A brownfield detector that hardcodes
+  Claude Code paths is a workaround; one that exposes a typed reuse /
+  remediate / consent primitive is infrastructure.
+- Extend what already works rather than build parallel mechanisms. The
+  per-user npm prefix becomes the brownfield-aware installer's reuse
+  primitive; the curated combo becomes the per-distro snapshot.
 
-1. Finish v0.3.3 — this strategy doc plus Phase 16's website refresh.
-2. Ship v0.3.4 Aware Installation Process
-   ([AL-38](https://copiedwonder.atlassian.net/browse/AL-38)) — the
-   brownfield installer that adopts existing setups instead of refusing
-   to touch them.
-3. Add AlmaLinux support — the first distro expansion past Ubuntu and
-   the start of Pillar 1's reach.
-4. OSS funding application — parallel / meta, not blocking engineering.
+**What we downprioritize (and therefore say no to):**
 
-### Themes for v0.6+
+- Closing gaps we don't have first-person friction on. Supply-chain trust
+  is a real gap — we will not commit to closing it until we have felt a
+  supply-chain attack, because the work otherwise drifts toward
+  aspirational defenses.
+- Growing surface area before the current gap is closed. Broader catalog
+  admission, more distros, public engagement — all wait until brownfield
+  and AlmaLinux land.
+- Owning gaps that belong to other actors. Model-layer guardrails belong
+  to model vendors; upstream package source review belongs to package
+  maintainers; kernel hardening belongs to the distro. Our gaps are the
+  ones nobody else is sitting on.
+- Closing gaps with workarounds rather than primitives. If the brownfield
+  work ships as a pile of one-off checks that hardcode catalog package
+  names, it is technical debt, not infrastructure.
 
-#### Security Hardening
+**How we'd know the strategy was wrong:**
 
-We carry an opportunistic security-hardening theme from Phase 13: a
-capability-scoped sudoers profile replacing ADR-012's NOPASSWD ALL,
-cosign-signed catalog releases, npm provenance verification at install
-time, a bubblewrap-based per-recipe sandbox, and an iptables egress
-allowlist for catalog recipes.
-**Sequencing rationale:** Independent of the catalog-expansion track. We
-pick the first defense to mature once the AL-38 brownfield work surfaces
-which capabilities the agent actually needs in practice — that is the
-gating signal for which NOPASSWD scope we can honestly cut.
+- If a vendor (Anthropic, OpenAI, etc.) closes the gaps themselves — a
+  native Linux runtime that owns install, update, and version
+  compatibility — AgentLinux becomes redundant. The integration thesis
+  was right but someone else got there first.
+- If users prefer hand-install velocity over curated stability — they'd
+  rather get the latest upstream release immediately than wait for a
+  CI-verified combo — the curated-combo bet was wrong.
+- If brownfield + AlmaLinux land and the maintainer still does not use
+  AgentLinux daily, the diagnosis was wrong about the integration
+  framing (it wasn't an integration problem, it was something else).
 
-#### Preset / profile framework + compat-guarded update flow
-
-The Phase 12 differentiators: `bare` / `must-haves` / `optimum` presets,
-`web-development`-style profiles, and a hold-and-wait-on-upstream-breakage
-policy for the catalog update pipeline.
-**Sequencing rationale:** Builds on the `pinned_version` foundation
-already in v0.3.0; the work is mechanism design plus UX, not new product
-surface. We land it before broader catalog expansion so new agents adopt
-the preset / profile framework from day one.
-
-#### Broader agentic-dev catalog
-
-We expand the catalog toward critical mass: Cursor CLI, OpenAI Codex CLI,
-aider, Continue, Goose — each admitted via the catalog admission contract
-(behavior test, maintainer reputation, considered decision per VISION.md).
-The current three-agent catalog is small on purpose, but small is also
-the bottleneck for the engagement track below.
-**Sequencing rationale:** Gates theme #4 (Public engagement). The current
-release surface is too narrow to engage subscribers meaningfully; we
-build critical mass first.
-
-#### Public engagement
-
-A low-overhead opt-in mailing list for release announcements, structured
-feedback collection (issue templates, contributor invite paths in
-CONTRIBUTING.md), and community-platform basics once the catalog warrants
-them.
-**Sequencing rationale:** Explicitly gated on theme #3 reaching critical mass. The current three-agent release is too tiny to engage subscribers meaningfully; we want a broader catalog before any public announcement.
+Time-ordered work against these conditions lives in
+[docs/ROADMAP.md](ROADMAP.md).
 
 ## Execution principles
 
@@ -149,6 +144,7 @@ them.
 ## Related
 
 - [docs/VISION.md](VISION.md) — the canonical "what we want to be" doc this strategy operationalizes.
+- [docs/ROADMAP.md](ROADMAP.md) — the time-ordered work that follows from this strategy.
 - [ADR-015](decisions/015-agenda-redefinition.md) — the framing decision (two pillars + vision/strategy split, 2026-05-16).
 - [ADR-002](decisions/002-behavior-contract-framing.md) — behavior tests are the spec.
 - [ADR-004](decisions/004-per-user-npm-prefix.md) — per-user npm prefix (no `sudo npm install -g`).
@@ -156,4 +152,3 @@ them.
 - [docs/STABILITY-MODEL.md](STABILITY-MODEL.md) — the user companion to ADR-011; mechanizes the "curated combos" bet.
 - [docs/HARNESS.md](HARNESS.md) — review feedback loop + reviewer-by-file-type matrix.
 - [Jira AL-7](https://copiedwonder.atlassian.net/browse/AL-7) — v0.3.3 agenda redefinition epic.
-- [Jira AL-38](https://copiedwonder.atlassian.net/browse/AL-38) — v0.3.4 Aware Installation Process; defines "first usable release."
