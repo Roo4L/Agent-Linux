@@ -20,9 +20,9 @@ Each user is forced to be the integrator, and each user gets the
 integration wrong in their own way.
 
 AgentLinux exists to own those gaps. The v0.3.0 plugin closed the
-install-ownership gap on clean Ubuntu hosts — every release verifies
-the agent's self-update against the live Anthropic CDN end-to-end. The
-other gaps remain open; closing them as a coherent set — not as
+install-ownership gap on clean Ubuntu hosts. Every release verifies
+Claude Code's self-update end-to-end against the live Anthropic CDN.
+The other gaps remain open; closing them as a coherent set — not as
 one-off workarounds — is the multi-year work that justifies the
 project beyond v0.3.0.
 

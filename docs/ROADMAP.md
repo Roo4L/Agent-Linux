@@ -17,9 +17,9 @@ catalog packages, reuses what is compatible, remediates what is broken,
 with a consent gate for mutations — followed by AlmaLinux support, the
 first distro expansion past Ubuntu.
 
-The v0.3.0 plugin ships against Ubuntu 22.04 / 24.04 / 26.04 with the
-agent's zero-EACCES self-update verified end-to-end against the live
-Anthropic CDN on every release; the v0.4.0 license flip made the project
+The v0.3.0 plugin ships against Ubuntu 22.04 / 24.04 / 26.04. Every
+release verifies Claude Code's zero-EACCES self-update end-to-end
+against the live Anthropic CDN. The v0.4.0 license flip made the project
 OSS-MIT on 2026-05-09. The v0.3.3
 milestone — the strategy / roadmap framing — closes once Phase 16's
 website refresh ships.
