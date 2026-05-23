@@ -602,3 +602,55 @@ Verdict: PASS (HARD GATE GREEN; zero matches across both files).
 All 7 STRATR-XX requirements close PASS. The strategy doc carries the
 strategy-only content at altitude; the roadmap doc carries the time-ordered
 work that follows.
+
+### Reviewer pass record (2026-05-23 Round 2 amendment)
+
+Parallel reviewer pass on the restructured STRATEGY.md + new ROADMAP.md
+(technical-writer + fact-checker + ai-deslop).
+
+| Reviewer | Findings | Disposition |
+|----------|----------|-------------|
+| technical-writer | 2 MEDIUM (Guiding-policy framing sentence redundant with prior section; ROADMAP.md "Pillar 1" unexpanded); 5 LOW (Anna-Karenina cadence in diagnosis; "apt vs dnf vs Arch packaging" — pacman is the correct name; "small enough for one maintainer plus AI agents" soft phrasing; vendor-closes-gaps falsifier slightly escapable; "parallel / meta" jargon in ROADMAP.md) | 2 MEDIUM applied + 1 LOW applied (pacman fix); rest declined as defensible |
+| fact-checker | 1 MEDIUM ("no honest signal" overstates — npm provenance / Sigstore / SLSA / cosign are partial solutions per PILLAR-3 notes); 4 LOW (AlmaLinux first public commitment; AL-38 fixVersion empty in Jira; broader catalog list source; vendor-Linux-runtime falsifier hypothetical OK) | MEDIUM applied (hedged supply-chain trust); LOWs declined |
+| ai-deslop | 1 MEDIUM (`## Our bets` reinforcement paragraph ends with filler bridge prose to `## Execution principles`); 2 LOW (Guiding-policy restated lead — same as tech-writer MEDIUM; ROADMAP.md "parallel / meta" jargon) | MEDIUM applied (deleted bridge sentence); LOWs declined |
+
+**Edits applied (5 total):**
+
+1. STRATEGY.md L13: `apt vs dnf vs Arch packaging` → `apt vs dnf vs pacman` (tech-writer LOW; clearly correct).
+2. STRATEGY.md L15-16: `supply-chain trust (no honest signal of which upstream releases are safe to bump to)` → `supply-chain trust (npm provenance, Sigstore, SLSA, and cosign exist as partial solutions, but coverage is sparse and no aggregated signal tells you which release of the curated combo is safe to bump to)` (fact-checker MEDIUM; the project's own PILLAR-3 notes name those partial solutions).
+3. STRATEGY.md L50-52: deleted filler bridge sentence "Together they describe a project that can survive without a full-time maintainer in the loop — which is what the execution principles below codify." (ai-deslop MEDIUM; reinforcement paragraph stands without it).
+4. STRATEGY.md L56: deleted restated lead "The strategy is to close the gaps listed above in a coherent set, not as one-off workarounds." (tech-writer MEDIUM + ai-deslop LOW; redundant with `## What we're solving`).
+5. ROADMAP.md L36-37: `Add AlmaLinux support — the first distro expansion past Ubuntu and the start of Pillar 1's reach.` → `Add AlmaLinux support — the first distro expansion past Ubuntu.` (tech-writer MEDIUM; "Pillar 1" unexpanded; dropping the trailing clause is terser).
+
+**Substance trail for declined findings:**
+
+- STRATEGY.md L17 "each user gets the integration wrong in their own way" (ai-deslop LOW): Anna-Karenina cadence flag is fair but the sentence is in the maintainer's voice and adds the observable consequence of the gap-thesis. Keep.
+- STRATEGY.md L10 "The gaps between them do not" beat (tech-writer LOW): the elision is intentional — picks up the verb from the previous sentence. Keep.
+- STRATEGY.md L48 "small enough for one maintainer plus AI agents to keep curated combos green" (tech-writer LOW): the soft phrasing is intentionally honest about the project's solo + agents staffing. Keep.
+- STRATEGY.md L93-96 vendor-Linux-runtime falsifier (tech-writer LOW + fact-checker LOW): correctly phrased as hypothetical ("If a vendor..."); not a current-state claim. Keep.
+- ROADMAP.md L38 "parallel / meta" jargon (ai-deslop LOW + tech-writer LOW): terse and meaningful in-context (OSS funding application is genuinely orthogonal to engineering); the maintainer used this exact phrasing in discuss. Keep.
+- AL-38 fixVersion empty in Jira (fact-checker LOW): not a doc fix — should be set on Jira separately. Filed as a deferred Jira-hygiene item.
+- AlmaLinux first public commitment (fact-checker LOW): correctly noted that ROADMAP.md L17 / L36 is the first place this lands publicly. The commitment is accurate; STATE.md L6 already named it.
+- Broader catalog list verbatim source (fact-checker LOW): the five-name list (Cursor CLI, OpenAI Codex CLI, aider, Continue, Goose) came from maintainer's idea-dump during Phase 15 discuss; captured in 15-CONTEXT.md `<decisions>` § "Forward-item sequencing". Sufficient provenance.
+
+**Re-verified gates after the surgical edits:**
+
+```
+$ wc -c docs/STRATEGY.md docs/ROADMAP.md
+8293 docs/STRATEGY.md
+4109 docs/ROADMAP.md
+
+$ grep -nE '^## (What we'\''re solving|Our bets|Guiding policy|Execution principles)' docs/STRATEGY.md
+5:## What we're solving
+26:## Our bets
+52:## Guiding policy
+104:## Execution principles
+
+$ awk '/^## Execution principles/{flag=1;next} /^## /{flag=0} flag && /^- \*\*/{c++} END{print c}' docs/STRATEGY.md
+4
+
+$ grep -nE '^[^a-z]*AgentLinux (provides|offers|ensures|protects|defends|benchmarks|measures|hardens|isolates|detects|prevents)\b' docs/STRATEGY.md docs/ROADMAP.md ; echo "exit=$?"
+exit=1
+```
+
+STRATR-01 PASS (STRATEGY.md 8293 ≤ 10240); STRATR-02 PASS (4 H2 in order); STRATR-04 PASS (4 entries); STRATR-06 PASS (voice-rule HARD GATE clean on both files); STRATR-07 PASS (ROADMAP.md 4109 ≤ 6144).

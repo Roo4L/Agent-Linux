@@ -10,10 +10,11 @@ Node.js; the agent vendor ships Claude Code. Each works correctly on its
 own. The gaps between them do not — and the gaps are where users live:
 install ownership (EACCES on `sudo npm install -g`), version compatibility
 (upstream releases that break the combo with the rest of the agent
-toolchain), distro fragmentation (apt vs dnf vs Arch packaging),
+toolchain), distro fragmentation (apt vs dnf vs pacman),
 brownfield migration (every host has its own pre-existing setup),
-supply-chain trust (no honest signal of which upstream releases are safe
-to bump to). Each user is forced to be the integrator, and each user
+supply-chain trust (npm provenance, Sigstore, SLSA, and cosign exist as
+partial solutions, but coverage is sparse and no aggregated signal tells
+you which release of the curated combo is safe to bump to). Each user is forced to be the integrator, and each user
 gets the integration wrong in their own way.
 
 AgentLinux exists to own those gaps. The v0.3.0 plugin closed the
@@ -47,15 +48,11 @@ maintainer's work. Behavior-test contracts (bet #2) make the curated
 combo (bet #3) safe to bump — implementation can change as long as the
 contracts hold. Infrastructure framing (bet #4) keeps the catalog small
 enough for one maintainer plus AI agents to keep curated combos green.
-Together they describe a project that can survive without a full-time
-maintainer in the loop — which is what the execution principles below
-codify.
 
 ## Guiding policy
 
-The strategy is to close the gaps listed above in a coherent set, not as
-one-off workarounds. The policy decides which gap to close next and what
-to say no to until that work lands.
+The policy decides which gap to close next and what to say no to until
+that work lands.
 
 **What we prioritize:**
 

@@ -33,8 +33,7 @@ website refresh ships.
    ([AL-38](https://copiedwonder.atlassian.net/browse/AL-38)) — the
    brownfield installer that adopts existing setups instead of refusing
    to touch them.
-3. Add AlmaLinux support — the first distro expansion past Ubuntu and
-   the start of Pillar 1's reach.
+3. Add AlmaLinux support — the first distro expansion past Ubuntu.
 4. OSS funding application — parallel / meta, not blocking engineering.
 
 ### Themes for v0.6+
