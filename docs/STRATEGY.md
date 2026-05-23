@@ -14,8 +14,10 @@ toolchain), distro fragmentation (apt vs dnf vs pacman),
 brownfield migration (every host has its own pre-existing setup),
 supply-chain trust (npm provenance, Sigstore, SLSA, and cosign exist as
 partial solutions, but coverage is sparse and no aggregated signal tells
-you which release of the curated combo is safe to bump to). Each user is forced to be the integrator, and each user
-gets the integration wrong in their own way.
+you which release of the curated combo is safe to bump to).
+
+Each user is forced to be the integrator, and each user gets the
+integration wrong in their own way.
 
 AgentLinux exists to own those gaps. The v0.3.0 plugin closed the
 install-ownership gap on clean Ubuntu hosts (AGT-02 green against the
