@@ -1,9 +1,10 @@
 ---
 phase: 15-strategy-roadmap-doc
-verified: 2026-05-19T00:00:00Z
+verified: 2026-05-23T00:00:00Z
 status: passed
 score: 6/6 must-haves verified
 overrides_applied: 0
+amendments: 1 (2026-05-23 execution-principles rewrite + STRATR-01/04 amendments)
 ---
 
 # Phase 15: Strategy + Roadmap Doc — Verification Report
@@ -176,20 +177,44 @@ None on substance. Two execution-only deviations:
 
 ## Re-Verification
 
-Initial verification — no prior verification runs. All 6 STRATR-XX requirements pass on the first re-run during this verification step.
+**2026-05-19 (initial):** All 6 STRATR-XX requirements passed on the first
+verification run. No prior runs to compare against.
+
+**2026-05-23 (amendment — execution-principles rewrite + STRATR-01/04
+amendments):** Triggered by maintainer rejection of the original
+execution-principles section as either generic ("evidence-cite"),
+out-of-category ("voice rule"), or duplicative of `## Our bets` and
+`## What we're solving` (behavior-tests-as-spec, curated-combo testing,
+no `sudo npm install -g`). Maintainer authored a replacement set of four
+project-specific principles. REQUIREMENTS.md STRATR-01 and STRATR-04
+amended in the same commit window. Re-run gates:
+
+| Gate | Pre-amendment | Post-amendment | Verdict |
+|------|---------------|----------------|---------|
+| STRATR-01 (size ≤ 10240, amended from 8192) | 8047 | 8445 | PASS |
+| STRATR-04 (entries in [4..7], amended to drop mandated list) | 6 | 4 | PASS |
+| STRATR-06 (voice-rule HARD GATE; zero matches) | exit=1 | exit=1 | PASS |
+| STRATR-02, STRATR-03, STRATR-05 | PASS | unchanged; not re-run | PASS (assumed) |
+
+All 6 STRATR-XX requirements still pass. The amendment is recorded in
+`15-AUDIT.md` § "Amendment 2026-05-23" and in REQUIREMENTS.md
+§ "Superseded Items (2026-05-23 execution-principles rewrite + STRATR-01
+size bump)". Phase 15 gate stays GREEN.
 
 ## Outcome
 
 **status: passed**
 
-- 6/6 must-haves verified
+- 6/6 must-haves verified (post-2026-05-23 amendment)
 - 0 overrides applied
+- 1 amendment applied (2026-05-23 — execution-principles rewrite + STRATR-01/04 amendments)
 - STRATR-06 HARD GATE clean on `docs/STRATEGY.md` AND on `15-AUDIT.md` (defensive)
-- Phase 15 gate emits GREEN via `15-AUDIT.md` (line: `**Phase 15 gate: GREEN.**`)
-- Phase 15 ready to close; downstream Phase 16 (Website Refresh) can now consume `docs/STRATEGY.md` for SITE-04 / SITE-07
+- Phase 15 gate emits GREEN via `15-AUDIT.md` (lines: `**Phase 15 gate: GREEN.**` original + `**Phase 15 gate: GREEN (post-2026-05-23 amendment).**` post-amendment)
+- Phase 15 stays closed; downstream Phase 16 (Website Refresh) can consume `docs/STRATEGY.md` for SITE-04 / SITE-07
 
 ## Plan commits
 
 - `35b2633` — `docs(15-01): land docs/STRATEGY.md + amend REQUIREMENTS.md STRATR-02`
 - `4e09707` — `docs(15-02): phase-close audit 15-AUDIT.md (Phase 15 GREEN)`
 - `24c6072` — `docs(15-02): plan summary 15-02-SUMMARY.md`
+- (this commit) — `docs(15): rewrite execution principles + amend STRATR-01/04`

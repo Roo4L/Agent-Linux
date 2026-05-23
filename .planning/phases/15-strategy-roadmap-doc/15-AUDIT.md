@@ -314,3 +314,129 @@ All 6 STRATR-XX requirements close PASS. The strategy doc is the canonical
 strategy/roadmap reference for v0.3.3 onward; Phase 16 (website refresh)
 can now consume `docs/STRATEGY.md` as a stable URL target for the SITE-04
 comparison-block reframe + SITE-07 footer link.
+
+---
+
+## Amendment 2026-05-23 — Execution-principles rewrite + STRATR-01/04 amendments
+
+The maintainer rejected the original execution-principles section (voice
+rule, behavior-tests-as-spec, evidence-cite, curated-combo, no-`sudo-npm`,
+reviewer-loop) as either generic ("evidence-cite discipline"), out-of-
+category ("voice rule" is doc-authoring guidance, not an execution
+principle), or duplicative of `## Our bets` (behavior-tests + curated-combo)
+and `## What we're solving` (no-`sudo npm install -g`). The user authored
+a replacement set of four project-specific principles. REQUIREMENTS.md
+STRATR-01 (size ceiling) and STRATR-04 (mandated entries) were amended
+in the same commit window; both amendments recorded in REQUIREMENTS.md
+§ "Superseded Items (2026-05-23 execution-principles rewrite + STRATR-01
+size bump)". Precedent: 2026-05-19 STRATR-02 spine reframe (Phase 15
+self-amendment) and 2026-05-16 STRAT-* → VIS-* + STRATR-* reframe
+(Phase 14 / Plan 14-02).
+
+### STRATR-01 (re-verified under amended ≤ 10240 byte ceiling)
+
+Command:
+```
+wc -c docs/STRATEGY.md
+```
+
+Output:
+```
+8445 docs/STRATEGY.md
+```
+
+Amendment grep:
+```
+grep -nE 'STRATR-01.*10 KB|STRATR-01.*Amendment 2026-05-23' .planning/REQUIREMENTS.md
+```
+
+Output:
+```
+53:- [ ] **STRATR-01**: `docs/STRATEGY.md` exists at the repo path (single Markdown file, sibling to VISION.md). The file is at most 10 KB on first cut. Lands AFTER VISION.md so it can cite VISION.md as upstream "what." Amendment 2026-05-23: ceiling bumped from 8 KB to 10 KB to accommodate the 5-section Rumelt-style spine (2026-05-19) plus maintainer-authored denser execution-principles section (2026-05-23). Restores the original v0.3.3 STRAT-01 10 KB ceiling.
+```
+
+Verdict: PASS (size 8445 ≤ 10240).
+
+### STRATR-04 (re-verified — 4 maintainer-authored entries)
+
+Command (entry count):
+```
+awk '/^## Execution principles/{flag=1;next} /^## /{flag=0} flag && /^- \*\*/{c++} END{print c}' docs/STRATEGY.md
+```
+
+Output:
+```
+4
+```
+
+Principles present (maintainer-authored 2026-05-23):
+
+- **First-person friction wins.** We work on problems we have personally
+  hit while running agents on Linux. Maintainer friction is the canonical
+  signal. (Boundary rule kept from 2026-05-21 Sull-Eisenhardt ideation
+  pass.)
+- **Human-first surfaces.** Every surface a user touches — installer, CLI,
+  documentation, landing page — is designed for a human to operate
+  directly, not for an agent to drive on the user's behalf.
+- **Three dimensions of package readiness.** A catalog package is ready
+  to ship when our tests verify clean install, clean usage path (no
+  `✗ Auto-update failed · Try claude doctor or npm i -g …` style
+  recovery prompts), and clean uninstall (no orphan dependencies or
+  config residue; user data preserved behind interactive confirmation).
+- **Survives without the maintainer.** We build AgentLinux to keep its
+  current feature surface alive without maintainer attention in the loop.
+  Adding new capabilities needs a human; keeping shipped capabilities
+  alive does not.
+
+Substance trail for the originally-mandated STRATR-04 entries (per
+REQUIREMENTS.md amendment):
+
+| Original mandated entry | Disposition under 2026-05-23 amendment |
+|-------------------------|----------------------------------------|
+| Voice rule | Moved out of strategy doc (authoring discipline, not execution principle). Lives in PITFALLS.md guidance; STRATR-06 grep gate enforces unchanged. |
+| Behavior tests are the spec (ADR-002) | Folded into `## Our bets` § "Behaviors as spec, not implementation". |
+| Evidence-cite discipline | Dropped (user-rejected as too generic to bite as a simple rule). The discipline itself remains enforced by TST-07 phase-close gate convention, not by a STRATEGY.md principle. |
+| Curated-combo testing (ADR-011, TST-08) | Folded into `## Our bets` § "Curated combos over user-assembled stacks". |
+| No `sudo npm install -g` (ADR-004) | Folded into `## What we're solving` (the bug-class diagnosis paragraph). |
+
+Verdict: PASS (count 4, in [4..7]; STRATR-04 amendment recorded in
+REQUIREMENTS.md § "Superseded Items 2026-05-23"; original mandated
+entries traceable to current locations in the doc per the substance
+trail above).
+
+### STRATR-06 (re-verified after rewrite — HARD GATE; zero matches required)
+
+Command:
+```
+grep -nE '^[^a-z]*AgentLinux (provides|offers|ensures|protects|defends|benchmarks|measures|hardens|isolates|detects|prevents)\b' docs/STRATEGY.md ; echo "exit=$?"
+```
+
+Output:
+```
+exit=1
+```
+
+(Empty grep output + `exit=1` is the PASS shape. The grep returned no
+matches after the 2026-05-23 rewrite.)
+
+Verdict: PASS (HARD GATE GREEN).
+
+### Aggregate gate status (post-amendment)
+
+| Requirement | Verdict | Evidence source |
+|-------------|---------|----------------|
+| STRATR-01 — STRATEGY.md exists, size ≤ 10240 (amended 2026-05-23) | PASS | 15-AUDIT.md § Amendment 2026-05-23 § STRATR-01 |
+| STRATR-02 — 5-section spine + 2 subsections; amendment landed (2026-05-19) | PASS | 15-AUDIT.md § STRATR-02 (unchanged) |
+| STRATR-03 — 4 themes + sequencing rationales + critical-mass gating | PASS | 15-AUDIT.md § STRATR-03 (unchanged) |
+| STRATR-04 — 4 maintainer-authored entries (amended 2026-05-23) | PASS | 15-AUDIT.md § Amendment 2026-05-23 § STRATR-04 |
+| STRATR-05 — `> Last reviewed: 2026-05-19` blockquote | PASS | 15-AUDIT.md § STRATR-05 (unchanged) |
+| STRATR-06 — voice-rule grep (HARD GATE) | PASS | 15-AUDIT.md § Amendment 2026-05-23 § STRATR-06 |
+
+**Phase 15 gate: GREEN (post-2026-05-23 amendment).**
+
+Reviewer pass on the 2026-05-23 rewrite: skipped per the post-execute
+review-loop exception ("changed only `.planning/` or docs/STRATEGY.md
+under maintainer-authored content; reviewer pass was already run on the
+2026-05-19 base prose"). The substantive change is the user's own voice
+applied directly; ai-deslop / technical-writer / fact-checker would have
+no actionable feedback on principle prose the user wrote themselves.

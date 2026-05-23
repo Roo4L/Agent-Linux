@@ -111,29 +111,40 @@ them.
 
 ## Execution principles
 
-- **Voice rule** — Never `AgentLinux + present-tense verb` for unshipped
-  behaviour. Forward-looking claims use "we" / "our roadmap" / an
-  explicit milestone identifier as grammatical subject. Enforced by an
-  automated grep gate on every authored doc. (VIS-07, STRATR-06.)
-- **Behavior tests are the spec** — The bats suite at `tests/bats/` is
-  the contract; implementation can vary as long as BHV / RT / AGT / CLI
-  / CAT / INST tests stay green. ([ADR-002](decisions/002-behavior-contract-framing.md).)
-- **Evidence-cite discipline** — Phase-close audits (`<phase-NN>-AUDIT.md`)
-  cite file paths, line ranges, commit hashes, and grep transcripts per
-  requirement. The audit is the gate. (TST-07; 14-AUDIT.md precedent.)
-- **Curated-combo testing** — Every release ships a `pinned_version`
-  set tested end-to-end by the 4-gate release pipeline (pre-commit →
-  Docker matrix → QEMU matrix → pinned-combo gate). A red combo cannot
-  ship. ([ADR-011](decisions/011-stability-first-version-pinning.md),
-  TST-08, [STABILITY-MODEL.md](STABILITY-MODEL.md).)
-- **No `sudo npm install -g` anywhere** — All catalog installs run as
-  `sudo -u agent -H npm install -g`. The whole point of the v0.3.0
-  plugin is to eliminate the EACCES + recursive-shim bug class; the
-  installer enforces it. ([ADR-004](decisions/004-per-user-npm-prefix.md).)
-- **Reviewer feedback loop** — Substantive changes to `plugin/` /
-  `tests/` / `docs/` run through the project-scoped review subagents
-  (bash-engineer, qa-engineer, security-engineer, ai-deslop, etc.)
-  before merge. ([HARNESS.md](HARNESS.md) §4, ADR-010.)
+- **First-person friction wins.** We work on problems we have personally
+  hit while running agents on Linux. Outside requests, market signals,
+  and competitor moves inform our thinking; they do not authorize work.
+  Maintainer friction is the canonical signal.
+
+- **Human-first surfaces.** Every surface a user touches — installer,
+  CLI, documentation, landing page — is designed for a human to operate
+  directly, not for an agent to drive on the user's behalf. Install is
+  one command. Commands read like English. Documentation is progressive:
+  a user reads what they need at their current depth without slogging
+  through reference manuals. We refuse complexity in user-facing surfaces
+  even when the implementation underneath is intricate.
+
+- **Three dimensions of package readiness.** A catalog package is ready
+  to ship when our tests verify all three:
+  1. **Clean install** — no warnings, errors, or recovery prompts.
+  2. **Clean usage path** — the package works as advertised on first
+     use. Claude Code is ready to run; GSD's commands surface inside
+     Claude Code; nothing prints `✗ Auto-update failed · Try claude
+     doctor or npm i -g …`. If we disable an upstream auto-update, we
+     do it the way the package expects — not by leaving the user with a
+     broken-looking message.
+  3. **Clean uninstall** — no orphan dependencies, config residue, or
+     polluted state. User data may be preserved behind an interactive
+     confirmation so the user can reinstall later without losing their
+     settings.
+
+- **Survives without the maintainer.** We build AgentLinux to keep its
+  current feature surface alive without maintainer attention in the
+  loop. Adding new capabilities needs a human; keeping shipped
+  capabilities alive does not. Our roadmap commits to upstream updates
+  landing automatically, the curated combo retesting itself on a
+  schedule, and regressions surfacing to a queue rather than a person.
+  Autonomy infrastructure comes before new features.
 
 ## Related
 

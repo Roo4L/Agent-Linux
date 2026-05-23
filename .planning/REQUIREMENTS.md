@@ -50,7 +50,7 @@ Grouped by category. Each `XXX-NN` is a verifiable outcome — a document sectio
 
 ### Strategy / Roadmap Document (STRATR) — Phase 15
 
-- [ ] **STRATR-01**: `docs/STRATEGY.md` exists at the repo path (single Markdown file, sibling to VISION.md). The file is at most 8 KB on first cut. Lands AFTER VISION.md so it can cite VISION.md as upstream "what."
+- [ ] **STRATR-01**: `docs/STRATEGY.md` exists at the repo path (single Markdown file, sibling to VISION.md). The file is at most 10 KB on first cut. Lands AFTER VISION.md so it can cite VISION.md as upstream "what." Amendment 2026-05-23: ceiling bumped from 8 KB to 10 KB to accommodate the 5-section Rumelt-style spine (2026-05-19) plus maintainer-authored denser execution-principles section (2026-05-23). Restores the original v0.3.3 STRAT-01 10 KB ceiling.
 
 - [ ] **STRATR-02**: The doc's spine reflects Rumelt-style strategy structure (diagnosis + guiding policy + state + plan + principles), in this order: `## What we're solving` (the diagnosis — narrow bug-class AgentLinux eliminates, grounded against VISION.md upstream), `## Our bets` (the guiding policy — 2-3 load-bearing strategic choices with one-line why each), `## Where we are now` (honest current state ≤ 1 paragraph; load-bearing current goal: ship first usable release per AL-38 + AlmaLinux), `## What's next` (fused near-term + v0.6+ section — `### Near-term` subsection + `### Themes for v0.6+` subsection), `## Execution principles` (process-level rules cut from VISION.md). `grep -nE '^## (What we'\''re solving|Our bets|Where we are now|What'\''s next|Execution principles)' docs/STRATEGY.md` returns ≥ 5 matches in the prescribed order. Amendment 2026-05-19 (mid-discuss research-driven reframe): supersedes the original 4-section spine (`Where we are now` / `What we're working on next` / `Themes for` / `Execution principles`) which was diagnosed as "roadmap with execution principles bolted on" — missing the diagnosis + guiding-policy moves that distinguish strategy from roadmap per Rumelt, Cagan, Pichler.
 
@@ -58,12 +58,7 @@ Grouped by category. Each `XXX-NN` is a verifiable outcome — a document sectio
    - `Security Hardening` (Phase 13 opportunistic theme — capability-scoped sudoers replacing ADR-012 NOPASSWD ALL, cosign-signed catalog releases, npm provenance verification, bubblewrap-based per-recipe sandbox profile, iptables egress allowlist).
    - Preset / profile framework + compat-guarded update flow (Phase 12 differentiators — `bare` / `must-haves` / `optimum` presets, `web-development`-style profiles, hold-and-wait-on-upstream-breakage policy).
 
-- [ ] **STRATR-04**: The `## Execution principles` section contains the execution-level rules cut from VISION.md. 4–7 entries. At minimum:
-   - Voice rule (delivered-fact vs forward-looking — never "AgentLinux + present-tense verb" for unshipped behaviour).
-   - Behavior tests are the spec (ADR-002).
-   - Evidence-cite discipline (TST-07-style phase-close audits cite file paths, line ranges, commit hashes, grep transcripts).
-   - Curated-combo testing (TST-08 4-gate release pipeline — pre-commit → docker matrix → QEMU matrix → pinned-combo gate).
-   - No `sudo npm install -g` anywhere (ADR-004 — always `sudo -u agent -H npm install -g`).
+- [ ] **STRATR-04**: The `## Execution principles` section contains 4–7 entries, each anchored in a project-specific decision pattern (not generic software-development conventions). Amendment 2026-05-23: the original mandated entries (voice rule, behavior tests, evidence-cite, curated-combo, no sudo npm install -g) were superseded by maintainer-authored principles. Substance preserved: behavior-tests-as-spec + curated-combo testing both live in `## Our bets`; no-`sudo npm install -g` lives in `## What we're solving`. Voice rule moved out of strategy doc per user direction (authoring-discipline rule, not an execution principle). Evidence-cite dropped (user-rejected as too generic to bite). The maintainer-authored replacements are listed in 15-AUDIT.md § STRATR-04.
 
 - [ ] **STRATR-05**: A top-of-file `> Last reviewed:` blockquote (first non-blank line after the H1). `head -5 docs/STRATEGY.md | grep -E '^> Last reviewed: 2026-05'` returns 1 match.
 
@@ -213,6 +208,15 @@ The following requirement was amended in the Phase 15 commit window per the mid-
 | Old ID | Disposition |
 |--------|-------------|
 | STRATR-02 (4-section spine: `Where we are now` / `What we're working on next` / `Themes for` / `Execution principles`; ≥ 4 grep matches) | Amended in-place: STRATR-02 (5-section Rumelt-style spine: `What we're solving` / `Our bets` / `Where we are now` / `What's next` / `Execution principles`; ≥ 5 grep matches; `### Near-term` + `### Themes for v0.6+` as subsections under `## What's next`). Substance preserved (status content moves into `## Where we are now`; near-term content moves into `### Near-term` subsection; themes move into `### Themes for v0.6+` subsection); diagnosis + guiding-policy moves added (`## What we're solving` + `## Our bets`). |
+
+## Superseded Items (2026-05-23 execution-principles rewrite + STRATR-01 size bump)
+
+The maintainer authored a new `## Execution principles` section in the Phase 15 amendment window after rejecting the originally-mandated entries as generic ("evidence-cite," "behavior tests are spec") or out-of-category ("voice rule"). STRATR-01 ceiling bumped to accommodate denser principle prose. Precedent: 2026-05-19 STRATR-02 spine reframe and 2026-05-16 STRAT-* → VIS-* + STRATR-* reframe.
+
+| Old ID | Disposition |
+|--------|-------------|
+| STRATR-01 (≤ 8 KB ceiling) | Amended in-place: STRATR-01 (≤ 10 KB ceiling). The 8 KB ceiling was set when the doc was scoped for the original 4-section spine + brief bulleted principles. The 5-section Rumelt-style spine (2026-05-19) + maintainer-authored execution principles (2026-05-23) push the natural landing past 8 KB. Restores the original v0.3.3 STRAT-01 10 KB ceiling pre-Phase-14 split. |
+| STRATR-04 (mandated entries: voice rule, behavior tests, evidence-cite, curated-combo, no sudo npm install -g) | Amended in-place: STRATR-04 (4-7 entries; project-specific patterns; no mandated entries). Substance preserved: behavior-tests-as-spec + curated-combo testing folded into `## Our bets`; no-`sudo npm install -g` folded into `## What we're solving`. Voice rule moved out of strategy doc per user direction (lives as authoring discipline, not execution principle). Evidence-cite dropped (user-rejected as too generic to bite). Maintainer-authored replacements: First-person friction wins; Human-first surfaces; Three dimensions of package readiness; Survives without the maintainer. |
 
 ## Deferred Items
 
