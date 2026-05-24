@@ -12,7 +12,7 @@ across upstream churn). See [docs/VISION.md](docs/VISION.md) for the
 full framing. Pillar 1 is what v0.3.0 already shipped — contributions
 landing in the agent-user / runtime / catalog surface area are welcome
 today. Pillar 2 is early-stage — the supply-chain monitoring + curated
-catalog admission sub-concern (Phase 13 verdict, folded into Pillar 2)
+catalog admission sub-concern (Phase 14 verdict, folded into Pillar 2)
 locks at v0.3.3, but the mechanism work lands later (v0.6+). Pillar-2
 contributions are welcome with the heads-up that the framing locked in
 v0.3.3 and the implementation primitives ship in a later milestone.

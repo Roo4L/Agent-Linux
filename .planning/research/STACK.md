@@ -53,10 +53,10 @@ The synthesizer should hand this directly to the requirements-definition pass. E
 
 > One-paragraph elevator opener: what AgentLinux is, who it serves, and why
 > v0.5.0 broadened from one pillar to three. Anchor link to AL-7 and to the
-> framing ADR (slot reserved for ADR-015).
+> framing ADR (slot reserved for ADR-016).
 
 Quicklinks:
-- ADR-015 — Three-pillar product framing (the framing decision)
+- ADR-016 — Three-pillar product framing (the framing decision)
 - docs/STABILITY-MODEL.md — pillar 2 seed (ADR-011)
 - README.md — install + verify story
 - agentlinux.org — public landing page (refreshed to mirror this framing)
@@ -232,7 +232,7 @@ The doc is the hub of a small star network. Phase A wires these in *both directi
 
 ### New ADR slot reserved
 
-**ADR-015 — Three-pillar product framing (v0.5.0 agenda redefinition).** Authored alongside `STRATEGY.md` in Phase A. Captures: the framing decision, the rejected single-pillar alternative ("stay at v0.3.0 framing forever"), the rejected over-broad alternative ("five pillars including DX and ecosystem"), and the AL-7 connection. Both `docs/STRATEGY.md` and ADR-015 cross-link to each other. Same pattern as `STABILITY-MODEL.md` ↔ ADR-011.
+**ADR-016 — Three-pillar product framing (v0.5.0 agenda redefinition).** Authored alongside `STRATEGY.md` in Phase A. Captures: the framing decision, the rejected single-pillar alternative ("stay at v0.3.0 framing forever"), the rejected over-broad alternative ("five pillars including DX and ecosystem"), and the AL-7 connection. Both `docs/STRATEGY.md` and ADR-016 cross-link to each other. Same pattern as `STABILITY-MODEL.md` ↔ ADR-011.
 
 ### Documents that gain a back-pointer to STRATEGY.md
 
@@ -272,7 +272,7 @@ The field of OSS dev-tools projects with explicit, in-repo strategy docs is **sp
 | **Five+ pillars** | The whole point of AL-7 is broadening *to three* — five would dilute and re-trigger the "too narrow / too broad" oscillation | Lock at exactly three; reserve a "themes" section for everything else |
 | **Quantitative commitments without baselines** ("benchmark X% faster than vanilla") | Pillar 2 implementation hasn't built the benchmark harness yet; strategy doc is the wrong place to commit a number | Use directional language ("measurable benchmarks vs vanilla on three axes: tokens, speed, success rate") and defer the numbers to the v0.6+ benchmarks milestone |
 | **Mixing strategy with tactics** | Strategy doc bloats with how-to detail and stops being strategy (Rumelt's #1 bad-strategy failure mode: confusing goals with strategy) | Tactics live in milestone planning (`.planning/MILESTONES.md`, ROADMAP.md). STRATEGY.md sticks to *what* and *why* |
-| **Linking to private/internal sources** (Jira AL-7 from public-facing strategy doc paragraph) | Public OSS contributors can't read Jira; broken-trust signal | Reference AL-7 as the *authoring origin* in ADR-015 (which is metadata) but make STRATEGY.md self-contained for any public reader |
+| **Linking to private/internal sources** (Jira AL-7 from public-facing strategy doc paragraph) | Public OSS contributors can't read Jira; broken-trust signal | Reference AL-7 as the *authoring origin* in ADR-016 (which is metadata) but make STRATEGY.md self-contained for any public reader |
 | **Adding the strategy doc to `.planning/`** | `.planning/` is GSD workflow state, not documentation (per CLAUDE.md project context) — would hide the doc from external contributors | `docs/STRATEGY.md` per the location decision above |
 
 ---

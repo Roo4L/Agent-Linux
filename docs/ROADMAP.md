@@ -21,14 +21,14 @@ The v0.3.0 plugin ships against Ubuntu 22.04 / 24.04 / 26.04. Every
 release verifies Claude Code's zero-EACCES self-update end-to-end
 against the live Anthropic CDN. The v0.4.0 license flip made the project
 OSS-MIT on 2026-05-09. The v0.3.3
-milestone — the strategy / roadmap framing — closes once Phase 16's
+milestone — the strategy / roadmap framing — closes once Phase 17's
 website refresh ships.
 
 ## What's next
 
 ### Near-term
 
-1. Finish v0.3.3 — the strategy / roadmap split and Phase 16's website
+1. Finish v0.3.3 — the strategy / roadmap split and Phase 17's website
    refresh.
 2. Ship v0.3.4 Aware Installation Process
    ([AL-38](https://copiedwonder.atlassian.net/browse/AL-38)) — the
@@ -41,7 +41,7 @@ website refresh ships.
 
 #### Security Hardening
 
-We carry an opportunistic security-hardening theme from the Phase 13
+We carry an opportunistic security-hardening theme from the Phase 14
 exploration: a capability-scoped sudoers profile replacing the current
 passwordless-sudo-for-everything default, cosign-signed catalog releases,
 npm provenance verification at install time, a bubblewrap-based per-recipe
@@ -53,7 +53,7 @@ gating signal for which NOPASSWD scope we can honestly cut.
 
 #### Preset / profile framework + compat-guarded update flow
 
-The Phase 12 differentiators: `bare` / `must-haves` / `optimum` presets,
+The Phase 13 differentiators: `bare` / `must-haves` / `optimum` presets,
 `web-development`-style profiles, and a hold-and-wait-on-upstream-breakage
 policy for the catalog update pipeline.
 **Sequencing rationale:** Builds on the `pinned_version` foundation

@@ -144,7 +144,7 @@ Time-ordered work against these conditions lives in
 
 - [Vision](VISION.md) — the canonical "what we want to be" doc this strategy operationalizes.
 - [Roadmap](ROADMAP.md) — the time-ordered work that follows from this strategy.
-- [Agenda redefinition](decisions/015-agenda-redefinition.md) — the 2026-05-16 framing decision (two pillars + vision / strategy split).
+- [Agenda redefinition](decisions/016-agenda-redefinition.md) — the 2026-05-16 framing decision (two pillars + vision / strategy split).
 - [Behavior tests as spec](decisions/002-behavior-contract-framing.md) — the bats suite is the contract; implementation can vary.
 - [Per-user npm prefix](decisions/004-per-user-npm-prefix.md) — why we never `sudo npm install -g`.
 - [Stability-first version pinning](decisions/011-stability-first-version-pinning.md) — the curated-combo bet's underlying decision.

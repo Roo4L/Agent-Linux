@@ -1,16 +1,16 @@
 # Pillar 3 Candidate Exploration — Security Hardening (declined as a pillar)
 
-> Phase 13 verdict. Phase 14 lifts the `## Decision summary` section verbatim
+> Phase 14 verdict. Phase 15 lifts the `## Decision summary` section verbatim
 > into `docs/STRATEGY.md` Appendix B's "Security Hardening" theme entry (not
 > into a Pillar 3 — verdict (b) means there is no Pillar 3). DOC-05
-> (ADR-012 forward-reference to a Pillar 3) closes as N/A in `14-AUDIT.md`;
+> (ADR-012 forward-reference to a Pillar 3) closes as N/A in `15-AUDIT.md`;
 > the unresolved ADR-012 tension is recorded inside Pillar 2's STRATEGY.md
 > section as a known limitation, not via an ADR file edit.
 >
 > Locked: 2026-05-10. Source: `.planning/research/SUMMARY.md` §5,
 > `.planning/research/FEATURES.md` Pillar 3 section (lines 97-200),
 > `.planning/research/PITFALLS.md`. Locked decisions:
-> `.planning/phases/13-pillar-3-candidate-exploration/13-CONTEXT.md`.
+> `.planning/phases/14-pillar-3-candidate-exploration/14-CONTEXT.md`.
 
 ## Verdict
 
@@ -20,7 +20,7 @@ The one substantive forward-looking commitment we draw from the security
 landscape — active supply-chain monitoring + curated catalog admission — folds
 into Pillar 2 as a sub-concern of its compat-guarded version pinning gate.
 Only two pillars ship in `docs/STRATEGY.md`. DOC-05 (ADR-012's forward-reference
-to a Pillar 3) closes as N/A in `14-AUDIT.md`; the unresolved tension is
+to a Pillar 3) closes as N/A in `15-AUDIT.md`; the unresolved tension is
 recorded inside Pillar 2's section as a known limitation. "Security Hardening"
 stays as a v0.6+ `opportunistic` theme in Appendix B, not as a pillar.
 
@@ -157,7 +157,7 @@ each get one paragraph so future readers do not re-open the question.
 
 ## Decision summary
 
-> Phase 14 lifts this section verbatim into `docs/STRATEGY.md` Appendix B's
+> Phase 15 lifts this section verbatim into `docs/STRATEGY.md` Appendix B's
 > "Security Hardening" theme entry (NOT into a Pillar 3 section).
 
 Verdict: (b) Fold into Pillar 2 as a sub-concern — security is not a separate

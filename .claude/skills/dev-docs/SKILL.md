@@ -5,9 +5,9 @@ description: Use when the task touches plugin/bin/, plugin/lib/, plugin/provisio
 
 # dev-docs — docs/internals/ contract for AgentLinux developer docs
 
-**Status:** Active. Established in Phase 12 (DOC-01..DOC-07). The `docs/internals/` tree shipped 9 component docs alongside this skill and the `dev-docs-auditor` reviewer.
+**Status:** Active. Established in Phase 13 (DOC-01..DOC-07). The `docs/internals/` tree shipped 9 component docs alongside this skill and the `dev-docs-auditor` reviewer.
 
-Authoritative spec: `docs/HARNESS.md` §4 (review loop) + this skill body. Decisions: ADR-010 (review loop via CLAUDE.md, refined 2026-05-02 to allow reminder hooks with `stop_hook_active` guard) — and the deliberate Phase 12 decision to NOT add a third reminder hook (recorded in `docs/decisions/015-developer-internals-docs.md`, lands in Phase 12 Plan 05).
+Authoritative spec: `docs/HARNESS.md` §4 (review loop) + this skill body. Decisions: ADR-010 (review loop via CLAUDE.md, refined 2026-05-02 to allow reminder hooks with `stop_hook_active` guard) — and the deliberate Phase 13 decision to NOT add a third reminder hook (recorded in `docs/decisions/015-developer-internals-docs.md`, lands in Phase 13 Plan 05).
 Requirements this skill helps enforce: DOC-01 (index doc), DOC-02 (component docs), DOC-03 (reviewer agent registered), DOC-04 (skill exists), DOC-05 (top-level discoverability), DOC-06 (no new hook), DOC-07 (ADR captures the design).
 
 ## When to use this skill
@@ -94,11 +94,11 @@ Concretely:
 
 AgentLinux already has two reminder hooks (`.claude/hooks/review-reminder.sh` and `.claude/hooks/session-tracker-reminder.sh`), both wired per the ADR-010 2026-05-02 refinement (reminder hooks with a `stop_hook_active` one-shot guard are allowed; reviewer-invoking hooks remain rejected).
 
-Adding a third hook for docs/internals/ sync would multiply reminder noise without adding value: the existing `review-reminder.sh` already nudges Claude to run the review loop, and the review loop already routes plugin/ changes to the `dev-docs-auditor` per the CLAUDE.md "Review Loop" routing table. The dev-docs check rides inside the existing review loop; no new hook is needed. ADR-015 (lands in Phase 12 Plan 05) records this decision in full.
+Adding a third hook for docs/internals/ sync would multiply reminder noise without adding value: the existing `review-reminder.sh` already nudges Claude to run the review loop, and the review loop already routes plugin/ changes to the `dev-docs-auditor` per the CLAUDE.md "Review Loop" routing table. The dev-docs check rides inside the existing review loop; no new hook is needed. ADR-016 (lands in Phase 13 Plan 05) records this decision in full.
 
 ## Growth plan
 
-- **Phase 12 (this phase):** Skill ships alongside the 9 initial component docs and the `dev-docs-auditor` reviewer. This skill carries the dispatch table and the four-section contract.
+- **Phase 13 (this phase):** Skill ships alongside the 9 initial component docs and the `dev-docs-auditor` reviewer. This skill carries the dispatch table and the four-section contract.
 - **Future milestones — new components added under `plugin/`:** Each new top-level surface (a new provisioner step, a new CLI command class, a new catalog backend, a new agent in the catalog) ships its own `docs/internals/<surface>.md` in the same PR and adds a row to the dispatch table here.
 - **Future milestones — if drift becomes a real problem:** The skill may absorb a stronger link discipline (e.g. mandated ADR cross-references in the Related footer). Currently out of scope per CONTEXT §"Deferred Ideas."
 - **Future milestones — if the docs grow:** Consider a documentation site (mdBook, Docusaurus). Currently out of scope per CONTEXT §"Deferred Ideas" — markdown in the repo is sufficient for the project owner's stated goal.
@@ -110,4 +110,4 @@ Adding a third hook for docs/internals/ sync would multiply reminder noise witho
 - ADRs: 010 (review loop via CLAUDE.md, refined 2026-05-02), 015 (developer internals docs — no new hook decision; lands in Plan 05).
 - Subagents: `dev-docs-auditor` (the reviewer this skill backs).
 - Sibling skills: `agentlinux-installer`, `behavior-test-contract`, `catalog-schema`, `qemu-harness`, `review`, `workspace-cleanup`.
-- Top-level pointers: `CLAUDE.md` "Review Loop" section (where the reviewer is wired) and "Pointers" section (where this skill is enumerated). Both are updated in Phase 12 Plan 04.
+- Top-level pointers: `CLAUDE.md` "Review Loop" section (where the reviewer is wired) and "Pointers" section (where this skill is enumerated). Both are updated in Phase 13 Plan 04.

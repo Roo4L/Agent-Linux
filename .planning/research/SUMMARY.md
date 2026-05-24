@@ -15,7 +15,7 @@
 **Genuinely locked by research (downstream phases consume as fixed input):**
 
 - L1, L2, L3, L4 — Strategy-doc framework spine, three named inserts, location, format.
-- L5 — ADR-015 slot reserved (the *slot* is locked; the *contents* are milestone-decided).
+- L5 — ADR-016 slot reserved (the *slot* is locked; the *contents* are milestone-decided).
 - L6 — Website propagation pattern (restructure IA + link out; reject CI render).
 - L7 — Voice rule (delivered-fact vs forward-looking) + automated grep gate.
 - L9 — Today / Direction subsection split per pillar.
@@ -26,19 +26,19 @@
 
 **NOT locked — milestone-decided in exploration phases:**
 
-- **Pillar count.** AL-7 proposed three pillars. The milestone may land on 2 (env + stability, with security folded in or treated as cross-cutting) or 3 (env + stability + security as full pillar). Phase 13 produces the verdict.
-- **Pillar 2 contents** (everything in §4 — table-stakes, differentiators, non-goals, what AgentLinux measures, which eval suites it cites). The user's current direction: pillar 2 = **stability + time-to-productive (automation of package installations + problem reconciliations across upstream drift)**. Benchmarks may end up as *one possible measurement layer* rather than the headline. Phase 12 explores the value proposition and decides scope; §4 is **raw material** (the eval-suite landscape, the `time-to-productive` framing, the vanilla-comparison honesty rule), not the pre-locked content.
-- **Pillar 3 contents** (everything in §5). Phase 13 explores the candidate AND decides whether security is a pillar at all. §5 is **raw material** (the Lethal Trifecta / Rule of Two frames, the Shai-Hulud + TrustFall + Cline + chalk/debug attack inventory, the npm provenance + SLSA + cosign + bubblewrap + capability-scoped sudoers defense inventory) for the exploration to draw from, not the pre-locked content.
-- **L8 (ADR-012 NOPASSWD position).** Marked as "locked" in the original synthesis; it is not. If Phase 13 decides security is *not* a pillar, the ADR-012 framing changes shape entirely. If Phase 13 keeps security as a pillar, it gets to decide what the pillar commits to (revisit via opt-in `agentlinux harden`? something else? nothing for v0.6+?). The verbatim language in the original L8 is a **candidate position**, not the verdict.
-- **Pillar priority** (Pitfall #4 forcing function). The strategy doc must assign each surviving pillar a `foundational` / `next-milestone` / `opportunistic` tag. **User direction**: pillar 1 = `foundational` (settled by v0.3.0 reality), pillar 2 = `next-milestone` (definitely top priority NOW per user, framed as stability + time-to-productive). Pillar 3's priority depends on whether it survives Phase 13.
+- **Pillar count.** AL-7 proposed three pillars. The milestone may land on 2 (env + stability, with security folded in or treated as cross-cutting) or 3 (env + stability + security as full pillar). Phase 14 produces the verdict.
+- **Pillar 2 contents** (everything in §4 — table-stakes, differentiators, non-goals, what AgentLinux measures, which eval suites it cites). The user's current direction: pillar 2 = **stability + time-to-productive (automation of package installations + problem reconciliations across upstream drift)**. Benchmarks may end up as *one possible measurement layer* rather than the headline. Phase 13 explores the value proposition and decides scope; §4 is **raw material** (the eval-suite landscape, the `time-to-productive` framing, the vanilla-comparison honesty rule), not the pre-locked content.
+- **Pillar 3 contents** (everything in §5). Phase 14 explores the candidate AND decides whether security is a pillar at all. §5 is **raw material** (the Lethal Trifecta / Rule of Two frames, the Shai-Hulud + TrustFall + Cline + chalk/debug attack inventory, the npm provenance + SLSA + cosign + bubblewrap + capability-scoped sudoers defense inventory) for the exploration to draw from, not the pre-locked content.
+- **L8 (ADR-012 NOPASSWD position).** Marked as "locked" in the original synthesis; it is not. If Phase 14 decides security is *not* a pillar, the ADR-012 framing changes shape entirely. If Phase 14 keeps security as a pillar, it gets to decide what the pillar commits to (revisit via opt-in `agentlinux harden`? something else? nothing for v0.6+?). The verbatim language in the original L8 is a **candidate position**, not the verdict.
+- **Pillar priority** (Pitfall #4 forcing function). The strategy doc must assign each surviving pillar a `foundational` / `next-milestone` / `opportunistic` tag. **User direction**: pillar 1 = `foundational` (settled by v0.3.0 reality), pillar 2 = `next-milestone` (definitely top priority NOW per user, framed as stability + time-to-productive). Pillar 3's priority depends on whether it survives Phase 14.
 
-**The strategy-doc authoring phase (Phase 14 below) consumes the EXPLORATION OUTPUTS, not §4/§5 directly.** §4 and §5 stay in the synthesis as the landscape researchers gathered, useful for the exploration phases to draw from.
+**The strategy-doc authoring phase (Phase 15 below) consumes the EXPLORATION OUTPUTS, not §4/§5 directly.** §4 and §5 stay in the synthesis as the landscape researchers gathered, useful for the exploration phases to draw from.
 
 ---
 
 ## 1 · Executive Summary
 
-v0.3.3 broadens AgentLinux from a single-pillar product (separated, correctly-owned agent environment) to a three-pillar product (env + stability/benchmarks + security hardening), where pillars 2 and 3 are **forward-looking** and land in v0.6+. The milestone ships *framing*, not implementation: a canonical strategy doc at `docs/STRATEGY.md`, an ADR (slot ADR-015) recording the framing decision, and a website refresh that propagates the new positioning to agentlinux.org.
+v0.3.3 broadens AgentLinux from a single-pillar product (separated, correctly-owned agent environment) to a three-pillar product (env + stability/benchmarks + security hardening), where pillars 2 and 3 are **forward-looking** and land in v0.6+. The milestone ships *framing*, not implementation: a canonical strategy doc at `docs/STRATEGY.md`, an ADR (slot ADR-016) recording the framing decision, and a website refresh that propagates the new positioning to agentlinux.org.
 
 The four parallel research passes converge cleanly. The doc's spine is the **Sourcegraph "Strategy Page" template** (the only public, MIT-licensed, dev-tools-authored template that prompts for "what we're not working on & why"), anchored by **Rumelt's Diagnosis → Guiding Policy → Coherent Action kernel** as a hidden review checklist. Three named inserts give the doc its AgentLinux character: a **Geoffrey Moore positioning sentence** inside Mission, **Amazon-style Tenets** as the framing for the three pillars, and a one-page **Roman Pichler Vision Board** appendix for scanability. The doc lives at `docs/STRATEGY.md` (single Markdown file, sibling to `STABILITY-MODEL.md` and `HARNESS.md`) — the in-repo convention is too strong to deviate from.
 
@@ -56,10 +56,10 @@ These are settled by the four-researcher convergence; downstream phases consume 
 | L2 | **Three named inserts** = Geoffrey Moore positioning sentence (inside Mission), Amazon-style Tenets (as the framing for the three pillars), Roman Pichler Vision Board (one-page appendix). | STACK.md framework matrix | Each insert does one job extremely well; together they cover positioning + pillar-framing + scanability. |
 | L3 | **Strategy-doc location** = `docs/STRATEGY.md` (single file, ALL-CAPS keystone, sibling to `docs/STABILITY-MODEL.md` and `docs/HARNESS.md`). | ARCHITECTURE.md Part A; STACK.md location matrix | One file, one URL, no rename trap. Folder/tree decomposition is reachable later if the doc passes ~15 KB. |
 | L4 | **Strategy-doc format** = single Markdown file, target 4–8 KB on first cut (same scale as STABILITY-MODEL.md's 5.4 KB). No tree, no embedded canvas image, no Notion/external doc. | STACK.md tooling matrix | Stable, git-diffable, GitHub-rendered, ADR-citable. |
-| L5 | **ADR slot reserved** = **ADR-015 — Three-pillar product framing (v0.3.3 agenda redefinition)**. Lands in the same milestone as `docs/STRATEGY.md`; the two cross-link bidirectionally. | ARCHITECTURE.md Part B; PITFALLS.md #21 | Same pattern as ADR-011 ↔ STABILITY-MODEL.md. ADR-015 records ≥3 considered alternatives (stay single-pillar / pivot security-first / four pillars including observability) per PITFALLS.md #21. |
+| L5 | **ADR slot reserved** = **ADR-016 — Three-pillar product framing (v0.3.3 agenda redefinition)**. Lands in the same milestone as `docs/STRATEGY.md`; the two cross-link bidirectionally. | ARCHITECTURE.md Part B; PITFALLS.md #21 | Same pattern as ADR-011 ↔ STABILITY-MODEL.md. ADR-016 records ≥3 considered alternatives (stay single-pillar / pivot security-first / four pillars including observability) per PITFALLS.md #21. |
 | L6 | **Website propagation strategy** = restructure `index.html` IA to mirror the three-pillar framing (mise.jdx.dev pattern) **+** link out to `docs/STRATEGY.md` from the appropriate section. **Reject** CI-side render of MD → HTML (violates the no-build constraint). | ARCHITECTURE.md Part C | Hand-port; no new tooling; ~1–2 days of focused work. |
 | L7 | **Voice rule** (verbatim from PITFALLS.md): **delivered-fact voice** = present-tense indicative naming a shipped behaviour, links to `@test` / ADR / CI gate / release artefact. **Forward-looking voice** = first-person plural commitment with explicit horizon, no present-tense product subject. NEVER write "AgentLinux benchmarks…" or "AgentLinux defends against…" for unshipped behaviour. **Aspirational drift** = any sentence that uses delivered-fact voice for an unshipped behaviour and is the single most dangerous v0.3.3 pattern. | PITFALLS.md (phrasing-rule glossary, pitfalls #6, #14) | Enforced by `grep -nE '^[^a-z]*AgentLinux (provides\|offers\|ensures\|protects\|defends\|benchmarks\|measures\|hardens\|isolates\|detects\|prevents)\b'` on pillar-2/3 sections — must return zero matches. |
-| L8 | **ADR-012 (NOPASSWD ALL) position** = "Defensible scope choice for v0.3.0; *security debt now* that pillar 3 is being committed to. Pillar 3 commits to *revisiting* the trade-off in v0.6+ via an opt-in `agentlinux harden` profile (capability-scoped sudoers + bubblewrap-based per-recipe sandbox + iptables egress allowlist). v0.3.x default posture unchanged." | FEATURES.md §E (ADR-012 special call-out) | This exact framing goes into both `docs/STRATEGY.md` Pillar 3 *and* ADR-015's Consequences section. |
+| L8 | **ADR-012 (NOPASSWD ALL) position** = "Defensible scope choice for v0.3.0; *security debt now* that pillar 3 is being committed to. Pillar 3 commits to *revisiting* the trade-off in v0.6+ via an opt-in `agentlinux harden` profile (capability-scoped sudoers + bubblewrap-based per-recipe sandbox + iptables egress allowlist). v0.3.x default posture unchanged." | FEATURES.md §E (ADR-012 special call-out) | This exact framing goes into both `docs/STRATEGY.md` Pillar 3 *and* ADR-016's Consequences section. |
 | L9 | **Strategy doc's `Today` / `Direction` split per pillar** — every pillar section is split into `### Today (delivered, vX.Y.Z)` and `### Direction (forward-looking)` subsections with a horizontal rule between them. Pillar 1's `Direction` block is allowed to be "this pillar is foundational; tracked via the bats suite" but the subsection MUST exist for symmetry. | PITFALLS.md #7 | Structural enforcement of the L7 voice rule. |
 | L10 | **Site source location** = repo root (NOT `site/` or `website/`). `index.html`, `CNAME`, `sitemap.xml`, `robots.txt`, `assets/` all at root. | ARCHITECTURE.md "Repo state inspected" §1 | The milestone-context's reference to `site/` is incorrect; the website-refresh phase touches root-level `index.html`. |
 
@@ -73,10 +73,10 @@ Pulled from STACK.md's recommended TOC. Authoring phase plan fills it in; sectio
 # AgentLinux Product Strategy
 
 > One-paragraph elevator opener (what AgentLinux is, who it serves, why
-> v0.3.3 broadened from one pillar to three). Anchor links to AL-7 and ADR-015.
+> v0.3.3 broadened from one pillar to three). Anchor links to AL-7 and ADR-016.
 
 Quicklinks:
-- ADR-015 — Three-pillar product framing
+- ADR-016 — Three-pillar product framing
 - docs/STABILITY-MODEL.md — pillar 2 seed (ADR-011)
 - README.md — install + verify
 - agentlinux.org — public landing page (refreshed to mirror this framing)
@@ -191,7 +191,7 @@ Eight in-repo files cross-link to STRATEGY.md; STRATEGY.md cross-links to nine i
 | Where we are now | ADR-002, ADR-011, ADR-013 |
 | What we're NOT working on | ADR-001 (custom distro), ADR-009 (Snap), ADR-011 (per-agent .debs) |
 | Themes > "Distro Reach" | ADR-009 |
-| Decision provenance | ADR-015 |
+| Decision provenance | ADR-016 |
 
 ### Inbound — these files gain a back-pointer to STRATEGY.md
 
@@ -199,7 +199,7 @@ Eight in-repo files cross-link to STRATEGY.md; STRATEGY.md cross-links to nine i
 |---|---|
 | `README.md` — new sentence in About + link in Links | small surgical |
 | `CONTRIBUTING.md` — new "Why this project exists" paragraph linking to STRATEGY.md | one-line addition |
-| `docs/decisions/015-agenda-redefinition.md` (new) | new file (the v0.3.3 ADR) |
+| `docs/decisions/016-agenda-redefinition.md` (new) | new file (the v0.3.3 ADR) |
 | `docs/decisions/011-stability-first-version-pinning.md` | optional bidirectional link (recommended) |
 | `docs/decisions/012-agent-user-full-sudo.md` | optional bidirectional link (recommended for honest documentation of unresolved tension) |
 | `docs/STABILITY-MODEL.md` — Related section | optional, recommended |
@@ -263,7 +263,7 @@ The synthesis did NOT resolve these; each needs a user call (or a phase-discuss 
 
 | # | Question | Recommended default | Forcing function |
 |---|----------|---------------------|------------------|
-| **OQ-1** | **Phase split:** one phase for strategy doc + ADR-015 vs two separate phases (one for strategy doc, one for ADR)? | Single phase. ADR-015 is small (decision-statement + ≥3 considered alternatives + AL-7 link + Consequences); both artefacts are interlocked and should land in the same merge per PITFALLS.md #21. | Requirements pass needs to know whether STRAT-XX and ADR-XX requirements ladder up to one or two phase plans. |
+| **OQ-1** | **Phase split:** one phase for strategy doc + ADR-016 vs two separate phases (one for strategy doc, one for ADR)? | Single phase. ADR-016 is small (decision-statement + ≥3 considered alternatives + AL-7 link + Consequences); both artefacts are interlocked and should land in the same merge per PITFALLS.md #21. | Requirements pass needs to know whether STRAT-XX and ADR-XX requirements ladder up to one or two phase plans. |
 | **OQ-2** | **Website refresh phase shape:** single phase for content + IA + meta-tag rewrites, or split content/IA from any visual work? | Single phase. Visual redesign is explicitly out of scope (see §7). The OG-image SVG→PNG fix folds in. | Roadmap pass needs to know whether SITE-XX requirements ladder up to one or two phase plans. |
 | **OQ-3** | **Pillar priority decision:** which of pillar 2 / pillar 3 is `next-milestone` (v0.6+) and which is `opportunistic`? Pitfall #4 forces this call BEFORE the strategy doc lands. | **No recommended default — this is genuinely a user call.** Both have credible arguments. Pillar 2 first: free GHA minutes since v0.4.0 unblock benchmark CI cost; existing ADR-011 + STABILITY-MODEL.md provide the seed; terminal-bench + Multi-Docker-Eval are off-the-shelf-runnable. Pillar 3 first: post-Shai-Hulud landscape gives the security framing visible urgency; ADR-012 NOPASSWD revisit is overdue; Anthropic's devcontainer reference de-risks the implementation. | The strategy doc cannot write its "**Pillar priority**" subsection (PITFALLS.md #4 acceptance check) or its Appendix B sequencing-rationale paragraph (PITFALLS.md #26) without this call. The doc-authoring phase is blocked at first draft until this resolves. |
 | **OQ-4** | **Number of guiding principles to commit to** (Sourcegraph template recommends 4–7). | 5. Suggested seeds from STACK.md TOC: "Behavior tests are the spec" (ADR-002), "We test exactly what we ship" (ADR-011 contract), "Curated combos, not thin wrappers" (ADR-011 negative space), "No silent drift" (`agentlinux upgrade` contract), "Trust through evidence, not assertion" (provenance for pillars 2+3). Phase-A authoring picks the actual list. | Requirements pass enumerates the principles as STRAT-XX entries. |
@@ -275,24 +275,24 @@ The synthesis did NOT resolve these; each needs a user call (or a phase-discuss 
 
 Synthesizer's recommendation, NOT a binding roadmap. Roadmapper agent consumes this as the starting point.
 
-### Phase 12 — Strategy doc + ADR-015
+### Phase 13 — Strategy doc + ADR-016
 
 - **Likely shape:** 2 plans:
-  - **Plan 12-01: STRAT requirements** — author `docs/STRATEGY.md` against the Locked-Decisions L1–L4 spine, fill in the §3 TOC skeleton, deliver §4 + §5 pillar substance, take the L8 ADR-012 position verbatim, produce ADR-015 alongside. STRAT-XX requirement coverage.
-  - **Plan 12-02: Downstream surface updates** — README + CONTRIBUTING + PROJECT.md + STABILITY-MODEL + ADR-011/012 forward-references per §6. Mitigates Top-5 pitfall #3 (PITFALLS.md #22) directly.
+  - **Plan 13-01: STRAT requirements** — author `docs/STRATEGY.md` against the Locked-Decisions L1–L4 spine, fill in the §3 TOC skeleton, deliver §4 + §5 pillar substance, take the L8 ADR-012 position verbatim, produce ADR-016 alongside. STRAT-XX requirement coverage.
+  - **Plan 13-02: Downstream surface updates** — README + CONTRIBUTING + PROJECT.md + STABILITY-MODEL + ADR-011/012 forward-references per §6. Mitigates Top-5 pitfall #3 (PITFALLS.md #22) directly.
 - **Acceptance gates:** every Top-5 pitfall mitigation in §8 cited verbatim.
-- **OQ blocker:** OQ-3 (pillar priority) MUST resolve before Plan 12-01 first draft.
+- **OQ blocker:** OQ-3 (pillar priority) MUST resolve before Plan 13-01 first draft.
 
-### Phase 13 — Website refresh
+### Phase 14 — Website refresh
 
-- **Likely shape:** 1 plan locked at phase-discuss after Phase 12 lands (so the site can link to a stable `docs/STRATEGY.md` URL).
+- **Likely shape:** 1 plan locked at phase-discuss after Phase 13 lands (so the site can link to a stable `docs/STRATEGY.md` URL).
 - **SITE-XX requirements** cover the §7 IA restructure + the L7 voice rule applied to HTML + OG/Twitter meta-tag rewrite + OG-image PNG conversion + deploy-time install-instruction drift check.
 - **Acceptance gates:** Top-5 pitfall #2 (PITFALLS.md #14) mitigation enforced via grep + visible roadmap badges; PITFALLS.md #18 cross-artefact sync (pillar visual order matches strategy doc prose order); PITFALLS.md #19 mobile/narrow viewport screenshots in PR body.
 
-### (Optional) Phase 14 — Cross-link wiring + downstream-doc updates
+### (Optional) Phase 15 — Cross-link wiring + downstream-doc updates
 
-- **Only needed if Plan 12-02 (Downstream surface updates) ends up too large to ride inside Phase 12.**
-- Synthesizer recommendation: fold into Phase 12 (single coherent work item; splits create the exact PITFALLS.md #22 risk we're mitigating).
+- **Only needed if Plan 13-02 (Downstream surface updates) ends up too large to ride inside Phase 13.**
+- Synthesizer recommendation: fold into Phase 13 (single coherent work item; splits create the exact PITFALLS.md #22 risk we're mitigating).
 
 ### Number of forward-looking themes to surface in STRATEGY.md Appendix B
 
@@ -334,7 +334,7 @@ For downstream phases that want to drill in. All paths are absolute from the wor
 
 ### Gaps for requirements/roadmap pass to address
 
-- **OQ-3 (pillar priority)** — genuinely unresolved; needs user call before Phase 12 first draft. Pitfall #4 forcing function applies.
+- **OQ-3 (pillar priority)** — genuinely unresolved; needs user call before Phase 13 first draft. Pitfall #4 forcing function applies.
 - **OQ-1 / OQ-2 (phase split shape)** — recommended defaults given but final call belongs to roadmapper.
 - **OQ-4 (guiding principles count)** — recommended default of 5 with seed list; final list is Phase-A authoring decision.
 - **OQ-5 (Jira sub-task timing)** — process question; defer to post-roadmap.

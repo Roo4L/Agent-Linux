@@ -1,13 +1,13 @@
 # Pillar 2 Exploration — Stability + Time-to-Productive
 
-> Phase 12 verdict. Phase 14 lifts the `## Decision summary` section verbatim
+> Phase 13 verdict. Phase 15 lifts the `## Decision summary` section verbatim
 > into `docs/STRATEGY.md` Pillar 2.
 >
 > Locked: 2026-05-10. Source raw material: `.planning/research/SUMMARY.md` §4
 > (agent-evaluation landscape survey), `.planning/research/FEATURES.md`
 > (candidate pillar substance), `.planning/research/PITFALLS.md` (voice-rule
 > and rejected-alternatives discipline). Locked decisions:
-> `.planning/phases/12-pillar-2-exploration/12-CONTEXT.md`.
+> `.planning/phases/13-pillar-2-exploration/13-CONTEXT.md`.
 
 ## Framing
 

@@ -18,20 +18,20 @@ See [docs/VISION.md](../docs/VISION.md) for the framing this Core Value seeds.
 
 **Goal:** Broaden AgentLinux's framing from a single-pillar product ("separated, correctly-owned agent environment" — v0.3.0 core) to a two-pillar product whose pillar names are *optimization values*, capture the new framing in a canonical vision document plus a separate strategy/roadmap document, and propagate it to every downstream documentation surface and to the public landing page at agentlinux.org. See [../docs/VISION.md](../docs/VISION.md) for the canonical framing.
 
-**The two pillars (locked by Phase 13 verdict (b)):**
+**The two pillars (locked by Phase 14 verdict (b)):**
 1. **Time-to-productive** — the assembly the user gets on install: agent user, runtime, permissions, curated catalog. Where a stock `sudo npm install -g claude` hands the user a chain of small decisions, AgentLinux ships one working environment. Foundational; not changing in v0.3.3.
-2. **Stability** — the curated toolchain holds compatible across upstream churn. The default version set holds at the last-known-good combination; the bump waits for verified compatibility. The supply-chain monitoring + curated catalog admission sub-concern folded into this pillar in Phase 13 verdict (b) — the mechanism work lands in a later milestone (v0.6+ Security Hardening theme).
+2. **Stability** — the curated toolchain holds compatible across upstream churn. The default version set holds at the last-known-good combination; the bump waits for verified compatibility. The supply-chain monitoring + curated catalog admission sub-concern folded into this pillar in Phase 14 verdict (b) — the mechanism work lands in a later milestone (v0.6+ Security Hardening theme).
 
-Phase 13 declined a separate Pillar 3 (security). Phase-13 verdict line: "(b) Fold into Pillar 2 as sub-concern. Security is not a separate pillar in v0.3.3." (`docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` line 17).
+Phase 14 declined a separate Pillar 3 (security). Phase-13 verdict line: "(b) Fold into Pillar 2 as sub-concern. Security is not a separate pillar in v0.3.3." (`docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` line 17).
 
 **Target features:**
 - Canonical **vision document** at [`../docs/VISION.md`](../docs/VISION.md) — mission, the two pillars as optimization values, vision-level guiding principles, vision-level non-goals.
-- Canonical **strategy/roadmap document** at `docs/STRATEGY.md` (Phase 15) — execution principles (voice rule, behavior-tests-as-spec, evidence-cite discipline, curated-combo testing), themes for v0.6+ (Security Hardening, preset/profile framework, compat-guarded update flow), near-term focus.
-- **Decision provenance** — ADR-015 at `docs/decisions/015-agenda-redefinition.md` records the AL-7 framing decision (two pillars + vision/strategy split) with three considered-and-rejected alternatives and back-links to AL-7 + VISION.md.
-- **Downstream surface updates** — README About + Links, CONTRIBUTING "Why this project exists", PROJECT.md (this file), STABILITY-MODEL.md Related. Locked under Phase 14 DOC-01..DOC-04.
-- **Website refresh** at agentlinux.org (Phase 16) reflecting the two-pillar framing.
+- Canonical **strategy/roadmap document** at `docs/STRATEGY.md` (Phase 16) — execution principles (voice rule, behavior-tests-as-spec, evidence-cite discipline, curated-combo testing), themes for v0.6+ (Security Hardening, preset/profile framework, compat-guarded update flow), near-term focus.
+- **Decision provenance** — ADR-016 at `docs/decisions/016-agenda-redefinition.md` records the AL-7 framing decision (two pillars + vision/strategy split) with three considered-and-rejected alternatives and back-links to AL-7 + VISION.md.
+- **Downstream surface updates** — README About + Links, CONTRIBUTING "Why this project exists", PROJECT.md (this file), STABILITY-MODEL.md Related. Locked under Phase 15 DOC-01..DOC-04.
+- **Website refresh** at agentlinux.org (Phase 17) reflecting the two-pillar framing.
 
-**Verification posture:** v0.3.3 is a framing milestone. Most evidence is documentation artefacts (`docs/VISION.md`, `docs/STRATEGY.md`, ADR-015, per-phase `<phase-NN>-AUDIT.md` files), not bats @tests. The voice-rule grep gate (VIS-07 on VISION.md, STRATR-06 on STRATEGY.md, SITE-06 on rendered HTML) is the load-bearing structural defence — every claim about an unshipped behaviour MUST appear in a sentence whose grammatical subject is "we" / "our roadmap" / an explicit milestone identifier. The bats / Docker / QEMU harness from v0.3.0 stays green throughout (a regression there blocks the milestone) but no new bats are required.
+**Verification posture:** v0.3.3 is a framing milestone. Most evidence is documentation artefacts (`docs/VISION.md`, `docs/STRATEGY.md`, ADR-016, per-phase `<phase-NN>-AUDIT.md` files), not bats @tests. The voice-rule grep gate (VIS-07 on VISION.md, STRATR-06 on STRATEGY.md, SITE-06 on rendered HTML) is the load-bearing structural defence — every claim about an unshipped behaviour MUST appear in a sentence whose grammatical subject is "we" / "our roadmap" / an explicit milestone identifier. The bats / Docker / QEMU harness from v0.3.0 stays green throughout (a regression there blocks the milestone) but no new bats are required.
 
 ## Previous Milestone: v0.4.0 Open-Source Release — Shipped 2026-05-09
 
@@ -94,11 +94,11 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 
 Requirements for this milestone are defined in [`.planning/REQUIREMENTS.md`](REQUIREMENTS.md) and grouped (post-2026-05-16 vision/strategy reframe) as:
 
-- **EXPL-XX** (Phase 12 + 13): Pillar exploration verdicts — `docs/exploration/PILLAR-2-NOTES.md`, `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md`. Completed 2026-05-10.
-- **VIS-XX** (Phase 14): `docs/VISION.md` content + voice-rule grep gate (VIS-07) + ADR-015 (VIS-09).
-- **DOC-XX** (Phase 14): Downstream surface back-pointers to VISION.md (README, CONTRIBUTING, PROJECT.md, STABILITY-MODEL.md). DOC-05 closed N/A (Phase 13 verdict (b)).
-- **STRATR-XX** (Phase 15): `docs/STRATEGY.md` content + voice-rule grep gate (STRATR-06).
-- **SITE-XX** (Phase 16): Website refresh at agentlinux.org reflecting the two-pillar framing + voice-rule grep gate (SITE-06) on rendered HTML.
+- **EXPL-XX** (Phase 13 + 13): Pillar exploration verdicts — `docs/exploration/PILLAR-2-NOTES.md`, `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md`. Completed 2026-05-10.
+- **VIS-XX** (Phase 15): `docs/VISION.md` content + voice-rule grep gate (VIS-07) + ADR-016 (VIS-09).
+- **DOC-XX** (Phase 15): Downstream surface back-pointers to VISION.md (README, CONTRIBUTING, PROJECT.md, STABILITY-MODEL.md). DOC-05 closed N/A (Phase 14 verdict (b)).
+- **STRATR-XX** (Phase 16): `docs/STRATEGY.md` content + voice-rule grep gate (STRATR-06).
+- **SITE-XX** (Phase 17): Website refresh at agentlinux.org reflecting the two-pillar framing + voice-rule grep gate (SITE-06) on rendered HTML.
 
 Refer to `REQUIREMENTS.md` for the per-requirement acceptance language.
 
@@ -106,11 +106,11 @@ Refer to `REQUIREMENTS.md` for the per-requirement acceptance language.
 
 **v0.3.3 out of scope:**
 - *Implementing* preset/profile framework or compat-guarded update mechanism (Pillar 2 forward differentiators) — v0.3.3 surfaces them in the strategy doc; the actual implementation lands in a v0.6+ milestone.
-- *Implementing* security-hardening countermeasures (the Phase 13 opportunistic theme) — supply-chain and prompt-injection mitigations land in a v0.6+ milestone.
+- *Implementing* security-hardening countermeasures (the Phase 14 opportunistic theme) — supply-chain and prompt-injection mitigations land in a v0.6+ milestone.
 - New distro targets, new catalog agents, new installer features — Pillar 1 stays at its v0.3.0 surface for this milestone.
 - A full website redesign — the website-refresh phase keeps the existing dark JetBrains-Mono aesthetic + crab mascot.
-- Renaming, restructuring, or moving the vision or strategy docs after Phase 14 / Phase 15 land — locations lock at `docs/VISION.md` and `docs/STRATEGY.md`.
-- *Resolving* the ADR-012 NOPASSWD tension. The vision doc and ADR-015 *document* the tension; the *resolution* belongs to the v0.6+ Security Hardening milestone.
+- Renaming, restructuring, or moving the vision or strategy docs after Phase 15 / Phase 16 land — locations lock at `docs/VISION.md` and `docs/STRATEGY.md`.
+- *Resolving* the ADR-012 NOPASSWD tension. The vision doc and ADR-016 *document* the tension; the *resolution* belongs to the v0.6+ Security Hardening milestone.
 - Authoring a Code of Conduct, SECURITY.md, or full issue / PR templates — track separately as a community-platform milestone.
 
 **v0.4.0 out of scope (carried forward):**
@@ -147,7 +147,7 @@ Refer to `REQUIREMENTS.md` for the per-requirement acceptance language.
 
 **Open-Source Release (v0.4.0, shipped 2026-05-09):** Repository is now public. Free GitHub Actions minutes unblock the broader benchmark/security work pillars 2 and 3 will eventually require. MIT licensed (ADR-013). Zero verified secrets in history. Workflow `permissions:` blocks at least-privilege; branch protection on `master`; post-flip anonymous-clone + `curl | bash` smoke green.
 
-**Agenda Redefinition (v0.3.3, current):** Anchored on Jira epic AL-7. Broadens AgentLinux's framing from a single-pillar product to two pillars (Time-to-productive + Stability) — Phase 13 verdict (b) declined a separate security pillar; the supply-chain monitoring sub-concern folds into Pillar 2. Captures the framing in `docs/VISION.md` (Phase 14), `docs/STRATEGY.md` (Phase 15), ADR-015, and the post-Phase-16 website refresh. Forward-looking — Pillar 2's mechanism work (preset/profile framework + compat-guarded update flow + Security Hardening) seeds v0.6+ milestones; v0.3.3 ships the framing, not the implementation.
+**Agenda Redefinition (v0.3.3, current):** Anchored on Jira epic AL-7. Broadens AgentLinux's framing from a single-pillar product to two pillars (Time-to-productive + Stability) — Phase 14 verdict (b) declined a separate security pillar; the supply-chain monitoring sub-concern folds into Pillar 2. Captures the framing in `docs/VISION.md` (Phase 15), `docs/STRATEGY.md` (Phase 16), ADR-016, and the post-Phase-16 website refresh. Forward-looking — Pillar 2's mechanism work (preset/profile framework + compat-guarded update flow + Security Hardening) seeds v0.6+ milestones; v0.3.3 ships the framing, not the implementation.
 
 Known minor issue (carried forward): OG image (SVG format) doesn't render on all social platforms — convert to PNG for broader support (website todo).
 
@@ -185,7 +185,7 @@ Known minor issue (carried forward): OG image (SVG format) doesn't render on all
 | **Agenda redefinition (v0.3.3)** (2026-05-09, AL-7) | A single-pillar framing ("separated agent environment") is too narrow to position AgentLinux against agent-environment competitors and to attract the right contributors; broadening to three pillars (env + stability/benchmarks + security) gives a defensible PM-grade product story | — Active |
 | Strategy doc as the v0.3.3 keystone deliverable | A single source-of-truth for "what AgentLinux is" anchored in the repo (vs. spread across README, website, ADRs) lets every downstream surface (site, CONTRIBUTING, future milestone roadmaps) reference one canonical framing | — Active |
 | Defer pillar 2 + pillar 3 implementation to v0.6+ | Strategy must lock before benchmarks/threat-model work picks scope; otherwise the implementation ships against an unstable framing | — Active |
-| **2026-05-16 reframe — two pillars + vision/strategy split** (ADR-015) | Phase 13 verdict (b) declined a separate security pillar (no honest already-shipped table-stakes; aspirational drift risk per Pitfall #6); Phase 14 user reframe split vision/strategy/roadmap into separate documents because they serve different audiences (product leadership vs contributors + AI agents). Three considered-and-rejected alternatives recorded in ADR-015. | — Active (Phase 14 lands the vision doc + ADR-015; Phase 15 lands the strategy doc; Phase 16 renumbered from old Phase 15) |
+| **2026-05-16 reframe — two pillars + vision/strategy split** (ADR-016) | Phase 14 verdict (b) declined a separate security pillar (no honest already-shipped table-stakes; aspirational drift risk per Pitfall #6); Phase 15 user reframe split vision/strategy/roadmap into separate documents because they serve different audiences (product leadership vs contributors + AI agents). Three considered-and-rejected alternatives recorded in ADR-016. | — Active (Phase 15 lands the vision doc + ADR-016; Phase 16 lands the strategy doc; Phase 17 renumbered from old Phase 16) |
 
 ## Evolution
 
@@ -205,4 +205,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-16 — v0.4.0 (Open-Source Release) shipped; v0.3.3 (Agenda Redefinition, AL-7) reframed to two-pillar vision-only Phase 14 + strategy-doc Phase 15 + website-refresh Phase 16. ADR-015 records the framing decision.*
+*Last updated: 2026-05-16 — v0.4.0 (Open-Source Release) shipped; v0.3.3 (Agenda Redefinition, AL-7) reframed to two-pillar vision-only Phase 15 + strategy-doc Phase 16 + website-refresh Phase 17. ADR-016 records the framing decision.*
