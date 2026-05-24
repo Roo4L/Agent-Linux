@@ -319,17 +319,24 @@ __source_lib_chain_with_reuse() {
   done
 }
 
-@test "REUSE-01: case-branch in 10-agent-user.sh dispatches on reuse::user_decision (dispatch-shape check)" {
+@test "REUSE-01: case-branch in 10-agent-user.sh dispatches on RESOLUTIONS[user] (Phase 14 DECIDE-THEN-ACT)" {
   # REQ: REUSE-01 (CONTEXT.md "Phase 13 → Phase 14 contract" — case-branch
   # MUST enumerate all four dispatch tokens so Phase 14 can extend the
-  # remediate/bail handlers without changing the surface). Grep-verify the
-  # source so a future refactor that removes the case-shape fails this @test.
+  # remediate/bail handlers without changing the surface).
+  #
+  # Phase 14 (Plan 14-01) transformed the dispatch shape from a direct
+  # `reuse::user_decision` cmdsub to a pre-resolved RESOLUTIONS[user] lookup
+  # — decisions are made up-front in main() by remediate::collect_all_decisions
+  # BEFORE any provisioner runs, so the bail arm here is unreachable (the
+  # flush_bails_or_continue policy gate would have exited 65 first). The
+  # 4-token enumeration is preserved (CONTEXT.md "Phase 13 → Phase 14
+  # contract"); only the source of the token changed.
   local prov=/opt/agentlinux-src/plugin/provisioner/10-agent-user.sh
-  grep -qF 'reuse::user_decision' "$prov" \
-    || __fail "REUSE-01" "10-agent-user.sh calls reuse::user_decision" "no call found" "$prov"
+  grep -qE '\$\{RESOLUTIONS\[user\]' "$prov" \
+    || __fail "REUSE-01" "10-agent-user.sh dispatches on \${RESOLUTIONS[user]}" "no RESOLUTIONS lookup found" "$prov"
   # Extract the case-block body and check all four tokens are enumerated.
   local case_body
-  case_body=$(awk '/case .*reuse::user_decision/,/esac/' "$prov")
+  case_body=$(awk '/case .*RESOLUTIONS\[user\]/,/esac/' "$prov")
   for token in 'reuse)' 'create)' 'remediate' 'bail'; do
     printf '%s' "$case_body" | grep -qF "$token" \
       || __fail "REUSE-01" "case-branch enumerates dispatch token '$token'" "case body: $case_body" "$prov"
@@ -344,15 +351,21 @@ __source_lib_chain_with_reuse() {
   true
 }
 
-@test "REUSE-02: case-branch in 30-nodejs.sh dispatches on reuse::nodejs_decision (dispatch-shape check)" {
+@test "REUSE-02: case-branch in 30-nodejs.sh dispatches on RESOLUTIONS[node] (Phase 14 DECIDE-THEN-ACT)" {
   # REQ: REUSE-02 (CONTEXT.md "Phase 13 → Phase 14 contract" — case-branch
-  # MUST enumerate both reuse and create tokens; no remediate branch on this
-  # surface per Area 1 Q2 — REMEDIATE-01 lives in npm-prefix layer instead).
+  # MUST enumerate reuse + create tokens; no remediate branch at the Node-
+  # install layer per Area 1 Q2 — REMEDIATE-01 lives in the npm-prefix
+  # dispatch later in the same file).
+  #
+  # Phase 14 (Plan 14-01) transformed the dispatch shape from a direct
+  # `reuse::nodejs_decision` cmdsub to a pre-resolved RESOLUTIONS[node]
+  # lookup. The 4-token enumeration is preserved defensively (Plan 14-01
+  # added remediate|bail arms as unreachable assertions for forward-compat).
   local prov=/opt/agentlinux-src/plugin/provisioner/30-nodejs.sh
-  grep -qF 'reuse::nodejs_decision' "$prov" \
-    || __fail "REUSE-02" "30-nodejs.sh calls reuse::nodejs_decision" "no call found" "$prov"
+  grep -qE '\$\{RESOLUTIONS\[node\]' "$prov" \
+    || __fail "REUSE-02" "30-nodejs.sh dispatches on \${RESOLUTIONS[node]}" "no RESOLUTIONS lookup found" "$prov"
   local case_body
-  case_body=$(awk '/case .*reuse::nodejs_decision/,/esac/' "$prov")
+  case_body=$(awk '/case .*RESOLUTIONS\[node\]/,/esac/' "$prov")
   for token in 'reuse)' 'create)'; do
     printf '%s' "$case_body" | grep -qF "$token" \
       || __fail "REUSE-02" "case-branch enumerates dispatch token '$token'" "case body: $case_body" "$prov"
@@ -545,7 +558,15 @@ __source_lib_chain_with_reuse() {
   # Run the installer; capture the full transcript via $output (the entrypoint
   # truncates /var/log/agentlinux-install.log at start so $output is the
   # authoritative capture).
-  run bash "$INSTALLER"
+  #
+  # Phase 14 (Plan 14-01) adjustment: the brownfield helper installs Node 22
+  # at /usr (root-owned prefix). reuse::npm_prefix_decision now returns
+  # `remediate` for the root-owned prefix, which without --yes triggers the
+  # DECIDE-THEN-ACT bail gate and exits 65. Pass --yes to consent so the
+  # Plan 14-01 npm-prefix stub fires (Plan 14-02 wires the real chown/rebase
+  # body) and the installer reaches the CLI install step where REUSE-03
+  # adopts the pre-existing claude-code.
+  run bash "$INSTALLER" --yes
   assert_exit_zero "REUSE-03"
 
   # ZERO real `useradd agent` invocations in transcript — REUSE-01 must have

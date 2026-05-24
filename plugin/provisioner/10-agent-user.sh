@@ -44,7 +44,12 @@ log_info "10-agent-user: starting"
 # names; Phase 13 keeps the literal `agent` paths intact under REUSE-compatible
 # cases.
 REUSED_USER=false
-case "$(reuse::user_decision "${INSTALL_USER:-agent}")" in
+# Phase 14 (Plan 14-01): provisioner reads pre-resolved token from RESOLUTIONS
+# map. Decisions are made up-front in main() by remediate::collect_all_decisions
+# BEFORE any provisioner runs, so the `bail` arm here is unreachable — if a
+# bail had fired, remediate::flush_bails_or_continue would have exited 65
+# already. The case still enumerates all four tokens defensively.
+case "${RESOLUTIONS[user]:-create}" in
   reuse)
     reuse::log_user_reuse "${INSTALL_USER:-agent}"
     log_info "10-agent-user: REUSE branch — skipping useradd + locale-gen for existing user"
@@ -54,14 +59,20 @@ case "$(reuse::user_decision "${INSTALL_USER:-agent}")" in
     # Fall through to the existing CREATE path (unchanged from v0.3.0).
     REUSED_USER=false
     ;;
-  remediate | bail)
-    # Phase 14 registers real handlers on these two branches. Phase 13 surfaces
-    # the decision as a log_warn (visible in the install transcript) and
-    # returns non-zero so the entrypoint ERR trap fires with src:line
-    # attribution. reuse::user_decision DOES emit all four tokens in Phase 13:
-    # `remediate` when only NOPASSWD-for-apt fails (fixable via REMEDIATE-03);
-    # `bail` when shell/home/--user predicates fail (irreconcilable).
-    log_warn "10-agent-user: REUSE-01 returned non-actionable decision for user '${INSTALL_USER:-agent}' — Phase 14 will handle (currently fatal)"
+  remediate)
+    # The user-decision "remediate" token maps to REMEDIATE-03 (sudoers fix —
+    # agent exists but lacks NOPASSWD-for-apt). That fix is OWNED by
+    # 20-sudoers.sh via RESOLUTIONS[sudoers]. Here we reuse the existing user
+    # so the downstream sudoers provisioner has a valid target.
+    reuse::log_user_reuse "${INSTALL_USER:-agent}"
+    log_info "10-agent-user: REUSE branch (sudoers fix dispatched to 20-sudoers.sh per RESOLUTIONS[sudoers])"
+    REUSED_USER=true
+    ;;
+  bail)
+    # UNREACHABLE: flush_bails_or_continue should have exited 65 before
+    # run_provisioners. If we somehow get here, it's a hard programming error
+    # (e.g., remediate.sh not sourced, or collect_all_decisions not called).
+    log_error "10-agent-user: unreachable bail arm — flush_bails_or_continue should have gated this"
     return 1
     ;;
 esac

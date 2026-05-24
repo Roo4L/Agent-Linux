@@ -35,25 +35,46 @@ log_info "30-nodejs: starting"
 # (Phase 14), NOT the Node-install layer. CONTEXT.md Area 1 Q2: "there's no
 # Remediate path for 'no compatible Node', just 'install one'". The case
 # enumerates {reuse, create} explicitly; the dispatch shape is locked.
-case "$(reuse::nodejs_decision)" in
+# Phase 14 (Plan 14-01): provisioner reads pre-resolved RESOLUTIONS[node]
+# instead of calling reuse::nodejs_decision directly. The Node-install layer
+# has only two tokens (reuse|create per CONTEXT.md Area 1 Q2 — REMEDIATE-01
+# lives in the npm-prefix layer below, NOT here). The case enumerates the
+# remediate/bail tokens defensively for forward-compat with future plans.
+case "${RESOLUTIONS[node]:-create}" in
   reuse)
     reuse::log_nodejs_reuse
     log_info "30-nodejs: REUSE branch — skipping apt-get install nodejs + .npmrc bootstrap"
     # Defensive log: even when REUSE-02 fires on per-Node-binary writability,
-    # the ACTIVE npm prefix (DET-03) may diverge from the reused Node's prefix
-    # (e.g., npm config get prefix resolves to /usr via /etc/npmrc but the
-    # reused Node lives under ~/.local/...). Phase 14 REMEDIATE-01 handles the
-    # divergence — Phase 13 surfaces it as a warn and does NOT block (REUSE-02
-    # decision is final per CONTEXT.md Area 1 Q2).
+    # the ACTIVE npm prefix (DET-03) may diverge from the reused Node's prefix.
+    # Phase 14 REMEDIATE-01 handles the divergence via the npm-prefix dispatch
+    # at the end of this file — surface as a warn for transcript visibility.
     if ! detect::npm_prefix_writable_by_install_user; then
-      log_warn "30-nodejs: REUSE-02 succeeded but detect::npm_prefix_writable_by_install_user is false — Phase 14 REMEDIATE-01 will address"
+      log_warn "30-nodejs: REUSE-02 succeeded but detect::npm_prefix_writable_by_install_user is false — REMEDIATE-01 npm-prefix dispatch follows"
     fi
-    return 0
+    # Fall through to the npm-prefix dispatch at the end of the file (which
+    # handles REMEDIATE-01 separately). Use a sentinel to skip the CREATE
+    # machinery below.
+    NODE_REUSED=true
     ;;
   create)
     # Fall through to the existing CREATE path (unchanged from v0.3.0).
+    NODE_REUSED=false
+    ;;
+  remediate | bail)
+    # No remediate token at the Node-install layer per CONTEXT.md Area 1 Q2.
+    # Defensive arm — if a future plan extends the surface, dispatch lands here.
+    # bail) is UNREACHABLE: flush_bails_or_continue should have exited 65.
+    log_error "30-nodejs: unexpected RESOLUTIONS[node] = ${RESOLUTIONS[node]:-unset} — no remediate/bail token defined at Node-install layer"
+    return 1
     ;;
 esac
+
+if [[ "${NODE_REUSED:-false}" == "true" ]]; then
+  # Skip the CREATE-path Steps 1-6 and jump straight to the npm-prefix
+  # dispatch at the bottom. Use a block-skip rather than an early return so
+  # the npm-prefix REMEDIATE-01 dispatch still fires on the REUSE branch.
+  : "skipping CREATE path (Node REUSE) — npm-prefix dispatch at end of file still runs"
+else
 
 # Step 1: pre-reqs for NodeSource's setup_22.x script.
 # NodeSource's setup script installs these itself, but we pre-install for
@@ -129,5 +150,42 @@ ensure_line_in_file 'prefix=/home/agent/.npm-global' /home/agent/.npmrc
 chown agent:agent /home/agent/.npmrc
 chmod 0644 /home/agent/.npmrc
 log_info "wrote ~agent/.npmrc (prefix=/home/agent/.npm-global — RT-04)"
+
+fi # end NODE_REUSED guard — CREATE-path block
+
+# Phase 14 (Plan 14-01 — REMEDIATE-01): npm-prefix layer dispatch via
+# RESOLUTIONS. Runs UNCONDITIONALLY after the Node-install / Node-reuse split
+# above — REMEDIATE-01 lives in the npm-prefix layer per CONTEXT.md Area 1 Q1,
+# orthogonal to whether Node itself was reused or freshly installed.
+#
+# Tokens (per reuse::npm_prefix_decision in plugin/lib/reuse/nodejs.sh):
+#   reuse     — DETECT_NPM_PREFIX_USER_WRITABLE=true; nothing to do.
+#   create    — DETECT_NPM_PREFIX_SECTION_STATUS=absent; the CREATE path above
+#               already bootstrapped /home/agent/.npm-global (if Node was
+#               freshly installed) or this is a noop (defensive — REUSE+absent
+#               is unusual but not catastrophic).
+#   remediate — npm prefix exists but install user cannot write to it. Gate
+#               already passed (--yes confirmed). Dispatch to stub (Plan 14-02
+#               replaces with chown/rebase strategy from CONTEXT.md Area 2).
+#   bail      — UNREACHABLE; flush_bails_or_continue would have exited 65.
+case "${RESOLUTIONS[npm-prefix]:-create}" in
+  reuse)
+    reuse::log_npm_prefix_reuse
+    ;;
+  create)
+    # CREATE path above handled npm install + /home/agent/.npm-global
+    # bootstrap when needed. Nothing further here.
+    :
+    ;;
+  remediate)
+    # Gate passed (YES_FLAG=true confirmed in collect_all_decisions).
+    # Plan 14-02 replaces this stub with the chown/rebase strategy body.
+    remediate::nodejs::npm_prefix_stub
+    ;;
+  bail)
+    log_error "30-nodejs: unreachable bail arm — flush_bails_or_continue should have gated this"
+    return 1
+    ;;
+esac
 
 log_info "30-nodejs: done"

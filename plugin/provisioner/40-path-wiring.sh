@@ -55,6 +55,14 @@
 # installer-owned files (profile.d, agentlinux.env, cron.d) are root-owned
 # system files that are written-or-overwritten by the installer regardless of
 # REUSE branch. No reuse::-driven case here.
+#
+# Phase 14 (Plan 14-01): DELIBERATELY no RESOLUTIONS dispatch here either.
+# REMEDIATE-02 (PATH wiring) is the canonical additive Remediate per
+# CONTEXT.md Area 1 Q1 — ensure_marker_block never touches user content
+# outside the AGENTLINUX-managed marker, and the three root-owned files
+# (profile.d, agentlinux.env, cron.d) are installer-owned by contract.
+# remediate_action_overwrites_state returns FALSE for `path-wiring`, so even
+# if a RESOLUTIONS lookup were added it would never gate or bail.
 log_info "40-path-wiring: starting"
 
 # Ensure /home/agent/.local/bin exists so the PATH prefix written below is not

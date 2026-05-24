@@ -10,6 +10,21 @@
 set -euo pipefail
 
 readonly LOG_FILE="${AGENTLINUX_LOG:-/var/log/agentlinux-install.log}"
+
+# Phase 14 (Plan 14-01 — UX-05): structured exit code constants per CONTEXT.md
+# Area 1 Q3. 64=usage (bad CLI flags); 65=data (incompatible host state — bail
+# without --yes). Used throughout via `exit "$EX_USAGE"` / `exit "$EX_DATAERR"`
+# for grep stability. The bash readonly declaration is intentional — these are
+# the canonical values referenced by CI wrappers + the bail message footer.
+# EX_DATAERR is referenced from plugin/lib/remediate.sh's flush_bails_or_continue
+# (literal `exit 65` per CONTEXT.md Q3 grep-stability requirement) — declared
+# here as the source-of-truth so a future refactor that ties the literal back
+# to the constant has a single readonly to consult. shellcheck cannot follow
+# cross-file references through `. "$LIB_DIR/remediate.sh"`, hence SC2034.
+# shellcheck disable=SC2034
+readonly EX_USAGE=64
+# shellcheck disable=SC2034
+readonly EX_DATAERR=65
 # Resolve script-relative directories. Split `declare`/`assign` per SC2155 so
 # a cmdsub failure surfaces as a non-zero return instead of being masked by
 # the `readonly` wrapper.
@@ -69,9 +84,29 @@ Options:
                         running provisioners. Read-only.
       --report-format=FMT  text (default) or json. Honored with --report-only.
       --user=NAME       Install-user name to probe (default: agent).
+      --yes             Non-TTY consent for state-overwriting Remediate
+                        actions (REMEDIATE-01 chown/rebase, REMEDIATE-03
+                        sudoers drift overwrite, REMEDIATE-04 broken-agent
+                        reinstall). Additive Remediates run unconditionally.
+                        Consent is via --yes ONLY — no environment-variable
+                        equivalent is recognized (T-14-01: avoid spoofable
+                        consent surfaces).
+      --no-yes          Explicit opposite of --yes (default). Provided so
+                        CI wrappers can toggle consent from a variable
+                        without rebuilding argv. Contradicts --yes (the
+                        installer exits with usage error in that case).
 
 The installer must run as root. Supported hosts: Ubuntu 22.04, 24.04 and 26.04.
 Transcript: ${LOG_FILE}
+
+Exit codes:
+  0   success — install completed, report printed, or dry-run finished
+  1   runtime — execution failure during Create or Remediate (apt, chown, useradd, install.sh)
+  64  usage   — bad command-line flags or contradictory options
+  65  data    — incompatible host state surfaced by detection (run --dry-run to preview)
+
+  Most actionable in non-TTY contexts (cron, CI, curl|bash): exit 65 means
+  state-overwriting Remediate would be required — re-run with --yes to apply.
 EOF
 }
 
@@ -113,7 +148,7 @@ pre_parse_args "$@"
 # bootstrap aborted even before tee is active.
 if ! install -m 0644 /dev/null "$LOG_FILE" 2>/dev/null; then
   printf 'agentlinux-install: cannot create %s (are you root?)\n' "$LOG_FILE" >&2
-  exit 64
+  exit "$EX_USAGE"
 fi
 
 # Tee everything to the log. Merge stderr into stdout AFTER the tee redirect
@@ -165,6 +200,14 @@ REMOVE_NODEJS_REQUESTED=false
 REPORT_ONLY=false
 REPORT_FORMAT=text
 INSTALL_USER=agent
+# Phase 14 (Plan 14-01 — UX-03): --yes / --no-yes consent flag state.
+# YES_FLAG=true authorizes state-overwriting Remediate actions in non-TTY mode
+# (REMEDIATE-01 chown/rebase, REMEDIATE-03 sudoers drift, REMEDIATE-04 reinstall).
+# YES_FLAG_EXPLICIT_NO=true records that --no-yes was passed so a subsequent
+# --yes can be rejected as contradictory (T-14-02 mitigation — argv must be
+# unambiguous; no "last flag wins" fallback).
+YES_FLAG=false
+YES_FLAG_EXPLICIT_NO=false
 
 # parse_args — handle flags that either mutate installer state (--verbose,
 # --purge, --remove-nodejs) or need the log transcript for diagnostics
@@ -205,7 +248,7 @@ parse_args() {
         shift
         [[ $# -gt 0 ]] || {
           log_error "--report-format requires a value (text|json)"
-          exit 64
+          exit "$EX_USAGE"
         }
         REPORT_FORMAT="$1"
         ;;
@@ -216,14 +259,32 @@ parse_args() {
         shift
         [[ $# -gt 0 ]] || {
           log_error "--user requires a value"
-          exit 64
+          exit "$EX_USAGE"
         }
         INSTALL_USER="$1"
+        ;;
+      --yes)
+        # T-14-02 mitigation: contradictory --no-yes-then-yes exits 64
+        # rather than silently picking last-flag-wins. argv must be
+        # unambiguous.
+        if [[ "$YES_FLAG_EXPLICIT_NO" == true ]]; then
+          log_error "agentlinux-install: contradictory flags — --no-yes preceded --yes"
+          exit "$EX_USAGE"
+        fi
+        YES_FLAG=true
+        ;;
+      --no-yes)
+        # Symmetric T-14-02: --yes-then-no-yes also rejected.
+        if [[ "$YES_FLAG" == true ]]; then
+          log_error "agentlinux-install: contradictory flags — --yes preceded --no-yes"
+          exit "$EX_USAGE"
+        fi
+        YES_FLAG_EXPLICIT_NO=true
         ;;
       *)
         log_error "unknown argument: $1"
         usage >&2
-        exit 64
+        exit "$EX_USAGE"
         ;;
     esac
     shift
@@ -236,7 +297,7 @@ parse_args() {
     text | json) ;;
     *)
       log_error "--report-format must be 'text' or 'json' (got: ${REPORT_FORMAT})"
-      exit 64
+      exit "$EX_USAGE"
       ;;
   esac
 }
@@ -259,7 +320,7 @@ ensure_jq() {
 require_root() {
   if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
     log_error "agentlinux-install must run as root (EUID != 0). Re-run under sudo."
-    exit 64
+    exit "$EX_USAGE"
   fi
 }
 
@@ -460,6 +521,19 @@ main() {
     detect::emit_report "$REPORT_FORMAT"
     exit 0
   fi
+  # Phase 14 (Plan 14-01): DECIDE-THEN-ACT main() flow.
+  #
+  # remediate.sh provides collect_all_decisions (calls every reuse::*_decision,
+  # populates RESOLUTIONS map + BAILED_COMPONENTS array — NO MUTATION) and
+  # flush_bails_or_continue (exits 65 here if any bail accumulated, returns 0
+  # otherwise — STILL NO MUTATION). Both run BEFORE run_provisioners so a host
+  # that bails NEVER sees a partially-mutated state. The no-mutation snapshot
+  # @tests in tests/bats/14-remediate.bats (Tests 19-22) prove the atomicity
+  # invariant byte-for-byte against /etc/sudoers.d/, /home/, /etc/passwd.
+  # shellcheck source=../lib/remediate.sh
+  . "$LIB_DIR/remediate.sh"
+  remediate::collect_all_decisions
+  remediate::flush_bails_or_continue
   run_provisioners
   log_info "agentlinux-install complete (transcript: ${LOG_FILE})"
 }

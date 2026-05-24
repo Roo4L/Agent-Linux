@@ -376,3 +376,344 @@ SHIM
   [[ ! -s "$mutation_log" ]] \
     || __fail "UX-03 (T-14-13)" "shim mutation log empty after collect_all_decisions" "$(cat "$mutation_log")" "$mutation_log"
 }
+
+# ---- Task 2: --yes/--no-yes parsing + EX_USAGE/EX_DATAERR + DECIDE-THEN-ACT  ---
+
+# Snapshot helpers (Task 2). Captures contents of targeted paths into a tarball-
+# like cp -a tree under <dest> so subsequent `snapshot_equal` compares with
+# `diff -r`. Used by the no-mutation @tests to byte-prove DECIDE-THEN-ACT
+# atomicity.
+snapshot_capture() {
+  local dest=$1
+  shift
+  rm -rf "$dest"
+  mkdir -p "$dest"
+  local p
+  for p in "$@"; do
+    if [[ -e "$p" ]]; then
+      # cp -a --parents preserves the full path under dest so /etc/passwd
+      # lands at <dest>/etc/passwd; allows diff -r to compare like-for-like.
+      cp -a --parents "$p" "$dest/" 2>/dev/null || true
+    fi
+  done
+}
+
+snapshot_equal() {
+  # `--exclude=.npm` ignores npm's per-user cache dir, which `npm config get`
+  # bootstraps on first invocation regardless of `npm_config_logs_max=0` and
+  # `npm_config_loglevel=silent` (the cache dir itself, not log files, is
+  # what npm creates lazily). This is npm's own ephemeral state — NOT user
+  # data, NOT installer-managed config, NOT a UX-03 contract violation. The
+  # T-14-13 atomicity claim is about /etc/sudoers.d, /etc/passwd, and user
+  # state files; the bootstrap of an empty ~/.npm cache directory falls
+  # outside the protected surface.
+  diff -r --exclude=.npm "$1" "$2" >/dev/null 2>&1
+}
+
+# Brownfield-bail fixture helpers. Each fixture targets ONE bail class; all
+# OTHER components remain REUSE-compatible so the @test asserts only the
+# targeted bail surfaces (Warning #3 — fixture isolation invariant).
+
+# setup_brownfield_for_bail_user_wrongshell
+# Targets: REUSE-01 predicate 2 (wrong shell — irreconcilable). User exists
+# with /bin/dash; otherwise REUSE-compatible (canonical sudoers via the
+# post-installer host state already in place, Node 22 already installed,
+# no broken catalog agents).
+setup_brownfield_for_bail_user_wrongshell() {
+  # Idempotent --purge to clear prior state.
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  # Create agent with the WRONG shell. useradd -m creates ~agent.
+  useradd -m -s /bin/dash agent >/dev/null 2>&1 || usermod -s /bin/dash agent
+  # Install the canonical sudoers drop-in so the sudoers component is
+  # REUSE-compatible (isolation invariant — only the user component bails).
+  local tmp
+  tmp=$(mktemp)
+  printf 'agent ALL=(ALL) NOPASSWD: ALL\n' >"$tmp"
+  install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
+  rm -f "$tmp"
+}
+
+# setup_brownfield_for_bail_sudoers_drift
+# Targets: REMEDIATE-03 sudoers drift overwrite. /etc/sudoers.d/agentlinux
+# exists with a non-ADR-012 line; agent user OK; otherwise REUSE-compatible.
+setup_brownfield_for_bail_sudoers_drift() {
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  useradd -m -s /bin/bash agent >/dev/null 2>&1 || usermod -s /bin/bash agent
+  # DRIFTED sudoers: not the canonical ADR-012 line. Use a narrower scope
+  # (still valid sudoers syntax so visudo -cf passes) so the file is
+  # PRESENT but NOPASSWD_OK=false → triggers remediate token.
+  local tmp
+  tmp=$(mktemp)
+  printf 'agent ALL=(ALL) NOPASSWD: /usr/bin/apt-get\n' >"$tmp"
+  install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
+  rm -f "$tmp"
+}
+
+# Test 12: --help carries "Exit codes:" section.
+@test "UX-05: agentlinux-install --help output contains 'Exit codes:' section listing 0/1/64/65 + mnemonics" {
+  run bash "$INSTALLER" --help
+  assert_exit_zero "UX-05"
+  printf '%s' "$output" | grep -qE '^Exit codes:' \
+    || __fail "UX-05" "--help contains 'Exit codes:' section header" "$output" "$INSTALLER"
+  printf '%s' "$output" | grep -qE '^  0   success' \
+    || __fail "UX-05" "--help lists '0   success'" "$output" "$INSTALLER"
+  printf '%s' "$output" | grep -qE '^  1   runtime' \
+    || __fail "UX-05" "--help lists '1   runtime'" "$output" "$INSTALLER"
+  printf '%s' "$output" | grep -qE '^  64  usage' \
+    || __fail "UX-05" "--help lists '64  usage'" "$output" "$INSTALLER"
+  printf '%s' "$output" | grep -qE '^  65  data' \
+    || __fail "UX-05" "--help lists '65  data'" "$output" "$INSTALLER"
+  printf '%s' "$output" | grep -qF 're-run with --yes to apply' \
+    || __fail "UX-05" "--help hints 're-run with --yes to apply'" "$output" "$INSTALLER"
+}
+
+# Test 13: greenfield --yes succeeds.
+@test "UX-03: agentlinux-install --yes on post-installer (greenfield-ish) host completes with no [BAIL] / no [REMEDIATE-NN] lines" {
+  run bash "$INSTALLER" --yes
+  assert_exit_zero "UX-03"
+  # No bail lines.
+  printf '%s' "$output" | grep -qE '^\[BAIL\]' \
+    && __fail "UX-03" "no [BAIL] lines on greenfield --yes" "$output" "$LOG"
+  # No REMEDIATE marker lines (Plan 14-02/14-03 land real handlers; Plan
+  # 14-01 stubs emit [REMEDIATE-NN] only when the dispatch case fires, which
+  # requires a brownfield trigger).
+  printf '%s' "$output" | grep -qE '^\[REMEDIATE-' \
+    && __fail "UX-03" "no [REMEDIATE-NN] lines on greenfield --yes" "$output" "$LOG"
+  true
+}
+
+# Test 14: greenfield --no-yes succeeds (default, same as no flag).
+@test "UX-03: agentlinux-install --no-yes on post-installer host completes (default; explicit-no opposite of --yes)" {
+  run bash "$INSTALLER" --no-yes
+  assert_exit_zero "UX-03"
+}
+
+# Test 15: contradictory flags --yes --no-yes exits 64 (T-14-02 mitigation).
+@test "UX-05 (T-14-02): agentlinux-install --yes --no-yes exits 64 with contradictory-flags error" {
+  run bash "$INSTALLER" --yes --no-yes
+  [[ "$status" -eq 64 ]] \
+    || __fail "UX-05" "exit 64 on --yes --no-yes" "exit=$status" "$INSTALLER"
+  printf '%s' "$output" | grep -qF 'contradictory flags' \
+    || __fail "UX-05" "log_error 'contradictory flags'" "$output" "$INSTALLER"
+}
+
+# Test 16: reverse order --no-yes --yes ALSO exits 64 (no last-flag-wins).
+@test "UX-05 (T-14-02): agentlinux-install --no-yes --yes ALSO exits 64 (no 'last flag wins' silent acceptance)" {
+  run bash "$INSTALLER" --no-yes --yes
+  [[ "$status" -eq 64 ]] \
+    || __fail "UX-05" "exit 64 on --no-yes --yes" "exit=$status" "$INSTALLER"
+  printf '%s' "$output" | grep -qF 'contradictory flags' \
+    || __fail "UX-05" "log_error 'contradictory flags' both orders" "$output" "$INSTALLER"
+}
+
+# Test 17: unknown flag exits 64.
+@test "UX-05: agentlinux-install --frobnicate (unknown flag) exits 64" {
+  run bash "$INSTALLER" --frobnicate
+  [[ "$status" -eq 64 ]] \
+    || __fail "UX-05" "exit 64 on unknown flag" "exit=$status" "$INSTALLER"
+  printf '%s' "$output" | grep -qF 'unknown argument' \
+    || __fail "UX-05" "log_error 'unknown argument'" "$output" "$INSTALLER"
+}
+
+# Test 18: T-14-01 grep — no env-var consent spoof variables.
+@test "UX-03 (T-14-01): zero AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES / CONFIRM_INSTALL matches in installer + remediate libs" {
+  local files=(
+    "$INSTALLER"
+    "$LIB_DIR/remediate.sh"
+    "$REMEDIATE_LIB_DIR"/*.sh
+  )
+  local f
+  for f in "${files[@]}"; do
+    if [[ -f "$f" ]] && grep -qE 'AGENTLINUX_YES|ALWAYS_YES|ASSUME_YES|CONFIRM_INSTALL' "$f"; then
+      __fail "UX-03 (T-14-01)" "no env-var consent spoof variables in $f" "$(grep -n 'AGENTLINUX_YES\|ALWAYS_YES\|ASSUME_YES\|CONFIRM_INSTALL' "$f")" "$f"
+    fi
+  done
+  true
+}
+
+# Test 19: NO-MUTATION SNAPSHOT — wrong-shell bail. The architectural proof
+# of UX-03 atomicity: snapshot before, run without --yes, assert exit 65 +
+# [BAIL] line, snapshot after, assert byte-equality.
+@test "UX-03 (T-14-13): NO-MUTATION SNAPSHOT — wrong-shell user bail leaves /etc/sudoers.d /home /etc/passwd byte-identical" {
+  setup_brownfield_for_bail_user_wrongshell
+
+  local before="$BATS_TEST_TMPDIR/before"
+  local after="$BATS_TEST_TMPDIR/after"
+  snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
+
+  run bash "$INSTALLER"
+  [[ "$status" -eq 65 ]] \
+    || __fail "UX-03" "exit 65 on wrong-shell bail without --yes" "exit=$status output=$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[BAIL] component=user' \
+    || __fail "UX-03" "[BAIL] component=user line in bail message" "$output" "$LOG"
+
+  snapshot_capture "$after" /etc/sudoers.d /home /etc/passwd
+
+  if ! snapshot_equal "$before" "$after"; then
+    __fail "UX-03 (T-14-13)" "BYTE-IDENTICAL /etc/sudoers.d /home /etc/passwd before+after bail" "$(diff -r --exclude=.npm "$before" "$after" 2>&1 | head -20)" "$LOG"
+  fi
+}
+
+# Test 20: NO-MUTATION SNAPSHOT — sudoers drift bail (byte-equal proof).
+@test "UX-03 (T-14-13): NO-MUTATION SNAPSHOT — sudoers drift bail leaves host byte-identical" {
+  setup_brownfield_for_bail_sudoers_drift
+
+  local before="$BATS_TEST_TMPDIR/before"
+  local after="$BATS_TEST_TMPDIR/after"
+  snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
+
+  run bash "$INSTALLER"
+  [[ "$status" -eq 65 ]] \
+    || __fail "UX-03" "exit 65 on sudoers drift bail without --yes" "exit=$status output=$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[BAIL] component=sudoers reason=drift' \
+    || __fail "UX-03" "[BAIL] component=sudoers reason=drift line in bail message" "$output" "$LOG"
+
+  snapshot_capture "$after" /etc/sudoers.d /home /etc/passwd
+
+  if ! snapshot_equal "$before" "$after"; then
+    __fail "UX-03 (T-14-13)" "BYTE-IDENTICAL host state before+after sudoers-drift bail" "$(diff -r --exclude=.npm "$before" "$after" 2>&1 | head -20)" "$LOG"
+  fi
+}
+
+# Test 21: NO-MUTATION SNAPSHOT — npm-prefix wrong-owner bail.
+# NOTE: in the Docker container, npm prefix is bootstrapped by 30-nodejs.sh
+# at /home/agent/.npm-global and IS agent-writable, so a wrong-owner-prefix
+# brownfield needs a fixture that flips the writability. We do this by
+# chowning the prefix back to root after the --purge wipe + fresh useradd.
+@test "UX-03 (T-14-13): NO-MUTATION SNAPSHOT — wrong-owner npm-prefix bail leaves host byte-identical" {
+  # Tear down then build fixture: agent + canonical sudoers + Node already
+  # installed (from prior @tests in this run) but ~agent/.npm-global owned
+  # by root → DETECT_NPM_PREFIX_USER_WRITABLE=false → remediate token.
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  useradd -m -s /bin/bash agent >/dev/null 2>&1 || usermod -s /bin/bash agent
+  local tmp
+  tmp=$(mktemp)
+  printf 'agent ALL=(ALL) NOPASSWD: ALL\n' >"$tmp"
+  install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
+  rm -f "$tmp"
+
+  # Create a root-owned npm prefix at /home/agent/.npm-global + write a
+  # ~/.npmrc pointing at it so npm config get prefix --location=user
+  # returns it (DETECT_NPM_PREFIX_SECTION_STATUS=present + EFFECTIVE_OWNER
+  # = root → reuse::npm_prefix_decision returns remediate).
+  install -d -m 0755 -o root -g root /home/agent/.npm-global
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/bin
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/lib
+  # Write the .npmrc as the agent so DETECT_NPM_PREFIX_DECLARATIONS=1.
+  install -m 0644 -o agent -g agent /dev/null /home/agent/.npmrc
+  echo "prefix=/home/agent/.npm-global" >>/home/agent/.npmrc
+  chown agent:agent /home/agent/.npmrc
+
+  local before="$BATS_TEST_TMPDIR/before"
+  local after="$BATS_TEST_TMPDIR/after"
+  snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
+
+  run bash "$INSTALLER"
+  [[ "$status" -eq 65 ]] \
+    || __fail "UX-03" "exit 65 on npm-prefix wrong-owner bail without --yes" "exit=$status output=$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[BAIL] component=npm-prefix' \
+    || __fail "UX-03" "[BAIL] component=npm-prefix line in bail message" "$output" "$LOG"
+
+  snapshot_capture "$after" /etc/sudoers.d /home /etc/passwd
+
+  if ! snapshot_equal "$before" "$after"; then
+    __fail "UX-03 (T-14-13)" "BYTE-IDENTICAL host state before+after npm-prefix bail" "$(diff -r --exclude=.npm "$before" "$after" 2>&1 | head -20)" "$LOG"
+  fi
+}
+
+# Test 22: BAIL AGGREGATION + atomicity — two components bail, both surface,
+# AND host stays byte-identical.
+@test "UX-03 (T-14-13): NO-MUTATION SNAPSHOT — aggregated bail (sudoers drift + npm-prefix wrong-owner) prints BOTH [BAIL] lines + leaves host byte-identical" {
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  useradd -m -s /bin/bash agent >/dev/null 2>&1 || usermod -s /bin/bash agent
+  # Drifted sudoers (narrower than ADR-012 — visudo-valid but not canonical).
+  local tmp
+  tmp=$(mktemp)
+  printf 'agent ALL=(ALL) NOPASSWD: /usr/bin/apt-get\n' >"$tmp"
+  install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
+  rm -f "$tmp"
+  # Wrong-owner npm prefix.
+  install -d -m 0755 -o root -g root /home/agent/.npm-global
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/bin
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/lib
+  install -m 0644 -o agent -g agent /dev/null /home/agent/.npmrc
+  echo "prefix=/home/agent/.npm-global" >>/home/agent/.npmrc
+  chown agent:agent /home/agent/.npmrc
+
+  local before="$BATS_TEST_TMPDIR/before"
+  local after="$BATS_TEST_TMPDIR/after"
+  snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
+
+  run bash "$INSTALLER"
+  [[ "$status" -eq 65 ]] \
+    || __fail "UX-03" "exit 65 on aggregated bail without --yes" "exit=$status output=$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[BAIL] component=sudoers' \
+    || __fail "UX-03" "[BAIL] component=sudoers line present (aggregation)" "$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[BAIL] component=npm-prefix' \
+    || __fail "UX-03" "[BAIL] component=npm-prefix line present (aggregation)" "$output" "$LOG"
+
+  snapshot_capture "$after" /etc/sudoers.d /home /etc/passwd
+
+  if ! snapshot_equal "$before" "$after"; then
+    __fail "UX-03 (T-14-13)" "BYTE-IDENTICAL host state before+after aggregated bail" "$(diff -r --exclude=.npm "$before" "$after" 2>&1 | head -20)" "$LOG"
+  fi
+}
+
+# Test 23: --yes on drifted-sudoers fixture passes the gate; stub fires.
+@test "UX-03: agentlinux-install --yes on drifted-sudoers brownfield host passes the gate (stub fires; installer exits 0)" {
+  setup_brownfield_for_bail_sudoers_drift
+
+  run bash "$INSTALLER" --yes
+  # Plan 14-01 ships the stub; the installer should NOT exit 65. The stub
+  # emits [REMEDIATE-03] component=sudoers action=stub, then 20-sudoers.sh's
+  # CREATE machinery overwrites the drifted file with the canonical line.
+  assert_exit_zero "UX-03"
+  printf '%s' "$output" | grep -qF '[REMEDIATE-03] component=sudoers' \
+    || __fail "UX-03" "[REMEDIATE-03] component=sudoers stub fired with --yes" "$output" "$LOG"
+  # Drift overwritten (the CREATE machinery in 20-sudoers.sh installs the
+  # canonical ADR-012 line via install -m 0440).
+  grep -qFx 'agent ALL=(ALL) NOPASSWD: ALL' /etc/sudoers.d/agentlinux \
+    || __fail "UX-03" "drift overwritten with canonical ADR-012 line after --yes" "$(cat /etc/sudoers.d/agentlinux)" "$LOG"
+}
+
+# Test 24: literal grep — exit-code constants in source.
+@test "UX-05: 'readonly EX_USAGE=64' and 'readonly EX_DATAERR=65' present in plugin/bin/agentlinux-install" {
+  grep -qE '^readonly EX_USAGE=64' "$INSTALLER" \
+    || __fail "UX-05" "'readonly EX_USAGE=64' literal in installer source" "$(grep -E 'EX_USAGE' "$INSTALLER" | head -3)" "$INSTALLER"
+  grep -qE '^readonly EX_DATAERR=65' "$INSTALLER" \
+    || __fail "UX-05" "'readonly EX_DATAERR=65' literal in installer source" "$(grep -E 'EX_DATAERR' "$INSTALLER" | head -3)" "$INSTALLER"
+  # And no remaining literal `exit 64` in the entrypoint (all migrated to
+  # exit "$EX_USAGE"). Note: comments containing `exit 64` are stripped by
+  # the grep filter below — match only non-comment lines.
+  if grep -nE '^[^#]*\bexit 64\b' "$INSTALLER" >/dev/null; then
+    __fail "UX-05" "all literal 'exit 64' migrated to exit \"\$EX_USAGE\"" "$(grep -nE '^[^#]*\bexit 64\b' "$INSTALLER")" "$INSTALLER"
+  fi
+}
+
+# DECIDE-THEN-ACT ordering check (grep-shape — defends against a future
+# refactor that puts run_provisioners before flush_bails_or_continue).
+@test "UX-03: main() flow ordering — collect_all_decisions → flush_bails_or_continue → run_provisioners (grep-shape)" {
+  # Extract main() body and verify the three calls appear in the expected
+  # order. awk window from "^main()" to "^}" matches the function definition.
+  # Strip comment lines (anything starting with `#`) so prose mentions of the
+  # function names in docstrings don't pollute the ordering check.
+  local main_body
+  main_body=$(awk '/^main\(\) \{/,/^\}/' "$INSTALLER" | grep -vE '^[[:space:]]*#')
+  # Build a stream of just the three call sites (one per line).
+  local order
+  order=$(printf '%s\n' "$main_body" | grep -oE 'collect_all_decisions|flush_bails_or_continue|run_provisioners' | uniq)
+  local expected='collect_all_decisions
+flush_bails_or_continue
+run_provisioners'
+  [[ "$order" == "$expected" ]] \
+    || __fail "UX-03" "main() ordering = $expected" "$order" "$INSTALLER"
+}
+
+# RESOLUTIONS dispatch grep — verify provisioners 10/20/30 read pre-resolved
+# tokens instead of calling reuse::*_decision directly.
+@test "UX-03: provisioners 10/20/30 dispatch on RESOLUTIONS[<component>] (no direct reuse::*_decision case)" {
+  for prov in 10-agent-user.sh 20-sudoers.sh 30-nodejs.sh; do
+    grep -qE '\$\{RESOLUTIONS\[' "$PROV_DIR/$prov" \
+      || __fail "UX-03" "$prov dispatches on \${RESOLUTIONS[...]}" "no RESOLUTIONS lookup found" "$PROV_DIR/$prov"
+  done
+}

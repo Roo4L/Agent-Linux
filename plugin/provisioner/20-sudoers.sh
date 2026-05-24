@@ -37,6 +37,40 @@
 
 log_info "20-sudoers: starting"
 
+# Phase 14 (Plan 14-01) — dispatch on pre-resolved RESOLUTIONS[sudoers] token.
+# Decisions are made up-front in main() by remediate::collect_all_decisions
+# BEFORE any provisioner runs:
+#   reuse     — /etc/sudoers.d/agentlinux exists AND contains the canonical
+#               ADR-012 line; nothing to do.
+#   remediate — file exists but drifted from the ADR-012 line; the consent
+#               gate in remediate.sh has already enforced --yes (or registered
+#               a bail). Dispatch to handler stub (Plan 14-02 replaces with
+#               real overwrite body). Then fall through to the existing CREATE
+#               machinery which overwrites whatever exists via install -m 0440.
+#   create    — file absent; additive install via existing CREATE path
+#               (no --yes consent gate consulted — additive action per
+#               CONTEXT.md Area 1 Q1).
+#   bail      — UNREACHABLE; flush_bails_or_continue would have exited 65.
+case "${RESOLUTIONS[sudoers]:-create}" in
+  reuse)
+    log_info "[REUSE] sudoers: /etc/sudoers.d/agentlinux already canonical (ADR-012 line present)"
+    return 0
+    ;;
+  remediate)
+    # Gate already passed — flush_bails_or_continue would have exited 65 if
+    # --yes was missing. Dispatch the handler stub for visibility; fall
+    # through to the CREATE machinery below to overwrite the drifted file.
+    remediate::sudoers::overwrite_stub
+    ;;
+  create)
+    # Additive missing-file install — run the existing CREATE machinery below.
+    ;;
+  bail)
+    log_error "20-sudoers: unreachable bail arm — flush_bails_or_continue should have gated this"
+    return 1
+    ;;
+esac
+
 # Minimal Ubuntu/Debian cloud images (and many Docker base images) ship without
 # the `sudo` package, which provides both the `sudo` binary AND `visudo`. We
 # need `visudo` to validate the drop-in before installing it (T-05.1-01), and
