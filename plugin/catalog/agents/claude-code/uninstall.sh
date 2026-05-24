@@ -17,9 +17,9 @@ rm -f "${AGENTLINUX_AGENT_HOME}/.local/bin/claude"
 rm -rf "${AGENTLINUX_AGENT_HOME}/.local/share/claude"
 rm -rf "${AGENTLINUX_AGENT_HOME}/.claude/downloads"
 
-# CLI-04 symmetric removal of the AL-51 settings stamp: strip our key only,
-# drop the file iff nothing of the user's remains. Malformed JSON is left
-# alone (idempotent + non-fatal).
+# CLI-04 symmetric removal of the DISABLE_AUTOUPDATER stamp: strip our
+# key only, drop the file iff nothing of the user's remains. Malformed
+# JSON is left alone (idempotent + non-fatal).
 settings_file="${AGENTLINUX_AGENT_HOME}/.claude/settings.json"
 if [[ -f "${settings_file}" ]]; then
   tmp="${settings_file}.tmp.$$"
