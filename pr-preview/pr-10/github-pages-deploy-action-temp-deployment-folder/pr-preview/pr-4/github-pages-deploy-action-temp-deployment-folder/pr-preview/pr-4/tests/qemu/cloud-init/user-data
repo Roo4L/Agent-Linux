@@ -1,0 +1,23 @@
+#cloud-config
+# Phase 6 Plan 06-03: minimal cloud-init seed for the AgentLinux QEMU harness.
+# Injects a per-run SSH pubkey into root; enables sshd; installs bats + jq
+# so the in-guest bats suite can run. No agent pre-installation here — the
+# AgentLinux installer runs over SSH AFTER cloud-init finishes.
+#
+# Placeholder __AGENTLINUX_QEMU_PUBKEY__ is sed-replaced per-run by
+# tests/qemu/boot.sh; the rendered file is fed to cloud-localds(1).
+# This file is the template — keep it committed with the placeholder intact.
+ssh_pwauth: false
+disable_root: false
+users:
+  - name: root
+    ssh_authorized_keys:
+      - __AGENTLINUX_QEMU_PUBKEY__
+package_update: true
+packages:
+  - bats
+  - jq
+  - ca-certificates
+  - curl
+runcmd:
+  - systemctl enable --now ssh

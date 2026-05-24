@@ -1,0 +1,45 @@
+{
+  "version": "1.0",
+  "timestamp": "2026-04-18T07:40:39Z",
+  "phase": "between-phases",
+  "phase_name": "Phase 4 complete → Phase 5 (End-to-End Validation) next",
+  "phase_dir": ".planning/phases/04-agent-tool-packages",
+  "plan": null,
+  "task": null,
+  "total_tasks": null,
+  "status": "paused",
+  "completed_tasks": [
+    {"id": "04-01", "name": "Node.js runtime + 3 .deb packages + local apt repo + Chrome install scripts", "status": "done", "commit": "ba0af66"},
+    {"id": "04-02", "name": "Wire agent tools install, renumber cleanup, update Packer template", "status": "done", "commit": "3a3aed0"},
+    {"id": "04-verify", "name": "Phase 4 verification (7/7 must-haves)", "status": "done", "commit": "e12f482"}
+  ],
+  "remaining_tasks": [
+    {"id": "04-human", "name": "Run live `packer build` and execute 5 human verification tests from 04-VERIFICATION.md", "status": "not_started"},
+    {"id": "05-plan", "name": "Plan Phase 5: E2E Validation script (upload QCOW2 → deploy VM → verify tools → tear down)", "status": "not_started"},
+    {"id": "housekeeping", "name": "Clean up untracked stray files and decide on pending untracked artifacts", "status": "not_started"}
+  ],
+  "blockers": [
+    {"description": "Phase 4 has 5 human-only verification tests (live Packer build, image boot, postinst runtime behavior, new-user /etc/skel, Chrome DevTools MCP launch)", "type": "human_action", "workaround": "Document results; treat as gate before claiming v0.2.0 Phase 4 fully shipped"}
+  ],
+  "human_actions_pending": [
+    {"action": "Run `packer build packer/` and confirm fpm builds 3 .debs, dpkg-scanpackages creates the Packages index, apt-cache shows all three", "context": "04-VERIFICATION.md human test 1 — build-time npm/fpm/network behavior cannot be verified statically", "blocking": true},
+    {"action": "Boot the QCOW2 and `apt install agentlinux-claude-code agentlinux-gsd agentlinux-chrome-devtools-mcp`; confirm postinsts succeed and `which claude` / `npm list -g` pass", "context": "04-VERIFICATION.md human test 2", "blocking": true},
+    {"action": "Inspect /etc/skel/.claude.json after install for `chrome-devtools` under mcpServers (jq merge integrity)", "context": "04-VERIFICATION.md human test 3", "blocking": true},
+    {"action": "Create a new user in the booted image; confirm ~/.claude/get-shit-done, ~/.claude/commands/gsd, ~/.claude/settings.json exist with /usr/bin/node (not a tmp path)", "context": "04-VERIFICATION.md human test 4 — validates the USER_PLACEHOLDER two-pass sed strategy", "blocking": true},
+    {"action": "Launch Claude Code as agent user; verify chrome-devtools MCP server appears and starts headless without error", "context": "04-VERIFICATION.md human test 5 — only way to confirm MCP-03", "blocking": true}
+  ],
+  "decisions": [
+    {"decision": "Use fpm from staged dir trees (not manual dpkg-deb) for all 3 packages", "rationale": "Reproducible, declarative, matches success criterion 5", "phase": "04"},
+    {"decision": "Rename cleanup from 03-cleanup.sh to 06-cleanup.sh and move to end of provisioner array", "rationale": "Slot 03 needed for 03-nodejs.sh; cleanup must run last", "phase": "04"},
+    {"decision": "Two-pass sed with USER_PLACEHOLDER sentinel for per-user /etc/skel path fixup", "rationale": "Cannot hardcode /home/<user> at build time; postinst needs portable sentinel", "phase": "04"}
+  ],
+  "uncommitted_files": [
+    {"path": ".planning/config.json", "change": "modified", "note": "adds `_auto_chain_active: false` flag — likely GSD internal state; decide whether to commit"},
+    {"path": ".mcp.json", "change": "untracked", "note": "project-level MCP config — review before committing"},
+    {"path": ".planning/notes/2026-04-04-bug-recursive-shim-pnpm.md", "change": "untracked", "note": "captures known recursive pnpm shim bug (motivation for AgentLinux)"},
+    {"path": ".planning/phases/01-complete-website/01-03-SUMMARY.md", "change": "untracked", "note": "appears to backfill a missing phase-1 plan summary"},
+    {"path": "--version.hwm, --version.pwd, --version.pwi, version.hwm, version.pwd, version.pwi", "change": "untracked", "note": "stray zero/near-zero byte files in repo root; almost certainly accidental (e.g. tool misparsing `--version` flag); safe to delete"}
+  ],
+  "next_action": "Decide path: (A) run human verification tests for Phase 4 on real infra, or (B) plan Phase 5 (End-to-End Validation). Memory notes VM migration to hostinger-vps-2 may be incomplete — confirm infra readiness before A.",
+  "context_notes": "v0.2.0 milestone is in progress. Phase 3 (bootable image) and Phase 4 (agent tool packages) are execution-complete; Phase 4 has a block of human verification tests that require a live Packer build. ROADMAP.md still shows Phase 4 unchecked at the top and 04-02 unchecked in plan list despite the completion commit e12f482 — the roadmap may need a pass to mark 04-02 and Phase 4 done. Phase 5 plans are TBD."
+}

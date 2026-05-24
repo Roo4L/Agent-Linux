@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# .gitleaks.toml — gitleaks v8 configuration for AgentLinux.
+#
+# Extends the bundled default rule set; adds an allowlist for known
+# false positives so the SEC-05 pre-commit + CI gate stays green on
+# the v0.4.0 audit baseline (docs/audits/v0.4.0/SEC-01-gitleaks-report.md).
+
+# Inherit the upstream default rule set — we do NOT want to weaken
+# the rules; we only want to suppress one known false positive plus
+# scope the scanner away from long-form workflow narrative.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "v0.4.0 Phase 8 SEC-01 triage — see docs/audits/v0.4.0/SEC-01-gitleaks-report.md"
+
+# .planning/ holds GSD workflow narrative — long-form prose with
+# hostnames, command transcripts, and example values that consistently
+# trip credential regexes without being credentials. The trade-off is
+# documented in ADR-014 (no real secrets observed across full history;
+# planning notes are intentionally verbose).
+paths = [
+    '''\.planning/.*\.md$''',
+    '''docs/audits/.*\.md$''',
+    '''docs/decisions/.*\.md$''',
+]
+
+# Belt-and-braces fingerprint pins for known false positives:
+# - 44a7f03 .planning/.continue-here.md:65 — OpenNebula API hostname text
+# - c94920a docs/decisions/014-secret-remediation-noop.md:20 — same hostname
+#   text quoted in the ADR that documents the suppression decision
+fingerprints = [
+    "44a7f03a5973cbb634cb885910960d12f9123c9e:.planning/.continue-here.md:generic-api-key:65",
+    "c94920a952caa8d5e679b875c1068b3d721d36cb:docs/decisions/014-secret-remediation-noop.md:generic-api-key:20",
+]

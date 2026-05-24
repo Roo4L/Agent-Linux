@@ -1,0 +1,22 @@
+[
+ {
+  "RuleID": "generic-api-key",
+  "Description": "Detected a Generic API Key, potentially exposing access to various services and sensitive operations.",
+  "StartLine": 65,
+  "EndLine": 65,
+  "StartColumn": 15,
+  "EndColumn": 43,
+  "Match": "API: `REDACTED`",
+  "Secret": "REDACTED",
+  "File": ".planning/.continue-here.md",
+  "SymlinkFile": "",
+  "Commit": "44a7f03a5973cbb634cb885910960d12f9123c9e",
+  "Entropy": 3.697846,
+  "Author": "Nikita Ivanov",
+  "Email": "kesha.plovec02@gmail.com",
+  "Date": "2026-04-18T07:42:13Z",
+  "Message": "wip: pause between phases (04 done, 05 not started)\n\nHandoff captures:\n- Phase 4 execution complete (7/7 automated must-haves), 5 human tests outstanding\n- Phase 5 (E2E Validation) next — plans TBD\n- Roadmap checkbox drift noted\n- Untracked stray files flagged for triage\n\nCo-Authored-By: Claude Opus 4.7 (1M context) \u003cnoreply@anthropic.com\u003e",
+  "Tags": [],
+  "Fingerprint": "44a7f03a5973cbb634cb885910960d12f9123c9e:.planning/.continue-here.md:generic-api-key:65"
+ }
+]
