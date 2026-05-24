@@ -231,6 +231,44 @@ The strategy doc was diagnosed as combining strategy with roadmap content; the m
 | STRATR-06 (voice-rule grep gate on STRATEGY.md only) | Amended in-place: STRATR-06 (voice-rule grep gate on STRATEGY.md AND ROADMAP.md). Same regex; both files included as gate targets. |
 | (none — additive) | New STRATR-07: `docs/ROADMAP.md` exists at the repo path. ≤ 6 KB. Carries `## Where we are now` + `## What's next` (with `### Near-term` + `### Themes for v0.6+` subsections; ≥ 4 themes with `**Sequencing rationale:**` lines). `> Last reviewed:` blockquote at the top. Voice-rule grep gate per STRATR-06. |
 
+## Superseded Items (2026-05-24 Phase 16 scope re-cut)
+
+The Phase 16 SITE-* requirements were re-cut at phase-discuss time on
+2026-05-24 to "minimum-viable contradiction removal." The original spec
+aggressively restructured the page (`#features` → `#pillars` with status
+badges, new `#install` section with curl snippet, footer doc-link push,
+deploy-time install-snippet drift check, mobile-screenshot PR ritual).
+The maintainer re-scoped to contradiction-removal only — the 8-card grid
+stays, copy inside contradicting cards is rewritten in place, no `#install`
+snippet lands, no footer doc-links, no nav `Vision` link, no PR screenshot
+ritual. The under-radar posture from STRATEGY.md `## Guiding policy`
+(downprioritize "growing surface area before the current gap is closed")
+is the governing decision; deferred items go to `<deferred>` in 16-CONTEXT.md.
+Precedent: Phase 14 STRAT-* → VIS-* + STRATR-* reframe (2026-05-16),
+Phase 15 STRATR-02 spine reframe (2026-05-19), Phase 15 execution-principles
+rewrite + STRATR-01 size bump (2026-05-23), and Phase 15 strategy/roadmap
+split (2026-05-23 Round 2). SITE-12 (Phase-close audit + milestone-close
+gate) is added in the same window — its substance was the trailing
+success-criterion of the original Phase 16 entry; promoted to a numbered
+requirement here so the AUDIT can cite it.
+
+| Old ID | Disposition |
+|--------|-------------|
+| SITE-01 (hero rewrite carries delivered-fact line + forward-looking line; voice rule applies) | Amended in-place: SITE-01 (hero value-prop is rewritten so the string `purpose-built Linux distribution` no longer appears; `grep -c 'purpose-built Linux distribution' index.html` returns 0). Hero copy aligns with `docs/VISION.md` mission line ("Linux that gives coding agents a stable place to run — without you having to set it up."); SITE-06 voice-rule grep continues to enforce voice on the rewritten copy. The two-line "delivered-fact + forward-looking" structure was dropped in favour of a single-line vision-flavoured value-prop because the under-radar posture (STRATEGY.md `## Guiding policy`) means no shipped-version cite belongs in the hero. |
+| SITE-02 (8-card `#features` grid replaced with 2-card `#pillars`; ≤ 3-sentence card body + `Learn more →` doc-link per card) | Superseded. The 8-card grid is preserved; the five contradicting cards are rewritten in place. New grep gate: `grep -cE 'apt install claude-code\|QEMU VM images\|Docker micro-VMs\|in distro repos\|distro repositories' index.html` returns 0. The `#features` → `#pillars` restructure + per-card doc-links was an information-architecture move; the IA is shippable as-is once the copy stops contradicting the plugin reality. Closes via the new SITE-02 grep gate + the explicit decision recorded in 16-AUDIT.md. |
+| SITE-03 (status badges `[SHIPPED v0.3.0]` + `[v0.6+ ROADMAP]` per pillar card) | Superseded. No `#pillars` section → no pillar cards → no badges to apply. Closes via SITE-02 supersession + the explicit "stay under radar; no shipped-version cite in hero / cards" decision recorded in 16-AUDIT.md. |
+| SITE-04 (reframe or remove `#comparison`; align with STRATEGY.md `## Where we are now`) | Kept, narrowed: SITE-04 (reframe path locked; `#comparison` block is preserved as three blocks anchored to the canonical bug class — `sudo npm install -g` EACCES + recursive-shim breakage — and the curated-combo bet per STRATEGY.md `## What we're solving`). Existing grep gate `grep -cE 'AgentLinux vs (Docker\|VM\|micro-VM)' index.html` returns 0 carries forward unchanged. |
+| SITE-05 (new `#install` section with curl snippet + SHA256 verify line) | Superseded. No `#install` section lands this phase. The README curl snippet remains the canonical install reference; the site stays under-radar. Closes via the explicit decision recorded in 16-AUDIT.md. |
+| SITE-06 (voice-rule grep gate on rendered HTML; zero matches required — HARD GATE) | Kept unchanged. Voice-rule grep gate continues to enforce on `index.html`: `grep -nE 'AgentLinux (benchmarks\|measures\|defends\|protects\|prevents\|hardens)\b' index.html` returns zero matches. HARD GATE per VIS-07 / STRATR-06 precedent. |
+| SITE-07 (footer doc-links to VISION/STRATEGY/STABILITY-MODEL/decisions; nav `Vision` link) | Superseded. No footer doc-links land this phase; no nav `Vision` link. Under-radar posture from STRATEGY.md `## Guiding policy` (downprioritize public engagement until critical mass) drives the deferral. Closes via the explicit decision recorded in 16-AUDIT.md. |
+| SITE-08 (OG / Twitter meta tags rewritten; no `purpose-built Linux distribution` language) | Kept. `og:title`, `og:description`, `twitter:title`, `twitter:description` rewritten this phase to reflect the plugin framing; same grep gates as the original. |
+| SITE-09 (OG image SVG → PNG; 1200×630; SVG preserved as source-of-truth) | Kept. `assets/og-image.png` rendered (rsvg-convert / magick / inkscape at the build host's discretion); `assets/og-image.svg` preserved; `og:image` + `twitter:image` meta tags repointed to `.png`. Closes the v0.1.0 known issue. |
+| SITE-10 (deploy-time install-snippet drift check wired into `.github/workflows/deploy.yml`) | Closed N/A. The conditional path already in the spec applies: no `#install` snippet on the site (per SITE-05 supersession) → no drift to check. `.github/workflows/deploy.yml` is untouched this phase. |
+| SITE-11 (PR body for the website-refresh PR includes mobile + narrow-viewport screenshots ≤ 375 px wide of every changed section) | Superseded. The PR review pass (technical-writer + fact-checker + ai-deslop per CLAUDE.md `## Review Loop` HTML row) is sufficient. Closes via the explicit decision recorded in 16-AUDIT.md. |
+| (none — additive) | New SITE-12: Phase-close audit `.planning/phases/16-website-refresh-agentlinux-org/16-AUDIT.md` cites every SITE-XX evidence (KEEP / AMEND / SUPERSEDED / N/A dispositions); gate emits GREEN. Milestone-close gate (v0.3.3) also fires from this phase — Phase 16 is the last v0.3.3 phase, so the audit closes the milestone-coverage gate alongside its own phase-close gate. The audit-file path uses the SDK-derived directory slug (`16-website-refresh-agentlinux-org`), not the abbreviated form in the original SITE-06 / SITE-10 / SITE-12 spec language (`16-website-refresh`). |
+
+Net active SITE requirements after the 2026-05-24 amendment: SITE-01 (amended), SITE-04 (narrowed), SITE-06 (kept; HARD GATE), SITE-08 (kept), SITE-09 (kept), SITE-12 (new). Six active, five superseded, one N/A (SITE-10). Phase-16 traceability table (line 172-182 above) reads forward against this disposition.
+
 ## Deferred Items
 
 - **`/gsd-complete-milestone` template amendment** (Pitfall #12 / #23) — adds a "Vision doc + Strategy doc reviewed" step that updates pillar Today / Direction sections at every milestone close. Process change to GSD itself; flagged for the v0.3.3 retrospective.
