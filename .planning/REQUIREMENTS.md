@@ -161,39 +161,39 @@ Each requirement is mapped to exactly one phase. Phase numbering continues from 
 
 | Req | Phase | Plan |
 |-----|-------|------|
-| EXPL-01 | 12 | 13-01-PLAN.md |
-| EXPL-02 | 13 | 14-01-PLAN.md |
-| VIS-01 | 14 | 15-01-PLAN.md |
-| VIS-02 | 14 | 15-01-PLAN.md |
-| VIS-03 | 14 | 15-01-PLAN.md |
-| VIS-04 | 14 | 15-01-PLAN.md |
-| VIS-05 | 14 | 15-01-PLAN.md |
-| VIS-06 | 14 | 15-01-PLAN.md |
-| VIS-07 | 14 | 15-01-PLAN.md |
-| VIS-08 | 14 | 15-02-PLAN.md |
-| VIS-09 | 14 | 15-01-PLAN.md |
-| DOC-01 | 14 | 15-02-PLAN.md |
-| DOC-02 | 14 | 15-02-PLAN.md |
-| DOC-03 | 14 | 15-02-PLAN.md |
-| DOC-04 | 14 | 15-02-PLAN.md |
-| DOC-05 | 14 | N/A — closed 2026-05-16 (Phase 14 verdict (b) — no pillar 3 → no ADR-012 forward-reference edit) |
-| STRATR-01 | 15 | 16-01-PLAN.md |
-| STRATR-02 | 15 | 16-01-PLAN.md |
-| STRATR-03 | 15 | 16-01-PLAN.md |
-| STRATR-04 | 15 | 16-01-PLAN.md |
-| STRATR-05 | 15 | 16-01-PLAN.md |
-| STRATR-06 | 15 | 16-01-PLAN.md |
-| SITE-01 | 16 | 17-01-PLAN.md |
-| SITE-02 | 16 | 17-01-PLAN.md |
-| SITE-03 | 16 | 17-01-PLAN.md |
-| SITE-04 | 16 | 17-01-PLAN.md |
-| SITE-05 | 16 | 17-01-PLAN.md |
-| SITE-06 | 16 | 17-01-PLAN.md |
-| SITE-07 | 16 | 17-01-PLAN.md |
-| SITE-08 | 16 | 17-01-PLAN.md |
-| SITE-09 | 16 | 17-01-PLAN.md |
-| SITE-10 | 16 | 17-01-PLAN.md (or N/A close if SITE-05 omits the install snippet) |
-| SITE-11 | 16 | 17-01-PLAN.md |
+| EXPL-01 | 13 | 13-01-PLAN.md |
+| EXPL-02 | 14 | 14-01-PLAN.md |
+| VIS-01 | 15 | 15-01-PLAN.md |
+| VIS-02 | 15 | 15-01-PLAN.md |
+| VIS-03 | 15 | 15-01-PLAN.md |
+| VIS-04 | 15 | 15-01-PLAN.md |
+| VIS-05 | 15 | 15-01-PLAN.md |
+| VIS-06 | 15 | 15-01-PLAN.md |
+| VIS-07 | 15 | 15-01-PLAN.md |
+| VIS-08 | 15 | 15-02-PLAN.md |
+| VIS-09 | 15 | 15-01-PLAN.md |
+| DOC-01 | 15 | 15-02-PLAN.md |
+| DOC-02 | 15 | 15-02-PLAN.md |
+| DOC-03 | 15 | 15-02-PLAN.md |
+| DOC-04 | 15 | 15-02-PLAN.md |
+| DOC-05 | 15 | N/A — closed 2026-05-16 (Phase 14 verdict (b) — no pillar 3 → no ADR-012 forward-reference edit) |
+| STRATR-01 | 16 | 16-01-PLAN.md |
+| STRATR-02 | 16 | 16-01-PLAN.md |
+| STRATR-03 | 16 | 16-01-PLAN.md |
+| STRATR-04 | 16 | 16-01-PLAN.md |
+| STRATR-05 | 16 | 16-01-PLAN.md |
+| STRATR-06 | 16 | 16-01-PLAN.md |
+| SITE-01 | 17 | 17-01-PLAN.md |
+| SITE-02 | 17 | 17-01-PLAN.md |
+| SITE-03 | 17 | 17-01-PLAN.md |
+| SITE-04 | 17 | 17-01-PLAN.md |
+| SITE-05 | 17 | 17-01-PLAN.md |
+| SITE-06 | 17 | 17-01-PLAN.md |
+| SITE-07 | 17 | 17-01-PLAN.md |
+| SITE-08 | 17 | 17-01-PLAN.md |
+| SITE-09 | 17 | 17-01-PLAN.md |
+| SITE-10 | 17 | 17-01-PLAN.md (or N/A close if SITE-05 omits the install snippet) |
+| SITE-11 | 17 | 17-01-PLAN.md |
 
 **Coverage:** 33 / 33 requirements mapped (2 EXPL + 9 VIS + 6 STRATR + 5 DOC + 11 SITE). Zero orphans, zero duplicates. Conditional closes (DOC-05, SITE-10) recorded inline above.
 
