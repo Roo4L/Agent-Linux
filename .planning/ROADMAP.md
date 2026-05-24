@@ -78,7 +78,10 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
   5. Non-interactive default contract: when stdin is not a TTY, `agentlinux install` reuses-or-bails by default; the single `--yes` consent flag (no per-action flags) opts into all required Remediate actions in one shot; without `--yes` the installer exits with a structured non-zero code naming every component that needed Remediate — UX-03.
   6. Structured exit codes contract: `64` (`EX_USAGE`) for bad command-line flags or contradictory options, `65` (`EX_DATAERR`) for incompatible host state surfaced by detection, `1` for runtime failures during the Create / Remediate path; documented in `agentlinux install --help` and consumable by CI wrappers — UX-05.
   7. Greenfield invariant: a fresh container completes `agentlinux install` (no Remediate flags needed; no Remediate paths fire) and the v0.3.0 bats matrix stays green (66/66 on Ubuntu 22.04 + 24.04).
-**Plans**: TBD (estimated 3 plans — REMEDIATE-01..04 across two waves of provisioner / recipe-runner edits, then UX-03/UX-05 `--yes` parsing + exit-code wiring + phase-close audit)
+**Plans**: 3 plans
+- [ ] 14-01-PLAN.md — Foundation: --yes/--no-yes parsing + EX_USAGE/EX_DATAERR constants + bail aggregation + remediate.sh orchestrator + per-component handler stubs (UX-03, UX-05)
+- [ ] 14-02-PLAN.md — REMEDIATE-01 (npm prefix chown/rebase + module migration) + REMEDIATE-02 (PATH-wiring marker) + REMEDIATE-03 (sudoers install_or_overwrite helper + drift gate) (REMEDIATE-01, REMEDIATE-02, REMEDIATE-03)
+- [ ] 14-03-PLAN.md — REMEDIATE-04 (broken catalog agent: preserve_paths.json per agent + loader/runner/uninstall.sh wiring + install.ts REMEDIATE branch + broken-after-remediate sentinel + list suffix + brownfield PATH-MISMATCH E2E smoke + Phase 14 close-out audit) (REMEDIATE-04)
 **UI hint**: no
 
 ### Phase 15: Pre-flight UX
@@ -115,7 +118,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 |-------|-----------------|--------|-----------|
 | 12. Detection Layer | 3/3 | Complete   | 2026-05-11 |
 | 13. Reuse Wiring | 2/2 | Complete   | 2026-05-20 |
-| 14. Remediate + Consent Flag + Exit Codes | ~3 | Not started | - |
+| 14. Remediate + Consent Flag + Exit Codes | 3 | Planned | - |
 | 15. Pre-flight UX | ~2 | Not started | - |
 | 16. Documentation + Brownfield Acceptance Gate | ~2 | Not started | - |
 | **Total** | **~12 plans** | 0/5 phases done | — |
