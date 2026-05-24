@@ -828,7 +828,7 @@
       <div class="faq-list">
         <div class="faq-item">
           <p class="faq-question">What is AgentLinux?</p>
-          <p class="faq-answer">A Linux distribution purpose-built for AI coding agents. It runs on a dedicated machine — virtual or physical — where the agent gets an entire OS configured for its workload, not for human desktop use.</p>
+          <p class="faq-answer">An installable Ubuntu plugin that ships a dedicated agent environment and a curated, stability-tested toolchain. One install command provisions the agent user, the runtime, the install paths, and a small catalog of supported agents — so the user installs once and starts working with the agent.</p>
         </div>
         <div class="faq-item">
           <p class="faq-question">When will it be available?</p>
@@ -844,7 +844,7 @@
         </div>
         <div class="faq-item">
           <p class="faq-question">How is this different from Docker?</p>
-          <p class="faq-answer">Docker is a container runtime. AgentLinux is a full operating system on a dedicated machine. The agent gets persistent state, real process management, mid-session package installs, and an environment that survives restarts.</p>
+          <p class="faq-answer">Docker is a container runtime. AgentLinux installs onto your real Ubuntu host — the agent keeps state across restarts, <code>systemctl</code> works, mid-session <code>apt install</code> works, and the agent user the plugin provisions owns its own Node.js runtime so <code>claude update</code> never needs <code>sudo</code>.</p>
         </div>
       </div>
     </div>
