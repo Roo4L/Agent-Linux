@@ -731,7 +731,7 @@
           <!-- Lucide: minimize-2 (minimalistic) -->
           <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/></svg>
           <div class="feature-title">No-touch agent environment</div>
-          <p class="feature-desc">One install command on your existing Ubuntu host. The agent user, its permissions, the runtime, the install paths — all decisions made, all best practices encoded.</p>
+          <p class="feature-desc">One install command on your existing Ubuntu host. The agent user, its permissions, the runtime, the install paths — all decisions made.</p>
         </div>
 
         <div class="feature-card">
@@ -745,7 +745,7 @@
           <!-- Lucide: package -->
           <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
           <div class="feature-title">Curated catalog</div>
-          <p class="feature-desc">A small, deliberately chosen set of agents and tools the project tests as a combination. The default version set is the one we have exercised on the Docker + QEMU matrix together.</p>
+          <p class="feature-desc">A small, deliberately chosen set of agents and tools the project tests as a combination. The default version set is the one we have exercised together before shipping.</p>
         </div>
 
         <div class="feature-card">
@@ -793,7 +793,7 @@
 
       <div class="comparison-block">
         <h3>Local machine → a dedicated agent user instead</h3>
-        <p class="solution">The plugin provisions an <code>agent</code> user with a correctly-owned Node.js runtime and npm prefix on your existing Ubuntu host. <code>sudo npm install -g claude</code> is replaced by an install path the agent owns — so <code>claude update</code> later goes through Claude Code's own updater without EACCES, and your <code>~/.ssh</code> is never on the table.</p>
+        <p class="solution">The plugin provisions an <code>agent</code> user with a correctly-owned Node.js runtime and npm prefix on your existing Ubuntu host. <code>sudo npm install -g claude</code> is replaced by an install path the agent owns — so <code>claude update</code> later goes through Claude Code's own updater without EACCES, and the agent stays scoped to its own user.</p>
       </div>
 
       <div class="comparison-block">
@@ -803,7 +803,7 @@
 
       <div class="comparison-block">
         <h3>Generic VMs → the integration work, already done</h3>
-        <p class="solution">A blank Ubuntu VM still hands you the integration work — agent user, runtime ownership, install paths, version compatibility. The plugin closes that gap in one install command and holds a curated version set we have exercised together on the Docker + QEMU matrix.</p>
+        <p class="solution">A blank Ubuntu VM still hands you the integration work — agent user, runtime ownership, install paths, version compatibility. The plugin closes that gap in one install command and holds a curated version set we have tested together before shipping.</p>
       </div>
 
       <p class="comparison-closing">If that fits the way you want to run agents, <a href="#signup">join the waitlist</a>.</p>
