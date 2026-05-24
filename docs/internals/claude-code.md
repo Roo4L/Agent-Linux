@@ -51,6 +51,16 @@ see [Node.js runtime](nodejs-runtime.md)). When the operator later runs
 with no `sudo`, no EACCES, no recursive shim at `/usr/local/bin/`.
 AgentLinux gets out of the way; the upstream self-updater Just Works.
 
+AgentLinux also makes the version you installed stay the version you
+installed. The recipe drops a small marker in the agent's Claude Code
+settings (Anthropic's documented `DISABLE_AUTOUPDATER` flag) that
+disables the in-tool background auto-updater, so the binary on disk
+doesn't quietly drift off the curated combo the moment the agent first
+launches the CLI. Manual `claude update` still works on demand — the
+operator stays in control of when to move ahead, and
+`agentlinux upgrade` surfaces any divergence between curated, installed,
+and upstream-latest.
+
 ## Worked example
 
 ```
