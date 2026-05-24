@@ -1,6 +1,7 @@
 # AgentLinux Stability Model
 
-> The TL;DR of [ADR-011](decisions/011-stability-first-version-pinning.md).
+> The user-facing summary of AgentLinux's curated-combo version pinning —
+> the full decision record is at [`decisions/011-stability-first-version-pinning.md`](decisions/011-stability-first-version-pinning.md).
 
 AgentLinux ships *curated combos*: every catalog agent is pinned to an exact
 version that we test together end-to-end before each release. You install one
@@ -22,11 +23,11 @@ v0.3.0 pins:
 - `gsd` (`get-shit-done-cc`) — **1.37.1** (npm global into the agent's
   per-user prefix)
 - `playwright` — **1.59.1** (npm global + `playwright install --with-deps
-  chromium`; apt-layer runs via ADR-012 NOPASSWD sudo drop-in)
+  chromium`; apt-layer runs via the agent user's NOPASSWD sudo drop-in)
 
-The Phase 6 release-gate (`TST-08`) installs the full pinned combo on a clean
-Ubuntu host and runs the agent bats suite before the tag can publish. A red
-combo cannot ship.
+The release-gate test installs the full pinned combo on a clean Ubuntu host
+and runs the agent bats suite before the tag can publish. A red combo cannot
+ship.
 
 ## The three divergence states
 
@@ -50,8 +51,8 @@ Outcomes:
 ## Worked example: "I ran `claude update`"
 
 The canonical path. Claude Code ships with its own self-updater that writes
-into the agent-owned install tree — that is the whole point of AgentLinux
-(AGT-02). After `claude update`, the curated pin and the installed version
+into the agent-owned install tree — that is the whole point of AgentLinux.
+After `claude update`, the curated pin and the installed version
 disagree; `agentlinux upgrade` surfaces the diff rather than silently
 overwriting your choice:
 
@@ -116,10 +117,10 @@ behind is supported (`pin =<semver>`); reconciling is one command
 
 ## Related
 
-- [ADR-011 — Stability-first version pinning with explicit reconciliation](decisions/011-stability-first-version-pinning.md)
+- [Stability-first version pinning with explicit reconciliation](decisions/011-stability-first-version-pinning.md)
   — the full decision record, including considered alternatives (private
   apt/dpkg repo, Nix-style symlink profiles, thin-wrapper baseline).
-- [ADR-006 — curl-pipe-bash primary + optional .deb distribution](decisions/006-curl-pipe-bash-plus-deb.md)
+- [curl-pipe-bash primary + optional .deb distribution](decisions/006-curl-pipe-bash-plus-deb.md)
   — how the release tarball + catalog snapshot + SHA256 sidecar get to users.
 - [README.md](../README.md) — the top-level install + verify story.
 - [docs/VISION.md — Pillar 2: Stability](VISION.md)

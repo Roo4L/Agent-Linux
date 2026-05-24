@@ -102,6 +102,20 @@ Grouped by category. Each `XXX-NN` is a verifiable outcome — a document sectio
 
 - [x] **SITE-11**: PR body for the website-refresh PR includes mobile + narrow-viewport screenshots (≤ 375 px wide) of every changed section. PITFALLS #19 enforcement.
 
+## Post-v0.4.0 Addendum Requirements
+
+The v0.4.0 milestone closed at commit `c8a2787` on 2026-05-02 with 21 requirements (LIC/SEC/CLEAN/CIPUB/PUB). The following requirement set is a *post-v0.4.0 addendum* added under issue AL-22 ("Create documentation on what AgentLinux does") — captured in this file because REQUIREMENTS.md is still the active per-project requirements doc, but tracked separately so the v0.4.0 milestone gate count stays honest.
+
+### Developer Documentation (DOC) — Phase 12
+
+- [x] **DOC-01**: A `docs/internals/README.md` exists at the documented location, opens with a one-paragraph "What AgentLinux is" lede in product voice, and contains a `## Components` H2 with a TOC linking to all nine component docs (installer, agent-user, sudo-drop-in, nodejs-runtime, claude-code, gsd, playwright, registry-cli, catalog). Verified by file-existence check + grep for the nine `(*.md)` link targets.
+- [x] **DOC-02**: Nine component docs exist under `docs/internals/` — one per surface listed in the index. Each follows the four-section structural contract: `## The problem` → `## What AgentLinux does` → `## Value vs the naive approach` → `## Related`. Each `## Value vs the naive approach` is a numbered list with **bold lead clause** items (excerpt-friendly per the AL-22 reuse-as-blog-source signal). No source-line deep links anywhere in `docs/internals/` (per the dev-docs depth contract). Verified by grep across the nine files.
+- [x] **DOC-03**: A new project-scoped reviewer agent `.claude/agents/dev-docs-auditor.md` exists with read-only tools (`tools: Read, Grep, Glob, Bash`) and a frontmatter description triggering it on changes under `plugin/bin/`, `plugin/lib/`, `plugin/provisioner/`, `plugin/cli/src/`, `plugin/catalog/`, and `packaging/curl-installer/`. The reviewer is registered in CLAUDE.md "Review Loop" by extending the Bash, TS/JS, and Catalog recipes rows of the reviewer-by-file-type table. Verified by file existence + `grep -E '^- Bash → .*dev-docs-auditor' CLAUDE.md` and equivalents for the other two extended rows.
+- [x] **DOC-04**: A new project-scoped skill `.claude/skills/dev-docs/SKILL.md` exists, documenting the docs/internals/ contract (per-component four-section structure, source-path → doc-path dispatch table, when to update, product-perspective lens, and the explicit decision to not add a stop-hook). The skill is enumerated in CLAUDE.md "Pointers" alongside the other project-scoped skills. Verified by file existence + grep for the dispatch-table entries covering all 9 component docs.
+- [x] **DOC-05**: Top-level discoverability — top-level `README.md` gains a "Why AgentLinux — concepts" H2 section linking `docs/internals/README.md`, AND a `## Links` row labelled `**Internals (developer docs):**` linking `docs/internals/`. Verified by grep across `README.md`.
+- [x] **DOC-06**: No new stop-hook was added — `.claude/hooks/dev-docs-reminder.sh` does not exist; `.claude/settings.json` is unchanged across the Phase 12 commit range. The dev-docs sync check rides inside the existing `review-reminder.sh`-triggered review loop per the ADR-010 2026-05-02 refinement and per ADR-015 (DOC-07). Verified by `! test -f .claude/hooks/dev-docs-reminder.sh` and `git diff <phase-12-base>..HEAD -- .claude/settings.json | wc -l` returning 0.
+- [x] **DOC-07**: A new ADR `docs/decisions/015-developer-internals-docs.md` records the design decision behind Phase 12 — what `docs/internals/` is for, why a reviewer + skill instead of a hook, why a flat embed inside the existing Review Loop instead of a new top-level CLAUDE.md section. Status `Accepted`. Verified by file existence + `grep -q '^## Decision' docs/decisions/015-developer-internals-docs.md`.
+
 ## Future Requirements (not in this milestone)
 
 - **Pillar 2 implementation milestone (v0.6+)** — preset/profile framework, compat-guarded update flow mechanism, supply-chain monitoring policy codification. Strategy doc's Themes-for-v0.6+ section commits to it; this milestone does not deliver it.
@@ -182,6 +196,17 @@ Each requirement is mapped to exactly one phase. Phase numbering continues from 
 | SITE-11 | 16 | 16-01-PLAN.md |
 
 **Coverage:** 33 / 33 requirements mapped (2 EXPL + 9 VIS + 6 STRATR + 5 DOC + 11 SITE). Zero orphans, zero duplicates. Conditional closes (DOC-05, SITE-10) recorded inline above.
+
+### Post-v0.4.0 Addendum Traceability
+
+| Phase | Requirements | Count |
+|-------|--------------|-------|
+| 12 Developer Documentation (AL-22) | DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, DOC-06, DOC-07 | 7 |
+| **Total addendum** | | **7** |
+
+**Coverage check:** 7 addendum requirements mapped to 1 phase. Zero orphans. (v0.4.0 milestone total remains 21 requirements across 5 phases — see the table above.)
+
+## Verification Convention
 
 ## Superseded Items (2026-05-16 reframe)
 
