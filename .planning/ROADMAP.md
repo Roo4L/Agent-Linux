@@ -36,7 +36,7 @@ Key locked decisions honored by this roadmap:
 - [x] **Phase 13: Pillar 3 Candidate Exploration** — Treat security as a *candidate* pillar; explore the post-Shai-Hulud / OWASP-LLM-Top-10-v2025 / Lethal-Trifecta landscape; produce `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md`. Verdict locked at (b): fold into pillar 2 as sub-concern; security is not a separate pillar in v0.3.3. (completed 2026-05-10)
 - [ ] **Phase 14: Vision Doc + ADR-015 + Downstream Surface Updates** — Author `docs/VISION.md` as the canonical vision document (mission, two pillars as optimization values, vision-level guiding principles, vision-level non-goals). Author ADR-015 recording the framing decision. Propagate the framing via back-pointers in README, CONTRIBUTING, .planning/PROJECT.md, docs/STABILITY-MODEL.md. DOC-05 closes N/A. Voice-rule grep gate enforced on VISION.md as phase-close hard gate.
 - [x] **Phase 15: Strategy + Roadmap Doc** — Author `docs/STRATEGY.md` as the canonical strategy/roadmap document: execution rules (voice rule, behavior-tests-as-spec, evidence-cite discipline, curated-combo testing, no `sudo npm install -g`), theme sequencing for v0.6+ (Security Hardening, preset/profile framework, compat-guarded update flow), current focus. References VISION.md as upstream "what." Voice-rule grep gate enforced. (completed 2026-05-19)
-- [ ] **Phase 16: Website Refresh (agentlinux.org)** — Reframe `index.html` (currently two pivots stale) to mirror the post-Phase-14 vision (two pillars) + post-Phase-15 strategy. Replace `#features` 8-card grid with `#pillars` 2-card section carrying status badges; reframe or remove `#comparison`; rewrite hero + OG/Twitter meta tags; convert OG image SVG → PNG (closes v0.1.0 known issue); add `#install` snippet + deploy-time anti-drift check; voice-rule grep gate on rendered HTML; mobile screenshots in PR body.
+- [x] **Phase 16: Website Refresh (agentlinux.org)** — Reframe `index.html` (currently two pivots stale) to mirror the post-Phase-14 vision (two pillars) + post-Phase-15 strategy. Replace `#features` 8-card grid with `#pillars` 2-card section carrying status badges; reframe or remove `#comparison`; rewrite hero + OG/Twitter meta tags; convert OG image SVG → PNG (closes v0.1.0 known issue); add `#install` snippet + deploy-time anti-drift check; voice-rule grep gate on rendered HTML; mobile screenshots in PR body. (completed 2026-05-24)
 
 ## Phase Details
 
@@ -112,7 +112,7 @@ Key locked decisions honored by this roadmap:
   11. PR body for the website-refresh PR includes mobile + narrow-viewport screenshots (≤ 375 px wide) of every changed section. Audit records the PR URL + the screenshot count (≥ 1 per changed section). — SITE-11.
   12. Phase-close audit `.planning/phases/16-website-refresh/16-AUDIT.md` cites every SITE-XX evidence; gate emits GREEN. Milestone-close gate also fires from this phase (last v0.3.3 phase).
 **Plans**: estimated 1 plan (split possible at phase-discuss time if SITE-09 PNG conversion or SITE-10 drift wiring proves heavier than expected)
-- [ ] 16-01-PLAN.md — `index.html` IA restructure (#pillars replacing #features, hero rewrite, footer + nav additions, OG/Twitter rewrite); OG image PNG conversion + commit; deploy-time anti-drift check wiring; voice-rule grep gate run + committed; mobile screenshots in PR body; Phase 16 phase-close audit + milestone-close gate (SITE-01..11)
+- [x] 16-01-PLAN.md — `index.html` IA restructure (#pillars replacing #features, hero rewrite, footer + nav additions, OG/Twitter rewrite); OG image PNG conversion + commit; deploy-time anti-drift check wiring; voice-rule grep gate run + committed; mobile screenshots in PR body; Phase 16 phase-close audit + milestone-close gate (SITE-01..11)
 **UI hint**: yes
 
 ## Progress
@@ -126,7 +126,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Phase 12 → Ph
 | 13. Pillar 3 Candidate Exploration | 1/1 | Complete | 2026-05-10 |
 | 14. Vision Doc + ADR-015 + Downstream Surface Updates | 2 | In progress | Reframed from "Strategy Doc..." on 2026-05-16; vision-doc draft committed; ADR-015 + downstream propagation pending |
 | 15. Strategy + Roadmap Doc | 2/2 | Complete    | 2026-05-19 |
-| 16. Website Refresh | 1 | Not started | Renumbered from Phase 15 on 2026-05-16 |
+| 16. Website Refresh | 1/1 | Complete   | 2026-05-24 |
 | **Total** | **~7 plans** | 2/5 phases done | — |
 
 ## Coverage Summary

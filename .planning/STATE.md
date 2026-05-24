@@ -2,15 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.3.3
 milestone_name: milestone
-status: executing
+status: verifying
 stopped_at: Phase 15 context gathered (5-section Rumelt-style spine adopted via mid-discuss research reframe; AL-38 + AlmaLinux defines first usable release)
-last_updated: "2026-05-19T14:27:25.048Z"
-last_activity: 2026-05-19
+last_updated: "2026-05-24T08:31:36.085Z"
+last_activity: 2026-05-24
 progress:
   total_phases: 5
-  completed_phases: 4
-  total_plans: 6
-  completed_plans: 6
+  completed_phases: 5
+  total_plans: 7
+  completed_plans: 7
   percent: 100
 ---
 
@@ -21,15 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights.
-**Current focus:** Phase 15 — strategy-roadmap-doc
+**Current focus:** Phase 16 — Website Refresh (agentlinux.org)
 
 ## Current Position
 
 Milestone: v0.3.3 Agenda Redefinition (AL-7)
-Phase: 16
-Plan: Not started
-Status: Executing Phase 15
-Last activity: 2026-05-19
+Phase: 16 (Website Refresh (agentlinux.org)) — EXECUTING
+Plan: 1 of 1
+Status: Phase complete — ready for verification
+Last activity: 2026-05-24
 
 Progress: [          ] 0% (0 of 5 plans done; 0 of 4 phases complete)
 
@@ -81,6 +81,7 @@ Progress: [          ] 0% (0 of 5 plans done; 0 of 4 phases complete)
 | 06-04 .github/workflows/release.yml 4-gate release pipeline + .github/workflows/deploy.yml Pattern 5 install.sh stage-at-root (TST-05, TST-08, INST-03, CAT-05) | 2 | 2 modified + .gitignore | ~12 min | 0352842, af7edc2 |
 | 06-05 README.md Pattern 7 landing page + docs/STABILITY-MODEL.md ADR-011 user companion + TST-07 phase-close audit (DOC-01) | 2 + 1 checkpoint-inline | 3 created | ~3 min | 672bf6f, 6b0e091 |
 | Phase 12 P01 | 5min | 3 tasks | 3 files |
+| Phase 16 P01 | 9min | 8 tasks | 5 files |
 
 ## Accumulated Context
 
@@ -280,6 +281,9 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - Phase 1 is Harness Setup (non-negotiable); restart phase numbering at 1
 - Mutation testing is advisory in v0.3.0; promotion to release gate is a v0.4 decision
 - [Phase ?]: Phase 12 Plan 01: Pillar 2 verdict locked — hard reframe; published docs/exploration/PILLAR-2-NOTES.md (Decision summary lines 128–196). EXPL-01 gate GREEN.
+- [Phase ?]: Phase 16 minimum-viable contradiction removal — rewrite contradicting copy in place; preserve 8-card grid, 3-block comparison, dual-column problem section, 5-item FAQ; site stays under-radar (no install section, no footer doc-links, no nav Vision link)
+- [Phase ?]: SITE-06 voice-rule HARD GATE on index.html carries VIS-07 / STRATR-06 discipline to site copy; defence-in-depth global zero-counts on 5 forbidden strings (purpose-built Linux distribution / runs on a dedicated machine / full operating system / dedicated machine / entire operating system) all return 0
+- [Phase ?]: OG card rendered via rsvg-convert 2.58.0 (apt: librsvg2-bin per ADR-012 NOPASSWD); SVG preserved as source-of-truth; PNG is what social-card preview platforms (Slack, LinkedIn, Twitter, Facebook) render reliably
 
 ### Key Infrastructure Details
 
@@ -312,6 +316,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-05-19T13:58:13.724Z
+Last session: 2026-05-24T08:31:11.429Z
 Stopped at: Phase 15 context gathered (5-section Rumelt-style spine adopted via mid-discuss research reframe; AL-38 + AlmaLinux defines first usable release)
-Resume file: .planning/phases/15-strategy-roadmap-doc/15-CONTEXT.md
+Resume file: None

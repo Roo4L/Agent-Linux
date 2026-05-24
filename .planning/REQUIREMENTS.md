@@ -80,27 +80,27 @@ Grouped by category. Each `XXX-NN` is a verifiable outcome — a document sectio
 
 ### Website Refresh (SITE) — Phase 16
 
-- [ ] **SITE-01**: `index.html` hero section is rewritten so the headline + subhead reflect the current product framing (no longer "purpose-built Linux distribution that runs on a dedicated machine"). Hero carries a delivered-fact line (what AgentLinux is today, v0.3.0/v0.4.0) AND a forward-looking line (where the strategy points). Voice rule applies (forward-looking line uses "we" / "our roadmap" / explicit milestone tag).
+- [x] **SITE-01**: `index.html` hero section is rewritten so the headline + subhead reflect the current product framing (no longer "purpose-built Linux distribution that runs on a dedicated machine"). Hero carries a delivered-fact line (what AgentLinux is today, v0.3.0/v0.4.0) AND a forward-looking line (where the strategy points). Voice rule applies (forward-looking line uses "we" / "our roadmap" / explicit milestone tag).
 
-- [ ] **SITE-02**: The `#features` 8-card grid is replaced with a `#pillars` section presenting exactly 2 cards (matching VISION.md pillar count). Each card title matches the vision doc's pillar name (`Time-to-productive`, `Stability`); each card body is ≤ 3 sentences + a "Learn more →" link to `docs/VISION.md#pillar-N`.
+- [x] **SITE-02**: The `#features` 8-card grid is replaced with a `#pillars` section presenting exactly 2 cards (matching VISION.md pillar count). Each card title matches the vision doc's pillar name (`Time-to-productive`, `Stability`); each card body is ≤ 3 sentences + a "Learn more →" link to `docs/VISION.md#pillar-N`.
 
-- [ ] **SITE-03**: Each pillar card carries a visible status badge — `[SHIPPED v0.3.0]` for Pillar 1, `[v0.6+ ROADMAP]` for Pillar 2. Badge style is consistent across cards. PITFALLS #14 + #18 enforcement.
+- [x] **SITE-03**: Each pillar card carries a visible status badge — `[SHIPPED v0.3.0]` for Pillar 1, `[v0.6+ ROADMAP]` for Pillar 2. Badge style is consistent across cards. PITFALLS #14 + #18 enforcement.
 
-- [ ] **SITE-04**: The `#comparison` block is reframed or removed. Reframing aligns with the post-Phase-15 STRATEGY.md "Where we are now" content.
+- [x] **SITE-04**: The `#comparison` block is reframed or removed. Reframing aligns with the post-Phase-15 STRATEGY.md "Where we are now" content.
 
-- [ ] **SITE-05**: A new `#install` section mirrors the README curl-pipe-bash + verify snippet, including the SHA256 verify line. Optional: keep `#install` minimal and link to README for the canonical reference.
+- [x] **SITE-05**: A new `#install` section mirrors the README curl-pipe-bash + verify snippet, including the SHA256 verify line. Optional: keep `#install` minimal and link to README for the canonical reference.
 
-- [ ] **SITE-06**: The voice-rule grep gate applies to the rendered HTML. Run: `grep -nE 'AgentLinux (benchmarks|measures|defends|protects|prevents|hardens)\b' index.html` MUST return zero matches anywhere on the page. Acceptance evidence: grep + empty output committed to `.planning/phases/16-website-refresh/16-AUDIT.md`. Hard gate.
+- [x] **SITE-06**: The voice-rule grep gate applies to the rendered HTML. Run: `grep -nE 'AgentLinux (benchmarks|measures|defends|protects|prevents|hardens)\b' index.html` MUST return zero matches anywhere on the page. Acceptance evidence: grep + empty output committed to `.planning/phases/16-website-refresh/16-AUDIT.md`. Hard gate.
 
-- [ ] **SITE-07**: Footer adds links to `docs/VISION.md`, `docs/STRATEGY.md`, `docs/STABILITY-MODEL.md`, and `docs/decisions/` (ADR index) alongside the existing repo / releases links. The `Vision` link is also added to the top nav.
+- [x] **SITE-07**: Footer adds links to `docs/VISION.md`, `docs/STRATEGY.md`, `docs/STABILITY-MODEL.md`, and `docs/decisions/` (ADR index) alongside the existing repo / releases links. The `Vision` link is also added to the top nav.
 
-- [ ] **SITE-08**: OG / Twitter meta tags rewritten — `og:title`, `og:description`, `twitter:title`, `twitter:description` all reflect the broadened positioning (no "purpose-built Linux distribution" language). PITFALLS #20 enforcement.
+- [x] **SITE-08**: OG / Twitter meta tags rewritten — `og:title`, `og:description`, `twitter:title`, `twitter:description` all reflect the broadened positioning (no "purpose-built Linux distribution" language). PITFALLS #20 enforcement.
 
-- [ ] **SITE-09**: OG image converted SVG → PNG (closes v0.1.0 known issue). PNG sized per platform conventions (1200×630 for og:image). SVG preserved alongside as source-of-truth.
+- [x] **SITE-09**: OG image converted SVG → PNG (closes v0.1.0 known issue). PNG sized per platform conventions (1200×630 for og:image). SVG preserved alongside as source-of-truth.
 
-- [ ] **SITE-10**: Deploy-time install-instruction drift check is wired into `.github/workflows/deploy.yml` (or equivalent). The check fails the deploy if the install-snippet version stamp in `index.html` diverges from `README.md`'s `<!-- VERSION_START --><!-- VERSION_END -->` block. (If `index.html` doesn't carry an install snippet per SITE-05, this requirement closes as N/A.)
+- [x] **SITE-10**: Deploy-time install-instruction drift check is wired into `.github/workflows/deploy.yml` (or equivalent). The check fails the deploy if the install-snippet version stamp in `index.html` diverges from `README.md`'s `<!-- VERSION_START --><!-- VERSION_END -->` block. (If `index.html` doesn't carry an install snippet per SITE-05, this requirement closes as N/A.)
 
-- [ ] **SITE-11**: PR body for the website-refresh PR includes mobile + narrow-viewport screenshots (≤ 375 px wide) of every changed section. PITFALLS #19 enforcement.
+- [x] **SITE-11**: PR body for the website-refresh PR includes mobile + narrow-viewport screenshots (≤ 375 px wide) of every changed section. PITFALLS #19 enforcement.
 
 ## Future Requirements (not in this milestone)
 
