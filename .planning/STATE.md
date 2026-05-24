@@ -1,10 +1,10 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.3.3
-milestone_name: milestone
-status: verifying
-stopped_at: Phase 17 (Website Refresh) verification passed; v0.3.3 milestone ready to close
-last_updated: "2026-05-24T08:31:36.085Z"
+milestone: next
+milestone_name: TBD (run /gsd-new-milestone)
+status: between_milestones
+stopped_at: v0.3.3 milestone shipped 2026-05-24; ready to scope next milestone
+last_updated: "2026-05-24T16:04:10.264Z"
 last_activity: 2026-05-24
 progress:
   total_phases: 5
@@ -321,9 +321,19 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Deferred Items
 
+Items acknowledged and deferred at v0.3.3 milestone close on 2026-05-24:
+
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| verification | Phase 05 — 05-VERIFICATION.md | human_needed (pre-existing from v0.3.0 milestone; not in v0.3.3 scope) | 2026-05-24 |
+| verification | Phase 17 — 17-VERIFICATION.md | human_needed — signed off by user on live PR preview before audit | 2026-05-24 |
+| quick_task | 1-debug-and-fix-claude-code-post-hooks-fai | missing (stale STATE.md reference; directory not present) | 2026-05-24 |
+| quick_task | 260502-i4p-add-stop-hook-reminding-claude-to-run-re | missing (stale reference; quick task shipped 2026-05-02) | 2026-05-24 |
+| quick_task | 260503-8z4-al-24-add-stop-hook-for-session-tracking | missing (stale reference) | 2026-05-24 |
+| quick_task | 260509-kn2-add-ai-deslop-review-agent-and-remove-ex | missing (stale reference) | 2026-05-24 |
+| quick_task | 260509-kuv-al-37-provisioner-10-agent-user-sh-apt-i | missing (stale reference) | 2026-05-24 |
+| quick_task | 260510-n7e-remove-gsd-artifacts-from-help-and-proje | missing (stale reference) | 2026-05-24 |
+| todo | 2026-03-09-add-pr-preview-deployments-for-website.md | tooling — already partially addressed via PR-preview action used by Phase 17 | 2026-05-24 |
 
 ## Session Continuity
 
