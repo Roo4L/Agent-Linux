@@ -31,6 +31,31 @@ load 'helpers/assertions'
 load 'helpers/detection'
 load 'helpers/brownfield'
 
+# Plan 14-02 teardown_file invariant. The brownfield-running @tests in this
+# file (REMEDIATE-01/02/03 E2E paths) call `bash $INSTALLER --purge` + manual
+# fixture overlays, then `bash $INSTALLER --yes` to exercise the remediation
+# paths. They can leave the host in a remediated-but-quirky state (e.g. a
+# stale /usr/local/agentlinux-old/ residue from the rebase @tests, or a
+# lodash polluting ~agent/.npm-global). Downstream bats files
+# (40-registry-cli.bats, 50-agents.bats, 51-*.bats) depend on the SAME
+# canonical post-installer state that tests/docker/run.sh sets up before
+# bats fires — 40-registry-cli.bats's setup_file has no re-provision recovery
+# (it trusts the docker harness's pre-bats install). Re-establish that
+# canonical state here: --purge wipes our residue, then a clean greenfield
+# `bash $INSTALLER` re-provisions everything (no remediations needed — purge
+# is the cleanest possible baseline).
+teardown_file() {
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  # Best-effort residue cleanup of fixture artefacts --purge does not own.
+  # The /usr/local/agentlinux-old/ tree is created by Tests 32-34 rebase
+  # fixtures and lives outside --purge's scope.
+  rm -rf /usr/local/agentlinux-old || true
+  # Restore the canonical post-installer state so downstream bats files see
+  # the host shape tests/docker/run.sh staged for them. The greenfield path
+  # has no remediations, so no --yes flag needed.
+  bash "$INSTALLER" >/dev/null 2>&1 || true
+}
+
 # LOG + INSTALLER are referenced by Task 2 @tests (full-installer runs); Task 1
 # @tests use lib-source paths directly. shellcheck SC2034 suppression covers
 # the Task-1-only file slice — the Task 2 add land introduces the actual uses.
@@ -716,4 +741,245 @@ run_provisioners'
     grep -qE '\$\{RESOLUTIONS\[' "$PROV_DIR/$prov" \
       || __fail "UX-03" "$prov dispatches on \${RESOLUTIONS[...]}" "no RESOLUTIONS lookup found" "$PROV_DIR/$prov"
   done
+}
+
+# ---- Plan 14-02 Task 1: REMEDIATE-01 chown/rebase strategy + module migration -----
+
+# Test 25 — Predicate: trivially salvageable returns 0 on empty allowlist tree.
+@test "REMEDIATE-01: _is_trivially_salvageable returns 0 (true) on allowlist-only prefix" {
+  __source_lib_chain_with_remediate
+  local prefix="$BATS_TEST_TMPDIR/empty-prefix"
+  mkdir -p "$prefix/lib" "$prefix/bin" "$prefix/share" "$prefix/etc"
+  : >"$prefix/package.json"
+  : >"$prefix/package-lock.json"
+  remediate::nodejs::_is_trivially_salvageable "$prefix" \
+    || __fail "REMEDIATE-01" "trivially salvageable on allowlist-only prefix (exit 0)" "non-zero" "$prefix"
+}
+
+# Test 26 — T-14-03 mitigation: predicate REJECTS non-allowlist entry.
+@test "REMEDIATE-01 (T-14-03): _is_trivially_salvageable returns 1 (false) on lib/node_modules/<user-pkg>" {
+  __source_lib_chain_with_remediate
+  local prefix="$BATS_TEST_TMPDIR/with-user-pkg"
+  mkdir -p "$prefix/lib/node_modules/some-user-pkg"
+  cat >"$prefix/lib/node_modules/some-user-pkg/package.json" <<'JSON'
+{ "name": "some-user-pkg", "version": "0.0.1" }
+JSON
+  run remediate::nodejs::_is_trivially_salvageable "$prefix"
+  [[ "$status" -eq 1 ]] \
+    || __fail "REMEDIATE-01 (T-14-03)" "trivially salvageable returns 1 (false) on user-installed module" "exit=$status" "$prefix"
+}
+
+# Test 27 — Strategy selector picks chown for under-home + salvageable.
+@test "REMEDIATE-01: _strategy_for returns 'chown' for under-home + trivially salvageable" {
+  __source_lib_chain_with_remediate
+  local home="$BATS_TEST_TMPDIR/home"
+  local prefix="$home/.npm-global"
+  mkdir -p "$prefix/lib" "$prefix/bin"
+  run remediate::nodejs::_strategy_for "$prefix" "$home"
+  [[ "$output" == "chown" ]] \
+    || __fail "REMEDIATE-01" "strategy=chown for under-home + salvageable" "$output" "$prefix"
+}
+
+# Test 28 — Strategy selector picks rebase for prefix OUTSIDE home.
+@test "REMEDIATE-01 (T-14-08): _strategy_for returns 'rebase' for prefix OUTSIDE user home (system path)" {
+  __source_lib_chain_with_remediate
+  local home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$home"
+  # /usr (a system path) is the canonical T-14-08 case — even if empty,
+  # strategy MUST be rebase because we never chown a system path.
+  run remediate::nodejs::_strategy_for "/usr" "$home"
+  [[ "$output" == "rebase" ]] \
+    || __fail "REMEDIATE-01 (T-14-08)" "strategy=rebase for /usr (system path, outside home)" "$output" "/usr"
+}
+
+# Test 29 — Strategy selector picks rebase for under-home + NOT salvageable.
+@test "REMEDIATE-01 (T-14-03): _strategy_for returns 'rebase' for under-home + non-salvageable" {
+  __source_lib_chain_with_remediate
+  local home="$BATS_TEST_TMPDIR/home"
+  local prefix="$home/.npm-global"
+  mkdir -p "$prefix/lib/node_modules/some-user-pkg"
+  : >"$prefix/lib/node_modules/some-user-pkg/package.json"
+  run remediate::nodejs::_strategy_for "$prefix" "$home"
+  [[ "$output" == "rebase" ]] \
+    || __fail "REMEDIATE-01 (T-14-03)" "strategy=rebase for under-home + non-salvageable" "$output" "$prefix"
+}
+
+# Test 30 — Module enumeration filters catalog agents + npm.
+@test "REMEDIATE-01: _enumerate_modules filters catalog agents + npm from migration list" {
+  __source_lib_chain_with_remediate
+  # Shim as_user so the helper returns a controlled npm-ls JSON without
+  # actually running npm.
+  as_user() {
+    if [[ "$2" == "npm" ]]; then
+      cat <<'JSON'
+{
+  "dependencies": {
+    "lodash": {"version": "4.17.21"},
+    "npm": {"version": "10.0.0"},
+    "@anthropic-ai/claude-code": {"version": "2.0.0"},
+    "get-shit-done-cc": {"version": "1.0.0"},
+    "@playwright/cli": {"version": "1.0.0"},
+    "express": {"version": "4.18.0"}
+  }
+}
+JSON
+      return 0
+    fi
+    return 0
+  }
+  run remediate::nodejs::_enumerate_modules root
+  # Should contain lodash + express but NOT the excluded ids.
+  printf '%s' "$output" | grep -qFx 'lodash@4.17.21' \
+    || __fail "REMEDIATE-01" "enumerate includes lodash@4.17.21" "$output" "_enumerate_modules"
+  printf '%s' "$output" | grep -qFx 'express@4.18.0' \
+    || __fail "REMEDIATE-01" "enumerate includes express@4.18.0" "$output" "_enumerate_modules"
+  printf '%s' "$output" | grep -qE '^npm@' \
+    && __fail "REMEDIATE-01" "enumerate EXCLUDES npm" "$output" "_enumerate_modules"
+  printf '%s' "$output" | grep -qE '^@anthropic-ai/claude-code@' \
+    && __fail "REMEDIATE-01" "enumerate EXCLUDES @anthropic-ai/claude-code" "$output" "_enumerate_modules"
+  printf '%s' "$output" | grep -qE '^get-shit-done-cc@' \
+    && __fail "REMEDIATE-01" "enumerate EXCLUDES get-shit-done-cc" "$output" "_enumerate_modules"
+  printf '%s' "$output" | grep -qE '^@playwright/cli@' \
+    && __fail "REMEDIATE-01" "enumerate EXCLUDES @playwright/cli" "$output" "_enumerate_modules"
+  true
+}
+
+# Test 31 — BROWNFIELD chown happy path E2E.
+@test "REMEDIATE-01: BROWNFIELD chown E2E — under-home + empty prefix → chown -R; prefix becomes agent:agent" {
+  setup_brownfield_for_remediate_01_chown
+
+  run bash "$INSTALLER" --yes
+  assert_exit_zero "REMEDIATE-01"
+  # Strategy marker.
+  printf '%s' "$output" | grep -qF '[REMEDIATE-01] strategy=chown' \
+    || __fail "REMEDIATE-01" "strategy=chown marker in transcript" "$output" "$LOG"
+  # Prefix now agent-owned.
+  local owner
+  owner=$(stat -c '%U:%G' /home/agent/.npm-global)
+  [[ "$owner" == "agent:agent" ]] \
+    || __fail "REMEDIATE-01" "/home/agent/.npm-global owner=agent:agent post-chown" "$owner" "$LOG"
+}
+
+# Test 32 — BROWNFIELD rebase happy path E2E.
+@test "REMEDIATE-01: BROWNFIELD rebase E2E — prefix outside home → ~user/.npm-global created; OLD prefix UNTOUCHED" {
+  setup_brownfield_for_remediate_01_rebase
+
+  # Snapshot the OLD prefix so we can prove it was not deleted.
+  local old_before
+  old_before=$(stat -c '%U:%G %a' /usr/local/agentlinux-old)
+
+  run bash "$INSTALLER" --yes
+  assert_exit_zero "REMEDIATE-01"
+  # Strategy marker.
+  printf '%s' "$output" | grep -qF '[REMEDIATE-01] strategy=rebase' \
+    || __fail "REMEDIATE-01" "strategy=rebase marker in transcript" "$output" "$LOG"
+  # New prefix created agent-owned.
+  [[ -d /home/agent/.npm-global ]] \
+    || __fail "REMEDIATE-01" "/home/agent/.npm-global exists after rebase" "missing" "$LOG"
+  local new_owner
+  new_owner=$(stat -c '%U:%G' /home/agent/.npm-global)
+  [[ "$new_owner" == "agent:agent" ]] \
+    || __fail "REMEDIATE-01" "/home/agent/.npm-global owner=agent:agent" "$new_owner" "$LOG"
+  # .npmrc has prefix= line.
+  grep -qFx "prefix=/home/agent/.npm-global" /home/agent/.npmrc \
+    || __fail "REMEDIATE-01" "~agent/.npmrc has prefix=/home/agent/.npm-global" "$(cat /home/agent/.npmrc)" "$LOG"
+  # OLD prefix NEVER deleted (CONTEXT Area 2 Q4).
+  [[ -d /usr/local/agentlinux-old ]] \
+    || __fail "REMEDIATE-01" "OLD prefix /usr/local/agentlinux-old NOT deleted (user cleanup)" "missing" "$LOG"
+  local old_after
+  old_after=$(stat -c '%U:%G %a' /usr/local/agentlinux-old)
+  [[ "$old_before" == "$old_after" ]] \
+    || __fail "REMEDIATE-01" "OLD prefix stat unchanged (before=$old_before)" "after=$old_after" "$LOG"
+}
+
+# Test 33 — BROWNFIELD rebase WITH module migration.
+@test "REMEDIATE-01: BROWNFIELD rebase migrates pre-existing global modules via npm install -g" {
+  setup_brownfield_for_remediate_01_rebase_with_module
+
+  run bash "$INSTALLER" --yes
+  assert_exit_zero "REMEDIATE-01"
+  # Either migrated successfully OR logged as partial — both are acceptable
+  # for the best-effort contract (network may be unavailable). The marker
+  # MUST surface either way so the operator can act on the partial list.
+  if ! printf '%s' "$output" | grep -qE '\[REMEDIATE-01:(migrated|partial)\] module=lodash'; then
+    __fail "REMEDIATE-01" "[REMEDIATE-01:migrated|partial] module=lodash line in transcript" "$output" "$LOG"
+  fi
+}
+
+# Test 34 — Catalog agent exclusion from migration loop (Area 2 Q3).
+@test "REMEDIATE-01: rebase migration loop EXCLUDES catalog agents (get-shit-done-cc not migrated via REMEDIATE-01)" {
+  setup_brownfield_for_remediate_01_rebase_with_catalog_module
+
+  run bash "$INSTALLER" --yes
+  assert_exit_zero "REMEDIATE-01"
+  # Confirm get-shit-done-cc is NOT in the migration transcript (neither
+  # migrated nor partial — it should be filtered out before the loop).
+  printf '%s' "$output" | grep -qE '\[REMEDIATE-01:(migrated|partial)\] module=get-shit-done-cc' \
+    && __fail "REMEDIATE-01" "catalog agent get-shit-done-cc NOT in migration loop" "$output" "$LOG"
+  true
+}
+
+# Test 35 — npm self-exclusion (Area 2 Q3 — npm comes from system Node).
+@test "REMEDIATE-01: rebase migration loop EXCLUDES 'npm' itself (system-managed)" {
+  __source_lib_chain_with_remediate
+  # Shim as_user so we control the JSON.
+  as_user() {
+    if [[ "$2" == "npm" ]]; then
+      cat <<'JSON'
+{
+  "dependencies": {
+    "npm": {"version": "10.0.0"}
+  }
+}
+JSON
+      return 0
+    fi
+    return 0
+  }
+  run remediate::nodejs::_enumerate_modules root
+  # Output must be empty (or whitespace) — only npm was present and it is excluded.
+  local trimmed
+  trimmed=$(printf '%s' "$output" | tr -d '[:space:]')
+  [[ -z "$trimmed" ]] \
+    || __fail "REMEDIATE-01" "_enumerate_modules empty when only npm is global" "$output" "_enumerate_modules"
+}
+
+# Test 36 — T-14-08 protection: even if /usr is empty, we never chown it.
+@test "REMEDIATE-01 (T-14-08): chown NEVER fires for prefix /usr (system path, outside any user home)" {
+  __source_lib_chain_with_remediate
+  # /usr is canonically empty-of-our-allowlist-violators in a healthy host,
+  # but it is NOT under any user home. The strategy selector must return
+  # rebase regardless of salvageability.
+  local home="$BATS_TEST_TMPDIR/home"
+  mkdir -p "$home"
+  run remediate::nodejs::_strategy_for "/usr" "$home"
+  [[ "$output" == "rebase" ]] \
+    || __fail "REMEDIATE-01 (T-14-08)" "chown REFUSED for /usr — strategy must be rebase" "$output" "/usr"
+}
+
+# Test 37 — chown-blocked-by-allowlist E2E (T-14-03 end-to-end).
+@test "REMEDIATE-01 (T-14-03): BROWNFIELD chown REFUSED when prefix has non-allowlist entry → falls back to rebase" {
+  setup_brownfield_for_remediate_01_chown_blocked
+
+  run bash "$INSTALLER" --yes
+  assert_exit_zero "REMEDIATE-01"
+  # Strategy MUST be rebase (NOT chown) because lib/node_modules/some-user-pkg
+  # blocks the allowlist check.
+  printf '%s' "$output" | grep -qF '[REMEDIATE-01] strategy=rebase' \
+    || __fail "REMEDIATE-01 (T-14-03)" "strategy=rebase when prefix has user-installed module" "$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[REMEDIATE-01] strategy=chown' \
+    && __fail "REMEDIATE-01 (T-14-03)" "strategy=chown MUST NOT fire when non-allowlist entry present" "$output" "$LOG"
+  # The pre-existing user-installed module was preserved (NOT clobbered).
+  [[ -f /home/agent/.npm-global/lib/node_modules/some-user-pkg/package.json ]] \
+    || __fail "REMEDIATE-01 (T-14-03)" "pre-existing user-installed module preserved" "missing" "$LOG"
+}
+
+# Test 38 — REMEDIATE-01 source code: no rm -rf against old prefix anywhere.
+@test "REMEDIATE-01: source code never deletes old prefix (CONTEXT Area 2 Q4)" {
+  # The grep matches `rm -rf` followed by anything mentioning prefix vars in
+  # the same line. Comments are excluded by skipping lines starting with `#`.
+  local hits
+  hits=$(grep -nE '^[^#]*rm[[:space:]]+-rf' "$REMEDIATE_LIB_DIR/nodejs.sh" || true)
+  [[ -z "$hits" ]] \
+    || __fail "REMEDIATE-01" "no rm -rf in remediate/nodejs.sh (old prefix never deleted)" "$hits" "$REMEDIATE_LIB_DIR/nodejs.sh"
 }

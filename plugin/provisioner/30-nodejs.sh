@@ -179,8 +179,10 @@ case "${RESOLUTIONS[npm-prefix]:-create}" in
     ;;
   remediate)
     # Gate passed (YES_FLAG=true confirmed in collect_all_decisions).
-    # Plan 14-02 replaces this stub with the chown/rebase strategy body.
-    remediate::nodejs::npm_prefix_stub
+    # Plan 14-02 (REMEDIATE-01): chown or rebase per CONTEXT.md Area 2 — the
+    # strategy selector chooses chown (prefix under home + trivially salvageable)
+    # vs rebase (everything else: system path / non-trivially-salvageable).
+    remediate::nodejs::chown_or_rebase || return 1
     ;;
   bail)
     log_error "30-nodejs: unreachable bail arm — flush_bails_or_continue should have gated this"

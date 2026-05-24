@@ -101,3 +101,171 @@ setup_brownfield_host() {
 
   log_brownfield "setup complete"
 }
+
+# -----------------------------------------------------------------------------
+# Plan 14-02 brownfield fixtures for REMEDIATE-01/02/03 handler @tests.
+#
+# Each fixture targets ONE remediate class; all OTHER components remain
+# REUSE-compatible so the @test asserts only the targeted remediation surfaces
+# (fixture isolation invariant carried from Plan 14-01).
+#
+# Convention: every fixture starts with `bash $INSTALLER --purge` so the
+# fixture is a deterministic delta from an empty post-purge state, then builds
+# up the canonical sudoers + agent user + Node 22 baseline, then introduces
+# the one defect the fixture targets.
+# -----------------------------------------------------------------------------
+
+# _brownfield_baseline
+# Internal helper. Lays down: --purge → agent user with /bin/bash → canonical
+# ADR-012 sudoers → presence of Node 22 (assumed already installed by the
+# Dockerfile baseline; reinstall via NodeSource if missing). After this returns
+# the host has REUSE-01 / REUSE-02 / REUSE-03b all satisfied; each Plan-14-02
+# fixture below mutates exactly ONE component to trigger its targeted
+# remediate handler.
+_brownfield_baseline() {
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  useradd -m -s /bin/bash agent >/dev/null 2>&1 || usermod -s /bin/bash agent
+  local tmp
+  tmp=$(mktemp)
+  printf 'agent ALL=(ALL) NOPASSWD: ALL\n' >"$tmp"
+  install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
+  rm -f "$tmp"
+  if ! dpkg-query -W -f='${Status}' nodejs 2>/dev/null | grep -q "install ok installed"; then
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/dev/null 2>&1
+  fi
+}
+
+# setup_brownfield_for_remediate_01_chown
+# Targets REMEDIATE-01 chown branch. Lays the prefix UNDER /home/agent (so the
+# under-home check passes) and ensures it is trivially salvageable (only
+# allowlisted entries — bin/, lib/, share/, etc/ — all empty, plus the
+# package.json scaffold npm bootstraps). Owns it root-and-friends so
+# DETECT_NPM_PREFIX_USER_WRITABLE=false → reuse::npm_prefix_decision returns
+# remediate; the strategy selector picks `chown`.
+setup_brownfield_for_remediate_01_chown() {
+  _brownfield_baseline
+  rm -rf /home/agent/.npm-global
+  install -d -m 0755 -o root -g root /home/agent/.npm-global
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/bin
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/lib
+  # .npmrc points at the prefix so DETECT_NPM_PREFIX_SECTION_STATUS=present
+  # and the effective_prefix resolves to /home/agent/.npm-global.
+  install -m 0644 -o agent -g agent /dev/null /home/agent/.npmrc
+  echo "prefix=/home/agent/.npm-global" >>/home/agent/.npmrc
+  chown agent:agent /home/agent/.npmrc
+}
+
+# setup_brownfield_for_remediate_01_rebase
+# Targets REMEDIATE-01 rebase branch via the "prefix outside user home" arm:
+# the .npmrc points at /usr/local/agentlinux-old (NOT under /home/agent) so
+# the under-home check FAILS and the strategy selector picks `rebase`.
+# Also leaves the actual /home/agent/.npm-global ABSENT so the rebase has to
+# create it from scratch.
+setup_brownfield_for_remediate_01_rebase() {
+  _brownfield_baseline
+  rm -rf /home/agent/.npm-global
+  # Create a fake old prefix under /usr/local (root-owned, not under home).
+  install -d -m 0755 -o root -g root /usr/local/agentlinux-old
+  install -d -m 0755 -o root -g root /usr/local/agentlinux-old/bin
+  install -d -m 0755 -o root -g root /usr/local/agentlinux-old/lib
+  install -m 0644 -o agent -g agent /dev/null /home/agent/.npmrc
+  echo "prefix=/usr/local/agentlinux-old" >>/home/agent/.npmrc
+  chown agent:agent /home/agent/.npmrc
+}
+
+# setup_brownfield_for_remediate_01_rebase_with_module
+# As above, but pre-populates one user-installed module under the OLD prefix's
+# lib/node_modules/ so _enumerate_modules will pick it up and the rebase has
+# something to migrate.
+setup_brownfield_for_remediate_01_rebase_with_module() {
+  setup_brownfield_for_remediate_01_rebase
+  install -d -m 0755 -o root -g root /usr/local/agentlinux-old/lib/node_modules
+  install -d -m 0755 -o root -g root /usr/local/agentlinux-old/lib/node_modules/lodash
+  cat >/usr/local/agentlinux-old/lib/node_modules/lodash/package.json <<'JSON'
+{ "name": "lodash", "version": "4.17.21" }
+JSON
+  chown -R root:root /usr/local/agentlinux-old/lib/node_modules/lodash
+}
+
+# setup_brownfield_for_remediate_01_rebase_with_catalog_module
+# Same as rebase_with_module but the pre-existing module is a CATALOG agent
+# (get-shit-done-cc) — the migration loop must FILTER IT OUT (Area 2 Q3).
+setup_brownfield_for_remediate_01_rebase_with_catalog_module() {
+  setup_brownfield_for_remediate_01_rebase
+  install -d -m 0755 -o root -g root /usr/local/agentlinux-old/lib/node_modules
+  install -d -m 0755 -o root -g root /usr/local/agentlinux-old/lib/node_modules/get-shit-done-cc
+  cat >/usr/local/agentlinux-old/lib/node_modules/get-shit-done-cc/package.json <<'JSON'
+{ "name": "get-shit-done-cc", "version": "1.37.1" }
+JSON
+  chown -R root:root /usr/local/agentlinux-old/lib/node_modules/get-shit-done-cc
+}
+
+# setup_brownfield_for_remediate_01_chown_blocked
+# T-14-03 test case: prefix is under /home/agent (under-home passes) BUT a
+# third-party module is pre-installed under lib/node_modules/. The strategy
+# selector MUST flip to `rebase` because trivially-salvageable returns false.
+# Asserts the airtight allowlist gate.
+setup_brownfield_for_remediate_01_chown_blocked() {
+  _brownfield_baseline
+  rm -rf /home/agent/.npm-global
+  install -d -m 0755 -o root -g root /home/agent/.npm-global
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/bin
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/lib
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/lib/node_modules
+  install -d -m 0755 -o root -g root /home/agent/.npm-global/lib/node_modules/some-user-pkg
+  cat >/home/agent/.npm-global/lib/node_modules/some-user-pkg/package.json <<'JSON'
+{ "name": "some-user-pkg", "version": "0.0.1" }
+JSON
+  chown -R root:root /home/agent/.npm-global/lib/node_modules/some-user-pkg
+  install -m 0644 -o agent -g agent /dev/null /home/agent/.npmrc
+  echo "prefix=/home/agent/.npm-global" >>/home/agent/.npmrc
+  chown agent:agent /home/agent/.npmrc
+}
+
+# setup_brownfield_for_remediate_02_path_wiring
+# Targets REMEDIATE-02 (additive PATH wiring). Baseline + REUSE-compatible
+# everything else, but the four PATH-wiring artefacts are absent OR drifted
+# in pre-existing ~agent/.bashrc. The post-run assertion verifies all four
+# artefacts present AND pre-existing .bashrc content outside the marker block
+# survives intact.
+setup_brownfield_for_remediate_02_path_wiring() {
+  _brownfield_baseline
+  # Remove the four artefacts so REMEDIATE-02 has to re-create them.
+  rm -f /etc/profile.d/agentlinux.sh
+  rm -f /etc/agentlinux.env
+  rm -f /etc/cron.d/agentlinux
+  # Pre-existing .bashrc with USER content the installer must not touch.
+  install -m 0644 -o agent -g agent /dev/null /home/agent/.bashrc
+  cat >/home/agent/.bashrc <<'BASHRC'
+# USER-PROVIDED .bashrc — agentlinux must preserve this.
+alias ll='ls -la'
+export PROJECT_DIR=/home/agent/projects
+BASHRC
+  chown agent:agent /home/agent/.bashrc
+}
+
+# setup_brownfield_for_remediate_03_missing
+# Targets REMEDIATE-03 missing-file install (additive — no --yes needed).
+# Baseline + REUSE-compatible everything else, but /etc/sudoers.d/agentlinux
+# is ABSENT (so DETECT_SUDOERS_PRESENT=false → reuse decision = create →
+# 20-sudoers.sh's case-branch picks the additive install_or_overwrite call).
+setup_brownfield_for_remediate_03_missing() {
+  _brownfield_baseline
+  rm -f /etc/sudoers.d/agentlinux
+}
+
+# setup_brownfield_for_remediate_03_drift
+# Targets REMEDIATE-03 drift overwrite (state-overwriting — requires --yes).
+# Baseline lays the canonical line, then we OVERWRITE with a narrower
+# NOPASSWD-for-apt-only line. DETECT_SUDOERS_PRESENT=true +
+# DETECT_SUDOERS_NOPASSWD_OK=false → reuse decision = remediate → drift bail
+# without --yes, overwrite with --yes.
+setup_brownfield_for_remediate_03_drift() {
+  _brownfield_baseline
+  local tmp
+  tmp=$(mktemp)
+  printf 'agent ALL=(ALL) NOPASSWD: /usr/bin/apt-get\n' >"$tmp"
+  install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
+  rm -f "$tmp"
+}
