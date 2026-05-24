@@ -65,6 +65,16 @@
 # if a RESOLUTIONS lookup were added it would never gate or bail.
 log_info "40-path-wiring: starting"
 
+# Phase 14 (Plan 14-02 — REMEDIATE-02): when the user was REUSED (REUSED_USER
+# sentinel set by 10-agent-user.sh's REUSE branch), emit the [REMEDIATE-02]
+# transcript marker BEFORE the additive ensure_marker_block / write_file_atomic
+# calls run. This distinguishes "re-attaching PATH wiring to a pre-existing
+# user" from "creating PATH wiring for a fresh user" in the install log —
+# operator-visible signal that the additive remediation fired (the actual
+# wiring code is identical between the two cases because the additive
+# primitives converge regardless of pre-existing state).
+[[ "${REUSED_USER:-false}" == "true" ]] && remediate::user::log_path_wiring_remediated
+
 # Ensure /home/agent/.local/bin exists so the PATH prefix written below is not
 # a dangling reference before the user ever writes a binary there. ensure_dir
 # re-asserts mode+ownership on re-run to correct any out-of-band drift.

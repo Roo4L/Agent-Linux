@@ -16,127 +16,84 @@
 #   BHV-07  — /etc/sudoers.d/agentlinux mode 0440 root:root, visudo -cf clean,
 #             contains exactly `agent ALL=(ALL) NOPASSWD: ALL`, byte-stable on
 #             re-run.
+#   REMEDIATE-03 — both missing-file install AND drift overwrite route through
+#                  the same plugin/lib/remediate/sudoers.sh helper.
 #
-# Security invariants (T-05.1-01..04):
+# Security invariants (T-05.1-01..04, T-14-02):
 #   - `visudo -cf` gate runs on the tmpfile BEFORE `install` moves it into
-#     place. A syntax error in the written content aborts the installer
-#     without ever touching /etc/sudoers.d/ — the system's existing sudoers
-#     policy is never at risk (T-05.1-01).
-#   - Atomic install via `install(1)` with explicit -m 0440 -o root -g root:
-#     mode + ownership set at rename time; there is no window where the file
-#     exists with wrong permissions (T-05.1-02).
-#   - Mode 0440 means only root can read the drop-in — the agent user can
-#     observe effective policy via `sudo -l` but cannot `cat` this file
-#     (T-05.1-03).
-#   - Atomic overwrite (install(1), not echo >>) — re-runs produce a
-#     byte-identical file. Idempotency verified by the paired bats @test
-#     that snapshots sha256 across two installer invocations (T-05.1-04).
+#     place (T-05.1-01) — for BOTH the additive create AND the state-
+#     overwriting drift remediation (Plan 14-02 helper factoring eliminates
+#     the divergence-between-arms class of bug).
+#   - Atomic install via `install(1)` with explicit -m 0440 -o root -g root
+#     (T-05.1-02).
+#   - Mode 0440 restricts read to root (T-05.1-03).
+#   - Atomic overwrite produces byte-identical files on re-run (T-05.1-04).
+#   - T-14-02: drift overwrite (when --yes is passed) uses the SAME visudo
+#     gate as the additive create path — see plugin/lib/remediate/sudoers.sh's
+#     install_or_overwrite helper (the single source of truth for both arms).
 #
-# Post-install verify rehashes the installed file through `visudo -cf` so any
-# out-of-band corruption between rename and exit surfaces immediately.
+# Plan 14-02 refactor: the visudo+install machinery is now in
+# plugin/lib/remediate/sudoers.sh::install_or_overwrite. This provisioner
+# orchestrates the RESOLUTIONS dispatch and delegates the actual file-write
+# to that helper, so the create + remediate arms cannot drift in semantics.
 
 log_info "20-sudoers: starting"
-
-# Phase 14 (Plan 14-01) — dispatch on pre-resolved RESOLUTIONS[sudoers] token.
-# Decisions are made up-front in main() by remediate::collect_all_decisions
-# BEFORE any provisioner runs:
-#   reuse     — /etc/sudoers.d/agentlinux exists AND contains the canonical
-#               ADR-012 line; nothing to do.
-#   remediate — file exists but drifted from the ADR-012 line; the consent
-#               gate in remediate.sh has already enforced --yes (or registered
-#               a bail). Dispatch to handler stub (Plan 14-02 replaces with
-#               real overwrite body). Then fall through to the existing CREATE
-#               machinery which overwrites whatever exists via install -m 0440.
-#   create    — file absent; additive install via existing CREATE path
-#               (no --yes consent gate consulted — additive action per
-#               CONTEXT.md Area 1 Q1).
-#   bail      — UNREACHABLE; flush_bails_or_continue would have exited 65.
-case "${RESOLUTIONS[sudoers]:-create}" in
-  reuse)
-    log_info "[REUSE] sudoers: /etc/sudoers.d/agentlinux already canonical (ADR-012 line present)"
-    return 0
-    ;;
-  remediate)
-    # Gate already passed — flush_bails_or_continue would have exited 65 if
-    # --yes was missing. Dispatch the handler stub for visibility; fall
-    # through to the CREATE machinery below to overwrite the drifted file.
-    remediate::sudoers::overwrite_stub
-    ;;
-  create)
-    # Additive missing-file install — run the existing CREATE machinery below.
-    ;;
-  bail)
-    log_error "20-sudoers: unreachable bail arm — flush_bails_or_continue should have gated this"
-    return 1
-    ;;
-esac
 
 # Minimal Ubuntu/Debian cloud images (and many Docker base images) ship without
 # the `sudo` package, which provides both the `sudo` binary AND `visudo`. We
 # need `visudo` to validate the drop-in before installing it (T-05.1-01), and
 # the agent user obviously needs `sudo` afterwards. Mirror the pattern used by
-# 10-agent-user.sh's `locales` install.
+# 10-agent-user.sh's `locales` install. Run BEFORE the dispatch so that even
+# REUSE / REMEDIATE arms have visudo available for their own validation.
 if ! command -v visudo >/dev/null 2>&1; then
   log_warn "visudo not found; installing 'sudo' package"
   DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo
 fi
-
-readonly SUDOERS_FILE="/etc/sudoers.d/agentlinux"
-# Single-quoted heredoc — no shell expansion, byte-stable across re-runs. The
-# meaningful policy is the single line `agent ALL=(ALL) NOPASSWD: ALL`; the
-# header comments are deterministic and documented as part of the drop-in
-# contract (bats asserts the NOPASSWD line via `grep -Fx`, not the full body,
-# so header wording can evolve without breaking BHV-07).
-read -r -d '' SUDOERS_CONTENT <<'SUDOERS' || true
-# Installed by AgentLinux — grants passwordless sudo to agent user.
-# Scope: ALL commands. See docs/decisions/012-agent-user-full-sudo.md.
-agent ALL=(ALL) NOPASSWD: ALL
-SUDOERS
-readonly SUDOERS_CONTENT
 
 # Ensure parent dir exists with correct ownership + mode. ensure_dir is a
 # no-op re-asserting mode+ownership when the directory already exists, so this
 # also corrects any out-of-band drift on re-run.
 ensure_dir /etc/sudoers.d 0755 root:root
 
-# Write to tmpfile → visudo -cf gate → atomic install. A RETURN-scoped trap
-# cleans the tmpfile on every exit path (success, visudo rejection,
-# install(1) failure) so no stale /tmp/tmp.XXXXXX is left behind.
-tmpfile=$(mktemp)
-# shellcheck disable=SC2064
-# We WANT $tmpfile expanded at trap-install time; resolving later would
-# re-read a stale binding if the variable were reassigned. Same pattern as
-# ensure_marker_block in plugin/lib/idempotency.sh.
-trap "rm -f '$tmpfile'" RETURN
-
-printf '%s\n' "$SUDOERS_CONTENT" >"$tmpfile"
-
-# T-05.1-01 mitigation: validate BEFORE touching /etc/sudoers.d/. visudo -cf
-# returns non-zero on any syntax defect in the target file; log + return 1
-# trips the entrypoint's ERR trap with correct src:line attribution.
-# `return` (not `exit`) — this provisioner is SOURCED, so `return` hands
-# control back to run_provisioners() which set -e aborts the installer.
-if ! visudo -cf "$tmpfile" >/dev/null; then
-  log_error "visudo -cf validation failed on tmpfile — refusing to install $SUDOERS_FILE"
-  return 1
-fi
-
-# T-05.1-02 mitigation: atomic install with mode + ownership set at rename
-# time. install(1) is a rename-like syscall — no intermediate state where the
-# file exists with an incorrect mode. Mode literal-inlined (not via variable)
-# so a grep audit of this file directly surfaces the 0440 commitment — a
-# human reader of the diff sees the mode without chasing indirection.
-install -m "0440" -o root -g root "$tmpfile" "$SUDOERS_FILE"
-
-# Post-install verify — hashes the installed file through visudo one more
-# time to catch any TOCTOU-style corruption between the tmpfile-validate and
-# the rename. Paranoid but essentially free (visudo -cf on a 3-line file is
-# sub-millisecond).
-if ! visudo -cf "$SUDOERS_FILE" >/dev/null; then
-  log_error "post-install visudo -cf failed — $SUDOERS_FILE is corrupt"
-  return 1
-fi
-
-log_info "wrote $SUDOERS_FILE (mode 0440 root:root — ADR-012)"
-log_info "agent user now has passwordless sudo (scope: ALL commands) — INST-06"
-log_info "20-sudoers: done"
+# Phase 14 (Plan 14-01 dispatch, Plan 14-02 helper refactor) — dispatch on
+# pre-resolved RESOLUTIONS[sudoers] token. Decisions are made up-front in
+# main() by remediate::collect_all_decisions BEFORE any provisioner runs:
+#   reuse     — /etc/sudoers.d/agentlinux exists AND contains the canonical
+#               ADR-012 line; nothing to do.
+#   remediate — file exists but drifted from the ADR-012 line. The consent
+#               gate in remediate.sh has already enforced --yes (or registered
+#               a bail). Call install_or_overwrite with action=overwrite.
+#   create    — file absent; additive install. Call install_or_overwrite with
+#               action=install (no --yes consent gate consulted — additive
+#               action per CONTEXT.md Area 1 Q1).
+#   bail      — UNREACHABLE; flush_bails_or_continue would have exited 65.
+#
+# Plan 14-02 refactor: BOTH the create AND remediate arms route through the
+# same remediate::sudoers::install_or_overwrite helper. The action_label
+# distinguishes them in the [REMEDIATE-03] log marker for transcript clarity.
+case "${RESOLUTIONS[sudoers]:-create}" in
+  reuse)
+    log_info "[REUSE] sudoers: /etc/sudoers.d/agentlinux already canonical (ADR-012 line present)"
+    log_info "20-sudoers: done"
+    return 0
+    ;;
+  remediate)
+    # Gate already passed — flush_bails_or_continue would have exited 65 if
+    # --yes was missing. Plan 14-02: factored helper, action=overwrite.
+    remediate::sudoers::install_or_overwrite "overwrite" || return 1
+    log_info "agent user now has passwordless sudo (scope: ALL commands — drift remediated) — INST-06"
+    log_info "20-sudoers: done"
+    return 0
+    ;;
+  create)
+    # Additive missing-file install — Plan 14-02 factored helper, action=install.
+    remediate::sudoers::install_or_overwrite "install" || return 1
+    log_info "agent user now has passwordless sudo (scope: ALL commands) — INST-06"
+    log_info "20-sudoers: done"
+    return 0
+    ;;
+  bail)
+    log_error "20-sudoers: unreachable bail arm — flush_bails_or_continue should have gated this"
+    return 1
+    ;;
+esac

@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# plugin/lib/remediate/user.sh — REMEDIATE-02 (PATH wiring) user-side stubs.
+# plugin/lib/remediate/user.sh — REMEDIATE-02 (PATH wiring on existing user).
 #
-# Phase 14 Plan 14-01 ships ONLY the stubs; Plan 14-02 lands real bodies. The
-# REMEDIATE-02 PATH-wiring action is additive (ensure_marker_block — never
-# touches user content outside the marker), so it does NOT consult the --yes
-# consent gate (remediate_action_overwrites_state returns false for
-# `path-wiring`). The bash-side handler here exists so the dispatch surface in
-# 40-path-wiring.sh has a target name to call; Plan 14-02 may expand this.
+# Phase 14 Plan 14-02 lands the [REMEDIATE-02] log marker. The actual additive
+# PATH wiring happens unconditionally in 40-path-wiring.sh via
+# ensure_marker_block + write_file_atomic primitives — REMEDIATE-02 is the
+# canonical additive remediate (CONTEXT.md Area 1 Q1: never overwrites user
+# content outside the AGENTLINUX-managed marker block, no --yes gate consulted).
+# This file just emits the transcript marker when the user was REUSED so the
+# operator can distinguish "re-attaching PATH wiring to a pre-existing user"
+# from "creating PATH wiring for a fresh user".
 #
 # Sourced (transitively) by plugin/bin/agentlinux-install via
 # plugin/lib/remediate.sh. Inherits `set -euo pipefail`, the ERR trap, and the
@@ -23,13 +25,27 @@ if ! command -v log_error >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
-# remediate::user::path_wiring_stub
+# remediate::user::log_path_wiring_remediated
 #
-# Stub for REMEDIATE-02 PATH wiring. Plan 14-02 replaces with the real body
-# that re-asserts the AGENTLINUX-managed marker block in ~user/.bashrc when
-# the existing block is missing or drifted. The action is additive — no --yes
-# consent gate is consulted (CONTEXT.md Area 1 Q1).
+# Emits the [REMEDIATE-02] transcript marker that fires when the user was
+# REUSED (REUSED_USER=true sentinel set by 10-agent-user.sh's REUSE branch).
+# Called from 40-path-wiring.sh near the top so the marker appears BEFORE the
+# additive ensure_marker_block / write_file_atomic calls do their work — gives
+# the operator a clear hand-off in the log between "user was created from
+# scratch" and "user was already there, we're attaching wiring additively".
+#
+# This is the ONLY mutation-distinguished marker in REMEDIATE-02. The actual
+# wiring is identical to the CREATE branch because the additive primitives
+# (ensure_marker_block, write_file_atomic) converge regardless of whether
+# the target already exists. CONTEXT.md Area 1 Q1: "no interactive consent
+# required for PATH wiring (additive, idempotent, never overwrites user
+# content)" — the gate in remediate.sh's remediate_action_overwrites_state
+# returns FALSE for `path-wiring`, so this path runs unconditionally.
+remediate::user::log_path_wiring_remediated() {
+  log_info "[REMEDIATE-02] component=user action=path-wiring-additive user=${INSTALL_USER:-agent} (ensure_marker_block + write_file_atomic; user content outside markers preserved)"
+}
+
+# remediate::user::path_wiring_stub (LEGACY symbol kept for source compat).
 remediate::user::path_wiring_stub() {
-  log_info "[REMEDIATE-02] component=user action=stub (Plan 14-02 replaces with real body)"
-  return 0
+  remediate::user::log_path_wiring_remediated
 }

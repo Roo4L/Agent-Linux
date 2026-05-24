@@ -116,12 +116,18 @@ setup_brownfield_host() {
 # -----------------------------------------------------------------------------
 
 # _brownfield_baseline
-# Internal helper. Lays down: --purge → agent user with /bin/bash → canonical
-# ADR-012 sudoers → presence of Node 22 (assumed already installed by the
-# Dockerfile baseline; reinstall via NodeSource if missing). After this returns
-# the host has REUSE-01 / REUSE-02 / REUSE-03b all satisfied; each Plan-14-02
-# fixture below mutates exactly ONE component to trigger its targeted
-# remediate handler.
+# Internal helper. Lays down a host state where REUSE-01 / REUSE-02 / REUSE-03b
+# are ALL satisfied:
+#   - --purge tears down any prior install
+#   - agent user (bash + writable home)
+#   - canonical ADR-012 sudoers drop-in
+#   - Node 22 from NodeSource (skip if dpkg shows installed)
+#   - ~agent/.npm-global + ~agent/.npmrc pointing at it (agent-writable so
+#     reuse::npm_prefix_decision returns `reuse`, NOT `remediate`).
+#
+# Each Plan-14-02 fixture below mutates EXACTLY ONE component on top of this
+# baseline to trigger its targeted remediate handler — fixture-isolation
+# invariant carried from Plan 14-01.
 _brownfield_baseline() {
   bash "$INSTALLER" --purge >/dev/null 2>&1 || true
   useradd -m -s /bin/bash agent >/dev/null 2>&1 || usermod -s /bin/bash agent
@@ -134,6 +140,17 @@ _brownfield_baseline() {
     curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
     DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/dev/null 2>&1
   fi
+  # npm-prefix REUSE prep: without an agent-writable prefix + ~agent/.npmrc
+  # pointing at it, npm config get prefix falls back to /usr (root-owned) →
+  # reuse::npm_prefix_decision returns remediate → bail without --yes. The
+  # fixtures that target REMEDIATE-02/-03 must NOT trip the npm-prefix bail,
+  # so seed the canonical /home/agent/.npm-global + ~agent/.npmrc here.
+  install -d -m 0755 -o agent -g agent /home/agent/.npm-global
+  install -d -m 0755 -o agent -g agent /home/agent/.npm-global/bin
+  install -d -m 0755 -o agent -g agent /home/agent/.npm-global/lib
+  install -m 0644 -o agent -g agent /dev/null /home/agent/.npmrc
+  echo "prefix=/home/agent/.npm-global" >>/home/agent/.npmrc
+  chown agent:agent /home/agent/.npmrc
 }
 
 # setup_brownfield_for_remediate_01_chown

@@ -237,24 +237,37 @@ __reset_remediate_state() {
       || __fail "UX-03" "$REMEDIATE_LIB_DIR/$stub exists" "missing" "$REMEDIATE_LIB_DIR"
   done
 
-  # Stub function presence — each file declares at least one
-  # `remediate::<component>::<action>` function.
+  # Stub / handler function presence — each file declares at least one
+  # `remediate::<component>::<action>` function. Plan 14-01 named these as
+  # *_stub; Plan 14-02 lands the real handlers + keeps the legacy *_stub
+  # symbols as thin shims for source compatibility. Both symbol sets must
+  # be defined for backward + forward compat.
   declare -F remediate::user::path_wiring_stub >/dev/null \
     || __fail "UX-03" "remediate::user::path_wiring_stub defined" "not defined" "$REMEDIATE_LIB_DIR/user.sh"
+  declare -F remediate::user::log_path_wiring_remediated >/dev/null \
+    || __fail "UX-03" "remediate::user::log_path_wiring_remediated defined (Plan 14-02 marker)" "not defined" "$REMEDIATE_LIB_DIR/user.sh"
   declare -F remediate::nodejs::npm_prefix_stub >/dev/null \
     || __fail "UX-03" "remediate::nodejs::npm_prefix_stub defined" "not defined" "$REMEDIATE_LIB_DIR/nodejs.sh"
+  declare -F remediate::nodejs::chown_or_rebase >/dev/null \
+    || __fail "UX-03" "remediate::nodejs::chown_or_rebase defined (Plan 14-02 handler)" "not defined" "$REMEDIATE_LIB_DIR/nodejs.sh"
   declare -F remediate::sudoers::install_stub >/dev/null \
     || __fail "UX-03" "remediate::sudoers::install_stub defined" "not defined" "$REMEDIATE_LIB_DIR/sudoers.sh"
   declare -F remediate::sudoers::overwrite_stub >/dev/null \
     || __fail "UX-03" "remediate::sudoers::overwrite_stub defined" "not defined" "$REMEDIATE_LIB_DIR/sudoers.sh"
+  declare -F remediate::sudoers::install_or_overwrite >/dev/null \
+    || __fail "UX-03" "remediate::sudoers::install_or_overwrite defined (Plan 14-02 helper)" "not defined" "$REMEDIATE_LIB_DIR/sudoers.sh"
   declare -F remediate::agents::reinstall_stub >/dev/null \
     || __fail "UX-03" "remediate::agents::reinstall_stub defined" "not defined" "$REMEDIATE_LIB_DIR/agents.sh"
 
-  # Stub emits a [REMEDIATE-NN] marker line via log_info. Spot-check sudoers.
-  run remediate::sudoers::overwrite_stub
+  # Spot-check the user-side marker emitter: it's non-mutating (just a
+  # log_info call) so safe to invoke directly. Plan 14-01 originally checked
+  # the sudoers stub but Plan 14-02's stub delegates to install_or_overwrite
+  # which IS mutating — the marker-emission contract is now checked on user.sh
+  # (additive by definition; never mutates state).
+  run remediate::user::log_path_wiring_remediated
   assert_exit_zero "UX-03"
-  printf '%s' "$output" | grep -qF '[REMEDIATE-03] component=sudoers action=stub' \
-    || __fail "UX-03" "[REMEDIATE-03] marker emitted by sudoers stub" "$output" "$REMEDIATE_LIB_DIR/sudoers.sh"
+  printf '%s' "$output" | grep -qF '[REMEDIATE-02]' \
+    || __fail "UX-03" "[REMEDIATE-02] marker emitted by user-side handler" "$output" "$REMEDIATE_LIB_DIR/user.sh"
 }
 
 @test "REMEDIATE foundation: reuse::user_decision predicate behavior unchanged from Phase 13" {
@@ -982,4 +995,192 @@ JSON
   hits=$(grep -nE '^[^#]*rm[[:space:]]+-rf' "$REMEDIATE_LIB_DIR/nodejs.sh" || true)
   [[ -z "$hits" ]] \
     || __fail "REMEDIATE-01" "no rm -rf in remediate/nodejs.sh (old prefix never deleted)" "$hits" "$REMEDIATE_LIB_DIR/nodejs.sh"
+}
+
+# ---- Plan 14-02 Task 2: REMEDIATE-02 + REMEDIATE-03 helpers + refactor -----
+
+# Test 39 — install_or_overwrite helper exists + functions on missing-file install.
+@test "REMEDIATE-03: install_or_overwrite is defined; missing-file install writes canonical ADR-012 file" {
+  __source_lib_chain_with_remediate
+  declare -F remediate::sudoers::install_or_overwrite >/dev/null \
+    || __fail "REMEDIATE-03" "remediate::sudoers::install_or_overwrite defined" "not defined" "$REMEDIATE_LIB_DIR/sudoers.sh"
+
+  # Tear down then exercise via the installer (full integration). Use the
+  # missing-file fixture so the dispatch goes through the create arm.
+  setup_brownfield_for_remediate_03_missing
+  # additive — no --yes needed.
+  run bash "$INSTALLER"
+  assert_exit_zero "REMEDIATE-03"
+  # Canonical content present.
+  grep -qFx 'agent ALL=(ALL) NOPASSWD: ALL' /etc/sudoers.d/agentlinux \
+    || __fail "REMEDIATE-03" "canonical NOPASSWD line in /etc/sudoers.d/agentlinux" "$(cat /etc/sudoers.d/agentlinux)" "$LOG"
+  # Mode 0440 root:root.
+  local stat_out
+  stat_out=$(stat -c '%a %U:%G' /etc/sudoers.d/agentlinux)
+  [[ "$stat_out" == "440 root:root" ]] \
+    || __fail "REMEDIATE-03" "mode 0440 root:root" "$stat_out" "$LOG"
+}
+
+# Test 40 — install_or_overwrite OVERWRITES a pre-existing drifted file.
+@test "REMEDIATE-03: install_or_overwrite OVERWRITES drifted sudoers with canonical ADR-012 line" {
+  setup_brownfield_for_remediate_03_drift
+
+  # Drift overwrite is state-overwriting → requires --yes.
+  run bash "$INSTALLER" --yes
+  assert_exit_zero "REMEDIATE-03"
+  grep -qFx 'agent ALL=(ALL) NOPASSWD: ALL' /etc/sudoers.d/agentlinux \
+    || __fail "REMEDIATE-03" "drift overwritten with canonical ADR-012 line" "$(cat /etc/sudoers.d/agentlinux)" "$LOG"
+  # Marker line confirming the OVERWRITE arm fired.
+  printf '%s' "$output" | grep -qF '[REMEDIATE-03] component=sudoers action=overwrite' \
+    || __fail "REMEDIATE-03" "[REMEDIATE-03] action=overwrite marker in transcript" "$output" "$LOG"
+}
+
+# Test 41 — T-14-02 mitigation: visudo-fail gate UPHELD via the test-only override.
+@test "REMEDIATE-03 (T-14-02): install_or_overwrite REFUSES to install when visudo -cf rejects the tmpfile" {
+  __source_lib_chain_with_remediate
+  # Snapshot pre-existing sudoers file (if any) so we can prove the helper
+  # did NOT overwrite it on visudo failure.
+  local pre_sha=""
+  if [[ -f /etc/sudoers.d/agentlinux ]]; then
+    pre_sha=$(sha256sum /etc/sudoers.d/agentlinux | cut -d' ' -f1)
+  fi
+
+  # Inject deliberately invalid sudoers syntax via the test-only override.
+  # visudo -cf will reject this; the helper must return non-zero and NOT
+  # touch /etc/sudoers.d/agentlinux.
+  AGENTLINUX_TEST_MODE=1 \
+    AGENTLINUX_TEST_SUDOERS_OVERRIDE='agent ALL=(ALL' \
+    run remediate::sudoers::install_or_overwrite "install"
+  [[ "$status" -ne 0 ]] \
+    || __fail "REMEDIATE-03 (T-14-02)" "helper returns non-zero when visudo -cf rejects" "exit=$status" "$REMEDIATE_LIB_DIR/sudoers.sh"
+  printf '%s' "$output" | grep -qF '[REMEDIATE-03:visudo-fail]' \
+    || __fail "REMEDIATE-03 (T-14-02)" "visudo-fail marker emitted" "$output" "$REMEDIATE_LIB_DIR/sudoers.sh"
+
+  # File untouched: if it existed before, sha256 unchanged; if not, still missing.
+  if [[ -n "$pre_sha" ]]; then
+    local post_sha
+    post_sha=$(sha256sum /etc/sudoers.d/agentlinux | cut -d' ' -f1)
+    [[ "$pre_sha" == "$post_sha" ]] \
+      || __fail "REMEDIATE-03 (T-14-02)" "sudoers file UNCHANGED after visudo-fail" "pre=$pre_sha post=$post_sha" "/etc/sudoers.d/agentlinux"
+  fi
+}
+
+# Test 42 — BROWNFIELD missing-file install is ADDITIVE (no --yes needed).
+@test "REMEDIATE-03: missing sudoers — additive install fires WITHOUT --yes (no consent gate consulted)" {
+  setup_brownfield_for_remediate_03_missing
+
+  # No --yes flag — additive action per CONTEXT.md Area 1 Q1 (sudoers-missing-install
+  # is in the additive set; remediate_action_overwrites_state returns false).
+  run bash "$INSTALLER"
+  assert_exit_zero "REMEDIATE-03"
+  [[ -f /etc/sudoers.d/agentlinux ]] \
+    || __fail "REMEDIATE-03" "/etc/sudoers.d/agentlinux exists after additive install" "missing" "$LOG"
+  printf '%s' "$output" | grep -qF '[REMEDIATE-03] component=sudoers action=install' \
+    || __fail "REMEDIATE-03" "[REMEDIATE-03] action=install marker in transcript" "$output" "$LOG"
+  # NO bail line on additive path.
+  printf '%s' "$output" | grep -qE '^\[BAIL\] component=sudoers' \
+    && __fail "REMEDIATE-03" "no [BAIL] component=sudoers on missing-file (additive)" "$output" "$LOG"
+  true
+}
+
+# Test 43 — BROWNFIELD drift overwrite BAILS without --yes.
+@test "REMEDIATE-03: drifted sudoers + NO --yes → exit 65 + [BAIL] component=sudoers reason=drift" {
+  setup_brownfield_for_remediate_03_drift
+
+  # Snapshot drifted file to prove it was NOT overwritten.
+  local pre_sha
+  pre_sha=$(sha256sum /etc/sudoers.d/agentlinux | cut -d' ' -f1)
+
+  run bash "$INSTALLER"
+  [[ "$status" -eq 65 ]] \
+    || __fail "REMEDIATE-03" "exit 65 on drift without --yes" "exit=$status" "$LOG"
+  printf '%s' "$output" | grep -qF '[BAIL] component=sudoers reason=drift' \
+    || __fail "REMEDIATE-03" "[BAIL] component=sudoers reason=drift in bail message" "$output" "$LOG"
+  # Drifted file UNCHANGED (DECIDE-THEN-ACT atomicity).
+  local post_sha
+  post_sha=$(sha256sum /etc/sudoers.d/agentlinux | cut -d' ' -f1)
+  [[ "$pre_sha" == "$post_sha" ]] \
+    || __fail "REMEDIATE-03" "drifted sudoers UNCHANGED after bail" "pre=$pre_sha post=$post_sha" "$LOG"
+}
+
+# Test 44 — BROWNFIELD REMEDIATE-02 PATH wiring re-attaches additively.
+@test "REMEDIATE-02: PATH wiring re-attaches to brownfield user; pre-existing .bashrc content preserved" {
+  setup_brownfield_for_remediate_02_path_wiring
+
+  # No --yes needed — REMEDIATE-02 is the canonical additive action. The
+  # ensure_marker_block primitive preserves user content outside the
+  # `agentlinux-path begin/end` markers; the post-run assertions below grep
+  # for both the marker block AND the pre-existing alias/export lines to
+  # prove BOTH coexist.
+  run bash "$INSTALLER"
+  assert_exit_zero "REMEDIATE-02"
+  # All four artefacts present.
+  [[ -f /etc/profile.d/agentlinux.sh ]] \
+    || __fail "REMEDIATE-02" "/etc/profile.d/agentlinux.sh present" "missing" "$LOG"
+  [[ -f /etc/agentlinux.env ]] \
+    || __fail "REMEDIATE-02" "/etc/agentlinux.env present" "missing" "$LOG"
+  [[ -f /etc/cron.d/agentlinux ]] \
+    || __fail "REMEDIATE-02" "/etc/cron.d/agentlinux present" "missing" "$LOG"
+  # ~agent/.bashrc has the marker block.
+  grep -qF "agentlinux-path begin" /home/agent/.bashrc \
+    || __fail "REMEDIATE-02" "agentlinux-path marker block in ~agent/.bashrc" "$(cat /home/agent/.bashrc)" "$LOG"
+  # Pre-existing user content OUTSIDE the marker block preserved.
+  grep -qF "alias ll=" /home/agent/.bashrc \
+    || __fail "REMEDIATE-02" "pre-existing user alias 'alias ll=' preserved" "$(cat /home/agent/.bashrc)" "$LOG"
+  grep -qF "export PROJECT_DIR=" /home/agent/.bashrc \
+    || __fail "REMEDIATE-02" "pre-existing PROJECT_DIR export preserved" "$(cat /home/agent/.bashrc)" "$LOG"
+  # [REMEDIATE-02] marker fires because the user was REUSED.
+  printf '%s' "$output" | grep -qF '[REMEDIATE-02] component=user action=path-wiring-additive' \
+    || __fail "REMEDIATE-02" "[REMEDIATE-02] marker emitted for REUSED user" "$output" "$LOG"
+}
+
+# Test 45 — REMEDIATE-02 idempotent on re-run (marker block converges).
+@test "REMEDIATE-02: re-running on a REUSED-user host is byte-stable (additive primitives converge)" {
+  setup_brownfield_for_remediate_02_path_wiring
+
+  # First run installs the marker block.
+  bash "$INSTALLER" >/dev/null 2>&1
+  local sha_first
+  sha_first=$(sha256sum /home/agent/.bashrc | cut -d' ' -f1)
+
+  # Second run must produce byte-identical .bashrc (ensure_marker_block converges).
+  bash "$INSTALLER" >/dev/null 2>&1
+  local sha_second
+  sha_second=$(sha256sum /home/agent/.bashrc | cut -d' ' -f1)
+  [[ "$sha_first" == "$sha_second" ]] \
+    || __fail "REMEDIATE-02" "byte-stable ~agent/.bashrc across re-run" "first=$sha_first second=$sha_second" "$LOG"
+}
+
+# Test 46 — 20-sudoers.sh post-refactor: BOTH arms call install_or_overwrite.
+@test "REMEDIATE-03: 20-sudoers.sh BOTH create and remediate arms call install_or_overwrite (refactor invariant)" {
+  local count
+  count=$(grep -c "remediate::sudoers::install_or_overwrite" "$PROV_DIR/20-sudoers.sh")
+  [[ "$count" -ge 2 ]] \
+    || __fail "REMEDIATE-03" "20-sudoers.sh calls install_or_overwrite >=2 times (both arms)" "count=$count" "$PROV_DIR/20-sudoers.sh"
+  # The visudo+install machinery is OUT of 20-sudoers.sh (in the helper now).
+  # Non-comment grep — the only `visudo -cf` reference should be in comments now.
+  local stray
+  stray=$(grep -nE '^[^#]*visudo -cf' "$PROV_DIR/20-sudoers.sh" || true)
+  [[ -z "$stray" ]] \
+    || __fail "REMEDIATE-03" "20-sudoers.sh has no inline visudo -cf (machinery refactored to helper)" "$stray" "$PROV_DIR/20-sudoers.sh"
+  # The helper carries 2 visudo -cf calls (pre-install + post-install).
+  local helper_count
+  helper_count=$(grep -cE '^[^#]*visudo -cf' "$REMEDIATE_LIB_DIR/sudoers.sh")
+  [[ "$helper_count" -eq 2 ]] \
+    || __fail "REMEDIATE-03" "remediate/sudoers.sh contains exactly 2 visudo -cf calls (pre + post)" "count=$helper_count" "$REMEDIATE_LIB_DIR/sudoers.sh"
+}
+
+# Test 47 — BHV-07 regression guard: 20-sudoers.sh refactor preserves byte-stable output.
+@test "REMEDIATE-03: 20-sudoers.sh post-refactor produces byte-identical /etc/sudoers.d/agentlinux across re-run (BHV-07)" {
+  # Ensure canonical state; both runs should produce a byte-stable file.
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  bash "$INSTALLER" >/dev/null 2>&1
+  local sha_first
+  sha_first=$(sha256sum /etc/sudoers.d/agentlinux | cut -d' ' -f1)
+
+  bash "$INSTALLER" >/dev/null 2>&1
+  local sha_second
+  sha_second=$(sha256sum /etc/sudoers.d/agentlinux | cut -d' ' -f1)
+  [[ "$sha_first" == "$sha_second" ]] \
+    || __fail "BHV-07" "/etc/sudoers.d/agentlinux byte-stable post-refactor across re-run" "first=$sha_first second=$sha_second" "$LOG"
 }
