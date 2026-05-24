@@ -4,14 +4,14 @@ milestone: v0.3.4
 milestone_name: milestone
 status: executing
 stopped_at: Completed 14-01-PLAN.md
-last_updated: "2026-05-24T16:40:01.670Z"
+last_updated: "2026-05-24T19:06:50.468Z"
 last_activity: 2026-05-24
 progress:
   total_phases: 5
   completed_phases: 2
   total_plans: 8
-  completed_plans: 6
-  percent: 75
+  completed_plans: 7
+  percent: 88
 ---
 
 # Project State
@@ -27,7 +27,7 @@ See: .planning/PROJECT.md (updated 2026-05-09)
 
 Milestone: v0.3.4 Aware Installation Process — **roadmap ready** (PROJECT.md / REQUIREMENTS.md / ROADMAP.md authored 2026-05-09; 5 phases 12-16 mapped 1:1 to 20 requirements; ready for `/gsd-plan-phase 12`).
 Phase: 14 (Remediate + Consent Flag + Exit Codes) — EXECUTING
-Plan: 2 of 3
+Plan: 3 of 3
 Status: Ready to execute
 
 Earlier: v0.3.0 — Phase 6 of 6 — Distribution + Release Pipeline — ✓ COMPLETE (5/5 plans; Plan 06-01 ✓ + 06-02 ✓ + 06-03 ✓ + 06-04 ✓ + 06-05 ✓; TST-07 phase-close gate GREEN — every Phase 6 requirement (INST-03, CAT-05, TST-03, TST-05, TST-08, DOC-01) covered via bats @tests + CI-gate citations + docs presence; v0.3.0 READY for rc1 tag push — all 54 v0.3.0 requirements have coverage signals). Earlier: Phase 5 (Agent Installability) ✓ COMPLETE (4/4 plans; 66/66 bats green on Ubuntu 22.04 + 24.04; all 6 AGT-XX requirements have ≥1 bats @test). Earlier: Phase 5.1 (INSERTED — Agent User Sudo Drop-In) ✓ COMPLETE (1/1 plan; TST-07 gate: GREEN). Earlier: Phase 4 (Registry CLI + Catalog + Uninstall) ✓ COMPLETE (7/7 plans; 49/49 bats green).
@@ -91,6 +91,7 @@ Progress: [░░░░░░░░░░] 0% (0 of ~12 v0.3.4 plans done; v0.3.
 | Phase 13 P01 | 90min | 3 tasks | 10 files |
 | Phase 13-reuse-wiring P02 | 3h | 3 tasks | 17 files |
 | Phase 14-remediate-consent-flag-exit-codes P01 | 95min | 2 tasks | 9 files |
+| Phase 14 P02 | 1h 30m | 2 tasks | 9 files |
 
 ## Accumulated Context
 
@@ -308,6 +309,10 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - [Phase ?]: DECIDE-THEN-ACT main() ordering enforces UX-03 atomicity: collect_all_decisions → flush_bails_or_continue → run_provisioners (Plan 14-01)
 - [Phase ?]: RESOLUTIONS map is the single source of pre-resolved tokens; provisioners no longer call reuse::*_decision themselves (Plan 14-01 DECIDE-THEN-ACT decoupling)
 - [Phase ?]: snapshot_equal excludes .npm cache (npm's ephemeral state, not user data per UX-03 contract) — Plan 14-01 Rule 1 deviation
+- [Phase ?]: REMEDIATE-01 strategy selector airtight allowlist (T-14-03) — chown only when prefix is under install user's home AND trivially salvageable per CONTEXT.md Area 2 Q1+Q2; non-allowlist entries flip to rebase
+- [Phase ?]: REMEDIATE-03 install_or_overwrite factoring (T-14-02) — BOTH create + drift-overwrite arms call the same helper; visudo+install machinery factored from 20-sudoers.sh into plugin/lib/remediate/sudoers.sh
+- [Phase ?]: _brownfield_baseline seeds ~agent/.npm-global so npm-prefix is REUSE-compatible by default; each fixture mutates EXACTLY ONE component (Plan 14-01 Warning #3 invariant)
+- [Phase ?]: teardown_file in 14-remediate.bats restores canonical post-installer state so downstream bats files see the same shape tests/docker/run.sh staged
 
 ### Key Infrastructure Details
 
@@ -340,6 +345,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-05-24T16:40:01.658Z
+Last session: 2026-05-24T19:06:21.046Z
 Stopped at: Completed 14-01-PLAN.md
 Resume file: None
