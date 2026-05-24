@@ -94,3 +94,43 @@ reuse::log_nodejs_reuse() {
     log_info "[REUSE-02] nodejs reused: no Node 22 entry surfaced (count=${count})"
   fi
 }
+
+# reuse::npm_prefix_decision
+#
+# Plan 14-01 (REMEDIATE-01) — npm-prefix is a SEPARATE layer from Node install
+# per CONTEXT.md Area 1 Q1. The Node layer (reuse::nodejs_decision above)
+# decides whether to install a fresh Node 22; the npm-prefix layer here
+# decides whether the GLOBAL prefix (where `npm install -g` writes) is
+# already correctly-owned (reuse), needs ownership/location remediation
+# (remediate), or has no npm at all (create).
+#
+# Returns one of {reuse, remediate, create} on stdout:
+#   - "create"    — DETECT_NPM_PREFIX_SECTION_STATUS=absent (no npm yet;
+#                   30-nodejs.sh CREATE path will bootstrap ~user/.npm-global)
+#   - "reuse"     — DETECT_NPM_PREFIX_USER_WRITABLE=true (effective prefix is
+#                   writable by the install user — no Remediate needed)
+#   - "remediate" — otherwise (prefix exists but install user cannot write;
+#                   REMEDIATE-01 chowns OR rebases per the Area 2 strategy
+#                   algorithm in Plan 14-02)
+reuse::npm_prefix_decision() {
+  if [[ "${DETECT_NPM_PREFIX_SECTION_STATUS:-absent}" == "absent" ]]; then
+    printf 'create'
+    return 0
+  fi
+  if [[ "${DETECT_NPM_PREFIX_USER_WRITABLE:-false}" == "true" ]]; then
+    printf 'reuse'
+    return 0
+  fi
+  printf 'remediate'
+  return 0
+}
+
+# reuse::log_npm_prefix_reuse
+#
+# Emits the canonical [REUSE-03b] marker line via log_info. Format mirrors
+# Phase 12's [DET-NN] key=value convention so bats can grep-reliably for the
+# marker. Suffix `-03b` distinguishes from REUSE-03 (catalog agents) — they
+# share the slot number but address different surfaces.
+reuse::log_npm_prefix_reuse() {
+  log_info "[REUSE-03b] npm-prefix reused: path=${DETECT_NPM_PREFIX_PATH:-} owner=${DETECT_NPM_PREFIX_EFFECTIVE_OWNER:-} mode=${DETECT_NPM_PREFIX_EFFECTIVE_MODE:-} install_user_writable=true"
+}
