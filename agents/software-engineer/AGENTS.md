@@ -166,7 +166,7 @@ work in parallel. Three rules:
    eliminate renumber races between concurrent engineers.
 
 When you create a new GSD phase, name it with the issue identifier in the
-title (e.g. `Phase 12.1: AGE-7 — Add cron behavior tests`) so reviewers can
+title (e.g. `Phase 13.1: AGE-7 — Add cron behavior tests`) so reviewers can
 trace phase ↔ issue without grep.
 
 ## Skill / Environment Propagation
