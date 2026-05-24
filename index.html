@@ -789,24 +789,24 @@
   <section id="comparison" class="full-height">
     <div class="section-container">
       <h2>Why not just use what exists?</h2>
-      <p class="comparison-intro">Every option today was built for a different job. Here's what changes when the OS is designed for agents.</p>
+      <p class="comparison-intro">Every option today was built for a different job. Here's what changes when the integration work is already done.</p>
 
       <div class="comparison-block">
-        <h3>Local machine → a dedicated machine instead</h3>
-        <p class="solution">Instead of sharing your machine and choosing between unsafe access or endless approval prompts, give the agent its own AgentLinux instance. A separate machine — virtual or physical — where the agent has full autonomy and your files are never at risk.</p>
+        <h3>Local machine → a dedicated agent user instead</h3>
+        <p class="solution">The plugin provisions an <code>agent</code> user with a correctly-owned Node.js runtime and npm prefix on your existing Ubuntu host. <code>sudo npm install -g claude</code> is replaced by an install path the agent owns — so <code>claude update</code> later goes through Claude Code's own updater without EACCES, and your <code>~/.ssh</code> is never on the table.</p>
       </div>
 
       <div class="comparison-block">
-        <h3>Docker → a full OS instead of a locked box</h3>
-        <p class="solution">AgentLinux is a complete operating system. The agent installs packages with <code>apt</code> mid-session, starts services with <code>systemctl</code>, and keeps state across restarts. No docker-in-docker gymnastics. Boots into a non-root user that tools like Claude Code require.</p>
+        <h3>Docker → a real host with a real agent user</h3>
+        <p class="solution">A container image freezes today's tool versions and rebuilds for every <code>apt install</code>. The plugin installs onto a real host the agent can keep using across restarts — <code>systemctl</code> works, mid-session installs work, and the agent user is in place before the first command runs.</p>
       </div>
 
       <div class="comparison-block">
-        <h3>Generic VMs → ready on boot instead of provisioning</h3>
-        <p class="solution">AgentLinux images boot with everything pre-configured: non-root agent user, toolchains, agent-friendly CLI tools, and popular agents right in the repos. A purpose-built environment in seconds, not hours.</p>
+        <h3>Generic VMs → the integration work, already done</h3>
+        <p class="solution">A blank Ubuntu VM still hands you the integration work — agent user, runtime ownership, install paths, version compatibility. The plugin closes that gap in one install command and holds a curated version set we have exercised together on the Docker + QEMU matrix.</p>
       </div>
 
-      <p class="comparison-closing">Not another general-purpose distro hoping agents will figure it out. A go-to Linux distro choice for running your agents — built from the kernel config to the default shell for machines that write code.</p>
+      <p class="comparison-closing">If that fits the way you want to run agents, <a href="#signup">join the waitlist</a>.</p>
     </div>
   </section>
 
