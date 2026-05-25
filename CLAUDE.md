@@ -114,7 +114,7 @@ bash tests/harness/run.sh                  # Run harness meta-tests (Phase 1)
 - `@.planning/REQUIREMENTS.md` — behavior contract (BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC)
 - `@docs/HARNESS.md` — authoritative harness spec (§1 layout, §2 docs, §3 systems, §4 review, §5 skills, §6 this file, §7 checklist, §8 criteria)
 - `@docs/research/v0.3.0/SUMMARY.md` — v0.3.0 research synthesis
-- `@docs/decisions/` — ADR-001..ADR-015 (ADR-015: developer internals docs)
+- `@docs/decisions/` — ADR-001..ADR-016 (ADR-016: developer internals docs)
 - `@docs/internals/` — developer documentation (what each AgentLinux component
   does and why; product-perspective lens; insight source for blog/email/website)
 - Skills: `.claude/skills/agentlinux-installer/`,

@@ -152,6 +152,7 @@ endorsement.
 - **Source + issues:** https://github.com/Roo4L/Agent-Linux
 - **Releases:** https://github.com/Roo4L/Agent-Linux/releases
 - **Architecture decisions:** [docs/decisions/](docs/decisions/)
+- **Vision:** [docs/VISION.md](docs/VISION.md)
 - **Internals (developer docs):** [docs/internals/](docs/internals/)
 - **Test harness spec:** [docs/HARNESS.md](docs/HARNESS.md)
 - **Stability model (user-facing):** [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md)
@@ -169,3 +170,9 @@ invocation mode (interactive shell, non-interactive SSH, cron, systemd user
 units, `sudo -u agent`, `sudo -u agent -i`). Everything else — the catalog,
 the curated combos, the reconciliation verbs — is downstream of that one
 decision.
+
+AgentLinux is framed around two pillars: **Time-to-productive** (the
+assembly the user gets on install — agent user, runtime, permissions,
+catalog — without learning to assemble it themselves) and **Stability**
+(the curated toolchain holds compatible across upstream churn). See
+[docs/VISION.md](docs/VISION.md) for the full framing.

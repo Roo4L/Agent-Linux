@@ -12,11 +12,11 @@ You are read-only. You flag findings; the main agent applies fixes to the draft.
 
 ## Why This Matters
 
-AgentLinux is open-source. The repo is public. But "public" does not mean every file in the tree is written for the public. The maintainer-facing planning system (`.planning/`, `docs/audits/`, `docs/research/`, the `gsd-*` toolchain) intentionally uses dense internal vocabulary — `AL-22`, `12-01-PLAN.md`, `BHV-03`, `Phase 12`, `TST-08 release gate`, `gsd-executor` — because that vocabulary keeps the maintainer's cognitive load low.
+AgentLinux is open-source. The repo is public. But "public" does not mean every file in the tree is written for the public. The maintainer-facing planning system (`.planning/`, `docs/audits/`, `docs/research/`, the `gsd-*` toolchain) intentionally uses dense internal vocabulary — `AL-22`, `13-01-PLAN.md`, `BHV-03`, `Phase 13`, `TST-08 release gate`, `gsd-executor` — because that vocabulary keeps the maintainer's cognitive load low.
 
 The external-facing artifacts (`README.md`, `docs/internals/`, `CONTRIBUTING.md`, blog posts, marketing emails, the `agentlinux.org` site copy, public release notes) inherit prose by accident — copy-pasted from internal phase summaries, or written while the maintainer's head was still in plan-execute mode — and then the internal vocabulary leaks. A reader landing on the public README who sees `AGT-02 release gate` or `Phase 5.1 sudo drop-in` cannot resolve those without access to the workspace. The artifact reads as half-translated.
 
-The motivating example: `docs/internals/` was authored for the project owner so he can excerpt component descriptions into blog posts, marketing emails, and `agentlinux.org` copy. Every leaked `AL-22`, `Plan 12-04`, or `DOC-06 invariant` is a phrase the owner has to redact at excerpt time. Catching the leaks once, in the source doc, is far cheaper than catching them three times across blog/email/site.
+The motivating example: `docs/internals/` was authored for the project owner so he can excerpt component descriptions into blog posts, marketing emails, and `agentlinux.org` copy. Every leaked `AL-22`, `Plan 13-04`, or `DOC-06 invariant` is a phrase the owner has to redact at excerpt time. Catching the leaks once, in the source doc, is far cheaper than catching them three times across blog/email/site.
 
 ## What Counts as Externally-Facing
 
@@ -79,9 +79,9 @@ The examples below calibrate your judgment. Flag phrasings like the "Bad" column
 
 ### Example 3: A blog post draft excerpt
 
-- **Bad:** `Plan 12-03 added a new reviewer agent (dev-docs-auditor) that fires inside the existing review loop per ADR-010's reminder-hook refinement, satisfying the DOC-06 no-new-stop-hook invariant.`
+- **Bad:** `Plan 13-03 added a new reviewer agent (dev-docs-auditor) that fires inside the existing review loop per ADR-010's reminder-hook refinement, satisfying the DOC-06 no-new-stop-hook invariant.`
 - **Good:** `We added a new reviewer agent that keeps the developer docs in sync whenever the installer or CLI source changes. It rides on the existing review-loop pipeline — no new hooks, no extra startup cost, and one less thing for maintainers to think about.`
-- Reasoning: `Plan 12-03`, `ADR-010`, `DOC-06`, and "no-new-stop-hook invariant" are all maintainer vocabulary. Tell the reader *what was built and why it's nice*; not the workflow IDs that prove the work was done.
+- Reasoning: `Plan 13-03`, `ADR-010`, `DOC-06`, and "no-new-stop-hook invariant" are all maintainer vocabulary. Tell the reader *what was built and why it's nice*; not the workflow IDs that prove the work was done.
 
 ### Example 4: An `agentlinux.org` hero subhead
 
@@ -91,9 +91,9 @@ The examples below calibrate your judgment. Flag phrasings like the "Bad" column
 
 ### Example 5: A line in `docs/internals/README.md` index
 
-- **Bad:** `These docs are written for the project owner reviewing AL-22's deliverable; the sub-files mirror the per-component split agreed in 12-CONTEXT.md.`
+- **Bad:** `These docs are written for the project owner reviewing AL-22's deliverable; the sub-files mirror the per-component split agreed in 13-CONTEXT.md.`
 - **Good:** `These docs explain what each AgentLinux component does and why. They're written so that anyone — the project owner, a contributor, a reader of the project blog — can answer a "what value does AgentLinux add for X?" question in under a minute.`
-- Reasoning: `AL-22` and `12-CONTEXT.md` are internal cross-refs. Replace with a description of the docs' actual purpose and audience.
+- Reasoning: `AL-22` and `13-CONTEXT.md` are internal cross-refs. Replace with a description of the docs' actual purpose and audience.
 
 ### Example 6: A CONTRIBUTING.md paragraph
 
@@ -103,7 +103,7 @@ The examples below calibrate your judgment. Flag phrasings like the "Bad" column
 
 ### Example 7: Accepted use of internal vocabulary
 
-- A file at `.planning/phases/12-developer-documentation-for-installer-runtime-and-cli-al-22/12-AUDIT.md` that contains `AL-22`, `DOC-06`, `Plan 12-03`, `Phase 12`, and `dev-docs-auditor` is **fine** — the file is internal-only and never read by an external audience. Do not flag it. Only flag external drafts and public-repo entry-point docs.
+- A file at `.planning/phases/12-developer-documentation-for-installer-runtime-and-cli-al-22/13-AUDIT.md` that contains `AL-22`, `DOC-06`, `Plan 13-03`, `Phase 13`, and `dev-docs-auditor` is **fine** — the file is internal-only and never read by an external audience. Do not flag it. Only flag external drafts and public-repo entry-point docs.
 
 ## Critical Rules
 

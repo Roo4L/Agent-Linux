@@ -1,897 +1,298 @@
-# Architecture Research — AgentLinux Plugin (v0.3.0)
+# Architecture Research — v0.5.0 Agenda Redefinition
 
-**Domain:** Installable Ubuntu extension that provisions an agent-ready environment (dedicated agent user, correctly-owned Node.js, default agent, agent registry CLI)
-**Researched:** 2026-04-18
-**Confidence:** HIGH
+**Scope:** Where the canonical product-strategy document lives in the AgentLinux repo, how it cross-links to ADRs / README / CONTRIBUTING / roadmap, and how the new framing propagates to agentlinux.org under the static-site / no-build-step constraint.
 
----
-
-## 1. Summary & Design Stance
-
-The plugin is a **bash-orchestrated installer** that runs against an existing Ubuntu system, plus a **Node.js-backed CLI (`agentlinux`)** that ships with the installer for post-install agent management.
-
-Three guiding decisions drive the structure:
-
-1. **Installer is the source of truth.** A single entrypoint (`bin/agentlinux-install`) is what users actually run. Distribution mechanism (curl-pipe-bash vs `apt install agentlinux`) wraps the same script. Idempotency means re-running it converges, never destroys.
-2. **Provisioner modules are bash, not a framework.** The v0.2.0 6-script chain proved layered numbered shell scripts are debuggable, ordered, and easy to test. The plugin reuses that exact model — minus the Packer/QEMU/OpenNebula plumbing.
-3. **The registry CLI is a Node.js CLI installed for the agent user, not a system daemon.** It re-uses the same provisioner scripts the installer used (via a small dispatcher) so adding a new agent has one code path, not two.
-
-**Carry-forward / new split (one-liner per v0.2.0 script):**
-
-| v0.2.0 script | v0.3.0 disposition |
-|---|---|
-| `01-base.sh` | OBSOLETE — host already has a base OS; we don't own it |
-| `02-one-context.sh` | OBSOLETE — no OpenNebula |
-| `03-nodejs.sh` | CARRIES FORWARD as `provisioner/30-nodejs.sh` (Node 22 from NodeSource) |
-| `04-packages.sh` (fpm + local apt repo) | OBSOLETE as a packaging mechanism; npm-global-as-agent-user replaces it. The MCP-config-merge logic carries forward into `provisioner/40-default-agent.sh` and into the registry catalog's per-agent post-install hooks. |
-| `05-chrome.sh` | CARRIES FORWARD as `catalog/agents/chrome-devtools-mcp/install.sh` (only invoked when that agent is requested — not in the default install path) |
-| `99-cleanup.sh` | OBSOLETE — no image to compact |
-| /etc/skel-based default Claude Code config (with MCP pre-wired) | CARRIES FORWARD into `provisioner/40-default-agent.sh` (writes config under `agent` user's `~/.claude.json`) and into a `templates/skel/` directory the installer optionally seeds |
-| Wrapper scripts at `/usr/local/bin/claude` | OBSOLETE — `npm install -g` as the agent user puts the bin on the agent user's own PATH (`~/.npm-global/bin/claude`); no system-wide wrapper needed |
-| fpm packaging | DEFERRED — may be reused if we ship the plugin itself as a `.deb` (one of the open distribution-mechanism options); not on the critical path |
+**Researched:** 2026-05-09
+**Overall confidence:** HIGH (repo state directly inspected; OSS exemplars verified via WebFetch)
 
 ---
 
-## 2. System Overview
+## Repo state inspected (factual baseline, not re-research)
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                       USER (root or sudoer on Ubuntu)                     │
-│   $ curl -fsSL https://agentlinux.org/install.sh | sudo bash             │
-│   $ sudo apt install agentlinux               (alt distribution)         │
-└────────────────────────┬─────────────────────────────────────────────────┘
-                         │
-                         ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│              INSTALLER ENTRYPOINT  (bin/agentlinux-install)              │
-│   Parses flags → sources lib/ helpers → runs provisioner/ scripts in    │
-│   order → drops registry CLI in agent user's PATH → prints next steps   │
-└────┬──────────────────┬─────────────────┬─────────────────┬─────────────┘
-     │ runs as root     │ runs as root    │ as agent user   │ root then agent
-     ▼                  ▼                 ▼                 ▼
-┌──────────┐      ┌────────────┐   ┌──────────────┐   ┌────────────────────┐
-│ 10-agent │      │ 30-nodejs  │   │ 40-default-  │   │ 50-registry-cli    │
-│ -user.sh │ ───▶ │ .sh        │ ─▶│ agent.sh     │ ─▶│ .sh                │
-│          │      │            │   │              │   │                    │
-│ create   │      │ NodeSource │   │ npm i -g     │   │ install agentlinux │
-│ user,    │      │ apt repo,  │   │ <default>    │   │ CLI as agent user  │
-│ sudoers, │      │ install    │   │ (as agent),  │   │ + bash completion  │
-│ shell,   │      │ nodejs,    │   │ verify it    │   │                    │
-│ home,    │      │ set npm    │   │ runs, write  │   │                    │
-│ locale   │      │ prefix to  │   │ ~/.claude.   │   │                    │
-│          │      │ ~/.npm-    │   │ json default │   │                    │
-│          │      │ global     │   │              │   │                    │
-└──────────┘      └────────────┘   └──────────────┘   └────────────────────┘
-                                                                │
-                                                                ▼
-                                          ┌──────────────────────────────────┐
-                                          │ POST-INSTALL — REGISTRY CLI       │
-                                          │ agent$ agentlinux list            │
-                                          │ agent$ agentlinux install gsd     │
-                                          │ agent$ agentlinux uninstall <x>   │
-                                          │                                   │
-                                          │ Reads catalog/, dispatches to     │
-                                          │ catalog/agents/<name>/install.sh  │
-                                          │ Runs as the agent user — same    │
-                                          │ npm-prefix, no sudo needed.       │
-                                          └──────────────────────────────────┘
-                                                                │
-                                                                ▼
-                                          ┌──────────────────────────────────┐
-                                          │ TEST HARNESS  (tests/)            │
-                                          │ • docker/   — clean Ubuntu image  │
-                                          │   runs the installer end-to-end   │
-                                          │ • qemu/     — ephemeral VM, same  │
-                                          │   bats suite, slower, gated       │
-                                          │ • bats/     — assertion suite     │
-                                          │   (canonical: agent self-updates  │
-                                          │   claude without sudo)            │
-                                          └──────────────────────────────────┘
-```
+- **Site source lives at the repo root, not under `site/` or `website/`.** `index.html` (895 LOC), `CNAME`, `sitemap.xml`, `robots.txt`, and `assets/` (crab-mascot.svg, favicon.svg, og-image.svg) all sit at the repo root. There is no `site/`, `website/`, or `public/` directory. The `docs/HARNESS.md` §1.1 layout shows `website/` as the planned location, but the actual implementation never moved the files — they stayed at the root from v0.1.0. **The milestone-context's reference to a `site/` directory is incorrect.** Any v0.5.0 Site-Refresh phase touches root-level `index.html` + `assets/`, not a subfolder.
+- **`.github/workflows/deploy.yml` confirms the no-build constraint.** The workflow stages files into `_site/` with `cp` only — `index.html`, `CNAME`, `sitemap.xml`, `robots.txt`, `assets/`, plus `packaging/curl-installer/install.sh` (Pattern 5: anti-drift install.sh source) — then `JamesIves/github-pages-deploy-action@v4.8.0` ships the bundle to the `gh-pages` branch. Zero build step. Zero markdown→HTML rendering. PR previews share the gh-pages branch under `pr-preview/*`.
+- **`docs/` already houses one user-facing companion to an ADR.** `docs/STABILITY-MODEL.md` (124 LOC) is the TL;DR of ADR-011, written in plain prose, lives at `docs/STABILITY-MODEL.md` (single file, uppercase, top of `docs/`). It is the closest precedent in-tree for what the strategy doc will look like, and it sits comfortably alongside `docs/HARNESS.md` (internal harness spec) at the same level. README.md links to it from two places (the "Stability model" section + the "Links" section).
+- **ADR catalog covers 001–014.** `docs/decisions/000-template.md` defines the ADR template (Status / Date / Context / Decision / Consequences / References). The next ADR will be **ADR-016** for the v0.5.0 framing decision.
+- **`README.md` (157 LOC) is install-focused.** Sections in order: Install / Verify / Uninstall / Stability model (3-paragraph summary + link out to `docs/STABILITY-MODEL.md` + link out to ADR-011) / Escape hatch / Requirements / Security / Contributing / License / Links / About. The "About" section at the bottom is the only place product *rationale* (the EACCES/recursive-shim story) appears, and it's a single paragraph. The README does **not** carry the three-pillar framing today.
+- **`CONTRIBUTING.md` (101 LOC) references behavior-test contract + review loop**, points at `docs/HARNESS.md` and `docs/decisions/013-license-mit.md`. It does not currently reference any "strategy" or "vision" document.
+- **`index.html` is pre-pivot in framing.** The hero says "A purpose-built Linux distribution" (distro framing, retired in ADR-001). The Features section shows 8 cards including "Multiple distribution formats" with QEMU/Docker micro-VMs (also retired). Sections in nav order: Hero → Problem → Features → Comparison → Signup → FAQ. **The site is roughly two pivots behind product reality** — it still positions AgentLinux as a custom distro and does not mention pillars, plugin/curl-install, or the v0.3.0 catalog. A site refresh is not optional in v0.5.0; even without the strategy doc, the current site contradicts the README.
 
 ---
 
-## 3. Recommended Project Structure
+## Part A — Where the strategy doc lives
 
-```
-agent-linux/                                  # repo root (existing)
-├── plugin/                                   # NEW — everything for v0.3.0 lives here
-│   ├── bin/
-│   │   ├── agentlinux-install                # installer entrypoint (bash)
-│   │   └── agentlinux                        # registry CLI shim (calls Node)
-│   │
-│   ├── lib/                                  # shared bash helpers, sourced by scripts
-│   │   ├── log.sh                            # log_info / log_warn / log_error / step
-│   │   ├── idempotent.sh                     # ensure_user / ensure_line_in_file / etc.
-│   │   ├── as_user.sh                        # run-as-agent-user helper (su/sudo wrapper)
-│   │   └── distro.sh                         # detect Ubuntu version, abort on mismatch
-│   │
-│   ├── provisioner/                          # ordered, idempotent install steps
-│   │   ├── 10-agent-user.sh                  # create user, sudoers, shell, locale, /etc/skel
-│   │   ├── 30-nodejs.sh                      # NodeSource Node 22 + per-user npm prefix
-│   │   ├── 40-default-agent.sh               # installs default agent as the agent user
-│   │   └── 50-registry-cli.sh                # installs `agentlinux` CLI for agent user
-│   │
-│   ├── cli/                                  # the `agentlinux` registry CLI (Node.js)
-│   │   ├── package.json                      # name: agentlinux, bin: agentlinux
-│   │   ├── src/
-│   │   │   ├── index.js                      # arg parser, command dispatch
-│   │   │   ├── commands/
-│   │   │   │   ├── list.js                   # `agentlinux list`
-│   │   │   │   ├── install.js                # `agentlinux install <name>`
-│   │   │   │   ├── uninstall.js              # `agentlinux uninstall <name>`
-│   │   │   │   ├── info.js                   # `agentlinux info <name>`
-│   │   │   │   └── doctor.js                 # `agentlinux doctor` (env diagnostic)
-│   │   │   ├── catalog.js                    # load + validate catalog entries
-│   │   │   ├── runner.js                     # spawns catalog/agents/<n>/install.sh
-│   │   │   └── log.js                        # mirrors lib/log.sh format
-│   │   └── README.md
-│   │
-│   ├── catalog/                              # the agent registry — schema + data
-│   │   ├── schema.json                       # JSON Schema for an agent entry
-│   │   ├── catalog.json                      # array of agent entries (embedded data)
-│   │   └── agents/                           # per-agent install/uninstall scripts
-│   │       ├── claude-code/
-│   │       │   ├── install.sh
-│   │       │   └── uninstall.sh
-│   │       ├── gsd/
-│   │       │   ├── install.sh
-│   │       │   └── uninstall.sh
-│   │       └── chrome-devtools-mcp/
-│   │           ├── install.sh                # carries v0.2.0 chrome install logic
-│   │           └── uninstall.sh
-│   │
-│   ├── templates/
-│   │   └── skel/
-│   │       └── .claude.json                  # default Claude Code config w/ MCP block
-│   │                                          #   (substituted at install time)
-│   │
-│   └── tests/
-│       ├── docker/
-│       │   ├── Dockerfile.ubuntu-22.04
-│       │   ├── Dockerfile.ubuntu-24.04
-│       │   └── run.sh                        # builds image, runs installer, runs bats
-│       ├── qemu/
-│       │   ├── cloud-init/                   # NoCloud user-data for fresh Ubuntu VM
-│       │   ├── boot.sh                       # boots ephemeral VM, ssh-injects bats
-│       │   └── run.sh                        # full VM smoke
-│       └── bats/
-│           ├── 00-installer-runs.bats        # installer exits 0
-│           ├── 10-agent-user.bats            # user exists, has shell, sudo works
-│           ├── 20-node-ownership.bats        # npm prefix in $HOME, no root files
-│           ├── 30-default-agent.bats         # claude --version succeeds as agent
-│           ├── 40-self-update.bats           # CANONICAL: claude self-update no sudo
-│           ├── 50-registry-cli.bats          # agentlinux list / install / uninstall
-│           └── helpers.bash                  # shared assertions
-│
-├── packaging/                                # NEW — distribution wrapping
-│   ├── deb/                                  # OPTIONAL .deb wrapper (uses fpm; v0.2.0 carry-forward)
-│   │   └── build.sh
-│   └── curl-installer/
-│       └── install.sh                        # the script behind https://agentlinux.org/install.sh
-│                                              #   → downloads tarball, extracts, runs bin/agentlinux-install
-│
-├── website/                                  # existing v0.1.0 landing page
-└── .planning/                                # existing
-```
+### Recommendation: **`docs/STRATEGY.md`** (Option 2, single file in `docs/`)
 
-**Structure Rationale:**
+**One sentence:** Single file, uppercase, alongside the existing `docs/STABILITY-MODEL.md` and `docs/HARNESS.md` — same level, same case convention, same "user-facing companion to an ADR" mental model the project has already shipped once.
 
-- **`plugin/` as a top-level container.** Keeps the plugin self-contained from the website and the v0.2.0 archives. When someone clones the repo and looks at `plugin/`, they see the whole plugin and nothing else.
-- **`bin/` only for entrypoints.** Two binaries — the installer and the post-install CLI shim. Everything else is library code.
-- **`lib/` for bash helpers, `cli/src/` for Node helpers.** Symmetrical: each language has one place for shared code. The `log.sh` ↔ `log.js` pairing keeps installer and CLI output consistent.
-- **`provisioner/` numbered scripts mirror the v0.2.0 model exactly.** Numbering leaves room (10, 30, 40, 50) for future insertions without renumbering. We deliberately skip 20 to leave a gap for a "system prerequisites" step (apt update, build tools) if needed later.
-- **`catalog/` separates schema, data, and per-agent code.** `schema.json` is the contract. `catalog.json` is the data the CLI reads. `agents/<name>/` holds the actual install logic — one directory per agent, so adding an agent is a one-PR change with no central code edits.
-- **`templates/skel/` is real config templates.** Distinct from `catalog/` because these are *defaults applied during the base install*, not per-agent.
-- **`tests/` has three peer dirs: `docker/`, `qemu/`, `bats/`.** The bats suite is the assertion library; docker and qemu are two different ways to *run* the same suite. This separation lets us add a third runner (e.g. `lxd/`) later without rewriting tests.
-- **`packaging/` is separate from `plugin/`.** The plugin doesn't know how it's being shipped. The curl-installer is just a thin downloader; the .deb wrapper is also thin. Both invoke the same `bin/agentlinux-install` once they have the files on disk.
+### Rationale (stability + discoverability + ergonomics + precedent)
+
+**Stability (URLs won't break):**
+- Single-file location at `docs/STRATEGY.md` is one URL. The website link-out is one anchor: `https://github.com/Roo4L/Agent-Linux/blob/master/docs/STRATEGY.md` (or `https://agentlinux.org/strategy` if we add a redirect/page). One file, one stable URL.
+- A folder (`docs/strategy/`) means N URLs (VISION.md, USERS.md, PILLARS.md, ROADMAP-THEMES.md), each independently stable, each independently breakable. Renames inside the folder break inbound links from the website, ADRs, CONTRIBUTING, future ROADMAPs.
+- Root-level `STRATEGY.md` (Option 5) is also one URL but pollutes the repo root — README + LICENSE + CONTRIBUTING is the conventional root-level set; adding a fourth strategy doc starts a slippery slope toward also needing root-level VISION/MISSION/values/etc. The OSS pattern (verified below) is to keep the root sparse and route reference docs into `docs/`.
+- README-embedded (Option 6) means the strategy "URL" is a README anchor (`README.md#what-we-believe`) — anchors are fragile (renaming the section breaks links) and the README itself rotates with version stamps and install-instruction edits. Worst stability of all the options.
+
+**Discoverability (a new contributor finds it):**
+- A new contributor lands on README → sees a "Strategy" link in the existing **Links** section (already conventional) → finds `docs/STRATEGY.md`. One hop.
+- They land on `docs/HARNESS.md` (a developer would for harness questions) → sibling file `STRATEGY.md` is visible in the same directory listing. One look.
+- They land on the GitHub repo file browser → `docs/` is the first folder a curious reader opens after `README.md`; a single `STRATEGY.md` at the top of `docs/` is impossible to miss. Three discovery paths converge on the same file.
+- A `docs/strategy/` folder hides the entry point one level deeper. Discoverability still works (contributors find folders) but the "where do I start in this folder?" question is non-trivial — folders demand a `README.md` index, which adds maintenance cost and a second rename trap.
+
+**Authoring ergonomics (single MD vs tree):**
+- Single MD: one diff to review, one file in PRs, one set of cross-link anchors to maintain, no inter-file ordering question. Fits the AgentLinux convention of writing reference docs as opinionated single files (HARNESS.md is 492 lines and works fine as one file; STABILITY-MODEL.md is 124 lines).
+- Tree: enables independently-evolving sub-docs but creates the "where does this section go?" decision overhead for every edit and the "are USERS.md and PILLARS.md consistent with each other?" review burden. Premature for a v0.5.0 strategy doc that will probably ship under 500 lines on first cut.
+- The tree decomposition (VISION.md / USERS.md / PILLARS.md / ROADMAP-THEMES.md) is reachable later as `docs/STRATEGY.md` grows, by promoting it to `docs/strategy/README.md` with the section files alongside. The single-file → folder migration is mechanical and only happens when the file's size genuinely warrants the split.
+
+**Naming-convention precedent (OSS comparable projects, verified):**
+- **OpenTelemetry Collector** ships `docs/vision.md` (single file, lowercase, in `docs/`) — explicitly described as "a living document that is expected to evolve over time" serving as guidance for design decisions. This is the **closest direct precedent** to AgentLinux's situation (CNCF infrastructure project, technical product, public ADRs, single-file strategy artifact in `docs/`). [Source](https://github.com/open-telemetry/opentelemetry-collector/blob/main/docs/vision.md)
+- **OpenTelemetry Community** uses `mission-vision-values.md` (root of community repo, lowercase). [Source](https://github.com/open-telemetry/community/blob/main/mission-vision-values.md)
+- **Watermelon Tools** ships a public-handbook with `Strategy.md` at its root. [Source](https://github.com/watermelontools/public-handbook/blob/main/Strategy.md)
+- **AgentLinux's own precedent:** `docs/STABILITY-MODEL.md` (uppercase, single file, in `docs/`). The v0.5.0 doc should follow this convention for consistency, not the lowercase OTel convention — because deviating from the in-repo precedent costs more in cognitive overhead than mimicking external precedent gains in alignment.
+
+### Naming choice: STRATEGY vs PRODUCT vs MISSION
+
+| Name | What it implies | AgentLinux fit |
+|------|-----------------|----------------|
+| `STRATEGY.md` | Pillars, positioning, roadmap themes, who-it's-for, what-we-won't-build | **Best fit.** Matches the doc's actual content (per the v0.5.0 milestone definition: vision + target users + JTBD + three pillars + non-goals + positioning + roadmap themes). |
+| `PRODUCT.md` | What it is, what it does, scope | Too narrow; doesn't carry the "and where it's going" weight of the roadmap-themes appendix. Closer to a product-marketing one-pager. |
+| `MISSION.md` | Single-sentence purpose | Too narrow; mission is one section of the strategy doc, not the whole thing. |
+| `VISION.md` | Aspirational long-term north star | Adjacent but narrower. OpenTelemetry Collector chose this name and the doc ended up being 23 lines — fits *that* scope (project north star) but not *this* scope (pillars + non-goals + positioning + roadmap themes). |
+
+**Pick STRATEGY.md.** The other names create scope ambiguity that costs more than naming consistency saves.
+
+### Hybrid-with-README (Option 7) — rejected, with a caveat
+
+A short top-level mission paragraph in README + detailed `docs/STRATEGY.md` is tempting. Reject it as the *primary* strategy location, but **adopt a narrow form**: README's existing **About** section gets one new sentence that names the three pillars and links to `docs/STRATEGY.md`. This is README hygiene, not strategy duplication — README stays install-focused, STRATEGY.md stays canonical.
+
+### Tie-breaker question for the user (none)
+
+This recommendation is unambiguous. No tie-breaker needed; the in-repo precedent (STABILITY-MODEL.md) is too strong to override.
 
 ---
 
-## 4. Component Responsibilities
+## Part B — Cross-link map
 
-| Component | Responsibility | Implementation |
-|-----------|----------------|----------------|
-| **`bin/agentlinux-install`** | Single entrypoint; parses flags, sources lib, runs provisioner scripts in order, exits with clear status | Bash, ~150 LOC |
-| **`lib/*.sh`** | Reusable helpers: logging, idempotency primitives (ensure-user, ensure-line, ensure-pkg), `as_user` wrapper, distro detection | Bash, sourced — never executed |
-| **`provisioner/10-agent-user.sh`** | Create `agent` user (or whatever `--user` says), set shell `/bin/bash`, ensure home, configure locale, write sudoers drop-in, seed `~/.bashrc` with `PATH` for npm-global | Bash, idempotent |
-| **`provisioner/30-nodejs.sh`** | Install Node.js 22 LTS from NodeSource (system-wide), then `as_user agent` set `npm config set prefix ~/.npm-global`, create the dir, ensure `~/.bashrc` exports `PATH=$HOME/.npm-global/bin:$PATH` | Bash, idempotent |
-| **`provisioner/40-default-agent.sh`** | Read `--default-agent` flag (default: `claude`), invoke `catalog/agents/<name>/install.sh` as the agent user, then write `~/.claude.json` from `templates/skel/.claude.json`, verify the binary runs | Bash, dispatches into catalog |
-| **`provisioner/50-registry-cli.sh`** | `as_user agent npm install -g <local-tarball-of-cli/>` (or from npm registry once published); writes bash completion to `/etc/bash_completion.d/agentlinux` | Bash, idempotent |
-| **`bin/agentlinux`** | Tiny shim: `exec node /opt/agentlinux/cli/src/index.js "$@"` *or* installed by npm to `~/.npm-global/bin/agentlinux` directly. (Preferred: latter — keeps everything in agent's own prefix) | Bash one-liner OR direct npm bin entry |
-| **`cli/src/index.js`** | Arg parser (use `commander` or hand-roll — small surface), dispatches to `commands/*.js` | Node.js, ESM |
-| **`cli/src/catalog.js`** | Loads `catalog.json`, validates against `schema.json` (use `ajv`), supports remote catalog override via `AGENTLINUX_CATALOG_URL` env or `~/.config/agentlinux/config.json` (embedded ships always; remote is a *merge*, not a replace, so offline still works) | Node.js |
-| **`cli/src/runner.js`** | For `install <name>`: looks up entry, locates `catalog/agents/<name>/install.sh` (bundled with the CLI), spawns it with proper env (`AGENT_USER`, `AGENT_HOME`, `NPM_PREFIX`), streams output | Node.js, child_process |
-| **`catalog/schema.json`** | JSON Schema (draft 2020-12) for a catalog entry — see §6 | Static JSON |
-| **`catalog/catalog.json`** | Embedded catalog — array of entries, validated by schema at CLI startup | Static JSON |
-| **`catalog/agents/<n>/install.sh`** | Per-agent install logic, run as the agent user, expects standard env vars from runner | Bash, idempotent |
-| **`templates/skel/.claude.json`** | Default Claude Code config including the chrome-devtools MCP block (templated — installer substitutes `{{AGENT_HOME}}` etc.) | JSON-with-mustache |
-| **`tests/bats/*.bats`** | Black-box assertions against a freshly-installed system — language-independent, easy to read | Bats |
-| **`tests/docker/run.sh`** | Builds clean Ubuntu image, COPIES the plugin in, runs `bin/agentlinux-install`, then runs the bats suite inside the container. Fast (< 2 min), runs in CI on every PR | Bash + Dockerfile |
-| **`tests/qemu/run.sh`** | Boots a fresh Ubuntu cloud image with cloud-init, scp's plugin in, runs installer + bats over ssh. Slow (~5 min), runs nightly / on release | Bash + cloud-init |
+### A. Outbound: from `docs/STRATEGY.md` → other artifacts
+
+| STRATEGY.md section | References (with anchor) | Why |
+|---------------------|--------------------------|-----|
+| **Vision / Mission** (top of doc) | — | Self-contained; no outbound links. |
+| **Target users / JTBD** | README.md "About" section, agentlinux.org `#problem` section | Establishes who the pillars serve; the existing problem framing on the site + README About paragraph are the prior-art statements being broadened. |
+| **Pillar 1 — Separated, correctly-owned agent environment** | `docs/decisions/001-pivot-distro-to-plugin.md` (origin of plugin shape), `docs/decisions/004-per-user-npm-prefix.md` (load-bearing technical decision), `docs/decisions/012-agent-user-full-sudo.md` (privilege posture), README.md "About" section (EACCES/recursive-shim story) | Pillar 1 is the v0.3.0 surface; ADR-001 explains the shape, ADR-004 the keystone, ADR-012 the privilege boundary. Each ADR earns a one-line callout in this section. |
+| **Pillar 2 — Stability + best-tested setup, with measurable benchmarks** | `docs/decisions/011-stability-first-version-pinning.md` (the seed), `docs/STABILITY-MODEL.md` (user-facing companion), v0.6+ "Benchmarks Milestone" placeholder | ADR-011 is the seed of pillar 2; the v0.5.0 doc extends "tested combo" → "tested combo with publishable comparative benchmarks." Forward link to the v0.6+ milestone is a roadmap-themes-appendix item. |
+| **Pillar 3 — Security hardening (supply chain + prompt/tool injection)** | `docs/decisions/012-agent-user-full-sudo.md` (open question — agent has root via sudoers; how does pillar 3 reconcile?), `docs/decisions/006-curl-pipe-bash-plus-deb.md` (delivery-channel trust story; SHA256 today, GPG roadmap), `docs/decisions/014-secret-remediation-noop.md` (secret-handling baseline), v0.6+ "Security Hardening Milestone" placeholder, OWASP LLM Top 10 + Anthropic tool-use safety guidance (external) | Pillar 3 is forward-looking. ADR-012 is a known tension (full sudo for the agent is great for productivity, hard to defend under a hardening framing); ADR-016 should explicitly note this and defer the resolution. |
+| **Positioning vs alternatives** | README.md (the `Why not just use what exists?` section is the website's prior framing), agentlinux.org `#comparison` section | The strategy doc replaces the comparison framing with the new three-pillar one; the existing site copy is the "before" reference. |
+| **Non-goals / out-of-scope** | `.planning/PROJECT.md` "Out of Scope" sections (existing canonical list), `docs/decisions/009-snap-disqualified.md` (worked example of an explicit non-goal) | Consolidates scattered "we won't do X" statements; PROJECT.md's Out of Scope remains the *operational* truth, STRATEGY.md is the *narrative* truth. |
+| **Roadmap themes appendix** | (Forward links to milestones that don't exist yet — placeholders only.) | These resolve into actual `.planning/milestones/v0.6.x-*/` paths once new milestones get scoped. The strategy doc keeps placeholder names, not paths. |
+| **Decision provenance** (last section) | `docs/decisions/016-agenda-redefinition.md` (the framing-decision ADR) | One-sentence pointer: "the framing decision and the discarded alternatives are recorded in ADR-016." |
+
+### B. Inbound: artifact → STRATEGY.md (which existing files need updates)
+
+| File | What needs updating | Edit type |
+|------|---------------------|-----------|
+| **`README.md`** | (a) Add a one-sentence three-pillar summary in the **About** section. (b) Add `docs/STRATEGY.md` link to the **Links** section. (c) Optionally bump the install hero tagline if the framing demands it (likely deferred — install instructions stay install instructions). | New requirement; small, surgical |
+| **`CONTRIBUTING.md`** | Add a one-sentence "the project's strategic direction is documented in `docs/STRATEGY.md`" line near the top, right after "Thanks for considering a contribution. AgentLinux is small, opinionated, and behavior-test-driven." | New requirement; one-line addition |
+| **`docs/decisions/016-agenda-redefinition.md`** (the new ADR) | Reference STRATEGY.md as the "implemented decision artifact" in its References section: *"`docs/STRATEGY.md` — the canonical strategy document this ADR authorizes."* | New file (the v0.5.0 ADR creation itself) |
+| **`docs/decisions/011-stability-first-version-pinning.md`** | Add a forward-reference in its References section: *"`docs/STRATEGY.md` Pillar 2 — extends pinning into measurable benchmarks."* | Optional (bidirectional link); recommended |
+| **`docs/decisions/012-agent-user-full-sudo.md`** | Add a forward-reference: *"`docs/STRATEGY.md` Pillar 3 — open tension under the security-hardening pillar; deferred to v0.6+ resolution."* | Optional (bidirectional link); recommended for honest documentation of the unresolved tension |
+| **`docs/STABILITY-MODEL.md`** | Add `docs/STRATEGY.md` to its **Related** section. | Optional; recommended |
+| **`docs/HARNESS.md`** | No update needed — HARNESS is internal harness spec, orthogonal to strategy. | None |
+| **`.planning/PROJECT.md`** | The "Current Milestone v0.5.0" section already exists; add a one-line pointer to `docs/STRATEGY.md` once it lands. | Required as part of milestone close |
+| **`agentlinux.org` (`index.html`)** | See Part C below — section-level rewrite. | Required as part of v0.5.0 Site-Refresh phase |
+| **Future `ROADMAP.md` (v0.6+ milestones, when they exist)** | Reference `docs/STRATEGY.md#roadmap-themes` as the source for milestone selection rationale. | Future requirement; scoped at the next `/gsd-new-milestone` |
+
+### C. Map summary (graph form)
+
+```
+              docs/STRATEGY.md  (single canonical file)
+              /  |  |  |  |  \
+             /   |  |  |  |   \
+            v    v  v  v  v    v
+       README  ADR-016  ADR-011  ADR-012  ADR-001  agentlinux.org
+       (back)  (back)   (back)   (back)   (back)   (back)
+       CONTRIBUTING (back)
+       STABILITY-MODEL (back)
+       PROJECT.md (back)
+       Future ROADMAP (back, when it exists)
+```
+
+Eight in-repo files cross-link to STRATEGY.md; STRATEGY.md cross-links to nine in-repo + external artifacts. All cross-links are explicit, anchored, and survive a single-file location.
 
 ---
 
-## 5. Installer Entrypoint — Shape, Idempotency, Argument Surface
+## Part C — Website propagation
 
-### Shape
+### Recommendation: **Option 4 (restructure landing-page IA) + Option 2 (link out to in-repo strategy doc as the deep version)**, executed by hand. Reject Option 3 (CI mirror).
 
-**Recommendation:** ship two flavors that wrap the same thing.
+**One sentence:** Hand-rewrite `index.html` sections so the IA reflects the three-pillar framing, and add a "Read the full strategy" link in the appropriate section pointing to `docs/STRATEGY.md` on GitHub — same way README.md links to STABILITY-MODEL.md today.
 
-1. **Curl-pipe-bash (primary, for try-it-now adoption):**
-   ```bash
-   curl -fsSL https://agentlinux.org/install.sh | sudo bash
-   curl -fsSL https://agentlinux.org/install.sh | sudo bash -s -- --user agent --default-agent claude
-   ```
-   The fetched script is `packaging/curl-installer/install.sh`. It:
-   1. Downloads a tagged release tarball of the plugin
-   2. Verifies SHA256 (checksum embedded in the curl script)
-   3. Extracts to `/opt/agentlinux/`
-   4. Execs `/opt/agentlinux/bin/agentlinux-install "$@"`
+### Per-option assessment
 
-2. **`apt install agentlinux` (secondary, for users who prefer package management):**
-   A `.deb` built with fpm (carry-forward from v0.2.0) that:
-   - Installs the same files to `/opt/agentlinux/`
-   - Drops `/usr/local/bin/agentlinux-install` symlink → `/opt/agentlinux/bin/agentlinux-install`
-   - Postinst does **not** auto-run the installer (user runs it explicitly with their flags)
-   - Hosted on a public PPA later (out of scope for v0.3.0 per PROJECT.md — keep this build path *ready* but not the default)
+**Option 1 — Hand-port the existing landing-page sections to match new framing.**
+- *Pros:* Honors the no-build constraint; uses the existing 895-LOC HTML/CSS/JS file; keeps the dark JetBrains Mono aesthetic intact; no new tooling.
+- *Cons:* The current IA (Hero → Problem → Features → Comparison → Signup → FAQ) is built around the **distro framing** (hero says "A purpose-built Linux distribution," features section advertises QEMU/Docker micro-VM distribution formats). Hand-porting in place leaves the IA around an old skeleton. **Goes one level deeper than necessary** — the right move is restructure, not patch.
+- *Verdict:* Partial fit. Patching alone produces a Frankenstein page.
 
-Both paths converge on `bin/agentlinux-install` so there is exactly one installer to test.
+**Option 2 — Embed link-out to in-repo `docs/STRATEGY.md`.**
+- *Pros:* Honors no-build constraint; keeps landing page lean and conversion-focused; routes serious readers to the canonical doc; mirrors the existing README → STABILITY-MODEL pattern (works well, no maintenance overhead, never goes stale because the canonical doc is one file).
+- *Cons:* The link-out only adds value once the landing page IA actually matches the three-pillar framing — otherwise the visitor reads "purpose-built Linux distribution" in the hero, then clicks through to a strategy doc that says "installable extension that broadens to three pillars" and gets whiplash. Link-out alone is insufficient.
+- *Verdict:* **Necessary but not sufficient.** Pair with Option 4.
 
-### Idempotency Model
+**Option 3 — CI-mirror the strategy doc to HTML at deploy time.**
+- *Pros:* Single source of truth — `docs/STRATEGY.md` is rendered to `https://agentlinux.org/strategy.html` automatically; no drift possible.
+- *Cons:* **Violates the no-build-step constraint** (deploy.yml is `cp` only; adding markdown→HTML rendering means adding a markdown processor — pandoc, marked-cli, or a static-site generator — which is a real toolchain change). The maintenance cost (which renderer? which CSS? which template?) is non-trivial. Also *competes* with the GitHub-hosted `docs/STRATEGY.md` URL — visitors land on `agentlinux.org/strategy.html` instead of the GitHub blob view; the rendered version's stable URL is less obvious.
+- *Verdict:* **Reject.** Constraint violation, low marginal value vs. a plain GitHub link, real maintenance burden.
 
-Every operation is **converging, not commanding.** Use these primitives from `lib/idempotent.sh`:
+**Option 4 — Restructure the landing-page IA for the broadening.**
+- *Pros:* The existing site is **two pivots behind product reality** anyway (still positions AgentLinux as a distro). The website-refresh phase has to touch the IA regardless. Restructuring around the three pillars produces a coherent narrative aligned with the strategy doc; small refactor in HTML/CSS, no new tooling.
+- *Cons:* More work than a patch — requires deciding new section structure, new copy, possibly reshooting hero imagery (the crab mascot stays; the "Linux distribution" tagline goes). Estimated effort: medium (see below).
+- *Verdict:* **Required.** This is the actual scope of the v0.5.0 site-refresh phase; the link-out (Option 2) is one element inside it.
 
-| Primitive | Behavior |
-|-----------|----------|
-| `ensure_user <name>` | Skip if `getent passwd` succeeds; else `useradd -m -s /bin/bash` |
-| `ensure_line_in_file <line> <file>` | grep -F first; append only if missing |
-| `ensure_apt_repo <name> <url> <key>` | Check `/etc/apt/sources.list.d/<name>.list`; install only if missing |
-| `ensure_apt_pkg <pkg>` | Check `dpkg -s` first; install only if missing |
-| `ensure_npm_global <pkg>` | `as_user agent npm list -g --depth=0` parse; install only if missing |
-| `ensure_npm_prefix <user> <prefix>` | Check `npm config get prefix --userconfig=$HOME/.npmrc`; set only if mismatched |
+### Recommended IA for the new landing page (3-pillar product)
 
-**Re-running the installer must be safe and converge to the same end state.** This is the single biggest UX feature — users will re-run after partial failures.
-
-### Argument Surface
+Following the **mise.jdx.dev** pattern (verified — see exemplars below) which is the closest direct analogue (single tool, three explicit pillars, technical audience):
 
 ```
-agentlinux-install [OPTIONS]
+Nav:    AgentLinux | Pillars | Install | FAQ | Strategy (→ docs/STRATEGY.md)
+Hero:   Crab mascot
+        AgentLinux
+        "Agent-ready Linux, one command."  (replaces "Linux, for agents")
+        One paragraph: dedicated agent user + correctly-owned Node.js;
+        curated stable combos with benchmarks; security hardening for the
+        agent toolchain. Each clause names one pillar.
+        CTA: `curl -fsSL https://agentlinux.org/install.sh | sudo bash`
+             [secondary] Read the strategy → docs/STRATEGY.md
 
-Options:
-  --user <name>             Agent username to create or use (default: agent)
-  --default-agent <id>      Catalog id to install as default (default: claude-code, special: 'none')
-  --no-default              Skip default-agent install (alias for --default-agent none)
-  --skip-node               Don't install Node.js (assume present and properly owned)
-  --skip-registry           Don't install the agentlinux CLI (rare; mostly for testing)
-  --node-version <ver>      Override Node.js LTS version (default: 22)
-  --npm-prefix <path>       Custom npm global prefix (default: $AGENT_HOME/.npm-global)
-  --catalog-url <url>       Override remote catalog URL for the registry CLI
-  --dry-run                 Print actions without executing
-  --verbose                 Stream all subcommand output
-  --quiet                   Errors only
-  --version                 Print plugin version and exit
-  --help                    Show this and exit
+#problem:  (Keep — still resonant; broaden the "agent on your laptop /
+            in Docker / in a VM" framing slightly to acknowledge
+            stability + security pain points the new pillars address.)
 
-Exit codes:
-  0  success
-  1  generic failure
-  2  invalid arguments
-  3  unsupported distro / version
-  4  precondition failed (no sudo / not Ubuntu / etc.)
-  5  one or more provisioner steps failed (re-run is safe)
+#pillars:  (NEW SECTION replacing the old #features grid.)
+           Three cards, equal weight, mise-style numbered:
+             1. Separated environment   — what's shipped (v0.3.0 surface)
+             2. Stability + benchmarks  — what's coming (v0.6+ pillar 2)
+             3. Security hardening      — what's coming (v0.6+ pillar 3)
+           Each card: 2-sentence description, one-line "available now /
+           coming in v0.6+" tag, "Learn more" link to the corresponding
+           STRATEGY.md anchor.
+
+#install:  (NEW SECTION — currently the install instruction lives only
+            in the hero CTA + README. The site should mirror the README
+            install/verify/uninstall blocks for users who don't bounce
+            to GitHub. Pulls copy directly from README; small risk of
+            drift, manageable via deploy-time check.)
+
+#signup:   (Keep Buttondown form — top-of-funnel still serves the
+            broader pillars 2/3 audience that wants notifications.)
+
+#faq:      (Update questions to reflect three-pillar framing; the
+            "What is AgentLinux?" / "When will it be available?" /
+            "Is it free?" trio needs new answers per the v0.3.0 + v0.4.0
+            shipped reality.)
+
+Footer:    Links to GitHub repo, releases, ADRs, STABILITY-MODEL, STRATEGY.
 ```
+
+Sections **removed** vs the current site: the 8-card `#features` grid (replaced by `#pillars`), the `#comparison` block ("Local machine → dedicated machine", "Docker → full OS", "Generic VMs → ready on boot" — all phrased around the retired distro shape). Old sections worth porting copy from: the pain-point columns under `#problem` are evergreen and broaden naturally.
+
+### Estimated v0.5.0 site-refresh phase scope
+
+| Work item | Effort |
+|-----------|--------|
+| Rewrite hero copy + tagline | S |
+| Rewrite `#problem` to broaden across all three pillars (keep dual-column engineer/agent format) | M |
+| Replace `#features` grid with `#pillars` 3-card section (new HTML + CSS) | M |
+| Add `#install` section mirroring README curl-pipe-bash + verify | S |
+| Update `#faq` answers to reflect v0.3.0 + v0.4.0 reality + three pillars | S |
+| Update nav to add `Pillars` + `Strategy` (link out) anchors | S |
+| Add `Strategy` link to footer | S |
+| Update OG description + Twitter card descriptions to new framing | S |
+| Update title tag from "AgentLinux -- Linux, for agents" to "AgentLinux — Agent-ready Linux, one command" (or whatever the new tagline locks to) | S |
+| Visual QA mobile + desktop after copy changes | S |
+
+**Total: medium scope.** ~1-2 days of focused work, no new tooling, no build step added, all HTML/CSS edits inside the existing `index.html`. Phase output: a single PR that changes `index.html` (mostly content, some structure), updates OG/Twitter meta, doesn't touch `assets/` (mascot/favicon stay).
+
+### Risk: install-instruction drift between README and site `#install` section
+
+If the site mirrors README's install block by hand-copy, they can drift. Mitigations (any one is sufficient):
+
+1. **Acceptable drift** — pin to "see https://github.com/Roo4L/Agent-Linux#install for canonical install instructions" with only the one-line `curl | bash` shown on the site. Lowest maintenance, slight conversion cost.
+2. **Deploy-time check** — extend `deploy.yml` to grep `index.html` for the version stamp + the curl URL and fail if they don't match `README.md`'s `<!-- VERSION_START --><!-- VERSION_END -->` block. Honors no-build constraint (it's a grep, not a renderer).
+3. **Single-source extraction at deploy time** — `sed` the install block out of README into a marker block in `index.html` during `cp` staging. Honors no-build constraint (`sed` is fine), but adds asymmetric authoring (edit README, site updates magically) which is a maintenance sharp edge.
+
+Recommend **option 2 (deploy-time grep check)** — already-present pattern (deploy.yml already has the install.sh anti-drift check per Pattern 5), low cost, catches the drift class that matters (version mismatch) without coupling the two files semantically.
 
 ---
 
-## 6. Catalog Format
+## OSS landing-page exemplars (for downstream UI/UX work)
 
-### Schema (JSON Schema 2020-12, abridged)
+Five real, link-citable comparable landing pages for multi-pillar developer-infrastructure products. The first two are direct hits for AgentLinux's situation; the rest are useful for specific patterns.
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://agentlinux.org/schema/catalog-entry.json",
-  "type": "object",
-  "required": ["id", "name", "description", "version_method", "install"],
-  "properties": {
-    "id":          { "type": "string", "pattern": "^[a-z0-9-]+$" },
-    "name":        { "type": "string" },
-    "description": { "type": "string" },
-    "homepage":    { "type": "string", "format": "uri" },
-    "tags":        { "type": "array", "items": { "type": "string" } },
+### 1. mise (mise.jdx.dev) — **closest direct analogue, primary reference**
 
-    "version_method": {
-      "enum": ["npm", "binary", "apt", "script"]
-    },
-    "package":     { "type": "string", "description": "npm package id, .deb name, or binary URL template" },
+- **URL:** [https://mise.jdx.dev/](https://mise.jdx.dev/)
+- **Why it's relevant:** Three explicit equal-weight pillars (Tool Version Management / Environments / Tasks) for a single CLI product, technical audience, OSS, single-page landing. Identical multi-pillar messaging problem.
+- **What works:**
+  - Hero is one tagline + one paragraph + two CTAs + one install command above-the-fold.
+  - Three pillars introduced as numbered cards in a "The Menu" section — equal visual weight, same shape, "read more" link per card.
+  - **Sequential narrative** rather than equal-weight feature grid: the page demonstrates how the pillars work *together* via a realistic worked scenario, then a "Four steps to a prepped station" walk-through. AgentLinux can mirror this — pillars 1+2+3 work together for "agent-ready Linux"; show the integrated story, not three siloed feature lists.
+  - Culinary metaphor (mise-en-place) unifies messaging. AgentLinux has the crab/Linux/agent metaphor space available.
+- **Direct steal:** the 3-pillar card section structure.
 
-    "install": {
-      "type": "object",
-      "required": ["script"],
-      "properties": {
-        "script":       { "type": "string", "description": "path inside catalog/agents/<id>/, relative" },
-        "needs_chrome": { "type": "boolean", "default": false },
-        "needs_sudo":   { "type": "boolean", "default": false }
-      }
-    },
+### 2. Encore (encore.dev) — **multi-pillar tech infrastructure, mature execution**
 
-    "uninstall": {
-      "type": "object",
-      "properties": {
-        "script": { "type": "string" }
-      }
-    },
+- **URL:** [https://encore.dev/](https://encore.dev/)
+- **Why relevant:** Multiple distinct value props (Infrastructure-as-Code / Local Dev / Performance / Developer Tools / Ecosystem Integration) for a single product, technical OSS audience, dual-language (TS/Go) so already grappling with multi-pillar messaging.
+- **What works:**
+  - Concept → Implementation → Results → Community progression.
+  - Social proof immediately (11k+ stars, 100+ contributors) — AgentLinux has lower numbers but should show what it has (CI matrix coverage, public release artifacts, the AGT-02 acceptance test).
+  - Concrete benchmark numbers ("9x faster than Express.js"). AgentLinux's pillar 2 will eventually publish numbers; the page can be designed to slot them in.
+- **Direct steal:** social proof immediately under hero; concrete numbers when pillar 2 lands.
 
-    "post_install_config": {
-      "description": "Optional config snippets to merge into the agent user's environment",
-      "type": "object",
-      "properties": {
-        "claude_mcp_server":   { "type": "object" },
-        "claude_settings":     { "type": "object" },
-        "env_lines":           { "type": "array", "items": { "type": "string" } }
-      }
-    },
+### 3. Devbox / Jetify (jetify.com/devbox) — **dev-environment OSS with multi-feature messaging**
 
-    "verify_command": {
-      "type": "string",
-      "description": "Single-line command run as the agent user; non-zero exit = failed verification"
-    }
-  }
-}
-```
+- **URL:** [https://www.jetify.com/devbox](https://www.jetify.com/devbox)
+- **Why relevant:** Adjacent product space (dev environment provisioning), OSS, multi-feature (isolated environments / portability / automation / multi-project / multi-language).
+- **What works:** Each feature gets a focused micro-section instead of being crammed into a card grid; gives the reader room to understand *why* each capability matters.
+- **Direct steal:** the "give each pillar its own micro-section instead of cramming into one card grid" pattern, if the 3-card mise-style format ends up too compressed for AgentLinux's 3 pillars (especially if pillar 2 + pillar 3 need long explanations of what's coming vs what's shipped).
 
-### Filled-in Example: Claude Code
+### 4. OpenTelemetry Collector vision doc (`docs/vision.md`) — **directly comparable strategy-doc precedent**
 
-```json
-{
-  "id": "claude-code",
-  "name": "Claude Code",
-  "description": "Anthropic's official CLI coding agent",
-  "homepage": "https://claude.com/claude-code",
-  "tags": ["agent", "default", "anthropic"],
-  "version_method": "npm",
-  "package": "@anthropic-ai/claude-code",
-  "install": {
-    "script": "install.sh",
-    "needs_chrome": false,
-    "needs_sudo": false
-  },
-  "uninstall": {
-    "script": "uninstall.sh"
-  },
-  "post_install_config": {
-    "env_lines": [
-      "# Claude Code config dir",
-      "export CLAUDE_CONFIG_DIR=\"$HOME/.claude\""
-    ]
-  },
-  "verify_command": "claude --version"
-}
-```
+- **URL:** [https://github.com/open-telemetry/opentelemetry-collector/blob/main/docs/vision.md](https://github.com/open-telemetry/opentelemetry-collector/blob/main/docs/vision.md)
+- **Why relevant:** Closest in-repo precedent for what AgentLinux's `docs/STRATEGY.md` should look like. CNCF infrastructure project, technical product, single file in `docs/`, six aspirational pillars (Performant / Observable / Multi-Data / Usable Out of the Box / Extensible / Unified Codebase). Living document, evolves over time.
+- **What works:**
+  - Short — 23 lines total, 15 of content. Sets a high bar against bloat.
+  - Each pillar gets one heading + 1-3 sentences.
+  - No prose overhead, no positioning section, no roadmap-themes appendix — just pillars as design-decision guidance.
+- **Use:** as the reference for what to *not* over-engineer in v0.5.0's first cut. AgentLinux's STRATEGY.md will be longer (target users + JTBD + non-goals + roadmap themes are all in scope per the milestone), but the pillar-section format is directly copyable.
 
-### Filled-in Example: Chrome DevTools MCP (carries v0.2.0 logic)
+### 5. Doppler (doppler.com) — **commercial-but-OSS-adjacent, multi-stakeholder messaging**
 
-```json
-{
-  "id": "chrome-devtools-mcp",
-  "name": "Chrome DevTools MCP Server",
-  "description": "Lets Claude Code drive a headless Chrome via DevTools protocol",
-  "homepage": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
-  "tags": ["mcp", "chrome", "browser"],
-  "version_method": "npm",
-  "package": "chrome-devtools-mcp",
-  "install": {
-    "script": "install.sh",
-    "needs_chrome": true,
-    "needs_sudo": true
-  },
-  "uninstall": {
-    "script": "uninstall.sh"
-  },
-  "post_install_config": {
-    "claude_mcp_server": {
-      "name": "chrome-devtools",
-      "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest", "--headless", "--no-sandbox"]
-    }
-  },
-  "verify_command": "npx -y chrome-devtools-mcp --version"
-}
-```
-
-### Catalog Resolution Order
-
-1. **Embedded** (`catalog/catalog.json` shipped with the CLI) — always loaded first, always works offline.
-2. **Remote merge** (env `AGENTLINUX_CATALOG_URL` or config file) — fetched if reachable, merged on top by `id`. Failure to fetch is a warning, not an error. Allows updating the catalog without shipping a new plugin release.
-3. **Validation:** every loaded entry must pass `schema.json` (via `ajv`); invalid entries are dropped with a warning.
+- **URL:** [https://www.doppler.com/](https://www.doppler.com/)
+- **Why relevant:** Doppler's hero explicitly addresses a *broadening* situation: "For every engineer on your team, there are now dozens of AI agents and automated workflows that need secrets too." That broadening framing — adjacent to AgentLinux's "from one pillar to three" story — is well-executed.
+- **What works:**
+  - Three logical category groupings (Integration Hub / Core Strengths / Social Proof) instead of a flat feature list.
+  - Hero clearly names the broadening rather than hiding it.
+- **Direct steal:** the hero's "we used to address X, now we address X + Y + Z" rhetorical move. AgentLinux's current hero ("Linux, for agents") is monolithic; the new hero should explicitly carry the broadening.
 
 ---
 
-## 7. Data Flow — Install Path
-
-```
-                          User runs:
-              $ curl ... | sudo bash -s -- --user agent
-
-                                  │
-                                  ▼
-   ┌─────────────────────────────────────────────────────┐
-   │ packaging/curl-installer/install.sh                 │
-   │  • Verify checksum                                  │
-   │  • Extract /opt/agentlinux/                         │
-   │  • exec bin/agentlinux-install --user agent         │
-   └───────────────────────┬─────────────────────────────┘
-                           │
-                           ▼
-   ┌─────────────────────────────────────────────────────┐
-   │ bin/agentlinux-install                              │
-   │  • parse flags  → AGENT_USER=agent                  │
-   │  • source lib/log.sh, lib/distro.sh, lib/idempotent │
-   │  • lib/distro.sh:assert_supported_ubuntu            │
-   │  • for s in provisioner/[0-9]*.sh ; do bash $s; done│
-   └─────┬───────────┬───────────┬──────────────┬────────┘
-         │           │           │              │
-         ▼           ▼           ▼              ▼
-  ┌──────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐
-  │10-agent- │ │30-nodejs │ │40-default│ │50-registry │
-  │ user.sh  │ │   .sh    │ │ -agent.sh│ │  -cli.sh   │
-  ├──────────┤ ├──────────┤ ├──────────┤ ├────────────┤
-  │ensure_   │ │ensure_   │ │as_user   │ │as_user     │
-  │ user     │ │ apt_repo │ │ agent    │ │ agent npm  │
-  │ agent    │ │ NodeSrc  │ │ catalog/ │ │ install -g │
-  │          │ │ensure_   │ │ agents/  │ │ /opt/agent │
-  │ensure_   │ │ apt_pkg  │ │ claude-  │ │ linux/cli  │
-  │ sudoers  │ │ nodejs   │ │ code/    │ │            │
-  │ drop-in  │ │as_user   │ │ install  │ │ writes     │
-  │          │ │ agent    │ │ .sh      │ │ /etc/bash_ │
-  │ensure_   │ │ npm cfg  │ │          │ │ completion │
-  │ locale   │ │ prefix   │ │as_user   │ │ .d/agent   │
-  │          │ │ ~/.npm-  │ │ agent    │ │ linux      │
-  │ensure_   │ │ global   │ │ render   │ │            │
-  │ ~/.bash- │ │ensure_   │ │ skel/.   │ │            │
-  │ rc PATH  │ │ line in  │ │ claude.  │ │            │
-  │          │ │ ~/.bashrc│ │ json     │ │            │
-  │          │ │          │ │ to       │ │            │
-  │          │ │          │ │ ~/.claude│ │            │
-  │          │ │          │ │ .json    │ │            │
-  │          │ │          │ │          │ │            │
-  │          │ │          │ │ verify:  │ │            │
-  │          │ │          │ │ claude   │ │            │
-  │          │ │          │ │ --version│ │            │
-  └──────────┘ └──────────┘ └──────────┘ └────────────┘
-                                  │
-                                  ▼
-                ┌────────────────────────────────────┐
-                │ Final state on the host:           │
-                │  • user `agent` exists, sudo OK    │
-                │  • node, npm in /usr/bin           │
-                │  • ~agent/.npm-global/bin in PATH  │
-                │  • claude binary at               │
-                │    ~agent/.npm-global/bin/claude   │
-                │  • ~agent/.claude.json with MCP    │
-                │  • agentlinux CLI at              │
-                │    ~agent/.npm-global/bin/agentlx  │
-                │  • agent$ claude --self-update     │
-                │    works without sudo  ← PROVES IT │
-                └────────────────────────────────────┘
-```
-
----
-
-## 8. Data Flow — Registry Path (`agentlinux install gsd`)
-
-```
-                  Agent user runs (no sudo):
-              agent$ agentlinux install gsd
-
-                                  │
-                                  ▼
-   ┌──────────────────────────────────────────────────────┐
-   │ ~agent/.npm-global/bin/agentlinux                    │
-   │  → exec node /opt/agentlinux/cli/src/index.js        │
-   │     install gsd                                      │
-   └──────────────────────────┬───────────────────────────┘
-                              │
-                              ▼
-   ┌──────────────────────────────────────────────────────┐
-   │ cli/src/index.js                                     │
-   │  • parse argv                                        │
-   │  • route → commands/install.js                       │
-   └──────────────────────────┬───────────────────────────┘
-                              │
-                              ▼
-   ┌──────────────────────────────────────────────────────┐
-   │ cli/src/commands/install.js                          │
-   │  1. catalog = await loadCatalog()                    │
-   │     ├─ load /opt/agentlinux/catalog/catalog.json    │
-   │     ├─ try fetch AGENTLINUX_CATALOG_URL (if set)    │
-   │     └─ ajv.validate(schema, entry)                   │
-   │  2. entry = catalog.findById('gsd')                  │
-   │  3. if entry.install.needs_sudo: warn + abort if    │
-   │     not ran with `sudo -E agentlinux install ...`   │
-   │  4. runner.run(entry)                                │
-   └──────────────────────────┬───────────────────────────┘
-                              │
-                              ▼
-   ┌──────────────────────────────────────────────────────┐
-   │ cli/src/runner.js                                    │
-   │  • script = /opt/agentlinux/catalog/agents/gsd/      │
-   │             install.sh                               │
-   │  • env = { AGENT_USER, AGENT_HOME, NPM_PREFIX,       │
-   │           CATALOG_ENTRY_JSON }                       │
-   │  • spawn(bash, [script], { env, stdio: 'inherit' })  │
-   └──────────────────────────┬───────────────────────────┘
-                              │
-                              ▼
-   ┌──────────────────────────────────────────────────────┐
-   │ catalog/agents/gsd/install.sh                        │
-   │   #!/bin/bash                                        │
-   │   set -euo pipefail                                  │
-   │   npm install -g get-shit-done       # under agent's │
-   │                                       # own prefix — │
-   │                                       # NO SUDO      │
-   │   # plus per-agent post-install:                     │
-   │   #   merges settings.json hooks                     │
-   │   #   (carries forward v0.2.0 GSD postinst logic)   │
-   └──────────────────────────┬───────────────────────────┘
-                              │
-                              ▼
-   ┌──────────────────────────────────────────────────────┐
-   │ Verify: run entry.verify_command                     │
-   │   `gsd --version` exits 0                            │
-   │ Print: "Installed gsd 1.25.1"                        │
-   │ Exit 0                                               │
-   └──────────────────────────────────────────────────────┘
-```
-
-**Symmetry note:** the same `runner.js` + `catalog/agents/<n>/install.sh` pair is used by `provisioner/40-default-agent.sh` during the initial install. Adding a new agent = one PR, one directory, one catalog entry. No code edits to the CLI.
-
----
-
-## 9. Test Harness Architecture
-
-### Three components, one assertion suite
-
-```
-        bats suite (tests/bats/)
-       ┌────────────────────────┐
-       │ canonical assertions   │
-       │ language-independent   │
-       │ runs IN the target env │
-       └─────────┬──────────────┘
-                 │
-       ┌─────────┴──────────────┐
-       │                        │
-       ▼                        ▼
-  Docker runner            QEMU runner
-  (tests/docker/)         (tests/qemu/)
-
-  fast (~90s)             slow (~5min)
-  runs every PR           runs nightly
-  PID-1 caveats           true VM, systemd works
-                          init system tested
-```
-
-### Bats assertion suite — canonical tests
-
-```
-tests/bats/40-self-update.bats
-─────────────────────────────────────────────────
-@test "agent user can self-update Claude Code without sudo" {
-  run sudo -u agent bash -lc 'claude --version'
-  [ "$status" -eq 0 ]
-  pre_version="$output"
-
-  run sudo -u agent bash -lc 'npm update -g @anthropic-ai/claude-code'
-  [ "$status" -eq 0 ]
-  refute_output --partial 'EACCES'
-  refute_output --partial 'permission denied'
-
-  run sudo -u agent bash -lc 'claude --version'
-  [ "$status" -eq 0 ]
-}
-```
-
-This is the **canonical acceptance test** named in `PROJECT.md` — proving the motivating bug class is gone.
-
-### Docker runner
-
-```dockerfile
-# tests/docker/Dockerfile.ubuntu-24.04
-FROM ubuntu:24.04
-ENV DEBIAN_FRONTEND=noninteractive
-RUN apt-get update && apt-get install -y curl sudo bats jq ca-certificates
-COPY plugin/ /opt/agentlinux/
-RUN /opt/agentlinux/bin/agentlinux-install --user agent --default-agent claude-code
-COPY plugin/tests/bats/ /opt/tests/bats/
-CMD ["bats", "-r", "/opt/tests/bats/"]
-```
-
-- Runs in CI on every PR (GitHub Actions)
-- Two image variants: `ubuntu:22.04` and `ubuntu:24.04`
-- Limitation: no real systemd; tests that touch services skip with `if ! systemctl --quiet ; then skip ; fi`
-
-### QEMU runner
-
-- Boot a fresh `ubuntu-24.04-cloud-amd64.img` with cloud-init seeding an ssh key
-- `scp -r plugin/ ubuntu@vm:/tmp/`
-- `ssh ubuntu@vm 'sudo /tmp/plugin/bin/agentlinux-install --user agent'`
-- `scp tests/bats/ ubuntu@vm:/tmp/tests/`
-- `ssh ubuntu@vm 'sudo bats -r /tmp/tests/'`
-- Tear down VM
-- Runs nightly + on release tag
-
-### Why bats specifically
-
-| Option | Verdict |
-|---|---|
-| Plain shell + `assert_*` helpers | Works but no test-isolation, no setup/teardown, no readable output |
-| **Bats** | Bash-native, runs *inside* the target system without extra runtime, TAP output for CI, well-known. Best fit. |
-| pytest | Forces Python on the test target — extra dep, extra surface |
-| Bash-only with `set -e` | Single failure halts everything; no visibility into which assertion failed |
-
-Bats wins because the *test target is bash*, the *thing being tested is bash + node*, and the *assertions are mostly "this command exits 0 / produces this output"* — no need for a richer test runtime.
-
-### Test runtime sizing
-
-- Bats suite: ~10 .bats files, ~30 test cases total at v0.3.0 ship
-- Per Docker run: ~90 seconds (include image build + installer run + assertions)
-- Per QEMU run: ~5 minutes (boot is dominant)
-- CI plan: Docker runs on every push; QEMU runs nightly on `master` and on tagged releases
-
----
-
-## 10. Logging / Observability
-
-### During Installation (user-facing)
-
-`lib/log.sh` exposes:
-- `log_step "Creating agent user"` — bold cyan, indented progress marker
-- `log_info` / `log_warn` / `log_error` — colored, timestamped to stderr
-- All commands are streamed *unless* `--quiet`; on `--verbose`, sub-shells inherit stdout/stderr; otherwise sub-shells go to a logfile and a one-line summary is shown
-
-Example output (default verbosity):
-
-```
-==> AgentLinux installer 0.3.0
-==> Detected: Ubuntu 24.04 LTS (noble)
-==> [1/4] Creating agent user 'agent'
-    ✓ user created
-    ✓ sudoers drop-in /etc/sudoers.d/agentlinux written
-    ✓ locale en_US.UTF-8 ensured
-==> [2/4] Installing Node.js 22 LTS
-    ✓ NodeSource apt repo added
-    ✓ nodejs 22.18.0 installed
-    ✓ npm prefix set to /home/agent/.npm-global
-==> [3/4] Installing default agent: claude-code
-    ✓ @anthropic-ai/claude-code 2.1.77 installed
-    ✓ ~/.claude.json seeded
-    ✓ verified: claude 2.1.77 (Claude Code)
-==> [4/4] Installing agentlinux registry CLI
-    ✓ agentlinux 0.3.0 installed
-    ✓ bash completion installed
-
-✓ Done in 47s. Try:
-    sudo su - agent
-    claude
-    agentlinux list
-```
-
-### Persistent Log File
-
-Everything (verbose or not) is also written to `/var/log/agentlinux/install-<timestamp>.log`. On failure, the installer prints:
-
-```
-✗ Step 3 failed. See full log:
-    /var/log/agentlinux/install-2026-04-18T10-23-44.log
-  Re-run is safe — installer is idempotent:
-    sudo agentlinux-install --user agent --verbose
-```
-
-### CLI (`agentlinux`) Output
-
-`cli/src/log.js` mirrors the bash style:
-- `agentlinux install gsd` — same `==>` `✓` style as the installer
-- Logs to stderr; data (e.g. `agentlinux list --json`) goes to stdout
-- Non-zero exit on any failure
-- `agentlinux doctor` runs a diagnostic checklist (node version, npm prefix correctness, PATH sanity, claude binary present, MCP config valid JSON)
-
----
-
-## 11. Suggested Build Order
-
-Dependencies between components dictate ordering. Phases are sized for one focused unit of work each.
-
-| # | Phase / Component | Depends On | Notes |
-|---|---|---|---|
-| **1** | `lib/` helpers (log, idempotent, as_user, distro) | nothing | Foundation; ~200 LOC, fully unit-testable with bats |
-| **2** | `provisioner/10-agent-user.sh` + `bin/agentlinux-install` skeleton | lib | First end-to-end integration; running this alone produces a usable agent user |
-| **3** | `provisioner/30-nodejs.sh` (Node + per-user npm prefix) | lib, 10-agent-user | This is the **trickiest** step — proves the no-sudo-needed claim. Validate with `sudo -u agent npm install -g cowsay` (smoke test) |
-| **4** | `provisioner/40-default-agent.sh` + `templates/skel/.claude.json` + `catalog/agents/claude-code/install.sh` | 30-nodejs | First catalog agent. Don't build the full catalog yet — just the one path. |
-| **5** | `tests/docker/` + `tests/bats/` (00, 10, 20, 30, **40 self-update — the canonical test**) | 1-4 | Lock in the no-sudo-self-update gate before touching the registry CLI |
-| **6** | `cli/` (Node CLI) — `list`, `info`, embedded catalog only | nothing (lives in its own Node project), but its install path needs 30-nodejs | Can be built in parallel with steps 1-4 if a second person works on it. Unit-tested in isolation. |
-| **7** | `cli/` — `install` and `uninstall` commands + `runner.js` + `catalog/agents/gsd/install.sh` | 6, 4 | Now `agentlinux install gsd` works end-to-end |
-| **8** | `provisioner/50-registry-cli.sh` (wires the CLI into the installer) | 6, 7 | Connects CLI to the installer pipeline |
-| **9** | `catalog/agents/chrome-devtools-mcp/install.sh` (carries v0.2.0 chrome install) | 7 | Tests the `needs_chrome: true` path; second non-trivial agent |
-| **10** | `tests/bats/50-registry-cli.bats` + extended docker tests | 8, 9 | Locks in registry CLI behavior |
-| **11** | `packaging/curl-installer/install.sh` + release tarball workflow | 1-10 (full plugin works) | The shippable artifact. GitHub Action: tag → build tarball → upload to releases → curl-installer points at it |
-| **12** | `tests/qemu/` runner | 1-10 (works in docker), QEMU available on CI | Nightly + release-tag verification on a true VM |
-| **13** | `packaging/deb/build.sh` (fpm wrapper) | 11 | OPTIONAL for v0.3.0; can defer to v0.3.1. Carries forward fpm knowledge from v0.2.0 |
-
-**Critical-path dependency chain:** 1 → 2 → 3 → 4 → 5 → 7 → 8 → 11
-
-**Parallelizable:** step 6 (CLI dev) can run alongside 1-4. Steps 9, 12, 13 can ship after the v0.3.0 tag.
-
----
-
-## 12. Carry-Forward Integration Points (Explicit Map)
-
-| v0.2.0 artifact | v0.3.0 destination | What carries / what changes |
-|---|---|---|
-| `packer/scripts/01-base.sh` | OBSOLETE | Host already has base OS |
-| `packer/scripts/02-one-context.sh` | OBSOLETE | No OpenNebula |
-| `packer/scripts/03-nodejs.sh` (NodeSource Node 22 install) | `plugin/provisioner/30-nodejs.sh` | KEEP NodeSource setup verbatim. ADD: per-user npm prefix step (`as_user agent npm config set prefix ~/.npm-global` + PATH export). REMOVE: fpm install (no packaging needed) |
-| `packer/scripts/04-packages.sh` (fpm + local apt repo + 3 .debs) | OBSOLETE as a unit | The *pattern* of "install npm package then merge MCP config" splits into `provisioner/40-default-agent.sh` (default agent) and `catalog/agents/<n>/install.sh` (everything else). `fpm`/local-apt-repo/.deb-postinst plumbing all gone. |
-| `packer/scripts/05-chrome.sh` (Google Chrome install + cleanup) | `plugin/catalog/agents/chrome-devtools-mcp/install.sh` | KEEP the apt-add → install → apt-mark hold → repo-cleanup sequence verbatim. Move from "always-installed in image" to "installed only when this agent is requested" |
-| `packer/scripts/99-cleanup.sh` (truncate logs, zero free space, etc.) | OBSOLETE | No image to compact; host owns its own log rotation |
-| **MCP-config-merge logic** (jq merge into `~/.claude.json`, iterate /home/*/, also write /etc/skel) | `plugin/catalog/agents/chrome-devtools-mcp/install.sh` + `templates/skel/.claude.json` | CARRIES FORWARD. New simplification: only one user (the agent), so no /home/*/ iteration. /etc/skel still seeded for future safety. |
-| **GSD postinst logic** (`npx get-shit-done-cc --claude --global` + settings.json merge) | `plugin/catalog/agents/gsd/install.sh` | CARRIES FORWARD verbatim, runs as agent user instead of via .deb postinst |
-| **Wrapper scripts** (`/usr/local/bin/claude`, `/usr/local/bin/gsd`) | OBSOLETE | Per-user npm prefix puts the bin on the agent user's own PATH at `~/.npm-global/bin/`. No wrapper indirection needed. |
-| **fpm packaging knowledge** | `plugin/packaging/deb/build.sh` (optional v0.3.1+) | DEFERRED. The plugin *itself* may eventually ship as a `.deb`; fpm is the right tool for that. Not on v0.3.0 critical path. |
-| **/etc/skel default-config approach** | `plugin/templates/skel/.claude.json` + `provisioner/10-agent-user.sh` | KEEP. Even though we have one agent user, seeding /etc/skel makes the design future-proof and aligns with Linux conventions. |
-
----
-
-## 13. NEW vs MODIFIED-FROM-v0.2.0 (Quick Reference)
-
-### NEW (no v0.2.0 analog)
-
-- `bin/agentlinux-install` — installer entrypoint (v0.2.0 had Packer; this is fundamentally different)
-- `lib/idempotent.sh` — converging install primitives (v0.2.0 always built clean; never had to be idempotent)
-- `lib/distro.sh` — Ubuntu version detection (v0.2.0 owned the distro)
-- `lib/as_user.sh` — run-as-agent-user helper (v0.2.0 had `agent` user only at deploy time)
-- `provisioner/10-agent-user.sh` — host-side user provisioning (v0.2.0 delegated to one-context)
-- `provisioner/50-registry-cli.sh` — installs the registry CLI (no equivalent in v0.2.0)
-- **All of `cli/`** — registry CLI is entirely new; no v0.2.0 analog
-- **All of `catalog/`** — registry catalog format is new; v0.2.0 had a fixed three-package set
-- `templates/skel/` (as a structured template directory with substitution) — new
-- **All of `tests/docker/` and `tests/qemu/`** — v0.2.0 only validated via Packer build + manual deploy
-- **All of `tests/bats/`** — bats was not used in v0.2.0
-- `packaging/curl-installer/` — new distribution mechanism
-- Catalog schema (JSON Schema, version_method, post_install_config) — new
-
-### MODIFIED FROM v0.2.0
-
-- `provisioner/30-nodejs.sh` — keep NodeSource Node 22 install; add per-user npm prefix setup
-- `catalog/agents/chrome-devtools-mcp/install.sh` — port v0.2.0 `05-chrome.sh` + the chrome-devtools-mcp .deb postinst into a single script
-- `catalog/agents/gsd/install.sh` — port v0.2.0 GSD .deb postinst into a single script (drop the .deb wrapping)
-- `catalog/agents/claude-code/install.sh` — port v0.2.0 claude .deb postinst, dropping wrapper-script generation (npm prefix handles PATH)
-- `templates/skel/.claude.json` — port v0.2.0 /etc/skel/.claude.json, parameterizing $HOME paths
-
-### CARRY-FORWARD KNOWLEDGE (not code)
-
-- **NodeSource setup script URL + apt-key handling** (from v0.2.0 `03-nodejs.sh`)
-- **Google Chrome apt repo cleanup** (from v0.2.0 `05-chrome.sh` — the apt-mark hold + key removal sequence)
-- **`jq -s '.[0] * .[1]'` for JSON config merging** (from v0.2.0 MCP config merge)
-- **GSD installer non-interactive invocation** (`npx get-shit-done-cc --claude --global`)
-- **Chrome --no-sandbox / --headless flags for server use** (v0.2.0 Pitfall 8)
-- **fpm staging-dir pattern** — kept in back pocket for `packaging/deb/build.sh` later
-
----
-
-## 14. Anti-Patterns to Avoid
-
-### Anti-Pattern 1: A "framework" instead of a script
-
-**What people do:** Reach for Ansible, Salt, Chef, or write a custom Python orchestrator.
-**Why it's wrong:** Adds a runtime dependency on the host. The whole point is "runs on a clean Ubuntu box." Bash + npm is the bare minimum.
-**Do this instead:** Bash provisioner scripts, sourced helpers, no orchestration framework.
-
-### Anti-Pattern 2: Running Node.js as root (or `sudo npm install -g`) anywhere
-
-**What people do:** Install everything as root because "the installer runs as root anyway."
-**Why it's wrong:** Reproduces the original bug. Files end up root-owned in places the agent user must write to. Self-updates fail with EACCES.
-**Do this instead:** Always switch to the agent user (`as_user agent ...`) before any npm operation. The agent user's npm prefix is `$HOME/.npm-global` — nothing under root's control.
-
-### Anti-Pattern 3: System-wide MCP config (`/etc/claude-code/managed-mcp.json`)
-
-**What people do:** Use the system-wide managed-mcp.json because "it's cleaner."
-**Why it's wrong:** Per Phase 4 research (HIGH confidence): managed-mcp.json takes **exclusive control** — users cannot add their own MCP servers afterward. Hostile to the user.
-**Do this instead:** Per-user `~/.claude.json` (the current correct location for MCP config in Claude Code 2.x).
-
-### Anti-Pattern 4: Hand-rolling user/SSH/network setup
-
-**What people do:** Write custom scripts to add the user to /etc/passwd, configure SSH, etc.
-**Why it's wrong:** `useradd`, `usermod`, `/etc/sudoers.d/`, `chown` — these are well-tested. Don't re-invent.
-**Do this instead:** Use `useradd -m -s /bin/bash`, drop a sudoers file in `/etc/sudoers.d/`, that's it.
-
-### Anti-Pattern 5: Wrapper scripts under /usr/local/bin
-
-**What people do:** Carry forward the v0.2.0 wrapper-script pattern (`/usr/local/bin/claude` → `exec /usr/bin/node /opt/agentlinux/.../claude`).
-**Why it's wrong:** With per-user npm prefix, `npm install -g` puts the binary directly on the agent's PATH. Wrappers add an indirection that breaks self-update (the wrapper points at a path that npm just replaced).
-**Do this instead:** Trust the per-user npm prefix. No wrappers. PATH does the work.
-
-### Anti-Pattern 6: Fetching the catalog only from remote
-
-**What people do:** Always fetch `catalog.json` from a remote URL.
-**Why it's wrong:** Breaks offline use; breaks if agentlinux.org is down; adds a network dependency to a CLI that should be reliable.
-**Do this instead:** Embedded catalog ships with the CLI; remote is a *merge*, not a *replace*; remote-fetch failure is a warning, not an error.
-
-### Anti-Pattern 7: Running the installer non-idempotently
-
-**What people do:** Use `useradd agent` (errors if exists), `apt-get install` (no check), `echo X >> ~/.bashrc` (duplicates lines).
-**Why it's wrong:** Re-running the installer to recover from partial failure breaks instead of converging. Worst-of-both-worlds.
-**Do this instead:** Every operation goes through `lib/idempotent.sh` primitives.
-
----
-
-## 15. Integration Points
-
-### External Services (network deps)
-
-| Service | When | Pattern | Failure Mode |
-|---|---|---|---|
-| NodeSource apt repo | provisioner/30-nodejs.sh | Add repo, apt update, apt install nodejs, leave repo for future updates | Network failure → installer aborts at step 2; re-run is safe |
-| npm registry | every npm install | Default `npm install` against registry.npmjs.org | Mirror via `--registry` flag if needed (hostile-network env) |
-| Google apt repo | catalog/agents/chrome-devtools-mcp/install.sh | Add → install Chrome → apt-mark hold → remove repo (per v0.2.0 Pitfall 4) | Only triggered when chrome-mcp agent installed |
-| Remote catalog URL (optional) | cli/src/catalog.js | Fetch + merge with embedded; warning on failure | Falls back to embedded; never blocks CLI usage |
-| Release tarball download | packaging/curl-installer/install.sh | curl + sha256 verify + tar -xz | Network failure aborts before any system change |
-
-### Internal Boundaries
-
-| Boundary | Communication | Notes |
-|---|---|---|
-| installer (bash) ↔ provisioner scripts | shell `bash provisioner/NN.sh`, env vars (`AGENT_USER`, `AGENT_HOME`) | Each script is independently runnable for debugging |
-| provisioner ↔ catalog (during 40-default-agent) | runner shells out to `catalog/agents/<n>/install.sh` with env vars | Same dispatch path the CLI uses — single code path for "install an agent" |
-| CLI (Node) ↔ catalog scripts (bash) | `child_process.spawn('bash', [scriptPath], { env, stdio: 'inherit' })` | Streaming output, exit code propagates |
-| CLI (Node) ↔ catalog data | reads `catalog.json` from filesystem; validates with ajv | Embedded with the CLI's npm package |
-| installer ↔ CLI | installer invokes `npm install -g` of the CLI; never imports it | Loose coupling — CLI ships independently if desired |
-| tests/bats ↔ everything | Black-box: runs commands, asserts outputs/exit codes | Tests do not import any internal code; they test the assembled system |
-
----
-
-## 16. Scaling Considerations
-
-| Scale | Architecture Adjustments |
-|---|---|
-| **Single host, single user** (v0.3.0 default) | Current design — no changes |
-| **Multiple agent users on one host** (out of scope per PROJECT.md, but design-affects) | Re-run installer with different `--user`; provisioner is idempotent so 30-nodejs.sh skips Node reinstall, only the per-user npm-prefix step runs again. Already supported by the design. |
-| **Fleet of hosts** | Wrap the curl-pipe-bash in user's existing config-management (Ansible, Salt). The plugin doesn't try to be a fleet manager. |
-| **Distros beyond Ubuntu** (v0.4+) | `lib/distro.sh` already exists as the abstraction point. Add `lib/distro-fedora.sh`, route `provisioner/30-nodejs.sh` through a distro-aware package-source helper. The catalog-and-CLI half of the architecture is distro-independent. |
-| **Catalog growth (many agents)** | Embedded catalog stays small; remote-merge handles growth without re-shipping the plugin. If catalog becomes huge (>100 entries), add `agentlinux search <query>`. |
-
----
-
-## 17. Sources
-
-### v0.2.0 carry-forward (HIGH confidence — already validated in this project)
-
-- `.planning/milestones/v0.2.0-research/ARCHITECTURE.md` — Packer/QEMU/fpm architecture, anti-patterns
-- `.planning/milestones/v0.2.0-phases/03-bootable-image-with-agent-user/03-RESEARCH.md` — agent user / sudoers / one-context internals
-- `.planning/milestones/v0.2.0-phases/04-agent-tool-packages/04-RESEARCH.md` — fpm pattern, MCP config locations, GSD installer behavior, Chrome install pitfalls
-
-### Per-user npm prefix (HIGH confidence)
-
-- [npm Docs — Resolving EACCES permissions errors when installing packages globally](https://docs.npmjs.com/resolving-eacces-permissions-errors-when-installing-packages-globally/)
-- [sindresorhus/guides — npm-global-without-sudo](https://github.com/sindresorhus/guides/blob/main/npm-global-without-sudo.md)
-- [npm Docs — npm-config (prefix)](https://docs.npmjs.com/cli/v9/commands/npm-config/)
-
-### Bats test framework (MEDIUM confidence — well-known but not lib-of-record verified)
-
-- bats-core GitHub — bash-native testing framework, TAP output
-
-### JSON Schema for catalog (HIGH confidence)
-
-- [JSON Schema 2020-12](https://json-schema.org/draft/2020-12)
-- ajv (Node.js validator) — de facto standard for JSON Schema in Node
-
-### Cloud-init for QEMU test harness (HIGH confidence)
-
-- Ubuntu cloud images + NoCloud datasource (used the same way in v0.2.0 Packer build)
-
----
-
-*Architecture research for: AgentLinux Plugin v0.3.0 (Ubuntu)*
-*Researched: 2026-04-18*
-*Author: project research subagent*
+## Quality gate self-check
+
+- [x] Repo-location pick has stability argument (single file → single URL → no rename trap; precedent of STABILITY-MODEL.md surviving without churn) and discoverability argument (three converging discovery paths: README links / docs/ sibling / GitHub file browser).
+- [x] Cross-link map is concrete: specific files (ADR-001/011/012/013/014/015, README.md, CONTRIBUTING.md, docs/STABILITY-MODEL.md, docs/HARNESS.md, .planning/PROJECT.md, agentlinux.org index.html), specific section names (About / Links / Stability model / References / Related), specific edit types (one-line addition / new file / forward-reference / section-level rewrite).
+- [x] Website propagation pick honors static-site / no-build-step constraint — Option 4 + Option 2 are pure HTML/CSS edits + a markdown link; Option 3 (CI render) is explicitly rejected on the constraint.
+- [x] OSS exemplars are real and link-citable (5 distinct URLs, each verified via WebFetch or WebSearch).
+
+## Sources
+
+- [OpenTelemetry Collector docs/vision.md](https://github.com/open-telemetry/opentelemetry-collector/blob/main/docs/vision.md) — primary precedent for `docs/STRATEGY.md` shape
+- [OpenTelemetry community mission-vision-values.md](https://github.com/open-telemetry/community/blob/main/mission-vision-values.md) — alternative naming convention
+- [Watermelon Tools public-handbook Strategy.md](https://github.com/watermelontools/public-handbook/blob/main/Strategy.md) — root-level Strategy.md precedent
+- [mise — landing page](https://mise.jdx.dev/) — primary IA reference for 3-pillar dev tool
+- [mise — about page](https://mise.jdx.dev/about.html) — pillar definitions
+- [Encore — landing page](https://encore.dev/) — multi-feature dev infra messaging
+- [Devbox / Jetify — landing page](https://www.jetify.com/devbox) — multi-feature OSS dev env page
+- [Doppler — landing page](https://www.doppler.com/) — broadening-narrative hero example
+- [Folder Structure Conventions reference](https://github.com/kriasoft/Folder-Structure-Conventions) — naming-convention sanity check
