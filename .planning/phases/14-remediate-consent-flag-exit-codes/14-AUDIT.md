@@ -125,7 +125,7 @@ The Plan-14-03 brownfield PATH-MISMATCH E2E @test (Test 51) extends the Plan-13-
 - **All 13 trust-boundary threats covered.** T-14-01..T-14-13 each have an explicit disposition + mitigation evidence; T-14-04, T-14-05, T-14-12 are Plan 14-03 territory (covered by loader.test.ts U3/U4, install.test.ts U16, and install.test.ts env-var grep respectively).
 - **DECIDE-THEN-ACT atomicity invariant operative.** Plan 14-01 architectural pivot + 4 NO-MUTATION SNAPSHOT @tests (Tests 19-22) prove byte-equality of /etc/sudoers.d, /home, /etc/passwd before and after bail.
 - **CAT-04 behavior shift documented.** `~/.claude/downloads` now preserved across REMEDIATE-04 reinstall (descendant of preserved `~/.claude/`). Rationale + operator workaround captured above.
-- **Docker matrix GREEN** on both supported Ubuntu LTS versions (22.04 + 24.04) — 184/184 @tests pass (additive growth from 128 to 184 across Plans 14-01 / 14-02 / 14-03).
+- **Docker matrix GREEN** on both supported Ubuntu LTS versions (22.04 + 24.04) — **184/184 @tests pass** on both matrices (additive growth from 128 to 184 across Plans 14-01 / 14-02 / 14-03). Verified 2026-05-25 after Plan 14-03 close.
 - **Unit-test suite GREEN** — 154/154 Node-test @tests pass (Phase 13 baseline 137 + 17 added across Phase 14: +10 loader + +14 install + +2 list + +1 sentinel = +27 minus 10 idle-cost duplicates carried from existing tests).
 - **Greenfield invariant preserved** — additive contract; no regressions in pre-existing @tests.
 

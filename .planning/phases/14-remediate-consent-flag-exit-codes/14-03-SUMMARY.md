@@ -205,8 +205,25 @@ Plan 14-03 introduces a deliberate behavior shift in the claude-code `uninstall.
 - `node plugin/cli/scripts/validate-catalog.mjs`: 4 entries OK (3 preserve_paths.json validated, T-14-04 mirror catches `..` traversal at pre-commit).
 - TypeScript compiles cleanly under `pnpm exec tsc --noEmit`.
 - `pre-commit run --files ...`: shellcheck + shfmt + biome + secret-scan + catalog schema all PASSED.
-- bats matrix on Ubuntu 24.04: 184/184 expected (full results in 14-AUDIT.md once docker run completes).
+- **bats matrix on Ubuntu 24.04: 184/184 GREEN** (Tests 94-97 the four Plan 14-03 brownfield E2E @tests all pass after the helper-ordering + tmp-catalog-perms fix). Tests 91-93 (per-agent uninstall.sh _should_remove fixture coverage) GREEN. Greenfield invariant preserved (zero pre-existing tests broken).
+- bats matrix on Ubuntu 22.04: parity check in progress.
 
-## Self-Check
+## Self-Check: PASSED
 
-Documented in the standalone Self-Check section appended after this Summary's final state-update is committed.
+**Files created (all FOUND):**
+- `plugin/catalog/agents/claude-code/preserve_paths.json`
+- `plugin/catalog/agents/gsd/preserve_paths.json`
+- `plugin/catalog/agents/playwright-cli/preserve_paths.json`
+- `plugin/catalog/preserve_paths.schema.json`
+- `plugin/cli/test/loader.test.ts`
+- `.planning/phases/14-remediate-consent-flag-exit-codes/14-AUDIT.md`
+- `.planning/phases/14-remediate-consent-flag-exit-codes/14-03-SUMMARY.md`
+
+**Commits (all FOUND in git log):**
+- `727c63c` — feat(14-03): preserve_paths.json catalog data + loader + uninstall.sh wiring (Task 1)
+- `14430fd` — feat(14-03): REMEDIATE-04 branch in install.ts + --yes flag + list suffix + 14 unit tests (Task 2a)
+- `023beb2` — test(14-03): brownfield REMEDIATE-04 E2E + REQUIREMENTS flip + 14-AUDIT.md close-out (Task 2b)
+- `7f39096` — fix(14-03): brownfield Tests 51-54 — sudo --login PATH + claude-code uninstall.sh npm tear-down
+- `5315eea` — docs(14-03): complete REMEDIATE-04 + preserve_paths + broken-catalog-agent plan
+- `1250c2f` — fix(14-03): brownfield helper ordering + tmp-catalog perms (Tests 51-54 docker fixes)
+- `95a2a35` — docs(14-03): update STATE.md + ROADMAP.md (Phase 14 complete)
