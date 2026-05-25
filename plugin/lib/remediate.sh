@@ -80,6 +80,13 @@ readonly REMEDIATE_LIB_DIR
 declare -ga BAILED_COMPONENTS=()
 declare -gA RESOLUTIONS=()
 
+# Plan 15-01 (Phase 15, UX-02): ACTION_MAP maps component → action-token for
+# the prompt loop. Populated by collect_all_decisions (via gate_or_bail)
+# alongside RESOLUTIONS. Consumed by plugin/lib/prompt.sh::run_all so the
+# prompt knows which action token to render + which decline_reason token to
+# record on a decline.
+declare -gA ACTION_MAP=()
+
 # remediate::register_bail <component> <reason> <hint>
 #
 # Appends one entry to BAILED_COMPONENTS for later flush. Caller responsibility
@@ -191,10 +198,31 @@ remediate::gate_or_bail() {
     return 0
   fi
 
+  # Plan 15-01 (UX-02): record the action regardless of consent outcome —
+  # plugin/lib/prompt.sh consults ACTION_MAP in TTY mode to know which action
+  # token to render in the per-action prompt + which decline_reason to record.
+  # shellcheck disable=SC2034  # consumed by plugin/lib/prompt.sh via cross-file source
+  ACTION_MAP[$component]="$action"
+
   if [[ "${YES_FLAG:-false}" == "true" ]]; then
     return 0
   fi
 
+  # Plan 15-01 (D-15-05, D-15-10): TTY mode defers consent to the prompt loop
+  # (which runs AFTER flush_bails_or_continue). In TTY mode we do NOT register
+  # a bail here — the prompt loop will ask the operator and either approve
+  # (proceed with mutation) or decline (convert RESOLUTIONS[<c>] to
+  # reuse-with-warning so the provisioner skips the mutation). The DRY_RUN
+  # branch likewise wants a populated ACTION_MAP without bails — but it short-
+  # circuits in main() before flush_bails_or_continue runs anyway, so the
+  # bail register here would never reach the operator. In dry-run we ALWAYS
+  # register the bail so the printed report carries the [BAIL] line per
+  # D-15-01 ("bails surface IN the report, not via exit code").
+  if [[ "${DRY_RUN_REQUESTED:-false}" != "true" ]] && [[ -t 0 ]]; then
+    return 0
+  fi
+
+  # Non-TTY without --yes (or dry-run): Phase 14 bail-aggregation path.
   remediate::register_bail "$component" "$reason" "$hint"
   return 1
 }

@@ -68,6 +68,17 @@ case "${RESOLUTIONS[user]:-create}" in
     log_info "10-agent-user: REUSE branch (sudoers fix dispatched to 20-sudoers.sh per RESOLUTIONS[sudoers])"
     REUSED_USER=true
     ;;
+  reuse-with-warning)
+    # Plan 15-01 (UX-02 / D-15-02): defensive arm — user-decision currently
+    # never produces a state-overwriting action that goes through the prompt
+    # loop (user remediate maps to sudoers fix owned by 20-sudoers.sh). If a
+    # future plan adds a user-level overwriting action and the operator
+    # declines it, this arm keeps the existing user as-is and emits a
+    # [REUSE-WARN] marker for transcript visibility.
+    reuse::log_user_reuse "${INSTALL_USER:-agent}"
+    log_warn "[REUSE-WARN] component=user decline_reason=${DECLINED_COMPONENTS[user]:-unknown} — skipped (user declined remediation; manual fix needed). Existing user unchanged."
+    REUSED_USER=true
+    ;;
   bail)
     # UNREACHABLE: flush_bails_or_continue should have exited 65 before
     # run_provisioners. If we somehow get here, it's a hard programming error

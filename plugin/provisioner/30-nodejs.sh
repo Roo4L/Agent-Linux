@@ -130,9 +130,28 @@ log_info "Node.js $(node --version) installed (RT-01 — v22 LTS)"
 # out-of-band drift. bin/ and lib/ subdirs created proactively agent-owned so
 # `npm install -g` never has to create them (defense against Pitfall 4
 # root-owned-dir races, per D-03 [CONTEXT Per-User npm Prefix Layout]).
-ensure_dir /home/agent/.npm-global 0755 agent:agent
-ensure_dir /home/agent/.npm-global/bin 0755 agent:agent
-ensure_dir /home/agent/.npm-global/lib 0755 agent:agent
+#
+# Plan 15-01 (UX-02): when RESOLUTIONS[npm-prefix]=reuse-with-warning (TTY
+# operator declined the chown remediation via prompt.sh), SKIP the ensure_dir
+# chown on /home/agent/.npm-global so the decline is honored. Otherwise the
+# CREATE-path ensure_dir below would silently chown the prefix back to agent,
+# defeating the prompt loop's decline semantics. The bin/ + lib/ sub-dir
+# ensures still run when bin/lib are MISSING (50-registry-cli's symlink
+# needs bin/), but when they exist we skip them too (operator owns the
+# whole prefix tree manually).
+if [[ "${RESOLUTIONS[npm-prefix]:-}" != "reuse-with-warning" ]]; then
+  ensure_dir /home/agent/.npm-global 0755 agent:agent
+  ensure_dir /home/agent/.npm-global/bin 0755 agent:agent
+  ensure_dir /home/agent/.npm-global/lib 0755 agent:agent
+else
+  # Skip prefix ensure_dirs on decline. 50-registry-cli's symlink call later
+  # tries `ensure_dir /home/agent/.npm-global/bin` again; that call WILL
+  # chown bin/ to agent — accepted compromise because the symlink needs an
+  # agent-owned bin/ to land, and the decline marker (REUSE-WARN log line +
+  # sentinel reused-with-warning) already telegraphs that the parent prefix
+  # was not touched.
+  log_warn "30-nodejs: SKIPPING ensure_dir on /home/agent/.npm-global (RESOLUTIONS[npm-prefix]=reuse-with-warning; user declined REMEDIATE-01)"
+fi
 
 # Step 6: write ~agent/.npmrc with the prefix line (RT-04).
 # Atomic create-if-absent (install /dev/null), then idempotent
@@ -183,6 +202,13 @@ case "${RESOLUTIONS[npm-prefix]:-create}" in
     # strategy selector chooses chown (prefix under home + trivially salvageable)
     # vs rebase (everything else: system path / non-trivially-salvageable).
     remediate::nodejs::chown_or_rebase || return 1
+    ;;
+  reuse-with-warning)
+    # Plan 15-01 (UX-02 / D-15-02): TTY operator declined the chown/rebase
+    # via prompt.sh::run_all. The component stays as-is (no mutation); we
+    # log a [REUSE-WARN] marker for transcript visibility so the operator
+    # can grep the install log later to find what was skipped.
+    log_warn "[REUSE-WARN] component=npm-prefix decline_reason=${DECLINED_COMPONENTS[npm-prefix]:-unknown} — skipped (user declined remediation; manual fix needed). npm-global ownership unchanged."
     ;;
   bail)
     log_error "30-nodejs: unreachable bail arm — flush_bails_or_continue should have gated this"

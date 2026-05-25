@@ -34,10 +34,15 @@ interface Row {
   // INSTALLED column to disclose this contract to users (CONTEXT.md Area 2 Q2).
   reused: boolean;
   // Plan 14-03 (REMEDIATE-04): widened to include "broken-after-remediate".
-  // The text renderer appends `(broken — half-uninstalled, manual recovery
-  // needed)` when the sentinel reports this state; the JSON output carries
-  // the value verbatim for tooling.
-  sentinel_status?: "installed" | "reused" | "broken-after-remediate";
+  // Plan 15-01 (D-15-02): widened further to include "reused-with-warning"
+  // (decline marker for the operator's manual ownership of a component they
+  // declined to let AgentLinux remediate). The text renderer appends
+  // distinct suffixes; the JSON output carries the value verbatim for tooling.
+  sentinel_status?: "installed" | "reused" | "broken-after-remediate" | "reused-with-warning";
+  // Plan 15-01 (D-15-02): decline_reason carried to JSON output verbatim so
+  // downstream tooling can render it without re-deriving the token map. Set
+  // only when sentinel_status === "reused-with-warning".
+  decline_reason?: string;
 }
 
 function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
@@ -58,6 +63,8 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
       source: sentinel?.source ?? "-",
       reused,
       sentinel_status: sentinel?.status,
+      // Plan 15-01 (D-15-02): carry decline_reason to JSON output verbatim.
+      decline_reason: sentinel?.decline_reason,
     };
   });
 }
@@ -91,11 +98,22 @@ export async function listCmd(opts: ListOpts): Promise<void> {
   // transitions are mutually exclusive). Binding wording; bats Test 53 greps
   // the literal string.
   const BROKEN_AFTER_REMEDIATE_SUFFIX = " (broken — half-uninstalled, manual recovery needed)";
+  // Plan 15-01 (D-15-02 / UX-02): reused-with-warning sentinel renders with
+  // the decline_reason interpolated. Precedence rules: broken-after-remediate
+  // > reused-with-warning > reused. A reused-with-warning sentinel is BOTH
+  // technically reused (no mutation happened) AND carries the decline marker
+  // — but the operator most needs to see what they need to fix manually, so
+  // the decline marker wins. Binding wording; bats Test 8 + TS U8 grep the
+  // literal string.
+  const reusedWithWarningSuffix = (reason: string) =>
+    ` (reused — declined remediation: ${reason}; manual fix needed)`;
   const header = ["NAME", "STATUS", "CURATED", "INSTALLED", "DESCRIPTION"];
   const data = rows.map((r) => {
     let installed = r.installed;
     if (r.sentinel_status === "broken-after-remediate") {
       installed = `${r.installed}${BROKEN_AFTER_REMEDIATE_SUFFIX}`;
+    } else if (r.sentinel_status === "reused-with-warning") {
+      installed = `${r.installed}${reusedWithWarningSuffix(r.decline_reason ?? "unknown")}`;
     } else if (r.reused) {
       installed = `${r.installed}${REUSED_SUFFIX}`;
     }

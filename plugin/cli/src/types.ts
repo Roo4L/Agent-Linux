@@ -58,7 +58,26 @@ export interface Sentinel {
   // ` (broken — half-uninstalled, manual recovery needed)` suffix; user must
   // intervene manually (`agentlinux remove <id>` to clean up the sentinel,
   // then a fresh `agentlinux install <id>`).
-  status?: "installed" | "reused" | "broken-after-remediate";
+  //
+  // Plan 15-01 (D-15-02 / UX-02): further widened to include
+  // "reused-with-warning" — written by the bash entrypoint's TTY prompt loop
+  // when the operator DECLINED a state-overwriting REMEDIATE. The component
+  // is left as-is (no mutation); the sentinel records `decline_reason` so a
+  // later `agentlinux list` shows what the user chose to keep manually owning.
+  // upgrade.ts treats this identically to "reused" (T-15-01-05 mitigation —
+  // upgrade does NOT re-attempt the declined remediation).
+  status?: "installed" | "reused" | "broken-after-remediate" | "reused-with-warning";
+  // Plan 15-01 (D-15-02): short token explaining which remediation the user
+  // declined. Set ONLY when status="reused-with-warning". Restricted to a
+  // three-value enum mirroring the prompt loop's action-token map in
+  // plugin/lib/prompt.sh:
+  //   chown-declined            — REMEDIATE-01 npm-prefix chown/rebase
+  //   sudoers-drift-declined    — REMEDIATE-03 sudoers drift overwrite
+  //   reinstall-broken-declined — REMEDIATE-04 catalog-agent uninstall+reinstall
+  // Renderer (list.ts) interpolates the literal token into the suffix —
+  // operator-facing text but operator-actionable (each token names the fix
+  // they declined so they know what to do manually).
+  decline_reason?: "chown-declined" | "sudoers-drift-declined" | "reinstall-broken-declined";
   binary_path?: string; // canonical-path-matched binary; only set when status="reused"
   detected_source?: string; // e.g., "pre-existing"; only set when status="reused"
   reused_at?: string; // ISO-8601; only set when status="reused"

@@ -146,9 +146,9 @@ setup_brownfield_for_path_mismatch() {
   run bash "$INSTALLER" --dry-run --yes
   [[ "$status" -eq 64 ]] \
     || __fail "D-15-04" "exit 64 on --dry-run --yes" "exit=$status output=$output" "$INSTALLER"
-  printf '%s' "$output" | grep -qF 'contradictory flags' \
+  printf '%s' "$output" | grep -qF -- 'contradictory flags' \
     || __fail "D-15-04" "log_error 'contradictory flags'" "$output" "$INSTALLER"
-  printf '%s' "$output" | grep -qF '--dry-run forbids --yes' \
+  printf '%s' "$output" | grep -qF -- '--dry-run forbids --yes' \
     || __fail "D-15-04" "literal '--dry-run forbids --yes' diagnostic" "$output" "$INSTALLER"
 }
 
@@ -157,7 +157,7 @@ setup_brownfield_for_path_mismatch() {
   run bash "$INSTALLER" --yes --dry-run
   [[ "$status" -eq 64 ]] \
     || __fail "D-15-04" "exit 64 on --yes --dry-run" "exit=$status output=$output" "$INSTALLER"
-  printf '%s' "$output" | grep -qF '--dry-run forbids --yes' \
+  printf '%s' "$output" | grep -qF -- '--dry-run forbids --yes' \
     || __fail "D-15-04" "symmetric '--dry-run forbids --yes' diagnostic" "$output" "$INSTALLER"
 }
 
@@ -183,17 +183,23 @@ setup_brownfield_for_path_mismatch() {
 # Task 2 — UX-02 TTY per-action prompt loop @tests (Tests 7-12).
 # -----------------------------------------------------------------------------
 
-# script(1) is part of the bsdutils package on Ubuntu — preinstalled on the
-# Docker test images. We use it to allocate a pty for the bash installer so
-# `[[ -t 0 ]]` returns true and the prompt loop fires.
+# TTY simulation uses tests/bats/helpers/tty-driver.py (Python pty.spawn),
+# which is more reliable than `script -c | pipe-stdin` across container
+# environments. The driver spawns the inner command inside a pty (so
+# `[[ -t 0 ]]` returns true in the child) and forwards the provided input
+# bytes to the pty master. python3 is preinstalled on the Docker images
+# (used by tests/bats/60-curl-installer.bats's INST-03 http.server fixture).
+
+TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
 
 # Test 7 (D-15-06 / UX-02 accept-all): TTY prompts both REMEDIATE-01 + REMEDIATE-03;
 # user answers Y to both; both mutations land.
 @test "UX-02 (D-15-06 accept-all): TTY prompt with REMEDIATE-01 + REMEDIATE-03; answer Y to both → both mutations land + no DECLINED markers" {
   setup_brownfield_for_dry_run_combo
-  # Allocate a pty so [[ -t 0 ]] returns true in the installer. Feed Y\nY\n on
-  # the pty's stdin via printf piped through script's -c command.
-  run bash -c 'printf "Y\nY\n" | script -q -e -c "bash '"$INSTALLER"'" /dev/null'
+  # Allocate a pty so [[ -t 0 ]] returns true in the installer. Feed Y\nY\n
+  # via the python pty driver — `script -c | pipe-stdin` hangs in some
+  # container envs (the bytes never reach the inner pty slave).
+  run python3 "$TTY_DRIVER" 'Y\nY\n' -- bash "$INSTALLER"
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY accept-all exits 0" "exit=$status output=$output" "$LOG"
   # No DECLINED marker — both accepted.
@@ -217,7 +223,7 @@ setup_brownfield_for_path_mismatch() {
   # Component order in prompt::run_all is: user, npm-prefix, sudoers, agents.*.
   # user is a REUSE (existing agent), npm-prefix prompts first (decline=n), then
   # sudoers prompts (accept=Y).
-  run bash -c 'printf "n\nY\n" | script -q -e -c "bash '"$INSTALLER"'" /dev/null'
+  run python3 "$TTY_DRIVER" 'n\nY\n' -- bash "$INSTALLER"
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY decline-one exits 0 (install continues)" "exit=$status output=$output" "$LOG"
   # DECLINED marker for npm-prefix.
@@ -240,7 +246,7 @@ setup_brownfield_for_path_mismatch() {
   setup_brownfield_for_remediate_03_missing
   # Pipe an Y just in case a prompt does (incorrectly) appear — but the test
   # asserts the prompt string is ABSENT from the transcript.
-  run bash -c 'printf "Y\n" | script -q -e -c "bash '"$INSTALLER"'" /dev/null'
+  run python3 "$TTY_DRIVER" 'Y\n' -- bash "$INSTALLER"
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY additive install exits 0" "exit=$status output=$output" "$LOG"
   if printf '%s' "$output" | grep -qF 'Proceed with this remediation?'; then
@@ -254,7 +260,11 @@ setup_brownfield_for_path_mismatch() {
 # Test 10 (D-15-10): --yes in TTY mode SKIPS the prompt loop.
 @test "UX-02 (D-15-10 --yes-skips-loop): TTY installer with --yes does NOT prompt (loop skipped); all remediates land" {
   setup_brownfield_for_dry_run_combo
-  run bash -c 'script -q -e -c "bash '"$INSTALLER"' --yes" /dev/null </dev/null'
+  # Empty input — --yes auto-approves so no prompt should fire; the empty
+  # input would cause EOF on read, which the prompt::confirm_remediate
+  # default-decline path would NOT exercise because YES_FLAG bypass fires
+  # earlier in agentlinux-install main().
+  run python3 "$TTY_DRIVER" '' -- bash "$INSTALLER" --yes
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY --yes exits 0" "exit=$status output=$output" "$LOG"
   if printf '%s' "$output" | grep -qF 'Proceed with this remediation?'; then
@@ -286,7 +296,11 @@ setup_brownfield_for_path_mismatch() {
   install -d -m 0755 /tmp/poison
   install -m 0644 /dev/null /tmp/poison/canary
   # Feed 'n' followed by injection text + newline + Y (for sudoers).
-  run bash -c 'printf "n; rm -rf /tmp/poison\nY\n" | script -q -e -c "bash '"$INSTALLER"'" /dev/null'
+  # First-char 'n' is consumed by `read -r -n 1`; the remainder of the line
+  # ('; rm -rf /tmp/poison') is consumed by the line-discard in
+  # prompt::confirm_remediate; the second prompt fires for sudoers and
+  # consumes the 'Y'. T-15-01-03 mitigation verified by the canary survival.
+  run python3 "$TTY_DRIVER" 'n; rm -rf /tmp/poison\nY\n' -- bash "$INSTALLER"
   [[ "$status" -eq 0 ]] \
     || __fail "T-15-01-03" "installer exits 0 (no shell injection took down the run)" "exit=$status output=$output" "$LOG"
   [[ -d /tmp/poison && -f /tmp/poison/canary ]] \

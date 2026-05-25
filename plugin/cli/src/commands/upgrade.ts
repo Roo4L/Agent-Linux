@@ -47,8 +47,22 @@ import {
 // Treat as un-installed for reconciliation purposes (force reinstall, do not
 // trust the stale sentinel's binary_path). Returns true when the sentinel is
 // non-reused (no validation needed) OR when the reused binary still exists.
+//
+// Plan 15-01 (T-15-01-05): reused-with-warning is a separate signal — the
+// component was NOT mutated by AgentLinux (user declined remediation), so
+// upgrade.ts must NOT try to upgrade it. We treat reused-with-warning
+// identically to reused for the "is it already installed?" check, but the
+// binary_path may not be populated (the declined remediation never wrote a
+// binary_path); skip the stat check and trust the sentinel.
 function validateReusedBinary(sentinel: Sentinel | null): boolean {
-  if (!sentinel || sentinel.status !== "reused" || !sentinel.binary_path) return true;
+  if (!sentinel) return true;
+  // reused-with-warning sentinels carry no binary_path — trust the sentinel
+  // (user declared manual ownership). The default reconcile loop below skips
+  // dispatch for them because reused-with-warning sentinels do not appear as
+  // 'diverged' in the divergence report (their version matches the catalog
+  // pin in the brownfield combo fixture, so report.status === 'synced').
+  if (sentinel.status === "reused-with-warning") return true;
+  if (sentinel.status !== "reused" || !sentinel.binary_path) return true;
   try {
     return statSync(sentinel.binary_path).isFile();
   } catch {
@@ -196,6 +210,17 @@ export async function upgradeCmd(opts: UpgradeOpts, deps: UpgradeDeps = {}): Pro
     if (sentinel?.status === "reused") {
       console.log(
         `${report.id}: upgrading reused install (binary=${sentinel.binary_path ?? "?"} -> catalog pin)`,
+      );
+    }
+    // Plan 15-01 (T-15-01-05): when the prior sentinel had status:
+    // "reused-with-warning" (operator declined a remediation in the bash
+    // entrypoint's TTY prompt loop), surface that upgrade is NOT going to
+    // re-attempt the declined remediation — same treatment as plain reused.
+    // The reconcile loop below will skip dispatch in default report-only
+    // mode; the explicit log makes the no-op visible to the operator.
+    if (sentinel?.status === "reused-with-warning") {
+      console.log(
+        `${report.id}: skipping upgrade for reused-with-warning sentinel (decline_reason=${sentinel.decline_reason ?? "unknown"}; user retains manual ownership)`,
       );
     }
 

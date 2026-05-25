@@ -100,8 +100,8 @@ Options:
                         the full Phase 12-14 decision pipeline (bails
                         surface IN the report, NOT as exit code). Useful
                         before a real install to preview what will happen.
-                        Contradicts --yes (exit 64) — dry-run never mutates,
-                        --yes is a mutation gate.
+                        Contradicts --yes (rejected as usage error) — dry-run
+                        never mutates, --yes is a mutation gate.
 
 The installer must run as root. Supported hosts: Ubuntu 22.04, 24.04 and 26.04.
 Transcript: ${LOG_FILE}
@@ -583,6 +583,26 @@ main() {
     exit 0
   fi
   remediate::flush_bails_or_continue
+
+  # Phase 15 (Plan 15-01 — UX-02): TTY per-action prompt loop. In TTY mode,
+  # ask the operator to confirm each state-overwriting Remediate action;
+  # declines convert RESOLUTIONS[<component>] to reuse-with-warning so the
+  # provisioner skips the mutation and (for catalog agents) the CLI sentinel
+  # writer records the decline_reason on the next agentlinux install run.
+  #   D-15-05: TTY detection via [[ -t 0 ]] on entrypoint stdin (single source
+  #            of truth; no per-call probing).
+  #   D-15-09: additive actions never prompt — prompt.sh consults
+  #            remediate_action_overwrites_state and skips additive tokens.
+  #   D-15-10: --yes auto-approves in TTY too (skip the loop).
+  # The remediate::gate_or_bail logic above already deferred bail-registration
+  # in TTY mode (so flush_bails_or_continue is a no-op above), populating
+  # ACTION_MAP so this loop has everything it needs.
+  if [[ -t 0 ]] && [[ "$YES_FLAG" != "true" ]]; then
+    # shellcheck source=../lib/prompt.sh
+    . "$LIB_DIR/prompt.sh"
+    prompt::run_all
+  fi
+
   run_provisioners
   log_info "agentlinux-install complete (transcript: ${LOG_FILE})"
 }

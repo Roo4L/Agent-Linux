@@ -92,6 +92,15 @@ case "${RESOLUTIONS[sudoers]:-create}" in
     log_info "20-sudoers: done"
     return 0
     ;;
+  reuse-with-warning)
+    # Plan 15-01 (UX-02 / D-15-02): TTY operator declined the sudoers drift
+    # overwrite. /etc/sudoers.d/agentlinux stays at its drifted content; we
+    # do NOT install or modify the file. Operator now bears manual
+    # responsibility for ensuring NOPASSWD-for-apt-or-broader works.
+    log_warn "[REUSE-WARN] component=sudoers decline_reason=${DECLINED_COMPONENTS[sudoers]:-unknown} — skipped (user declined remediation; manual fix needed). /etc/sudoers.d/agentlinux unchanged."
+    log_info "20-sudoers: done"
+    return 0
+    ;;
   bail)
     log_error "20-sudoers: unreachable bail arm — flush_bails_or_continue should have gated this"
     return 1
