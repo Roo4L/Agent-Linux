@@ -54,7 +54,7 @@ Grouped by category. Each `XXX-NN` is a testable, verifiable outcome — auditab
 - [x] **REMEDIATE-01**: When DET-03 finds the npm global prefix has wrong ownership (root-owned with no write access for the install user, or owned by an unexpected user), the installer either re-`chown`s the prefix to the install user (only if the prefix path resolves under the install user's home and is currently empty or trivially salvageable) or rebases npm-global to `~<install-user>/.npm-global` and migrates the existing global modules. Either action requires TTY-interactive confirmation (per-action prompt) OR the `--yes` flag in non-TTY mode.
 - [x] **REMEDIATE-02**: When DET-01 surfaces an existing install user that is missing the six-mode PATH wiring (BHV-02..06: profile.d, .bashrc-at-top, agentlinux.env, cron.d), the PATH-wiring provisioner re-runs against that user using the existing `ensure_marker_block` primitives. The pre-existing shell init customizations of the user are never edited line-by-line — only the AgentLinux-managed marker block is added (or refreshed if drifted). No interactive consent required for PATH wiring (additive, idempotent, never overwrites user content).
 - [x] **REMEDIATE-03**: When DET-05 finds `/etc/sudoers.d/agentlinux` is missing or its SHA256 does not match ADR-012's expected line, the sudoers provisioner installs the canonical version via the v0.3.0 visudo-gated install path. Drift overwrite requires TTY-interactive confirmation (per-action prompt) OR the `--yes` flag in non-TTY mode; a missing file installs without prompt (additive, not overwriting user state).
-- [ ] **REMEDIATE-04**: When DET-04 classifies a catalog agent as `broken` (binary present but health check fails, or version reports an unparseable string, or symlink target missing), the installer runs the recipe's `uninstall.sh` followed by `install.sh` to reinstall it cleanly. Reinstall requires TTY-interactive confirmation (per-action prompt) OR the `--yes` flag in non-TTY mode; the `uninstall.sh` step preserves user data per CAT-04.
+- [x] **REMEDIATE-04**: When DET-04 classifies a catalog agent as `broken` (binary present but health check fails, or version reports an unparseable string, or symlink target missing), the installer runs the recipe's `uninstall.sh` followed by `install.sh` to reinstall it cleanly. Reinstall requires TTY-interactive confirmation (per-action prompt) OR the `--yes` flag in non-TTY mode; the `uninstall.sh` step preserves user data per CAT-04.
 
 ### UX (UX) — pre-flight report, dry-run, interactive vs. non-interactive
 
@@ -114,7 +114,7 @@ Populated by gsd-roadmapper during ROADMAP creation. Empty initially.
 | REMEDIATE-01 | Phase 14 | Complete |
 | REMEDIATE-02 | Phase 14 | Complete |
 | REMEDIATE-03 | Phase 14 | Complete |
-| REMEDIATE-04 | Phase 14 | Pending |
+| REMEDIATE-04 | Phase 14 | Complete |
 | UX-01 | Phase 15 | Pending |
 | UX-02 | Phase 15 | Pending |
 | UX-03 | Phase 14 | Complete |

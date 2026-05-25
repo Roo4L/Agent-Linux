@@ -286,3 +286,100 @@ setup_brownfield_for_remediate_03_drift() {
   install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
   rm -f "$tmp"
 }
+
+# -----------------------------------------------------------------------------
+# Plan 14-03 brownfield fixtures for REMEDIATE-04 (broken catalog agent).
+#
+# Each fixture targets the PATH-MISMATCH or broken-status scenarios the CLI's
+# install.ts tryRemediate branch handles. Tests 51-53 exercise:
+#   - Happy-path PATH-MISMATCH: claude-code installed via `npm install -g`
+#     (canonical mismatch); REMEDIATE-04 uninstalls and reinstalls at the
+#     native canonical path while preserving ~/.claude/ user data.
+#   - Uninstall-fail: catalog uninstall.sh returns non-zero → exit 1 +
+#     [REMEDIATE-04:uninstall-fail]; install NOT dispatched.
+#   - Half-uninstalled: catalog uninstall.sh succeeds, install.sh fails →
+#     broken-after-remediate sentinel + exit 1 + [REMEDIATE-04:half-
+#     uninstalled].
+# -----------------------------------------------------------------------------
+
+# setup_brownfield_broken_claude_code
+# Targets REMEDIATE-04 PATH-MISMATCH happy path (Test 51).
+# Lays down a Phase-13 REUSE-compatible baseline (agent user, sudoers, Node 22,
+# npm-prefix at ~agent/.npm-global), then installs claude-code via
+# `npm install -g @anthropic-ai/claude-code` so the binary lands at
+# ~/.npm-global/bin/claude (the PATH-MISMATCH location, NOT the canonical
+# ~/.local/bin/claude). Pre-populates ~/.claude/test-marker-file so the @test
+# can assert user data survives REMEDIATE-04 reinstall via the preserve_paths.
+setup_brownfield_broken_claude_code() {
+  _brownfield_baseline
+  # Install claude-code via npm (lands at ~/.npm-global/bin/claude).
+  # Use --no-fund --no-audit for cleaner transcripts; sudo -u agent -H is
+  # mandatory (CLAUDE.md critical rule — never `sudo npm install -g`).
+  sudo -u agent -H bash --login -c \
+    'npm install -g --no-fund --no-audit @anthropic-ai/claude-code@2.1.98' \
+    >/dev/null 2>&1 || true
+  # Pre-populate user-data marker so the @test can assert preserve_paths
+  # survives uninstall.sh during REMEDIATE-04 reinstall.
+  install -d -m 0755 -o agent -g agent /home/agent/.claude
+  echo "preserve-this-test-marker-content-line" \
+    >/home/agent/.claude/test-marker-file
+  chown agent:agent /home/agent/.claude/test-marker-file
+}
+
+# setup_brownfield_remediate04_uninstall_fail
+# Targets REMEDIATE-04 uninstall-fail path (Test 52).
+# Same as setup_brownfield_broken_claude_code BUT with a sabotaged
+# uninstall.sh that exits 1. The catalog dir is overlaid via
+# AGENTLINUX_CATALOG_DIR pointing at a tmp copy; the agentlinux CLI honors
+# the env override (seam used by Plan 13-02 tests too). Restore on cleanup.
+setup_brownfield_remediate04_uninstall_fail() {
+  setup_brownfield_broken_claude_code
+  # Stage a tmp catalog copy. The CLI's loader.ts honors
+  # AGENTLINUX_CATALOG_DIR so we point at the tmp dir for this @test.
+  local tmpcat
+  tmpcat=$(mktemp -d -t al-cat-fail-XXXXXX)
+  cp -r /opt/agentlinux-src/plugin/catalog/* "$tmpcat"
+  # Sabotage claude-code/uninstall.sh — exit 1 to trigger uninstall-fail.
+  cat >"$tmpcat/agents/claude-code/uninstall.sh" <<'SH'
+#!/usr/bin/env bash
+echo "uninstall.sh: simulated failure (Test 52 fixture)" >&2
+exit 1
+SH
+  chmod 0755 "$tmpcat/agents/claude-code/uninstall.sh"
+  export BROWNFIELD_TMP_CATALOG="$tmpcat"
+  export AGENTLINUX_CATALOG_DIR="$tmpcat"
+}
+
+# setup_brownfield_remediate04_install_fail_post_uninstall
+# Targets REMEDIATE-04 half-uninstalled path (Test 53).
+# Uninstall.sh succeeds (default catalog), then install.sh is sabotaged so it
+# exits 1 AFTER uninstall has done its job. Asserts the broken-after-remediate
+# sentinel is written + list.ts renders the half-uninstalled suffix.
+setup_brownfield_remediate04_install_fail_post_uninstall() {
+  setup_brownfield_broken_claude_code
+  local tmpcat
+  tmpcat=$(mktemp -d -t al-cat-halfuninst-XXXXXX)
+  cp -r /opt/agentlinux-src/plugin/catalog/* "$tmpcat"
+  # Sabotage install.sh — uninstall.sh runs untouched (succeeds), then this
+  # install fires and bails with exit 1. The CLI must write the broken-after-
+  # remediate sentinel as forensic trail.
+  cat >"$tmpcat/agents/claude-code/install.sh" <<'SH'
+#!/usr/bin/env bash
+echo "install.sh: simulated post-uninstall failure (Test 53 fixture)" >&2
+exit 1
+SH
+  chmod 0755 "$tmpcat/agents/claude-code/install.sh"
+  export BROWNFIELD_TMP_CATALOG="$tmpcat"
+  export AGENTLINUX_CATALOG_DIR="$tmpcat"
+}
+
+# teardown_brownfield_remediate04_catalog
+# Helper for Tests 52/53 cleanup: removes the tmp catalog overlay + unsets
+# AGENTLINUX_CATALOG_DIR so downstream @tests see the canonical catalog.
+teardown_brownfield_remediate04_catalog() {
+  if [[ -n "${BROWNFIELD_TMP_CATALOG:-}" && -d "$BROWNFIELD_TMP_CATALOG" ]]; then
+    rm -rf "$BROWNFIELD_TMP_CATALOG"
+  fi
+  unset BROWNFIELD_TMP_CATALOG
+  unset AGENTLINUX_CATALOG_DIR
+}

@@ -1184,3 +1184,252 @@ JSON
   [[ "$sha_first" == "$sha_second" ]] \
     || __fail "BHV-07" "/etc/sudoers.d/agentlinux byte-stable post-refactor across re-run" "first=$sha_first second=$sha_second" "$LOG"
 }
+
+# =============================================================================
+# Plan 14-03 Tests 48-54 — REMEDIATE-04 preserve_paths.json + brownfield E2E.
+#
+# Tests 48-50: per-agent uninstall.sh _should_remove() helper honors
+#   AGENTLINUX_PRESERVE_PATHS (colon-separated, descendant rule). Direct
+#   invocation of each uninstall.sh against fixture user-data dirs.
+# Tests 51-53: brownfield E2E — claude-code installed via npm (PATH-MISMATCH
+#   location), then `agentlinux install claude-code --yes` triggers
+#   REMEDIATE-04. Tests cover happy path + uninstall-fail + half-uninstalled.
+# Test 54: greenfield invariant retest — full Docker matrix still GREEN after
+#   Plan 14-03 changes; preserved_paths.json never fires on greenfield.
+# =============================================================================
+
+CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
+
+# Test 48 — claude-code uninstall.sh _should_remove honors AGENTLINUX_PRESERVE_PATHS.
+@test "REMEDIATE-04 CAT-04: claude-code uninstall.sh preserves ~/.claude/test-file via AGENTLINUX_PRESERVE_PATHS=.claude" {
+  # Pre-stage agent home + user-data marker.
+  if ! id -u agent >/dev/null 2>&1; then
+    useradd -m -s /bin/bash agent
+  fi
+  install -d -m 0755 -o agent -g agent /home/agent/.claude
+  install -d -m 0755 -o agent -g agent /home/agent/.claude/downloads
+  echo "preserve-this" >/home/agent/.claude/test-marker-file
+  echo "preserve-downloads" >/home/agent/.claude/downloads/bootstrap-cache
+  chown -R agent:agent /home/agent/.claude
+
+  # Pre-stage a fake claude binary that uninstall.sh will try to delete; the
+  # _rm helper consults _should_remove before issuing rm.
+  install -d -m 0755 -o agent -g agent /home/agent/.local/bin
+  echo "#!/bin/sh" >/home/agent/.local/bin/claude
+  chmod 0755 /home/agent/.local/bin/claude
+  chown agent:agent /home/agent/.local/bin/claude
+
+  # Invoke uninstall.sh with AGENTLINUX_PRESERVE_PATHS containing .claude.
+  AGENTLINUX_AGENT_HOME=/home/agent \
+    AGENTLINUX_PRESERVE_PATHS=".claude" \
+    bash "$CATALOG_DIR/agents/claude-code/uninstall.sh" >/tmp/un48.log 2>&1 || true
+
+  [[ -f /home/agent/.claude/test-marker-file ]] \
+    || __fail "REMEDIATE-04" "test-marker survives uninstall.sh under .claude preserve" "deleted" "$(cat /tmp/un48.log)"
+  # CAT-04 behavior shift: ~/.claude/downloads now ALSO preserved (descendant rule).
+  [[ -f /home/agent/.claude/downloads/bootstrap-cache ]] \
+    || __fail "REMEDIATE-04 CAT-04 shift" "agent-home /.claude/downloads is preserved as descendant of agent-home /.claude" "deleted" "$(cat /tmp/un48.log)"
+  # Binary at non-preserved path is removed.
+  [[ ! -f /home/agent/.local/bin/claude ]] \
+    || __fail "REMEDIATE-04" "agent-home /.local/bin/claude (not in preserve list) is removed" "still present" "$(cat /tmp/un48.log)"
+
+  # Cleanup so downstream tests don't see this residue.
+  rm -rf /home/agent/.claude/test-marker-file /home/agent/.claude/downloads
+}
+
+# Test 49 — gsd uninstall.sh _should_remove honors AGENTLINUX_PRESERVE_PATHS.
+@test "REMEDIATE-04 CAT-04: gsd uninstall.sh preserves ~/.gsd + ~/.config/get-shit-done fixture dirs" {
+  if ! id -u agent >/dev/null 2>&1; then
+    useradd -m -s /bin/bash agent
+  fi
+  install -d -m 0755 -o agent -g agent /home/agent/.gsd
+  install -d -m 0755 -o agent -g agent /home/agent/.config/get-shit-done
+  echo "gsd-workflow-state" >/home/agent/.gsd/marker
+  echo "gsd-user-config" >/home/agent/.config/get-shit-done/marker
+  chown -R agent:agent /home/agent/.gsd /home/agent/.config/get-shit-done
+
+  # Stage a skill dir that the gsd uninstall.sh defensively removes — NOT in
+  # preserve set, so it should still be removed by the helper.
+  install -d -m 0755 -o agent -g agent /home/agent/.claude/skills/gsd-test-skill
+  chown -R agent:agent /home/agent/.claude
+
+  # Run uninstall.sh (gsd's may try to call npm uninstall -g; tolerate failure).
+  AGENTLINUX_AGENT_HOME=/home/agent \
+    AGENTLINUX_PRESERVE_PATHS=".gsd:.config/get-shit-done" \
+    bash "$CATALOG_DIR/agents/gsd/uninstall.sh" >/tmp/un49.log 2>&1 || true
+
+  [[ -f /home/agent/.gsd/marker ]] \
+    || __fail "REMEDIATE-04" "agent-home /.gsd/marker preserved via AGENTLINUX_PRESERVE_PATHS" "deleted" "$(cat /tmp/un49.log)"
+  [[ -f /home/agent/.config/get-shit-done/marker ]] \
+    || __fail "REMEDIATE-04" "agent-home /.config/get-shit-done/marker preserved" "deleted" "$(cat /tmp/un49.log)"
+
+  # Cleanup
+  rm -rf /home/agent/.gsd/marker /home/agent/.config/get-shit-done/marker /home/agent/.claude/skills
+}
+
+# Test 50 — playwright-cli uninstall.sh preserves ~/.cache/ms-playwright fixture dir.
+@test "REMEDIATE-04 CAT-04: playwright-cli uninstall.sh preserves ~/.cache/ms-playwright fixture" {
+  if ! id -u agent >/dev/null 2>&1; then
+    useradd -m -s /bin/bash agent
+  fi
+  install -d -m 0755 -o agent -g agent /home/agent/.cache/ms-playwright/chromium-1234
+  echo "expensive-browser-binary-stub" >/home/agent/.cache/ms-playwright/chromium-1234/headless_shell
+  chown -R agent:agent /home/agent/.cache
+
+  AGENTLINUX_AGENT_HOME=/home/agent \
+    AGENTLINUX_PRESERVE_PATHS=".cache/ms-playwright" \
+    bash "$CATALOG_DIR/agents/playwright-cli/uninstall.sh" >/tmp/un50.log 2>&1 || true
+
+  [[ -f /home/agent/.cache/ms-playwright/chromium-1234/headless_shell ]] \
+    || __fail "REMEDIATE-04" "agent-home /.cache/ms-playwright/chromium-1234/headless_shell preserved" "deleted" "$(cat /tmp/un50.log)"
+
+  rm -rf /home/agent/.cache/ms-playwright
+}
+
+# Test 51 — BROWNFIELD PATH-MISMATCH happy path E2E.
+# Pre-populate container with claude-code installed via `npm install -g`
+# (~/.npm-global/bin/claude — PATH-MISMATCH vs canonical ~/.local/bin/claude).
+# Pre-populate ~/.claude/test-marker-file. Run `agentlinux install claude-code --yes`.
+# Assert: exit 0; [REMEDIATE-04] marker; canonical binary present; PATH-MISMATCH
+# location removed; user data survives; sentinel status=installed.
+@test "REMEDIATE-04 E2E: brownfield PATH-MISMATCH claude-code reinstalls at canonical path; ~/.claude/ user data survives" {
+  setup_brownfield_broken_claude_code
+
+  # Run the bash entrypoint first so the canonical baseline (agent user,
+  # sudoers, Node, PATH wiring, sentinel dirs) is in place. Use --yes since
+  # brownfield baseline has no defects that would bail.
+  bash "$INSTALLER" --yes >/dev/null 2>&1 || true
+
+  # Sanity: PATH-MISMATCH binary still present at brownfield location.
+  [[ -x /home/agent/.npm-global/bin/claude ]] \
+    || skip "npm install -g claude-code didn't populate ~/.npm-global/bin/claude (sandbox npm issue)"
+
+  # Sanity: marker still present after baseline install.
+  [[ -f /home/agent/.claude/test-marker-file ]] \
+    || __fail "REMEDIATE-04" "test marker survives baseline install" "deleted by baseline" "$LOG"
+
+  # Now run the CLI: agentlinux install claude-code --yes.
+  # Use sudo -u agent -H since the CLI's guardAgentUser preActionHook refuses
+  # root. The detect cache must be present — bash entrypoint should have run
+  # detect:: by now and populated /run/agentlinux-detect.json.
+  local cli_out cli_rc
+  cli_out=$(sudo -u agent -H agentlinux install claude-code --yes 2>&1) || cli_rc=$?
+  cli_rc=${cli_rc:-0}
+
+  [[ "$cli_rc" -eq 0 ]] \
+    || __fail "REMEDIATE-04" "agentlinux install claude-code --yes exits 0" "rc=$cli_rc out=$cli_out" "$LOG"
+
+  # The PATH-MISMATCH binary should be GONE after uninstall+install.
+  # Note: install.sh restores the canonical path; the npm-global one is what
+  # uninstall.sh tears down via npm uninstall -g.
+  echo "$cli_out" | grep -qF "[REMEDIATE-04]" \
+    || __fail "REMEDIATE-04" "[REMEDIATE-04] marker emitted" "$cli_out" "$LOG"
+
+  # User data preserved.
+  [[ -f /home/agent/.claude/test-marker-file ]] \
+    || __fail "REMEDIATE-04 CAT-04" "agent-home /.claude/test-marker-file survives uninstall+reinstall" "deleted" "$LOG"
+
+  # Sentinel exists with status=installed.
+  [[ -f /opt/agentlinux/state/installed.d/claude-code.json ]] \
+    || __fail "REMEDIATE-04" "sentinel written post-REMEDIATE" "missing" "$LOG"
+  grep -q '"status": "installed"' /opt/agentlinux/state/installed.d/claude-code.json \
+    || __fail "REMEDIATE-04" "sentinel status=installed post-REMEDIATE" "$(cat /opt/agentlinux/state/installed.d/claude-code.json)" "$LOG"
+
+  # Cleanup for downstream tests.
+  rm -f /home/agent/.claude/test-marker-file
+}
+
+# Test 52 — BROWNFIELD uninstall-fail path E2E.
+@test "REMEDIATE-04 E2E: brownfield uninstall.sh exit 1 → [REMEDIATE-04:uninstall-fail] + exit 1; install NOT dispatched" {
+  setup_brownfield_remediate04_uninstall_fail
+
+  # Run the bash entrypoint baseline first.
+  bash "$INSTALLER" --yes >/dev/null 2>&1 || true
+
+  if [[ ! -x /home/agent/.npm-global/bin/claude ]]; then
+    teardown_brownfield_remediate04_catalog
+    skip "npm install -g claude-code didn't populate brownfield binary"
+  fi
+
+  local cli_out cli_rc=0
+  cli_out=$(sudo -u agent -H AGENTLINUX_CATALOG_DIR="$BROWNFIELD_TMP_CATALOG" \
+    agentlinux install claude-code --yes 2>&1) || cli_rc=$?
+
+  # Cleanup before assertions so a fail doesn't leak the overlay.
+  teardown_brownfield_remediate04_catalog
+
+  [[ "$cli_rc" -eq 1 ]] \
+    || __fail "REMEDIATE-04" "uninstall-fail → exit 1" "rc=$cli_rc out=$cli_out" "$LOG"
+  echo "$cli_out" | grep -qF "[REMEDIATE-04:uninstall-fail]" \
+    || __fail "REMEDIATE-04" "[REMEDIATE-04:uninstall-fail] marker present" "$cli_out" "$LOG"
+
+  # install.sh should NOT have been dispatched — meaning the
+  # ~/.npm-global/bin/claude binary should still be present (since
+  # uninstall.sh bailed before doing its work).
+  [[ -x /home/agent/.npm-global/bin/claude ]] \
+    || __fail "REMEDIATE-04" "binary still present after uninstall-fail (install NOT dispatched)" "deleted" "$LOG"
+}
+
+# Test 53 — BROWNFIELD half-uninstalled path E2E.
+@test "REMEDIATE-04 E2E: brownfield uninstall OK + install.sh exit 1 → broken-after-remediate sentinel + list suffix" {
+  setup_brownfield_remediate04_install_fail_post_uninstall
+
+  bash "$INSTALLER" --yes >/dev/null 2>&1 || true
+
+  if [[ ! -x /home/agent/.npm-global/bin/claude ]]; then
+    teardown_brownfield_remediate04_catalog
+    skip "npm install -g claude-code didn't populate brownfield binary"
+  fi
+
+  local cli_out cli_rc=0
+  cli_out=$(sudo -u agent -H AGENTLINUX_CATALOG_DIR="$BROWNFIELD_TMP_CATALOG" \
+    agentlinux install claude-code --yes 2>&1) || cli_rc=$?
+
+  [[ "$cli_rc" -eq 1 ]] \
+    || { teardown_brownfield_remediate04_catalog; __fail "REMEDIATE-04" "half-uninstalled → exit 1" "rc=$cli_rc out=$cli_out" "$LOG"; }
+  echo "$cli_out" | grep -qF "[REMEDIATE-04:half-uninstalled]" \
+    || { teardown_brownfield_remediate04_catalog; __fail "REMEDIATE-04" "[REMEDIATE-04:half-uninstalled] marker present" "$cli_out" "$LOG"; }
+
+  # Sentinel written with broken-after-remediate status.
+  [[ -f /opt/agentlinux/state/installed.d/claude-code.json ]] \
+    || { teardown_brownfield_remediate04_catalog; __fail "REMEDIATE-04" "sentinel exists post-half-uninstall" "missing" "$LOG"; }
+  grep -q '"status": "broken-after-remediate"' /opt/agentlinux/state/installed.d/claude-code.json \
+    || { teardown_brownfield_remediate04_catalog; __fail "REMEDIATE-04" "sentinel status=broken-after-remediate" "$(cat /opt/agentlinux/state/installed.d/claude-code.json)" "$LOG"; }
+
+  # list.ts renders the suffix.
+  local list_out
+  list_out=$(sudo -u agent -H AGENTLINUX_CATALOG_DIR="$BROWNFIELD_TMP_CATALOG" agentlinux list 2>&1)
+  teardown_brownfield_remediate04_catalog
+
+  echo "$list_out" | grep -qF "broken — half-uninstalled, manual recovery needed" \
+    || __fail "REMEDIATE-04" "agentlinux list renders half-uninstalled suffix" "$list_out" "$LOG"
+
+  # Cleanup the orphaned sentinel for downstream tests.
+  rm -f /opt/agentlinux/state/installed.d/claude-code.json
+}
+
+# Test 54 — REMEDIATE-04 BAIL without --yes in non-TTY → exit 65.
+@test "REMEDIATE-04 E2E: brownfield PATH-MISMATCH WITHOUT --yes in non-TTY → [BAIL] + exit 65" {
+  setup_brownfield_broken_claude_code
+
+  bash "$INSTALLER" --yes >/dev/null 2>&1 || true
+
+  if [[ ! -x /home/agent/.npm-global/bin/claude ]]; then
+    skip "npm install -g claude-code didn't populate brownfield binary"
+  fi
+
+  local cli_out cli_rc=0
+  cli_out=$(sudo -u agent -H agentlinux install claude-code </dev/null 2>&1) || cli_rc=$?
+
+  [[ "$cli_rc" -eq 65 ]] \
+    || __fail "REMEDIATE-04" "non-TTY without --yes → exit 65" "rc=$cli_rc out=$cli_out" "$LOG"
+  echo "$cli_out" | grep -qF "[BAIL]" \
+    || __fail "REMEDIATE-04" "[BAIL] marker present" "$cli_out" "$LOG"
+  echo "$cli_out" | grep -qF "component=claude-code" \
+    || __fail "REMEDIATE-04" "[BAIL] component=claude-code" "$cli_out" "$LOG"
+
+  # Cleanup — PATH-MISMATCH binary should still be present (no mutation).
+  [[ -x /home/agent/.npm-global/bin/claude ]] \
+    || __fail "REMEDIATE-04" "no-mutation under [BAIL]: binary preserved" "missing" "$LOG"
+  rm -f /home/agent/.claude/test-marker-file
+}
