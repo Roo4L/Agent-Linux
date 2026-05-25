@@ -95,7 +95,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
   4. JSON-format report finalization: the Phase 12 `jq -n` dump shape is stable AND grep-tested by bats; Phase 16 README documents the top-level keys; no schema file, no schema_version field, no ADR required (D-15-03 amendment — ceremony drop per user pushback).
   5. Greenfield invariant: a fresh container's `agentlinux install --dry-run` produces a report where every component is `absent` → `Create`; running `agentlinux install` after the dry-run produces a v0.3.0-identical greenfield install (66/66 bats green).
 **Plans**: 2 plans
-- [ ] 15-01-PLAN.md — --dry-run (bash + CLI) + TTY per-action prompts + sentinel widening (reused-with-warning) + list-suffix rendering (UX-01, UX-02)
+- [x] 15-01-PLAN.md — --dry-run (bash + CLI) + TTY per-action prompts + sentinel widening (reused-with-warning) + list-suffix rendering (UX-01, UX-02)
 - [ ] 15-02-PLAN.md — Alt-user TTY prompt + non-TTY bail-with-hint + REQUIREMENTS.md flip + 15-AUDIT.md (UX-04)
 **UI hint**: no
 
@@ -121,7 +121,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 | 12. Detection Layer | 3/3 | Complete   | 2026-05-11 |
 | 13. Reuse Wiring | 2/2 | Complete   | 2026-05-20 |
 | 14. Remediate + Consent Flag + Exit Codes | 3/3 | Complete   | 2026-05-25 |
-| 15. Pre-flight UX | 2/2 | Not started | - |
+| 15. Pre-flight UX | 1/2 | In Progress|  |
 | 16. Documentation + Brownfield Acceptance Gate | ~2 | Not started | - |
 | **Total** | **~12 plans** | 0/5 phases done | — |
 

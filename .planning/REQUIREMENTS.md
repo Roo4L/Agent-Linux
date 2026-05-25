@@ -58,8 +58,8 @@ Grouped by category. Each `XXX-NN` is a testable, verifiable outcome — auditab
 
 ### UX (UX) — pre-flight report, dry-run, interactive vs. non-interactive
 
-- [ ] **UX-01**: `agentlinux install --dry-run` runs the full pre-flight discovery pass, prints the Reuse / Create / Remediate / Bail report (text format by default, JSON when `--report-format=json`), and exits 0 without writing any state to the host. Re-running `agentlinux install` immediately after `--dry-run` produces identical detection output (the dry-run is observably non-mutating).
-- [ ] **UX-02**: When stdin is a TTY (interactive mode), `agentlinux install` prints the pre-flight report and then issues a **per-action prompt** for each Remediate action that overwrites pre-existing user state (REMEDIATE-01 ownership chown, REMEDIATE-03 sudoers drift overwrite, REMEDIATE-04 reinstall-broken): `Proceed with this remediation? [Y/n]`. Declining a prompt **skips that one remediation, logs a warning to the install transcript, and continues the install** with the remaining components — the offending component is left as-is, treated as `Reuse-with-warning`. Additive actions (PATH wiring, missing-file sudoers install, fresh-component Create) run without confirmation.
+- [x] **UX-01**: `agentlinux install --dry-run` runs the full pre-flight discovery pass, prints the Reuse / Create / Remediate / Bail report (text format by default, JSON when `--report-format=json`), and exits 0 without writing any state to the host. Re-running `agentlinux install` immediately after `--dry-run` produces identical detection output (the dry-run is observably non-mutating).
+- [x] **UX-02**: When stdin is a TTY (interactive mode), `agentlinux install` prints the pre-flight report and then issues a **per-action prompt** for each Remediate action that overwrites pre-existing user state (REMEDIATE-01 ownership chown, REMEDIATE-03 sudoers drift overwrite, REMEDIATE-04 reinstall-broken): `Proceed with this remediation? [Y/n]`. Declining a prompt **skips that one remediation, logs a warning to the install transcript, and continues the install** with the remaining components — the offending component is left as-is, treated as `Reuse-with-warning`. Additive actions (PATH wiring, missing-file sudoers install, fresh-component Create) run without confirmation.
 - [x] **UX-03**: When stdin is NOT a TTY (cron, CI, `ssh host 'agentlinux install'`, automation, `curl | sudo bash`), `agentlinux install` runs in non-interactive mode: defaults to reuse-or-bail, never prompts, never overwrites pre-existing user state. A single `--yes` flag (Unix-convention shape, matching `apt install -y` / `pacman --noconfirm`) opts into all Remediate actions in one shot. Without `--yes`, any required Remediate action causes the installer to bail with a structured non-zero code; the bail message itemizes which components needed Remediate and points the user at the `--yes` flag and at `--dry-run` for inspection. There are **no per-action flags** — `--yes` is the only consent surface in non-TTY mode.
 - [ ] **UX-04**: When DET-01 surfaces an incompatible existing install user (wrong shell, no writable home, conflicting UID, or pre-existing user with `--user=` mismatch), interactive mode prompts for an alternate user name (with the user's default offer being a numerically-suffixed variant — e.g. `agent2`); non-interactive mode bails with exit code 65 (`EX_DATAERR`) and a remediation hint that names the conflicting attribute and suggests `--user=NAME` as the resolution.
 - [x] **UX-05**: Pre-flight failures surface as structured exit codes so wrappers, CI, and documentation can branch on the failure mode: `64` (`EX_USAGE`) for bad command-line flags or contradictory options; `65` (`EX_DATAERR`) for incompatible host state surfaced by detection; `1` for runtime failures during the Create / Remediate path. The codes are documented in README and in `agentlinux install --help`.
@@ -115,8 +115,8 @@ Populated by gsd-roadmapper during ROADMAP creation. Empty initially.
 | REMEDIATE-02 | Phase 14 | Complete |
 | REMEDIATE-03 | Phase 14 | Complete |
 | REMEDIATE-04 | Phase 14 | Complete |
-| UX-01 | Phase 15 | Pending |
-| UX-02 | Phase 15 | Pending |
+| UX-01 | Phase 15 | Complete |
+| UX-02 | Phase 15 | Complete |
 | UX-03 | Phase 14 | Complete |
 | UX-04 | Phase 15 | Pending |
 | UX-05 | Phase 14 | Complete |

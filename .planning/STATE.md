@@ -4,14 +4,14 @@ milestone: v0.3.4
 milestone_name: milestone
 status: verifying
 stopped_at: Completed 14-03-PLAN.md
-last_updated: "2026-05-25T06:33:34.020Z"
+last_updated: "2026-05-25T19:33:02.161Z"
 last_activity: 2026-05-25
 progress:
   total_phases: 5
   completed_phases: 3
-  total_plans: 8
-  completed_plans: 8
-  percent: 100
+  total_plans: 10
+  completed_plans: 9
+  percent: 90
 ---
 
 # Project State
@@ -93,6 +93,7 @@ Progress: [░░░░░░░░░░] 0% (0 of ~12 v0.3.4 plans done; v0.3.
 | Phase 14-remediate-consent-flag-exit-codes P01 | 95min | 2 tasks | 9 files |
 | Phase 14 P02 | 1h 30m | 2 tasks | 9 files |
 | Phase 14-remediate-consent-flag-exit-codes P03 | 75min | 3 tasks | 18 files |
+| Phase 15-preflight-ux P01 | 4h 10m | 2 tasks | 13 files |
 
 ## Accumulated Context
 
@@ -316,6 +317,7 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - [Phase ?]: teardown_file in 14-remediate.bats restores canonical post-installer state so downstream bats files see the same shape tests/docker/run.sh staged
 - [Phase ?]: REMEDIATE-04 wired via tryRemediate + preserve_paths.json + claude-code uninstall.sh PATH-MISMATCH npm tear-down
 - [Phase ?]: CAT-04 behavior shift: ~/.claude/downloads now preserved across REMEDIATE-04 reinstall via descendant rule
+- [Phase ?]: Plan 15-01: --dry-run flag on both bash + TS halves; TTY per-action prompts with decline-and-continue (reused-with-warning sentinel); symmetric --dry-run + --yes contradiction rejection
 
 ### Key Infrastructure Details
 
@@ -348,6 +350,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-05-25T06:33:34.013Z
+Last session: 2026-05-25T19:32:57.284Z
 Stopped at: Completed 14-03-PLAN.md
 Resume file: None
