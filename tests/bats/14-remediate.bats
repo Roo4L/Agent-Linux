@@ -1313,7 +1313,7 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   # root. The detect cache must be present — bash entrypoint should have run
   # detect:: by now and populated /run/agentlinux-detect.json.
   local cli_out cli_rc
-  cli_out=$(sudo -u agent -H agentlinux install claude-code --yes 2>&1) || cli_rc=$?
+  cli_out=$(sudo -u agent -H bash --login -c 'agentlinux install claude-code --yes' 2>&1) || cli_rc=$?
   cli_rc=${cli_rc:-0}
 
   [[ "$cli_rc" -eq 0 ]] \
@@ -1352,8 +1352,9 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   fi
 
   local cli_out cli_rc=0
-  cli_out=$(sudo -u agent -H AGENTLINUX_CATALOG_DIR="$BROWNFIELD_TMP_CATALOG" \
-    agentlinux install claude-code --yes 2>&1) || cli_rc=$?
+  cli_out=$(sudo -u agent -H \
+    AGENTLINUX_CATALOG_DIR="$BROWNFIELD_TMP_CATALOG" \
+    bash --login -c "AGENTLINUX_CATALOG_DIR='$BROWNFIELD_TMP_CATALOG' agentlinux install claude-code --yes" 2>&1) || cli_rc=$?
 
   # Cleanup before assertions so a fail doesn't leak the overlay.
   teardown_brownfield_remediate04_catalog
@@ -1382,8 +1383,8 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   fi
 
   local cli_out cli_rc=0
-  cli_out=$(sudo -u agent -H AGENTLINUX_CATALOG_DIR="$BROWNFIELD_TMP_CATALOG" \
-    agentlinux install claude-code --yes 2>&1) || cli_rc=$?
+  cli_out=$(sudo -u agent -H \
+    bash --login -c "AGENTLINUX_CATALOG_DIR='$BROWNFIELD_TMP_CATALOG' agentlinux install claude-code --yes" 2>&1) || cli_rc=$?
 
   [[ "$cli_rc" -eq 1 ]] \
     || { teardown_brownfield_remediate04_catalog; __fail "REMEDIATE-04" "half-uninstalled → exit 1" "rc=$cli_rc out=$cli_out" "$LOG"; }
@@ -1398,7 +1399,7 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
 
   # list.ts renders the suffix.
   local list_out
-  list_out=$(sudo -u agent -H AGENTLINUX_CATALOG_DIR="$BROWNFIELD_TMP_CATALOG" agentlinux list 2>&1)
+  list_out=$(sudo -u agent -H bash --login -c "AGENTLINUX_CATALOG_DIR='$BROWNFIELD_TMP_CATALOG' agentlinux list" 2>&1)
   teardown_brownfield_remediate04_catalog
 
   echo "$list_out" | grep -qF "broken — half-uninstalled, manual recovery needed" \
@@ -1419,7 +1420,7 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   fi
 
   local cli_out cli_rc=0
-  cli_out=$(sudo -u agent -H agentlinux install claude-code </dev/null 2>&1) || cli_rc=$?
+  cli_out=$(sudo -u agent -H bash --login -c 'agentlinux install claude-code </dev/null' 2>&1) || cli_rc=$?
 
   [[ "$cli_rc" -eq 65 ]] \
     || __fail "REMEDIATE-04" "non-TTY without --yes → exit 65" "rc=$cli_rc out=$cli_out" "$LOG"

@@ -66,6 +66,25 @@ _rm -f "${AGENTLINUX_AGENT_HOME}/.local/bin/claude"
 _rm -rf "${AGENTLINUX_AGENT_HOME}/.local/share/claude"
 _rm -rf "${AGENTLINUX_AGENT_HOME}/.claude/downloads"
 
+# Plan 14-03 (REMEDIATE-04 PATH-MISMATCH): also tear down the npm-installed
+# variant at ~/.npm-global/bin/claude. The native installer is canonical (per
+# CANONICAL_PATHS in plugin/cli/src/commands/install.ts) but operators on
+# brownfield hosts may have installed via `npm install -g @anthropic-ai/
+# claude-code` (PATH-MISMATCH at ~/.npm-global/bin/claude). REMEDIATE-04
+# expects this uninstall.sh to teardown BOTH variants so the post-uninstall
+# T-14-05 verification passes (canonical AND detected_path absent).
+#
+# `npm uninstall -g` is idempotent (silent no-op when package not installed)
+# and uses the agent-owned ~/.npm-global prefix (NPM_CONFIG_PREFIX inherited
+# from runner.ts dispatchRecipe env). The package name matches the upstream
+# Anthropic package; if the package isn't installed via npm, this is a no-op.
+if command -v npm >/dev/null 2>&1; then
+  npm uninstall -g @anthropic-ai/claude-code --no-fund --no-audit >/dev/null 2>&1 || true
+fi
+# Clear bash command-name cache so subsequent `command -v claude` reflects
+# on-disk state, not the path bash hashed before this uninstall.
+hash -r 2>/dev/null || true
+
 # Intentionally NOT removed (user data; matches Anthropic's uninstall-config
 # warning): ~/.claude/, ~/.claude.json. Users wanting a full wipe run the
 # documented steps manually; INST-04 --purge sweeps the entire agent home.
