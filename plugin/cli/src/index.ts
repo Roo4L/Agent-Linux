@@ -72,6 +72,14 @@ program
   // invocations). NO env-var equivalent — T-14-12 mitigation verified by
   // bats grep for AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES.
   .option("--yes", "approve state-overwriting REMEDIATE-04 (uninstall + reinstall) in non-TTY mode")
+  // Plan 15-01 (UX-01 / D-15-01): preview the install decision (reuse |
+  // remediate | create) without dispatching install.sh; exits 0. Parallels
+  // the bash entrypoint's --dry-run. D-15-04: contradicts --yes (exit 64) —
+  // the symmetric guard fires at the top of installCmd.
+  .option(
+    "--dry-run",
+    "preview the install decision (reuse|remediate|create) without dispatching install.sh; exits 0",
+  )
   .action(async (name: string, opts) => {
     await installCmd(name, opts);
   });

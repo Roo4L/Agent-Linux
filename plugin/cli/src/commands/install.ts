@@ -36,6 +36,12 @@ export interface InstallOpts {
   // cron, curl|bash); interactive sessions skip the gate. CLI never reads
   // AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES env vars (T-14-12 / T-14-01).
   yes?: boolean;
+  // Plan 15-01 (UX-01 / D-15-01): preview the install decision (reuse |
+  // remediate | create) without dispatching install.sh. Parallels the bash
+  // entrypoint's --dry-run flag and exits 0 after emitting the per-agent
+  // summary. D-15-04: --dry-run + --yes is contradictory (exit 64) in both
+  // orders — the guard fires at the top of installCmd.
+  dryRun?: boolean;
 }
 
 // REUSE-03 canonical path map (Plan 13-02). MUST stay byte-identical to the
@@ -188,6 +194,17 @@ export async function installCmd(
   opts: InstallOpts,
   dispatcher?: Dispatcher,
 ): Promise<void> {
+  // Plan 15-01 (D-15-04 / T-15-01-06): --dry-run + --yes is contradictory
+  // in BOTH orders. --dry-run NEVER mutates, --yes is a mutation gate; the
+  // combination is ambiguous and must be rejected upfront with exit 64
+  // EX_USAGE. Mirror the bash entrypoint's symmetric guard in parse_args.
+  if (opts.dryRun && opts.yes) {
+    console.error(
+      "agentlinux install: contradictory flags — --dry-run forbids --yes (dry-run never mutates; --yes is a mutation gate)",
+    );
+    process.exit(64); // EX_USAGE
+  }
+
   const catalog = await loadCatalog({ validate: true });
   const entry = catalog.agents.find((a) => a.id === name);
 
@@ -214,6 +231,46 @@ export async function installCmd(
   }
 
   const existing = await readSentinel(entry.id);
+
+  // Plan 15-01 (UX-01 / D-15-01): --dry-run early-return. Compute the same
+  // tryReuse + tryRemediate decisions a real install would make, render a
+  // [DRY-RUN] summary, and exit 0 WITHOUT calling dispatchRecipe or
+  // writeSentinel. Mirrors the bash entrypoint's main() dry-run branch (which
+  // hooks AFTER collect_all_decisions, BEFORE flush_bails_or_continue). Skips
+  // the --yes consent gate by design — dry-run never mutates so consent does
+  // not apply (D-15-04 rejected the combo as contradictory upstream).
+  if (opts.dryRun) {
+    // Compute decisions the same way the real install path does, but WITHOUT
+    // applying --force / --version / existing-sentinel skip semantics — the
+    // operator wants to see what *would* happen on a normal invocation.
+    const reuseHit = !opts.force && !opts.version && !existing ? tryReuse(entry) : null;
+    const remediateHit = !opts.force && !opts.version && !reuseHit ? tryRemediate(entry) : null;
+    const decision: "reuse" | "remediate" | "create" = reuseHit
+      ? "reuse"
+      : remediateHit
+        ? "remediate"
+        : "create";
+    const wouldAction =
+      decision === "reuse"
+        ? `short-circuit (binary at ${reuseHit?.binary_path ?? "?"})`
+        : decision === "remediate"
+          ? `uninstall + reinstall (reason: ${remediateHit?.reason ?? "?"}; detected at ${remediateHit?.detected_path ?? "?"}; canonical at ${remediateHit?.canonical_path ?? "?"})`
+          : `dispatch install.sh at version ${entry.pinned_version}`;
+    const summary = {
+      id: entry.id,
+      decision,
+      detected_path: remediateHit?.detected_path ?? reuseHit?.binary_path ?? null,
+      canonical_path: remediateHit?.canonical_path ?? null,
+      pinned_version: entry.pinned_version,
+      would_action: wouldAction,
+    };
+    if (opts.json) {
+      console.log(JSON.stringify(summary, null, 2));
+    } else {
+      console.log(`[DRY-RUN] ${entry.id}: ${decision} — would ${wouldAction}`);
+    }
+    return; // exit 0; no dispatchRecipe, no writeSentinel
+  }
 
   // REUSE-03 pre-runner check (Plan 13-02). Phase 12 cache at the path resolved
   // by detectCachePath() is populated by the bash entrypoint's detect::run_once.

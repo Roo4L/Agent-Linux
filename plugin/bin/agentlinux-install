@@ -95,6 +95,13 @@ Options:
                         CI wrappers can toggle consent from a variable
                         without rebuilding argv. Contradicts --yes (the
                         installer exits with usage error in that case).
+      --dry-run         Run detection + decisions, print the pre-flight
+                        report, exit 0 WITHOUT mutating host state. Covers
+                        the full Phase 12-14 decision pipeline (bails
+                        surface IN the report, NOT as exit code). Useful
+                        before a real install to preview what will happen.
+                        Contradicts --yes (exit 64) — dry-run never mutates,
+                        --yes is a mutation gate.
 
 The installer must run as root. Supported hosts: Ubuntu 22.04, 24.04 and 26.04.
 Transcript: ${LOG_FILE}
@@ -208,6 +215,14 @@ INSTALL_USER=agent
 # unambiguous; no "last flag wins" fallback).
 YES_FLAG=false
 YES_FLAG_EXPLICIT_NO=false
+# Phase 15 (Plan 15-01 — UX-01 / D-15-01): --dry-run flag state. When true,
+# main() runs detect::run_once + remediate::collect_all_decisions +
+# detect::emit_report and exits 0 BEFORE flush_bails_or_continue and
+# run_provisioners — observably non-mutating. T-15-01-02 mitigation is the
+# byte-identical snapshot @test that proves this branch performs zero host
+# mutation. D-15-04: --dry-run + --yes is contradictory (exit 64) in both
+# orders — see the symmetric guards in parse_args below.
+DRY_RUN_REQUESTED=false
 
 # parse_args — handle flags that either mutate installer state (--verbose,
 # --purge, --remove-nodejs) or need the log transcript for diagnostics
@@ -271,7 +286,24 @@ parse_args() {
           log_error "agentlinux-install: contradictory flags — --no-yes preceded --yes"
           exit "$EX_USAGE"
         fi
+        # Phase 15 Plan 15-01 (D-15-04 symmetric / T-15-01-06): --yes after
+        # --dry-run is also contradictory — --dry-run never mutates, --yes is
+        # a mutation gate. Symmetric to the --dry-run case-arm below.
+        if [[ "$DRY_RUN_REQUESTED" == true ]]; then
+          log_error "agentlinux-install: contradictory flags — --dry-run forbids --yes (dry-run never mutates; --yes is a mutation gate)"
+          exit "$EX_USAGE"
+        fi
         YES_FLAG=true
+        ;;
+      --dry-run)
+        # Phase 15 Plan 15-01 (D-15-04 / T-15-01-06): --dry-run forbids --yes.
+        # If --yes was already passed, reject before flipping the flag — argv
+        # must be unambiguous about whether mutation is allowed.
+        if [[ "$YES_FLAG" == true ]]; then
+          log_error "agentlinux-install: contradictory flags — --dry-run forbids --yes (dry-run never mutates; --yes is a mutation gate)"
+          exit "$EX_USAGE"
+        fi
+        DRY_RUN_REQUESTED=true
         ;;
       --no-yes)
         # Symmetric T-14-02: --yes-then-no-yes also rejected.
@@ -533,6 +565,23 @@ main() {
   # shellcheck source=../lib/remediate.sh
   . "$LIB_DIR/remediate.sh"
   remediate::collect_all_decisions
+  # Phase 15 (Plan 15-01 — UX-01 / D-15-01): --dry-run early-return. Runs AFTER
+  # collect_all_decisions (so the report reflects every decision the real
+  # install would have made — including state-overwriting Remediates that
+  # would otherwise have been gated by --yes) and BEFORE
+  # flush_bails_or_continue (D-15-01: bails surface IN the report, NOT via
+  # exit code 65). Always exits 0 — preview semantic, mirrors `terraform plan`
+  # / `apt --simulate` Unix conventions. T-15-01-02 mitigation: by exiting
+  # before flush_bails_or_continue + run_provisioners, this branch performs
+  # ZERO host mutation; the no-mutation snapshot @test in
+  # tests/bats/15-preflight-ux.bats Test 3 proves the invariant byte-for-byte
+  # against /etc/sudoers.d, /home, /etc/passwd.
+  if [[ "$DRY_RUN_REQUESTED" == true ]]; then
+    log_info "[DRY-RUN] pre-flight report (no host mutation):"
+    detect::emit_report "$REPORT_FORMAT"
+    log_info "[DRY-RUN] exit 0 (no mutation; re-run without --dry-run to apply)"
+    exit 0
+  fi
   remediate::flush_bails_or_continue
   run_provisioners
   log_info "agentlinux-install complete (transcript: ${LOG_FILE})"
