@@ -121,4 +121,30 @@ describe("sentinel roundtrip + atomicity", () => {
     assert.equal(got?.binary_path, "/home/agent/.local/bin/claude");
     assert.equal(got?.compatibility_window_at_reuse, ">=2.0.0 <3.0.0");
   });
+
+  // Plan 14-03 (REMEDIATE-04): broken-after-remediate is the terminal state
+  // reached when uninstall.sh succeeded but the follow-up install.sh failed.
+  // The sentinel is forensic — list.ts renders it with the half-uninstalled
+  // suffix; install.ts writes it from the REMEDIATE branch's catch site.
+  // Roundtrip preserves the new status union value + the remediated_at +
+  // remediate_failure_reason fields.
+  test("widened Sentinel accepts broken-after-remediate status with remediated_at + remediate_failure_reason fields (REMEDIATE-04)", async () => {
+    const brokenSentinel: Sentinel = {
+      ...baseSentinel,
+      id: "claude-code",
+      version: "2.1.98",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-24T00:00:00.000Z",
+      status: "broken-after-remediate",
+      remediated_at: "2026-05-24T00:00:00.000Z",
+      remediate_failure_reason: "install-failed-post-uninstall",
+    };
+    await writeSentinel(brokenSentinel);
+    const got = await readSentinel("claude-code");
+    assert.deepEqual(got, brokenSentinel);
+    assert.equal(got?.status, "broken-after-remediate");
+    assert.equal(got?.remediated_at, "2026-05-24T00:00:00.000Z");
+    assert.equal(got?.remediate_failure_reason, "install-failed-post-uninstall");
+  });
 });

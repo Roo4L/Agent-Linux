@@ -29,6 +29,13 @@ export interface InstallOpts {
   version?: string;
   json?: boolean;
   includeTest?: boolean;
+  // Plan 14-03 (REMEDIATE-04 + T-14-12): consent surface for state-overwriting
+  // REMEDIATE-04 (uninstall + reinstall a broken/path-mismatched catalog agent).
+  // The CLI's --yes is INDEPENDENT of the bash entrypoint's --yes — they're
+  // separate operator invocations. Required when stdin is NOT a TTY (CI,
+  // cron, curl|bash); interactive sessions skip the gate. CLI never reads
+  // AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES env vars (T-14-12 / T-14-01).
+  yes?: boolean;
 }
 
 // REUSE-03 canonical path map (Plan 13-02). MUST stay byte-identical to the
@@ -49,6 +56,22 @@ interface ReuseHit {
   binary_path: string;
   version: string;
   detected_source: string;
+}
+
+// Plan 14-03 (REMEDIATE-04): tryRemediate return shape. The reason discriminates
+// between the two trigger paths so the [REMEDIATE-04] log line is precise:
+//   - "broken"        — detect cache reports status=broken (binary present but
+//                       --version exits non-zero, OR path doesn't resolve)
+//   - "path-mismatch" — detect cache reports status=healthy BUT the resolved
+//                       path differs from CANONICAL_PATHS[id] (e.g. claude
+//                       installed via `npm install -g` lands at
+//                       ~/.npm-global/bin/claude instead of the canonical
+//                       ~/.local/bin/claude — exactly the PATH-MISMATCH case
+//                       that motivates this entire feature)
+interface RemediateHit {
+  reason: "broken" | "path-mismatch";
+  detected_path: string;
+  canonical_path: string;
 }
 
 interface DetectCacheAgent {
@@ -116,6 +139,50 @@ function tryReuse(entry: CatalogEntry): ReuseHit | null {
   };
 }
 
+// Plan 14-03 (REMEDIATE-04) pre-runner check. Mirrors tryReuse's cache-reader
+// shape but with INVERSE discriminator: triggers on the "broken catalog agent"
+// path OR the "PATH-MISMATCH" path (status=healthy but detected path !=
+// canonical). Both signals mean "AgentLinux is in charge — uninstall + reinstall
+// at the canonical location".
+//
+// Returns null when:
+//   - cache absent (no detect:: run; greenfield install)
+//   - canonical path not in CANONICAL_PATHS (test_only entry)
+//   - cache parse fails (T-14-10 safe-fall-through; same shape as tryReuse)
+//   - agent absent from cache (greenfield)
+//   - status=absent (greenfield — nothing to remediate)
+//   - status=healthy AND path === canonical (REUSE territory, not REMEDIATE)
+//
+// Returns RemediateHit when:
+//   - status=broken (binary present but unhealthy; REMEDIATE)
+//   - status=healthy AND path != canonical (PATH-MISMATCH; REMEDIATE-04)
+//
+// The version check (compatibility_window) is NOT applied here — REMEDIATE-04
+// reinstalls at entry.pinned_version regardless of the detected version. That's
+// the whole point: the broken/mis-pathed install is being replaced.
+function tryRemediate(entry: CatalogEntry): RemediateHit | null {
+  const cachePath = detectCachePath();
+  if (!existsSync(cachePath)) return null;
+  const canonical = CANONICAL_PATHS[entry.id];
+  if (!canonical) return null;
+  let cache: { agents?: DetectCacheAgent[]; components?: { agents?: DetectCacheAgent[] } };
+  try {
+    cache = JSON.parse(readFileSync(cachePath, "utf8"));
+  } catch {
+    return null;
+  }
+  const agents = cache.agents ?? cache.components?.agents;
+  const detected = agents?.find((a) => a.id === entry.id);
+  if (!detected) return null;
+  if (detected.status === "broken") {
+    return { reason: "broken", detected_path: detected.path, canonical_path: canonical };
+  }
+  if (detected.status === "healthy" && detected.path !== canonical) {
+    return { reason: "path-mismatch", detected_path: detected.path, canonical_path: canonical };
+  }
+  return null;
+}
+
 export async function installCmd(
   name: string,
   opts: InstallOpts,
@@ -177,6 +244,122 @@ export async function installCmd(
     console.log(
       `[REUSE-03] ${entry.id} reused: binary=${reuseHit.binary_path} version=${reuseHit.version} (in window ${entry.compatibility_window}) status=healthy`,
     );
+    return;
+  }
+
+  // Plan 14-03 (REMEDIATE-04 CAT-04): the REMEDIATE branch. After REUSE has had
+  // its chance, check whether the detect cache reports a state that requires
+  // uninstall+reinstall (broken catalog agent OR PATH-MISMATCH). Skip when:
+  //   - opts.force      (--force always installs fresh at the canonical path
+  //                      without consulting detect; mirrors REUSE skip semantic)
+  //   - opts.version    (explicit version override = "I want this exact version",
+  //                      not adoption-via-remediation)
+  // Note: unlike REUSE, REMEDIATE-04 DOES fire even when a sentinel exists —
+  // the existing sentinel tells us "AgentLinux thought it owned this install"
+  // but the detect cache says "but it's broken/mispathed now". Remediating is
+  // the right response.
+  const remediateHit = !opts.force && !opts.version ? tryRemediate(entry) : null;
+  if (remediateHit) {
+    // T-14-12 mitigation: --yes is the SOLE consent surface. CLI never reads
+    // AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES env vars (verified by bats
+    // grep). In TTY mode the gate auto-passes — Phase 15 will add an
+    // interactive `Proceed? [Y/n]` prompt here on top of the same predicate.
+    const isTTY = process.stdin.isTTY === true;
+    if (!opts.yes && !isTTY) {
+      console.error(
+        "Refusing to proceed — 1 component needs Remediate (run with --yes to apply, or --dry-run to preview):\n",
+      );
+      console.error(
+        `[BAIL] component=${entry.id} reason=${remediateHit.reason} hint=run with --yes to reinstall`,
+      );
+      console.error(
+        "\nExit code 65 (EX_DATAERR — incompatible host state). See agentlinux install --help.",
+      );
+      process.exit(65); // EX_DATAERR
+    }
+
+    console.log(
+      `[REMEDIATE-04] ${entry.id} component=${entry.id} reason=${remediateHit.reason} detected_path=${remediateHit.detected_path} canonical_path=${remediateHit.canonical_path} — uninstall + reinstall`,
+    );
+
+    // Step 1: uninstall.sh. Version env carries the existing-sentinel version
+    // when present (so uninstall.sh knows what it's tearing down); falls back
+    // to the catalog's pinned_version when no sentinel exists (e.g. brownfield
+    // claude installed via npm, no AgentLinux sentinel ever written).
+    const uninstallPath = join(catalog.catalogDir, "agents", entry.id, entry.uninstall_recipe_path);
+    const uninstallResult = await dispatchRecipe(
+      {
+        entry,
+        recipePath: uninstallPath,
+        version: existing?.version ?? entry.pinned_version,
+        catalogDir: catalog.catalogDir,
+      },
+      dispatcher,
+    );
+    if (uninstallResult.exitCode !== 0) {
+      console.error(
+        `[REMEDIATE-04:uninstall-fail] ${entry.id} uninstall.sh exited ${uninstallResult.exitCode}`,
+      );
+      if (uninstallResult.stderr) console.error(uninstallResult.stderr);
+      process.exit(1); // runtime
+    }
+
+    // T-14-05 mitigation: post-uninstall verification. uninstall.sh could exit
+    // 0 while leaving the binary at either the canonical path OR the detected
+    // (PATH-MISMATCH) path. Check BOTH — if either still exists, we cannot
+    // proceed to install (would risk double-install / corrupted state).
+    if (existsSync(remediateHit.canonical_path) || existsSync(remediateHit.detected_path)) {
+      console.error(
+        `[REMEDIATE-04:uninstall-incomplete] ${entry.id} uninstall.sh exited 0 but binary still present (canonical=${existsSync(remediateHit.canonical_path)} detected=${existsSync(remediateHit.detected_path)})`,
+      );
+      process.exit(1); // runtime
+    }
+
+    // Step 2: install.sh at the catalog's pinned_version. On failure we land
+    // in the half-uninstalled state (uninstall succeeded, install failed) —
+    // write a broken-after-remediate sentinel as forensic trail + exit 1.
+    const installPath = join(catalog.catalogDir, "agents", entry.id, entry.install_recipe_path);
+    const installResult = await dispatchRecipe(
+      {
+        entry,
+        recipePath: installPath,
+        version: entry.pinned_version,
+        catalogDir: catalog.catalogDir,
+      },
+      dispatcher,
+    );
+    if (installResult.exitCode !== 0) {
+      const now = new Date().toISOString();
+      await writeSentinel({
+        id: entry.id,
+        version: entry.pinned_version,
+        source: "curated",
+        sticky: false,
+        installed_at: now,
+        status: "broken-after-remediate",
+        remediated_at: now,
+        remediate_failure_reason: "install-failed-post-uninstall",
+      });
+      console.error(
+        `[REMEDIATE-04:half-uninstalled] ${entry.id} install.sh exited ${installResult.exitCode} after uninstall succeeded — manual recovery needed (run agentlinux remove ${entry.id} then agentlinux install ${entry.id})`,
+      );
+      if (installResult.stderr) console.error(installResult.stderr);
+      process.exit(1); // runtime
+    }
+    if (installResult.stdout) console.log(installResult.stdout.trimEnd());
+
+    // Step 3: success — write status=installed sentinel + remediated_at trail.
+    const now = new Date().toISOString();
+    await writeSentinel({
+      id: entry.id,
+      version: entry.pinned_version,
+      source: "curated",
+      sticky: false,
+      installed_at: now,
+      status: "installed",
+      remediated_at: now,
+    });
+    console.log(`[REMEDIATE-04] ${entry.id}: reinstalled at ${entry.pinned_version}`);
     return;
   }
 

@@ -270,4 +270,75 @@ describe("listCmd — text + JSON + test_only filter", () => {
       await deleteSentinel("real-agent");
     }
   });
+
+  // Plan 14-03 (REMEDIATE-04): broken-after-remediate sentinel renders with
+  // the half-uninstalled-manual-recovery suffix in the INSTALLED column. The
+  // suffix takes precedence over the reused suffix (mutually exclusive
+  // states). Binding wording matches install.ts's writeSentinel callsite +
+  // bats Test 53.
+  test("REMEDIATE-04: broken-after-remediate sentinel renders the half-uninstalled suffix in text output", async () => {
+    const brokenSentinel: Sentinel = {
+      id: "real-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-24T00:00:00.000Z",
+      status: "broken-after-remediate",
+      remediated_at: "2026-05-24T00:00:00.000Z",
+      remediate_failure_reason: "install-failed-post-uninstall",
+    };
+    await writeSentinel(brokenSentinel);
+    try {
+      const cap = captureStdout();
+      try {
+        await listCmd({});
+      } finally {
+        cap.restore();
+      }
+      const joined = cap.lines.join("\n");
+      // Binding wording — bats Test 53 greps the same literal string.
+      assert.match(joined, /\(broken — half-uninstalled, manual recovery needed\)/);
+      const realRow = cap.lines.find((l) => l.startsWith("real-agent"));
+      assert.ok(realRow);
+      assert.match(realRow ?? "", /broken — half-uninstalled/);
+      // Reused suffix must NOT also appear (mutually exclusive states).
+      assert.doesNotMatch(realRow ?? "", /reused — managed/);
+    } finally {
+      await deleteSentinel("real-agent");
+    }
+  });
+
+  test("REMEDIATE-04: --json includes sentinel_status=broken-after-remediate for tooling", async () => {
+    const brokenSentinel: Sentinel = {
+      id: "real-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-24T00:00:00.000Z",
+      status: "broken-after-remediate",
+      remediated_at: "2026-05-24T00:00:00.000Z",
+      remediate_failure_reason: "install-failed-post-uninstall",
+    };
+    await writeSentinel(brokenSentinel);
+    try {
+      const cap = captureStdout();
+      try {
+        await listCmd({ json: true });
+      } finally {
+        cap.restore();
+      }
+      const parsed = JSON.parse(cap.lines.join("\n"));
+      const row = parsed.find((r: { id: string }) => r.id === "real-agent");
+      assert.ok(row);
+      assert.equal(row.sentinel_status, "broken-after-remediate");
+      // JSON output does NOT carry the text suffix in the installed field
+      // (matches the REUSE-03 JSON-vs-text convention).
+      assert.equal(row.installed, "1.0.0");
+      // reused flag is false (reused implies status === 'reused', not
+      // 'broken-after-remediate').
+      assert.equal(row.reused, false);
+    } finally {
+      await deleteSentinel("real-agent");
+    }
+  });
 });

@@ -84,14 +84,23 @@ export async function listCmd(opts: ListOpts): Promise<void> {
   // form mental models from what they see. The em-dash + parenthesized form
   // is binding wording; bats greps the literal string.
   const REUSED_SUFFIX = " (reused — managed by agentlinux upgrade/remove)";
+  // Plan 14-03 (REMEDIATE-04): broken-after-remediate sentinel renders with a
+  // distinct suffix prompting the user to clean up (uninstall succeeded but
+  // the follow-up install.sh failed). Takes precedence over the reused suffix
+  // — a broken-after-remediate sentinel can never also be reused (the state
+  // transitions are mutually exclusive). Binding wording; bats Test 53 greps
+  // the literal string.
+  const BROKEN_AFTER_REMEDIATE_SUFFIX = " (broken — half-uninstalled, manual recovery needed)";
   const header = ["NAME", "STATUS", "CURATED", "INSTALLED", "DESCRIPTION"];
-  const data = rows.map((r) => [
-    r.id,
-    r.status,
-    r.curated,
-    r.reused ? `${r.installed}${REUSED_SUFFIX}` : r.installed,
-    r.description,
-  ]);
+  const data = rows.map((r) => {
+    let installed = r.installed;
+    if (r.sentinel_status === "broken-after-remediate") {
+      installed = `${r.installed}${BROKEN_AFTER_REMEDIATE_SUFFIX}`;
+    } else if (r.reused) {
+      installed = `${r.installed}${REUSED_SUFFIX}`;
+    }
+    return [r.id, r.status, r.curated, installed, r.description];
+  });
   const all = [header, ...data];
   const widths = header.map((_, i) => Math.max(...all.map((row) => row[i].length)));
   for (const row of all) {

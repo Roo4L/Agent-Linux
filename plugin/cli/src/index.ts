@@ -65,6 +65,13 @@ program
   .option("--force", "re-run install.sh even if sentinel matches")
   .option("--version <semver>", "override catalog pin with a specific version")
   .option("--include-test", "allow installing test-only entries (hidden by default)")
+  // Plan 14-03 (REMEDIATE-04 / T-14-12): consent surface for state-overwriting
+  // REMEDIATE-04 (uninstall + reinstall a broken or PATH-MISMATCH catalog
+  // agent). Required when stdin is NOT a TTY; interactive sessions skip the
+  // gate. Independent of the bash entrypoint's --yes (separate operator
+  // invocations). NO env-var equivalent — T-14-12 mitigation verified by
+  // bats grep for AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES.
+  .option("--yes", "approve state-overwriting REMEDIATE-04 (uninstall + reinstall) in non-TTY mode")
   .action(async (name: string, opts) => {
     await installCmd(name, opts);
   });

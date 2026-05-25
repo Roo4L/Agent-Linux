@@ -416,8 +416,20 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
     assert.equal(s?.status, "installed");
   });
 
-  test("REUSE-03: cache present but path-mismatch -> normal install path", async () => {
+  test("REUSE-03: cache present but path-mismatch -> REMEDIATE-04 fires (Plan 14-03 supersedes prior fall-through)", async () => {
+    // Plan 14-03 (REMEDIATE-04) semantic shift: path-mismatch used to fall
+    // through to install (REUSE-03 returns null → decideVersion → install.sh
+    // at canonical). Now path-mismatch triggers tryRemediate which fires the
+    // REMEDIATE-04 branch — uninstall the brownfield binary, install at the
+    // canonical path. Without --yes in non-TTY we exit 65; with --yes we
+    // get 2 dispatcher calls (uninstall + install).
+    //
+    // NOTE: detected_path must be a path that does NOT exist on the test
+    // host (mocked dispatcher can't actually uninstall it). Otherwise the
+    // T-14-05 verification check fires (uninstall.exitCode=0 but binary
+    // present) → exit 1, which is a different test scenario (see U16).
     const cachePath = join(TMP, "detect-mismatch.json");
+    const nonexistentPath = join(TMP, "fake-mismatched-claude-does-not-exist");
     writeFileSync(
       cachePath,
       JSON.stringify({
@@ -426,8 +438,7 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
             {
               id: "claude-code",
               status: "healthy",
-              // PATH-MISMATCH: ~/.npm-global vs canonical ~/.local/bin
-              path: "/home/agent/.npm-global/bin/claude",
+              path: nonexistentPath, // PATH-MISMATCH but file is absent
               version: "2.1.98",
             },
           ],
@@ -435,14 +446,16 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
       }),
     );
     process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+    // Force non-TTY so the consent gate engages deterministically.
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
     const cap = makeCap();
     const sil = silenceConsole();
     try {
-      await installCmd("claude-code", {}, cap.impl);
+      await installCmd("claude-code", { yes: true }, cap.impl);
     } finally {
       sil.restore();
     }
-    assert.equal(cap.calls.length, 1, "path-mismatch must fall through to install");
+    assert.equal(cap.calls.length, 2, "path-mismatch with --yes → REMEDIATE = uninstall + install");
     const s = await readSentinel("claude-code");
     assert.equal(s?.status, "installed");
   });
@@ -600,5 +613,427 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
     // Use chmodSync to silence the unused-import warning if biome lints it;
     // also documents intent.
     chmodSync(cachePath, 0o600);
+  });
+});
+
+// Plan 14-03 (REMEDIATE-04): tryRemediate pre-runner check + REMEDIATE branch.
+// Same env-override pattern as REUSE-03 tests above (AGENTLINUX_DETECT_CACHE).
+// The DI dispatcher mock lets us assert the uninstall→verify→install ordering
+// without spawning sudo. The fake-agent fixture is used for the failure-mode
+// tests (T-14-05 + half-uninstalled + uninstall-fail) because its catalog
+// entry is in CANONICAL_PATHS — wait, it is NOT, so we need a fake CANONICAL
+// path. Solution: re-use the claude-code entry (canonical path is hardcoded
+// in install.ts so we can't override). The fixture creates a real binary file
+// at the canonical location (via mkdir + writeFile) when we want T-14-05
+// "uninstall exited 0 but binary present"; deletes it before install for the
+// success path. See test setup for details.
+describe("installCmd — REMEDIATE-04 branch (Plan 14-03)", () => {
+  const CANONICAL_CLAUDE = "/home/agent/.local/bin/claude";
+
+  beforeEach(async () => {
+    await rm(STATE_DIR, { recursive: true, force: true });
+    // Reset isTTY between tests — Node sets it lazily based on the underlying
+    // file descriptor; tests need to force the non-TTY path deterministically
+    // because the test runner's stdin may or may not be a TTY depending on
+    // how `pnpm test` was invoked. Default to non-TTY so the --yes gate
+    // tests fire as expected; the TTY-bypass test below flips it true.
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+  });
+
+  after(() => {
+    // biome-ignore lint/performance/noDelete: delete required for process.env
+    delete process.env.AGENTLINUX_DETECT_CACHE;
+  });
+
+  // Helper: stage a detect cache with the given agent state.
+  function stageDetectCache(opts: {
+    id: string;
+    status: "broken" | "healthy" | "absent";
+    path: string;
+    version: string;
+  }): void {
+    const cachePath = join(TMP, `detect-${opts.status}-${Date.now()}-${Math.random()}.json`);
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        components: {
+          agents: [{ id: opts.id, status: opts.status, path: opts.path, version: opts.version }],
+        },
+      }),
+    );
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+  }
+
+  // Helper: replace process.exit with a throwing stub; returns the captured
+  // exit codes + restore fn.
+  function captureExit() {
+    const orig = process.exit;
+    const codes: number[] = [];
+    // biome-ignore lint/suspicious/noExplicitAny: test override of process.exit
+    (process as any).exit = (code?: number) => {
+      codes.push(code ?? 0);
+      throw new Error(`__test_exit_${code}__`);
+    };
+    return {
+      codes,
+      restore: () => {
+        process.exit = orig;
+      },
+    };
+  }
+
+  test("U11: tryRemediate returns null when status=healthy + canonical path → REUSE-eligible, not REMEDIATE", async () => {
+    // status=healthy at the CANONICAL path → tryReuse fires (or null because
+    // statSync fails on /home/agent/), and tryRemediate returns null. Asserted
+    // via: cap.calls.length === 1 (normal install path runs, not REMEDIATE
+    // 2-step uninstall+install dance which would be 2).
+    stageDetectCache({
+      id: "claude-code",
+      status: "healthy",
+      path: CANONICAL_CLAUDE,
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(
+      cap.calls.length,
+      1,
+      "healthy+canonical → normal install (1 call), NOT REMEDIATE (2 calls)",
+    );
+    // The transcript should NOT carry a [REMEDIATE-04] log line.
+    assert.doesNotMatch(sil.out.join("\n"), /\[REMEDIATE-04\]/);
+  });
+
+  test("U12: tryRemediate returns null when agent absent from cache → no REMEDIATE fires", async () => {
+    // Cache mentions a different agent (gsd). claude-code is absent from
+    // the cache → tryRemediate returns null → normal install path runs.
+    stageDetectCache({
+      id: "gsd",
+      status: "broken",
+      path: "/home/agent/.npm-global/bin/get-shit-done-cc",
+      version: "1.37.1",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 1, "agent-absent from cache → normal install");
+    assert.doesNotMatch(sil.out.join("\n"), /\[REMEDIATE-04\]/);
+  });
+
+  test("U13: tryRemediate returns RemediateHit when status=broken → REMEDIATE branch fires (uninstall + install)", async () => {
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: CANONICAL_CLAUDE,
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    // REMEDIATE branch: uninstall.sh then install.sh = exactly 2 dispatcher calls.
+    assert.equal(cap.calls.length, 2, "REMEDIATE = uninstall + install = 2 calls");
+    assert.ok(cap.calls[0].argv[1].endsWith("/uninstall.sh"), "first call is uninstall.sh");
+    assert.ok(cap.calls[1].argv[1].endsWith("/install.sh"), "second call is install.sh");
+    assert.match(sil.out.join("\n"), /\[REMEDIATE-04\].*reason=broken/);
+    const s = await readSentinel("claude-code");
+    assert.equal(s?.status, "installed");
+    assert.ok(s?.remediated_at, "remediated_at trail recorded on success");
+  });
+
+  test("U14: tryRemediate returns RemediateHit when status=healthy + PATH-MISMATCH → REMEDIATE branch fires", async () => {
+    // PATH-MISMATCH: status=healthy but detected at a non-canonical path.
+    // Use a tmp path (not /home/agent/.npm-global/bin/claude) so the T-14-05
+    // post-uninstall existsSync check doesn't trip on a host-resident
+    // brownfield install (the test env may have npm-installed claude).
+    // The brownfield E2E coverage of the actual ~/.npm-global path lives in
+    // bats Test 51 (real container, real filesystem state).
+    const tmpMismatchPath = join(TMP, "bf-claude-not-on-disk-u14");
+    stageDetectCache({
+      id: "claude-code",
+      status: "healthy",
+      path: tmpMismatchPath,
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 2, "REMEDIATE-04 PATH-MISMATCH = uninstall + install");
+    assert.match(sil.out.join("\n"), /\[REMEDIATE-04\].*reason=path-mismatch/);
+    assert.match(
+      sil.out.join("\n"),
+      new RegExp(`detected_path=${tmpMismatchPath.replace(/\//g, "\\/")}`),
+    );
+  });
+
+  test("U15: REMEDIATE happy path order — uninstall.sh dispatched FIRST, then install.sh, then status=installed sentinel", async () => {
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: CANONICAL_CLAUDE,
+      version: "1.5.0",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 2);
+    assert.ok(cap.calls[0].argv[1].endsWith("/uninstall.sh"), "[0] is uninstall");
+    assert.ok(cap.calls[1].argv[1].endsWith("/install.sh"), "[1] is install");
+    // install dispatch carries entry.pinned_version (2.1.98), NOT the
+    // detected 1.5.0 — REMEDIATE reinstalls at the catalog pin.
+    assert.equal(cap.calls[1].env.AGENTLINUX_PINNED_VERSION, "2.1.98");
+    const s = await readSentinel("claude-code");
+    assert.equal(s?.status, "installed");
+    assert.equal(s?.version, "2.1.98");
+  });
+
+  test("U16: T-14-05 — uninstall.sh exit 0 BUT binary still present → exit 1 + [REMEDIATE-04:uninstall-incomplete]; install NOT dispatched", async () => {
+    // The detected path needs to exist on disk for T-14-05 to fire (post-
+    // uninstall verification check). We stage the cache pointing at a real
+    // file inside TMP (so existsSync returns true) but the canonical path
+    // points to /home/agent/ which doesn't exist in test env → only the
+    // detected_path triggers the check.
+    const fakeBinary = join(TMP, "fake-claude");
+    writeFileSync(fakeBinary, "#!/bin/sh\necho fake\n", { mode: 0o755 });
+    stageDetectCache({
+      id: "claude-code",
+      status: "healthy",
+      path: fakeBinary,
+      version: "2.1.98",
+    });
+    const cap = makeCap({ exitCode: 0, stdout: "", stderr: "" });
+    const exit = captureExit();
+    const sil = silenceConsole();
+    try {
+      await assert.rejects(
+        () => installCmd("claude-code", { yes: true }, cap.impl),
+        /__test_exit_1__/,
+      );
+    } finally {
+      sil.restore();
+      exit.restore();
+    }
+    assert.deepEqual(exit.codes, [1]);
+    assert.match(sil.err.join("\n"), /\[REMEDIATE-04:uninstall-incomplete\]/);
+    assert.equal(cap.calls.length, 1, "install.sh NOT dispatched after T-14-05 detection");
+    // Clean up the fake binary so subsequent tests don't trip the verification.
+    await rm(fakeBinary, { force: true });
+  });
+
+  test("U17: uninstall.sh exits non-zero → exit 1 + [REMEDIATE-04:uninstall-fail]; install NOT dispatched", async () => {
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: "/home/agent/.local/bin/claude",
+      version: "2.1.98",
+    });
+    // Dispatcher: uninstall fails (exitCode=3). We want to bail BEFORE any
+    // install attempt. Cap counts confirm only 1 dispatch.
+    const cap = makeCap({ exitCode: 3, stdout: "", stderr: "uninstall boom" });
+    const exit = captureExit();
+    const sil = silenceConsole();
+    try {
+      await assert.rejects(
+        () => installCmd("claude-code", { yes: true }, cap.impl),
+        /__test_exit_1__/,
+      );
+    } finally {
+      sil.restore();
+      exit.restore();
+    }
+    assert.deepEqual(exit.codes, [1]);
+    assert.match(sil.err.join("\n"), /\[REMEDIATE-04:uninstall-fail\]/);
+    assert.equal(cap.calls.length, 1, "install.sh NOT dispatched after uninstall-fail");
+  });
+
+  test("U18: uninstall OK + install fails → broken-after-remediate sentinel + exit 1 + [REMEDIATE-04:half-uninstalled]", async () => {
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: "/home/agent/.local/bin/claude",
+      version: "2.1.98",
+    });
+    // Dispatcher that succeeds on first call (uninstall) and fails on second (install).
+    let callIndex = 0;
+    const cap = makeCap();
+    const failingDispatcher: Dispatcher = async (user, argv, opts) => {
+      cap.calls.push({ user, argv, env: { ...opts.env } });
+      callIndex++;
+      if (callIndex === 1) return { exitCode: 0, stdout: "", stderr: "" };
+      return { exitCode: 5, stdout: "", stderr: "install boom" };
+    };
+    const exit = captureExit();
+    const sil = silenceConsole();
+    try {
+      await assert.rejects(
+        () => installCmd("claude-code", { yes: true }, failingDispatcher),
+        /__test_exit_1__/,
+      );
+    } finally {
+      sil.restore();
+      exit.restore();
+    }
+    assert.deepEqual(exit.codes, [1]);
+    assert.match(sil.err.join("\n"), /\[REMEDIATE-04:half-uninstalled\]/);
+    assert.equal(cap.calls.length, 2, "both uninstall AND install dispatched");
+    const s = await readSentinel("claude-code");
+    assert.ok(s, "sentinel written for forensic trail");
+    assert.equal(s?.status, "broken-after-remediate");
+    assert.equal(s?.remediate_failure_reason, "install-failed-post-uninstall");
+    assert.ok(s?.remediated_at);
+  });
+
+  test("U19: REMEDIATE without --yes in non-TTY → [BAIL] + exit 65; uninstall+install NOT dispatched", async () => {
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: "/home/agent/.local/bin/claude",
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const exit = captureExit();
+    const sil = silenceConsole();
+    try {
+      await assert.rejects(() => installCmd("claude-code", {}, cap.impl), /__test_exit_65__/);
+    } finally {
+      sil.restore();
+      exit.restore();
+    }
+    assert.deepEqual(exit.codes, [65]);
+    const errOut = sil.err.join("\n");
+    assert.match(errOut, /Refusing to proceed/);
+    assert.match(errOut, /\[BAIL\] component=claude-code reason=broken/);
+    assert.match(errOut, /Exit code 65/);
+    assert.equal(cap.calls.length, 0, "no dispatch when --yes absent in non-TTY mode");
+  });
+
+  test("U20: REMEDIATE with --yes proceeds → uninstall+install dispatched", async () => {
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: "/home/agent/.local/bin/claude",
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 2, "--yes lets the REMEDIATE branch proceed");
+    const s = await readSentinel("claude-code");
+    assert.equal(s?.status, "installed");
+  });
+
+  test("U21: REMEDIATE bypassed when opts.force is true (force always installs fresh, never remediates)", async () => {
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: "/home/agent/.local/bin/claude",
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { force: true, yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    // --force = single install.sh dispatch, NOT the 2-step REMEDIATE.
+    assert.equal(cap.calls.length, 1);
+    assert.ok(
+      cap.calls[0].argv[1].endsWith("/install.sh"),
+      "single install.sh dispatch under --force",
+    );
+  });
+
+  test("U22: REMEDIATE bypassed when opts.version is set (explicit version override)", async () => {
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: "/home/agent/.local/bin/claude",
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { version: "2.0.5", yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 1, "--version → single install.sh dispatch (no REMEDIATE)");
+    assert.ok(cap.calls[0].argv[1].endsWith("/install.sh"));
+  });
+
+  test("REMEDIATE in TTY mode without --yes auto-passes the gate", async () => {
+    // Force isTTY=true → consent gate bypasses for interactive sessions.
+    // (Phase 15 will replace the auto-pass with an interactive prompt.)
+    Object.defineProperty(process.stdin, "isTTY", { value: true, configurable: true });
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: "/home/agent/.local/bin/claude",
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", {}, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 2, "TTY mode auto-passes the --yes gate");
+  });
+
+  test("T-14-12 grep: install.ts does not consult AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES env vars", async () => {
+    // Defense-in-depth: even if a malicious env var is set, it must NOT
+    // bypass the --yes gate.
+    process.env.AGENTLINUX_YES = "1";
+    process.env.ALWAYS_YES = "1";
+    process.env.ASSUME_YES = "1";
+    stageDetectCache({
+      id: "claude-code",
+      status: "broken",
+      path: "/home/agent/.local/bin/claude",
+      version: "2.1.98",
+    });
+    const cap = makeCap();
+    const exit = captureExit();
+    const sil = silenceConsole();
+    try {
+      await assert.rejects(() => installCmd("claude-code", {}, cap.impl), /__test_exit_65__/);
+    } finally {
+      sil.restore();
+      exit.restore();
+      // biome-ignore lint/performance/noDelete: delete required for process.env
+      delete process.env.AGENTLINUX_YES;
+      // biome-ignore lint/performance/noDelete: delete required for process.env
+      delete process.env.ALWAYS_YES;
+      // biome-ignore lint/performance/noDelete: delete required for process.env
+      delete process.env.ASSUME_YES;
+    }
+    assert.deepEqual(exit.codes, [65], "env vars MUST NOT bypass --yes gate (T-14-12)");
+    assert.equal(cap.calls.length, 0);
   });
 });
