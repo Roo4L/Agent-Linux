@@ -14,6 +14,7 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v claude && claude --version",
+      "preserve_paths_file": "preserve_paths.json",
       "tags": ["agent", "anthropic"]
     },
     {
@@ -29,6 +30,7 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v get-shit-done-cc",
+      "preserve_paths_file": "preserve_paths.json",
       "tags": ["workflow", "productivity"]
     },
     {
@@ -44,6 +46,7 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v playwright-cli && playwright-cli --version",
+      "preserve_paths_file": "preserve_paths.json",
       "tags": ["browser", "automation", "agent-skill"]
     },
     {

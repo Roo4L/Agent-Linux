@@ -66,6 +66,11 @@
           "type": "string",
           "description": "Optional shell one-liner for smoke-test"
         },
+        "preserve_paths_file": {
+          "type": "string",
+          "pattern": "^[a-z0-9_./-]+\\.json$",
+          "description": "Optional path (relative to the agent's catalog dir) to a sibling preserve_paths.json. Loader injects the listed paths into AGENTLINUX_PRESERVE_PATHS env var for uninstall.sh (Plan 14-03, REMEDIATE-04 CAT-04). Absent → no paths preserved across REMEDIATE-04 reinstall."
+        },
         "tags": { "type": "array", "items": { "type": "string" } },
         "test_only": {
           "type": "boolean",

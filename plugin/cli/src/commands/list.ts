@@ -33,7 +33,11 @@ interface Row {
   // a `(reused — managed by agentlinux upgrade/remove)` suffix on the
   // INSTALLED column to disclose this contract to users (CONTEXT.md Area 2 Q2).
   reused: boolean;
-  sentinel_status?: "installed" | "reused";
+  // Plan 14-03 (REMEDIATE-04): widened to include "broken-after-remediate".
+  // The text renderer appends `(broken — half-uninstalled, manual recovery
+  // needed)` when the sentinel reports this state; the JSON output carries
+  // the value verbatim for tooling.
+  sentinel_status?: "installed" | "reused" | "broken-after-remediate";
 }
 
 function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {

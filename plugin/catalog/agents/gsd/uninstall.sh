@@ -1,8 +1,49 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # gsd uninstall.sh — symmetric inverse. npm uninstall -g is idempotent.
+#
+# Plan 14-03 (REMEDIATE-04 CAT-04): AGENTLINUX_PRESERVE_PATHS contains
+# `.gsd:.config/get-shit-done` for this agent so the rm-skipping helper
+# preserves user workflow state across REMEDIATE-04 reinstall. Bats Test 49
+# verifies the gsd preserve set survives the helper invocation.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
+
+# _should_remove <abs-path>
+#
+# Returns 0 (true → proceed with rm) iff <abs-path> is NOT in or under any
+# entry of AGENTLINUX_PRESERVE_PATHS. The env var is a colon-separated list
+# of HOME-relative paths (already normalized + traversal-rejected by the
+# loader). Empty env var means "no preserves" → always return 0.
+#
+# Descendant rule: if a preserved entry P is the target T, OR T is anywhere
+# beneath P (T starts with "${HOME}/${P}/"), the rm is skipped.
+_should_remove() {
+  local target=$1
+  [[ -z "${AGENTLINUX_PRESERVE_PATHS:-}" ]] && return 0
+  local t_strip="${target%/}"
+  local IFS=:
+  local preserved
+  for preserved in $AGENTLINUX_PRESERVE_PATHS; do
+    local p_strip="${preserved%/}"
+    if [[ "$t_strip" == "${AGENTLINUX_AGENT_HOME}/${p_strip}" \
+       || "$t_strip" == "${AGENTLINUX_AGENT_HOME}/${p_strip}/"* ]]; then
+      return 1
+    fi
+  done
+  return 0
+}
+
+# _rm_path — wraps rm with the _should_remove gate. find -exec uses a
+# separate path-skipping helper below since it operates per-entry.
+_rm_path() {
+  local mode=$1 target=$2
+  if _should_remove "$target"; then
+    rm "$mode" -- "$target"
+  else
+    echo "gsd uninstall: preserving ${target} (AGENTLINUX_PRESERVE_PATHS)"
+  fi
+}
 
 echo "gsd: removing get-shit-done-cc"
 
@@ -24,9 +65,17 @@ fi
 # leave settings.json + hooks alone (user-edited surface; touching it could
 # clobber non-GSD config). The user can `rm ~/.claude/settings.json` if they
 # want a clean slate.
-find "${AGENTLINUX_AGENT_HOME}/.claude/skills" -maxdepth 1 -type d -name 'gsd-*' \
-  -exec rm -rf {} + 2>/dev/null \
-  || true
+# find -exec is replaced with a loop so each match runs through _should_remove.
+# Plan 14-03: ~/.claude/skills/gsd-* skill dirs are under ~/.claude/, NOT
+# under either preserved root (~/.gsd or ~/.config/get-shit-done), so the
+# gate returns true and rm proceeds — matching the pre-Plan-14-03 behavior.
+while IFS= read -r -d '' skill_dir; do
+  if _should_remove "$skill_dir"; then
+    rm -rf -- "$skill_dir" 2>/dev/null || true
+  else
+    echo "gsd uninstall: preserving ${skill_dir} (AGENTLINUX_PRESERVE_PATHS)"
+  fi
+done < <(find "${AGENTLINUX_AGENT_HOME}/.claude/skills" -maxdepth 1 -type d -name 'gsd-*' -print0 2>/dev/null)
 
 # Step 3: npm uninstall -g on a missing package exits 0 with "up to date"
 # — idempotent. Real truth check is `command -v` below.

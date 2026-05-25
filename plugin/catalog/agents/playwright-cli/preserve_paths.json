@@ -1,0 +1,6 @@
+{
+  "preserve_paths": [
+    "~/.cache/ms-playwright/"
+  ],
+  "comment": "Playwright browser binaries — expensive to re-download. Survives REMEDIATE-04 uninstall+reinstall per CAT-04."
+}

@@ -1,0 +1,7 @@
+{
+  "preserve_paths": [
+    "~/.claude/",
+    "~/.config/claude/"
+  ],
+  "comment": "User credentials, session state, and per-user configuration. Survives REMEDIATE-04 uninstall+reinstall per CAT-04. BEHAVIOR SHIFT (Plan 14-03): ~/.claude/downloads is now preserved across uninstall (was previously removed by uninstall.sh) — see 14-AUDIT.md CAT-04 behavior shift note."
+}

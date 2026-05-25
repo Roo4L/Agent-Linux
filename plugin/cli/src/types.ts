@@ -22,6 +22,15 @@ export interface CatalogEntry {
   install_recipe_path: string; // e.g. 'install.sh'
   uninstall_recipe_path: string; // e.g. 'uninstall.sh'
   post_install_verify?: string;
+  // Plan 14-03 (REMEDIATE-04 CAT-04): optional sibling-file pointer (relative
+  // to the agent's catalog dir, e.g. 'preserve_paths.json'). When set, the
+  // loader reads + normalizes the listed home-relative paths and exposes them
+  // as `preserve_paths`. The runner.ts dispatcher joins them with ':' and
+  // injects AGENTLINUX_PRESERVE_PATHS into install.sh + uninstall.sh env so
+  // catalog uninstall.sh's _should_remove helper can skip user-data dirs
+  // during REMEDIATE-04 reinstall.
+  preserve_paths_file?: string;
+  preserve_paths?: string[]; // normalized list — empty/undefined when no file
   tags?: string[];
   test_only?: boolean; // hide from default `list`; exercised by bats (CAT-02 test-dummy)
 }
@@ -42,11 +51,27 @@ export interface Sentinel {
   // install rather than running install.sh. Optional + defaults-to-"installed"
   // for backwards-compat with Phase 4-shipped sentinels (which have no status
   // field; readSentinel treats missing as "installed").
-  status?: "installed" | "reused";
+  //
+  // Plan 14-03 (REMEDIATE-04): widened to include "broken-after-remediate" —
+  // the terminal state reached when uninstall.sh succeeded but the follow-up
+  // install.sh failed. list.ts renders this with the
+  // ` (broken — half-uninstalled, manual recovery needed)` suffix; user must
+  // intervene manually (`agentlinux remove <id>` to clean up the sentinel,
+  // then a fresh `agentlinux install <id>`).
+  status?: "installed" | "reused" | "broken-after-remediate";
   binary_path?: string; // canonical-path-matched binary; only set when status="reused"
   detected_source?: string; // e.g., "pre-existing"; only set when status="reused"
   reused_at?: string; // ISO-8601; only set when status="reused"
   compatibility_window_at_reuse?: string; // semver range at adoption time (audit trail); only set when status="reused"
+  // Plan 14-03 (REMEDIATE-04): ISO-8601 timestamp of the most recent
+  // remediation attempt. Set on BOTH the success path (status="installed",
+  // record-keeping) and the half-uninstalled failure path
+  // (status="broken-after-remediate", forensic trail).
+  remediated_at?: string;
+  // Plan 14-03 (REMEDIATE-04): short token explaining why remediation landed
+  // in the broken-after-remediate state. Currently the only value is
+  // "install-failed-post-uninstall"; future Remediate paths may add more.
+  remediate_failure_reason?: string;
 }
 
 export interface VersionDecision {
