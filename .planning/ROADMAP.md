@@ -29,7 +29,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
 
 - [x] **Phase 12: Detection Layer** — Read-only discovery primitives covering install user, Node.js sources, npm prefix, catalog agents, sudoers drop-in; pre-flight report in human text + stable JSON. (completed 2026-05-11)
 - [x] **Phase 13: Reuse Wiring** — Plumb DET output into existing provisioners and the recipe runner so they short-circuit when detected components match contract; first end-to-end brownfield smoke. (completed 2026-05-20)
-- [ ] **Phase 14: Remediate + Consent Flag + Exit Codes** — Mutating fix paths (chown npm prefix, refresh PATH wiring, install missing/drifted sudoers, reinstall broken catalog agent), single `--yes` consent flag for non-TTY mode (Unix-convention, matching `apt install -y`), structured exit codes 64/65/1 that downstream phases honor. Per-action TTY prompts land in Phase 15.
+- [x] **Phase 14: Remediate + Consent Flag + Exit Codes** — Mutating fix paths (chown npm prefix, refresh PATH wiring, install missing/drifted sudoers, reinstall broken catalog agent), single `--yes` consent flag for non-TTY mode (Unix-convention, matching `apt install -y`), structured exit codes 64/65/1 that downstream phases honor. Per-action TTY prompts land in Phase 15. (completed 2026-05-25)
 - [ ] **Phase 15: Pre-flight UX** — `--dry-run`, interactive `Proceed? [y/N]` for state-overwriting actions, alt-user-name prompt for incompatible existing user, JSON-format finalization for the report.
 - [ ] **Phase 16: Documentation + Brownfield Acceptance Gate** — README "Brownfield install" section, `docs/MIGRATION.md` with four worked scenarios, milestone-close brownfield-AGT-02 smoke transcript on a pre-populated host.
 
@@ -81,7 +81,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
 **Plans**: 3 plans
 - [x] 14-01-PLAN.md — Foundation: --yes/--no-yes parsing + EX_USAGE/EX_DATAERR constants + bail aggregation + remediate.sh orchestrator + per-component handler stubs (UX-03, UX-05)
 - [x] 14-02-PLAN.md — REMEDIATE-01 (npm prefix chown/rebase + module migration) + REMEDIATE-02 (PATH-wiring marker) + REMEDIATE-03 (sudoers install_or_overwrite helper + drift gate) (REMEDIATE-01, REMEDIATE-02, REMEDIATE-03)
-- [ ] 14-03-PLAN.md — REMEDIATE-04 (broken catalog agent: preserve_paths.json per agent + loader/runner/uninstall.sh wiring + install.ts REMEDIATE branch + broken-after-remediate sentinel + list suffix + brownfield PATH-MISMATCH E2E smoke + Phase 14 close-out audit) (REMEDIATE-04)
+- [x] 14-03-PLAN.md — REMEDIATE-04 (broken catalog agent: preserve_paths.json per agent + loader/runner/uninstall.sh wiring + install.ts REMEDIATE branch + broken-after-remediate sentinel + list suffix + brownfield PATH-MISMATCH E2E smoke + Phase 14 close-out audit) (REMEDIATE-04)
 **UI hint**: no
 
 ### Phase 15: Pre-flight UX
@@ -118,7 +118,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 |-------|-----------------|--------|-----------|
 | 12. Detection Layer | 3/3 | Complete   | 2026-05-11 |
 | 13. Reuse Wiring | 2/2 | Complete   | 2026-05-20 |
-| 14. Remediate + Consent Flag + Exit Codes | 2/3 | In Progress|  |
+| 14. Remediate + Consent Flag + Exit Codes | 3/3 | Complete   | 2026-05-25 |
 | 15. Pre-flight UX | ~2 | Not started | - |
 | 16. Documentation + Brownfield Acceptance Gate | ~2 | Not started | - |
 | **Total** | **~12 plans** | 0/5 phases done | — |
