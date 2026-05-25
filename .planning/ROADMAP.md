@@ -92,9 +92,11 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
   1. `agentlinux install --dry-run` runs the full pre-flight discovery pass, prints the Reuse / Create / Remediate / Bail report (text by default, JSON when `--report-format=json`), and exits 0 without writing any state to the host; re-running `agentlinux install` immediately after `--dry-run` produces identical detection output (the dry-run is observably non-mutating) — UX-01.
   2. When stdin is a TTY, `agentlinux install` prints the pre-flight report and then issues a **per-action prompt** for each Remediate action that overwrites pre-existing user state (REMEDIATE-01 ownership chown, REMEDIATE-03 sudoers drift overwrite, REMEDIATE-04 reinstall-broken): `Proceed with this remediation? [Y/n]`. Declining a prompt **skips that one remediation, logs a warning, and continues the install** with the remaining components (the offending component is left as-is, treated as `Reuse-with-warning`). Additive actions (PATH wiring, missing-file sudoers install, fresh-component Create) run without confirmation. `--yes` is honored in TTY mode too (auto-approves every prompt) — UX-02.
   3. When DET-01 surfaces an incompatible existing install user (wrong shell, no writable home, conflicting UID, or pre-existing user with `--user=` mismatch), interactive mode prompts for an alternate user name with a numerically-suffixed default offer (e.g. `agent2`); non-interactive mode bails with exit code 65 (`EX_DATAERR`) and a remediation hint that names the conflicting attribute and suggests `--user=NAME` as the resolution — UX-04.
-  4. JSON-format report finalization: the schema is published at a stable, versioned path; a CI smoke parses every documented field via `jq`; field-removal or breaking-change requires a schema-version bump documented in an ADR.
+  4. JSON-format report finalization: the Phase 12 `jq -n` dump shape is stable AND grep-tested by bats; Phase 16 README documents the top-level keys; no schema file, no schema_version field, no ADR required (D-15-03 amendment — ceremony drop per user pushback).
   5. Greenfield invariant: a fresh container's `agentlinux install --dry-run` produces a report where every component is `absent` → `Create`; running `agentlinux install` after the dry-run produces a v0.3.0-identical greenfield install (66/66 bats green).
-**Plans**: TBD (estimated 2 plans — `--dry-run` + interactive prompts + alt-user flow as one wave, JSON schema finalization + phase-close audit as the second)
+**Plans**: 2 plans
+- [ ] 15-01-PLAN.md — --dry-run (bash + CLI) + TTY per-action prompts + sentinel widening (reused-with-warning) + list-suffix rendering (UX-01, UX-02)
+- [ ] 15-02-PLAN.md — Alt-user TTY prompt + non-TTY bail-with-hint + REQUIREMENTS.md flip + 15-AUDIT.md (UX-04)
 **UI hint**: no
 
 ### Phase 16: Documentation + Brownfield Acceptance Gate
@@ -119,7 +121,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 | 12. Detection Layer | 3/3 | Complete   | 2026-05-11 |
 | 13. Reuse Wiring | 2/2 | Complete   | 2026-05-20 |
 | 14. Remediate + Consent Flag + Exit Codes | 3/3 | Complete   | 2026-05-25 |
-| 15. Pre-flight UX | ~2 | Not started | - |
+| 15. Pre-flight UX | 2/2 | Not started | - |
 | 16. Documentation + Brownfield Acceptance Gate | ~2 | Not started | - |
 | **Total** | **~12 plans** | 0/5 phases done | — |
 
