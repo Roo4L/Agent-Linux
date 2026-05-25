@@ -35,6 +35,16 @@ The agent catalog and registry CLI:
 - [Catalog](catalog.md) — the curated, version-pinned manifest of available
   agents, snapshotted alongside each release tarball.
 
+## Test infrastructure
+
+Cross-cutting test-harness machinery — not a plugin/ component, but
+documented here so the layout is in one place.
+
+- [Test secrets](test-secrets.md) — where the test suite's sandbox secrets
+  live (`.env.local`, GitHub repo secrets, the bats `require_secret`
+  helper, the `SECRET_ALLOWLIST` in `tests/docker/run.sh`), how to add a
+  new one, and the rotation + leak-response procedure.
+
 ## Audience
 
 These docs are written for the project owner first and future contributors
