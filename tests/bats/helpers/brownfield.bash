@@ -412,3 +412,41 @@ teardown_brownfield_remediate04_catalog() {
   unset BROWNFIELD_TMP_CATALOG
   unset AGENTLINUX_CATALOG_DIR
 }
+
+# -----------------------------------------------------------------------------
+# Plan 15-02 brownfield fixtures for UX-04 alt-user @tests (Tests 13-18).
+#
+# Each fixture leaves an EXISTING `agent` user in an incompatible state that
+# triggers reuse::user_decision → bail + DETECT_USER_BAIL_REASON ∈
+# {wrong-shell, home-unwritable, name-mismatch}. The fixtures DO NOT lay down
+# a working npm-prefix / sudoers baseline because the alt-user gate fires
+# BEFORE remediate::collect_all_decisions — it short-circuits in main() before
+# the rest of the resolution map matters.
+# -----------------------------------------------------------------------------
+
+# setup_brownfield_host_user_wrong_shell
+# Targets UX-04 wrong-shell branch. Creates `agent` with login shell /bin/sh
+# (DET-01 requires bash, REUSE-01 predicate 2 fails → bail wrong-shell).
+setup_brownfield_host_user_wrong_shell() {
+  log_brownfield "purging any existing AgentLinux state (idempotent)"
+  bash /opt/agentlinux-src/plugin/bin/agentlinux-install --purge >/dev/null 2>&1 || true
+  log_brownfield "creating agent user with shell=/bin/sh (DET-01 incompatible)"
+  if ! id -u agent >/dev/null 2>&1; then
+    useradd -m -s /bin/sh agent
+  else
+    usermod -s /bin/sh agent
+  fi
+  # Belt-and-braces: confirm shell stuck (some images symlink /bin/sh → /bin/dash;
+  # /bin/sh is rejected by REUSE-01 regardless).
+}
+
+# setup_brownfield_host_with_agent2_taken
+# Targets UX-04 numeric-suffix collision handling: agent (wrong-shell) AND a
+# pre-existing agent2 (forces remediate::find_alt_user_name to suggest agent3).
+setup_brownfield_host_with_agent2_taken() {
+  setup_brownfield_host_user_wrong_shell
+  log_brownfield "creating agent2 to force find_alt_user_name to suggest agent3"
+  if ! id -u agent2 >/dev/null 2>&1; then
+    useradd -m -s /bin/bash agent2
+  fi
+}

@@ -311,3 +311,105 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # Cleanup canary.
   rm -rf /tmp/poison
 }
+
+# -----------------------------------------------------------------------------
+# Task 1 — UX-04 alt-user TTY prompt + non-TTY bail-with-hint (Tests 13-18).
+# Plan 15-02. See 15-CONTEXT.md D-15-07 (numeric-suffix) and D-15-08 (non-TTY
+# bail message), and the threat register T-15-02-01..T-15-02-06.
+# -----------------------------------------------------------------------------
+
+# Test 13 (UX-04 TTY accept-suggested): wrong-shell fixture; TTY feeds '\n' so
+# the operator accepts the suggested alternate name (agent2).
+@test "UX-04 (D-15-07 accept-suggested): TTY alt-user prompt on wrong-shell fixture; Enter accepts 'agent2' → install proceeds with INSTALL_USER=agent2 + [ALT-USER] accepted marker" {
+  setup_brownfield_host_user_wrong_shell
+  # Feed just \n (Enter = accept suggested name).
+  run python3 "$TTY_DRIVER" '\n' -- bash "$INSTALLER"
+  [[ "$status" -eq 0 ]] \
+    || __fail "UX-04" "TTY alt-user accept-suggested exits 0" "exit=$status output=$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[ALT-USER] accepted: agent2' \
+    || __fail "UX-04" "[ALT-USER] accepted: agent2 marker present" "$output" "$LOG"
+  # Confirm the new user actually exists post-install.
+  id -u agent2 >/dev/null 2>&1 \
+    || __fail "UX-04" "agent2 user created" "id -u agent2 failed" "$LOG"
+  # Original incompatible agent is untouched (still /bin/sh shell).
+  getent passwd agent | grep -qE ':/bin/sh$' \
+    || __fail "UX-04" "original agent user untouched (still /bin/sh)" "$(getent passwd agent)" "$LOG"
+}
+
+# Test 14 (UX-04 TTY accept-typed): operator types a custom name.
+@test "UX-04 (D-15-07 accept-typed): TTY alt-user prompt; operator types 'mybot' → install proceeds with INSTALL_USER=mybot" {
+  setup_brownfield_host_user_wrong_shell
+  run python3 "$TTY_DRIVER" 'mybot\n' -- bash "$INSTALLER"
+  [[ "$status" -eq 0 ]] \
+    || __fail "UX-04" "TTY alt-user accept-typed exits 0" "exit=$status output=$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[ALT-USER] accepted: mybot' \
+    || __fail "UX-04" "[ALT-USER] accepted: mybot marker present" "$output" "$LOG"
+  id -u mybot >/dev/null 2>&1 \
+    || __fail "UX-04" "mybot user created" "id -u mybot failed" "$LOG"
+  # Teardown: remove mybot so subsequent tests don't see it.
+  userdel -rf mybot 2>/dev/null || true
+}
+
+# Test 15 (UX-04 TTY decline-and-bail): operator hits EOF (no input bytes).
+@test "UX-04 (T-15-02-03 decline-and-bail): TTY alt-user prompt; EOF (no input) → exit 65 + [ALT-USER] declined marker" {
+  setup_brownfield_host_user_wrong_shell
+  # Empty input string — tty-driver will close the pty after the prompt fires
+  # and read returns non-zero (EOF) in prompt::alt_user_or_bail.
+  run python3 "$TTY_DRIVER" '' -- bash "$INSTALLER"
+  [[ "$status" -eq 65 ]] \
+    || __fail "UX-04" "TTY EOF on alt-user prompt exits 65" "exit=$status output=$output" "$LOG"
+  printf '%s' "$output" | grep -qF '[ALT-USER] declined' \
+    || __fail "UX-04" "[ALT-USER] declined marker present" "$output" "$LOG"
+}
+
+# Test 16 (UX-04 / D-15-08 non-TTY bail-with-hint): non-TTY path emits the
+# locked hint message and exits 65.
+@test "UX-04 (D-15-08 non-TTY bail-with-hint): non-TTY installer on wrong-shell fixture exits 65 with literal '--user=agent2' hint" {
+  setup_brownfield_host_user_wrong_shell
+  # No TTY allocation — pipe a dummy stdin so [[ -t 0 ]] is false.
+  run bash -c 'printf "" | bash '"$INSTALLER"
+  [[ "$status" -eq 65 ]] \
+    || __fail "UX-04" "non-TTY alt-user bail exits 65" "exit=$status output=$output" "$LOG"
+  printf '%s' "$output" | grep -qF 'agentlinux: existing user "agent" is incompatible (wrong-shell).' \
+    || __fail "D-15-08" "literal bail-with-hint reason=wrong-shell" "$output" "$LOG"
+  printf '%s' "$output" | grep -qF 'Re-run with --user=agent2 or fix the existing user manually.' \
+    || __fail "D-15-08" "literal '--user=agent2' suggestion" "$output" "$LOG"
+}
+
+# Test 17 (T-15-02-05 input-validation): operator types a shell-metachar name;
+# regex rejects + re-prompts; after 3 invalid → exit 64 EX_USAGE.
+@test "UX-04 (T-15-02-05 input-validation): TTY alt-user prompt rejects 'agent2;rm -rf /tmp/poison' (shell metachars); 3 invalid → exit 64 + canary survives" {
+  setup_brownfield_host_user_wrong_shell
+  install -d -m 0755 /tmp/poison
+  install -m 0644 /dev/null /tmp/poison/canary
+  # Feed three invalid names in a row (semi-colon injection attempts). Each
+  # should be rejected by remediate::validate_user_name regex; after 3 invalid
+  # → bail with exit 64 (per plan invariant).
+  run python3 "$TTY_DRIVER" 'agent2;rm -rf /tmp/poison\nfoo;bad\nbar bad\n' -- bash "$INSTALLER"
+  [[ "$status" -eq 64 ]] \
+    || __fail "T-15-02-05" "3 invalid names → exit 64 EX_USAGE" "exit=$status output=$output" "$LOG"
+  # Canary survives — no shell injection executed.
+  [[ -d /tmp/poison && -f /tmp/poison/canary ]] \
+    || __fail "T-15-02-05" "canary file survives (no rm -rf executed)" "$(ls -la /tmp/poison 2>&1)" "$LOG"
+  # Validator log present.
+  printf '%s' "$output" | grep -qF 'invalid name:' \
+    || __fail "T-15-02-05" "'invalid name:' diagnostic present" "$output" "$LOG"
+  rm -rf /tmp/poison
+}
+
+# Test 18 (UX-04 greenfield invariant): on a FRESH container (no existing
+# 'agent' user), no alt-user prompt fires; v0.3.0 baseline preserved.
+@test "UX-04 (greenfield invariant): on a greenfield host (no existing agent user), no [ALT-USER] prompt fires; installer completes normally" {
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  # Non-TTY normal install path — must succeed (greenfield: user is created
+  # fresh; reuse::user_decision returns 'create'; alt-user gate is skipped).
+  run bash -c 'printf "" | bash '"$INSTALLER"
+  [[ "$status" -eq 0 ]] \
+    || __fail "UX-04" "greenfield install exits 0 (no alt-user gate fires)" "exit=$status output=$output" "$LOG"
+  if printf '%s' "$output" | grep -qF '[ALT-USER]'; then
+    __fail "UX-04" "no [ALT-USER] markers in greenfield transcript" "$output" "$LOG"
+  fi
+  # User got created normally.
+  id -u agent >/dev/null 2>&1 \
+    || __fail "UX-04" "agent user created on greenfield" "id -u agent failed" "$LOG"
+}
