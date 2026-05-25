@@ -51,3 +51,20 @@ if ! printf '%s' "$claude_version" | grep -q -F -- "${AGENTLINUX_PINNED_VERSION}
 fi
 
 echo "claude-code: install complete (AGT-02b version-lock satisfied)"
+
+# Disable Claude Code's in-tool background auto-updater so ADR-011's
+# pinned_version stays honored at runtime, not just at install time.
+# Manual `claude update` (AGT-02) still works — only the background path
+# is suppressed. jq is available because 30-nodejs.sh pulls it in
+# transitively. The merge filter preserves any pre-existing user keys.
+settings_dir="${AGENTLINUX_AGENT_HOME}/.claude"
+settings_file="${settings_dir}/settings.json"
+mkdir -p "${settings_dir}"
+tmp="${settings_file}.tmp.$$"
+if [[ -f "${settings_file}" ]]; then
+  jq '. + {env: ((.env // {}) + {DISABLE_AUTOUPDATER:"1"})}' "${settings_file}" > "${tmp}"
+else
+  jq -n '{env:{DISABLE_AUTOUPDATER:"1"}}' > "${tmp}"
+fi
+mv "${tmp}" "${settings_file}"
+echo "claude-code: settings.json stamped (DISABLE_AUTOUPDATER=1)"

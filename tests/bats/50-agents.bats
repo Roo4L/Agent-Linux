@@ -181,6 +181,26 @@ teardown_file() {
   fi
 }
 
+# AGT-02c: ADR-011's pin holds at runtime too. AGT-02b proves `claude --version`
+# matches the pin at install time; AGT-02c proves the mechanism that keeps it
+# matching afterwards is wired (env.DISABLE_AUTOUPDATER="1" in
+# ~agent/.claude/settings.json — AL-51). Independent invariant from AGT-02b,
+# hence the new ID rather than a tweak to the existing @test. Not yet promoted
+# into .planning/REQUIREMENTS.md (that file is v0.4.0-scoped at HEAD); recorded
+# here + in the AL-51 SUMMARY, promote when the next v0.3.x revision rolls.
+@test "AGT-02c: claude-code install stamps DISABLE_AUTOUPDATER=1 in ~agent/.claude/settings.json" {
+  run sudo -u agent -H bash --login -c 'test -f ~/.claude/settings.json && cat ~/.claude/settings.json'
+  assert_exit_zero "AGT-02c (settings.json exists)"
+  local value
+  value=$(printf '%s' "${output}" | jq -r '.env.DISABLE_AUTOUPDATER // empty')
+  if [[ "${value}" != "1" ]]; then
+    __fail "AGT-02c" \
+      '.env.DISABLE_AUTOUPDATER == "1" in ~agent/.claude/settings.json' \
+      "${output:-<empty>}" \
+      "$LOG"
+  fi
+}
+
 # ---------- AGT-03: claude diagnostic (substituted by --help; see research §Open Q2) ----------
 
 # AGT-03: `claude doctor` waits for stdin (github.com/anthropics/claude-code/
