@@ -304,22 +304,40 @@ setup_brownfield_for_remediate_03_drift() {
 
 # setup_brownfield_broken_claude_code
 # Targets REMEDIATE-04 PATH-MISMATCH happy path (Test 51).
-# Lays down a Phase-13 REUSE-compatible baseline (agent user, sudoers, Node 22,
-# npm-prefix at ~agent/.npm-global), then installs claude-code via
-# `npm install -g @anthropic-ai/claude-code` so the binary lands at
-# ~/.npm-global/bin/claude (the PATH-MISMATCH location, NOT the canonical
-# ~/.local/bin/claude). Pre-populates ~/.claude/test-marker-file so the @test
-# can assert user data survives REMEDIATE-04 reinstall via the preserve_paths.
+# CRITICAL ORDER (don't reorder): the bash entrypoint baseline MUST run BEFORE
+# the npm install so that /etc/profile.d/agentlinux.sh exists and the agent's
+# login PATH includes /home/agent/.npm-global/bin. Otherwise the npm-installed
+# claude binary is invisible to `detect::agents_probe` (which probes via
+# `sudo -u agent -i command -v claude`) — detect cache reports status=absent,
+# tryRemediate returns null, the CLI install path falls through to a regular
+# install at the canonical location and never fires [REMEDIATE-04].
+#
+# Sequence:
+#   1. _brownfield_baseline: --purge + agent user + sudoers + Node 22 + seed
+#      ~agent/.npm-global + ~agent/.npmrc.
+#   2. bash $INSTALLER --yes: runs provisioner 40-path-wiring which writes
+#      /etc/profile.d/agentlinux.sh (puts ~/.npm-global/bin on agent's login PATH).
+#   3. npm install -g claude-code as agent: lands binary at PATH-MISMATCH
+#      location (~/.npm-global/bin/claude, NOT canonical ~/.local/bin/claude).
+#   4. Pre-populate ~/.claude/test-marker-file so the @test can assert
+#      preserve_paths survives uninstall.sh during REMEDIATE-04 reinstall.
 setup_brownfield_broken_claude_code() {
   _brownfield_baseline
-  # Install claude-code via npm (lands at ~/.npm-global/bin/claude).
+  # Step 2: run bash entrypoint baseline so PATH wiring is in place. --yes
+  # required because the brownfield npm-prefix (seeded with root /usr from
+  # baseline) may trigger REMEDIATE-01 npm-prefix decision (depending on
+  # whether _brownfield_baseline reseeded agent ownership).
+  bash "$INSTALLER" --yes >/dev/null 2>&1 || true
+  # Step 3: install claude-code via npm at the PATH-MISMATCH location.
   # Use --no-fund --no-audit for cleaner transcripts; sudo -u agent -H is
   # mandatory (CLAUDE.md critical rule — never `sudo npm install -g`).
+  # bash --login sources /etc/profile.d/agentlinux.sh which puts the agent's
+  # npm-global on PATH; this is the same login-shell semantics that detect::
+  # uses, so the binary that lands here will be discoverable in step 4.
   sudo -u agent -H bash --login -c \
     'npm install -g --no-fund --no-audit @anthropic-ai/claude-code@2.1.98' \
     >/dev/null 2>&1 || true
-  # Pre-populate user-data marker so the @test can assert preserve_paths
-  # survives uninstall.sh during REMEDIATE-04 reinstall.
+  # Step 4: pre-populate user-data marker.
   install -d -m 0755 -o agent -g agent /home/agent/.claude
   echo "preserve-this-test-marker-content-line" \
     >/home/agent/.claude/test-marker-file
@@ -336,6 +354,9 @@ setup_brownfield_remediate04_uninstall_fail() {
   setup_brownfield_broken_claude_code
   # Stage a tmp catalog copy. The CLI's loader.ts honors
   # AGENTLINUX_CATALOG_DIR so we point at the tmp dir for this @test.
+  # mktemp -d defaults to 0700 root-owned; agent user (which the CLI runs as)
+  # cannot then readdir or readFile the catalog.json — chmod 0755 + chmod -R
+  # go+rX so the agent user can read every file recursively.
   local tmpcat
   tmpcat=$(mktemp -d -t al-cat-fail-XXXXXX)
   cp -r /opt/agentlinux-src/plugin/catalog/* "$tmpcat"
@@ -346,6 +367,9 @@ echo "uninstall.sh: simulated failure (Test 52 fixture)" >&2
 exit 1
 SH
   chmod 0755 "$tmpcat/agents/claude-code/uninstall.sh"
+  # Open up read permissions for the agent user (CLI runs as agent via sudo).
+  chmod 0755 "$tmpcat"
+  chmod -R go+rX "$tmpcat"
   export BROWNFIELD_TMP_CATALOG="$tmpcat"
   export AGENTLINUX_CATALOG_DIR="$tmpcat"
 }
@@ -369,6 +393,11 @@ echo "install.sh: simulated post-uninstall failure (Test 53 fixture)" >&2
 exit 1
 SH
   chmod 0755 "$tmpcat/agents/claude-code/install.sh"
+  # Open up read permissions for the agent user (same reason as
+  # setup_brownfield_remediate04_uninstall_fail above — mktemp -d defaults
+  # to 0700 root-owned, agent CLI can't read it without chmod).
+  chmod 0755 "$tmpcat"
+  chmod -R go+rX "$tmpcat"
   export BROWNFIELD_TMP_CATALOG="$tmpcat"
   export AGENTLINUX_CATALOG_DIR="$tmpcat"
 }
