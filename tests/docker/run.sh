@@ -67,24 +67,15 @@ if [[ ! -f $DF ]]; then
   exit 64
 fi
 
-# ---------------------------------------------------------------------------
-# AL-53: test-secret forwarding.
-#
-# Allowlist of env vars that may be forwarded from the host shell into the
-# bats container. Append rows here in lockstep with .env.local.example and
-# docs/internals/test-secrets.md. Keep the list small and explicit — a
-# blanket dotenv-file forward would leak unrelated host env into the
-# container and lose the grep-able PR-review trail.
+# Test-secret forwarding. Append rows here in lockstep with .env.local.example
+# and docs/internals/test-secrets.md.
 SECRET_ALLOWLIST=(
-  ANTHROPIC_API_KEY  # AL-54 interactive Claude Code tests
-  FOO                # AL-53 convention smoke (tests/bats/00-secrets-smoke.bats)
+  ANTHROPIC_API_KEY  # interactive Claude Code behavioral tests
+  FOO                # test-secrets convention smoke
 )
 
-# Source .env.local at repo root if present, so the allowlist below sees
-# vars set there. `set -a` exports every assignment in the sourced file;
-# `set +a` restores the prior behaviour. Quoted path; missing-file branch
-# is silent (developer may not have a .env.local — per-PR CI never does,
-# and require_secret skips yellow inside the container in that case).
+# Source .env.local if present so the allowlist sees vars set there.
+# Missing file is silent — per-PR CI has none and require_secret skips yellow.
 if [[ -f "$REPO_ROOT/.env.local" ]]; then
   echo "== source .env.local =="
   set -a
@@ -93,20 +84,15 @@ if [[ -f "$REPO_ROOT/.env.local" ]]; then
   set +a
 fi
 
-# Build the docker -e flag array. Only forward vars that are set AND
-# non-empty in the host env — empty/unset vars produce no -e flag, and
-# bats's require_secret will skip yellow inside the container. The
-# `-e VAR` form (NO `=value`) tells docker to read the value from the
-# daemon's view of the calling shell's env, which keeps the secret out
-# of any other process's `ps` output (the `-e "VAR=$VAR"` form would
-# interpolate the secret into the docker CLI's argv).
+# `-e VAR` (no `=value`): docker reads the value from the daemon's view of the
+# caller's env, keeping the secret out of every other process's argv.
+# `-e "VAR=$VAR"` would interpolate the secret into the docker CLI's argv.
 DOCKER_ENV_FLAGS=(-e container=docker)
 for var in "${SECRET_ALLOWLIST[@]}"; do
   if [[ -n ${!var-} ]]; then
     DOCKER_ENV_FLAGS+=(-e "$var")
   fi
 done
-# ---------------------------------------------------------------------------
 
 # Fail the final line with a prominent banner so CI log scrollback surfaces
 # pass/fail without hunting through docker output.

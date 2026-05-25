@@ -8,6 +8,7 @@ requires:
   - SEC-05 gitleaks pre-commit + full-history gate (existing)
   - bats helpers/assertions.bash invariants (style template)
 provides:
+  - TST-08 (test-secrets contract — require_secret skips when var unset; harness forwards only allowlisted vars; per-PR CI never sees the release-gate key)
   - require_secret <VAR> bats helper (yellow-skip on unset)
   - SECRET_ALLOWLIST contract in tests/docker/run.sh
   - .env.local -> docker -e VAR forwarding path
@@ -73,9 +74,13 @@ Three commits, eight files. The deliverables fall into three layers:
   Mirrors `helpers/assertions.bash` invariants: no `set -euo` at top
   (sourced library), explicit `local $1`, no `eval`.
 - `tests/bats/00-secrets-smoke.bats` — convention example with the
-  `AL-53:` test-name prefix so `behavior-coverage-auditor`'s TST-07 grep
-  finds the trace. Calls `require_secret FOO`, asserts `FOO=bar`. `00-`
-  filename prefix makes it the first test discovered.
+  `TST-08:` test-name prefix so `behavior-coverage-auditor`'s grep finds
+  the trace (matches the AGT-02c precedent of recording the REQ-ID in
+  the @test name + SUMMARY frontmatter and promoting it into
+  REQUIREMENTS.md on the next v0.3.x revision). Calls `require_secret
+  FOO`, asserts `FOO=bar` via `__fail` from `helpers/assertions.bash`.
+  Includes a template-hygiene comment block warning future
+  secret-bearing tests to redact the observed-value print.
 - `.env.local.example` — committed template; two commented rows
   (ANTHROPIC_API_KEY, FOO). No uncommented KEY=value pairs.
 - `.gitignore` — `!.env.local.example` negation rule added (since
@@ -206,6 +211,32 @@ Accept-disposition threats (T-AL53-07/08/09) are documented in
 | 1 | 2d7d31b | feat(tests): bats require_secret helper + .env.local template (AL-53) |
 | 2 | 16693fd | feat(tests): docker secret-forwarding + nightly QEMU env injection (AL-53) |
 | 3 | 181996b | docs(internals): test-secrets.md (AL-53) |
+
+## Review-loop disposition
+
+Six reviewers ran in parallel (bash-engineer, security-engineer, qa-engineer,
+ai-deslop, dev-docs-auditor, behavior-coverage-auditor). No must-fix
+blockers. Findings and dispositions:
+
+| Finding | Reviewer | Action |
+|---------|----------|--------|
+| `AL-53:` test-name prefix invisible to TST grep — needs a real REQ-ID per AGT-02c precedent. | behavior-coverage-auditor | **Applied.** Promoted to `TST-08` in `@test` name, helper docstring, `__fail` req-id field, and SUMMARY `provides:` frontmatter. |
+| Smoke test prints `FOO=${FOO}` on failure — bad template for AL-54 (would leak real keys via `$output`). | security-engineer | **Applied.** Added a template-hygiene comment block warning future tests to redact the observed-value print. Smoke itself keeps printing FOO (public marker) but the comment makes the redacted shape explicit. |
+| Raw `AL-54` / `AL-53` ticket keys leak into `docs/internals/test-secrets.md` prose + worked-example comments — external-audience-auditor would flag. | dev-docs-auditor | **Applied.** Reframed to behavior classes (`interactive Claude Code behavioral tests`, `test-secrets convention smoke`). No raw ticket keys remain in the doc. |
+| Inline `echo` failure-diagnostic block duplicates `__fail` from `assertions.bash`. | qa-engineer | **Applied.** Switched to `__fail "TST-08" ...`; `load 'helpers/assertions'` added. |
+| Trim filler in `secrets.bash` docstring (threat-model bullets), `run.sh` comments (3-line `set -a` block + 7-line argv-leakage block), `test-secrets.md` "The problem" para 2 + "Value vs naive" bullets 4-5. | ai-deslop | **Applied.** Docstring trimmed to invariants only; run.sh comments trimmed to non-obvious content; doc filler paragraphs cut. |
+| Drop `AL-53:` from `.gitignore` comment (task-context rot). | ai-deslop | **Applied.** Comment retained the structural explanation (`!` must be on a separate line). |
+| Wrap `.env.local` source with friendly error message; add `$#` guard to `require_secret`. | bash-engineer | **Skipped.** UX-only; the loud `set -e` failure is sufficient signal. |
+| Add an empty-string skip test for `require_secret`. | qa-engineer | **Skipped.** Over-spec for a single-purpose convention example; the docstring now makes the empty == unset == skip rule explicit. |
+| Drop rule-line separators (`# ---...---`) in run.sh; trim workflow comment further. | ai-deslop | **Skipped.** Separators help find the block on PR review; workflow comment is fine in isolation. |
+
+TST-08 itself is not promoted into `.planning/REQUIREMENTS.md` under this
+ticket — REQUIREMENTS.md at HEAD is v0.4.0-scoped; recording the ID in
+the @test docstring + SUMMARY matches the AGT-02c precedent. Promotion
+happens on the next v0.3.x revision roll.
+
+The review-loop fixes landed in a follow-up commit on the same branch
+(no separate ticket).
 
 ## Self-Check: PASSED
 

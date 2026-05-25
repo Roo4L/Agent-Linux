@@ -33,9 +33,9 @@ tests/qemu/cache/
 # Local environment / credential artifacts — never committed.
 # Defence in depth: SEC-05 gitleaks gate also blocks any accidental staging,
 # and SEC-03 audit verified none exist in history.
-# AL-53: .env.local.example is the committed test-secret template (commented
-# placeholders only). The negation must come after .env.* and uses a fresh
-# pattern line (gitignore does not support inline comments on rule lines).
+# `.env.local.example` is the committed test-secret template (commented
+# placeholders only). The negation must come after `.env.*` on its own line —
+# gitignore does not support inline comments on rule lines.
 .env
 .env.*
 !.env.example

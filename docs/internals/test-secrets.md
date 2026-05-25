@@ -2,10 +2,10 @@
 
 AgentLinux's behavior-test suite mostly runs without secrets — the installer,
 agent user, runtime, and registry CLI are all observable from local Ubuntu
-state alone. A small number of tests (today: AL-54 interactive Claude Code)
-need a live sandbox API key. This doc is the project owner's 60-second
-answer to "where do test secrets live, how does one reach a bats test, and
-how does a new one get added without leaking."
+state alone. A small number of tests (today: interactive Claude Code
+behavioral coverage) need a live sandbox API key. This doc is the project
+owner's 60-second answer to "where do test secrets live, how does one reach
+a bats test, and how does a new one get added without leaking."
 
 ## The problem
 
@@ -15,14 +15,6 @@ git the first time someone forgets to run `git status`; a CLI argument
 lands in every other process's `ps` output for the lifetime of the docker
 invocation. Six months later the leak is invisible to a reviewer scanning
 the diff — the secret looks like just another test parameter.
-
-The class of tests that need real secrets is small but growing. Without a
-single documented path from `.env.local` through Docker into bats (and a
-parallel path from GitHub Actions repo secrets into the QEMU release-gate),
-each new ticket reinvents the wiring. One of those reinventions will get
-the leak path wrong. The cost of that mistake — revoking and rotating a
-sandbox key, scrubbing logs, writing a post-mortem — vastly exceeds the
-cost of a documented contract.
 
 ## What AgentLinux does
 
@@ -61,8 +53,8 @@ The CI pipeline (GitHub Actions):
   (step-level, not job-level — narrower blast radius). The release-gate
   is slow and network-bound by design; it is the right place for the live
   key. The boot.sh-to-VM ssh forwarding (the last hop into the QEMU
-  guest's bats process) is AL-54's responsibility; AL-53 ships the
-  workflow-env half of the wire.
+  guest's bats process) is the interactive-test follow-up's responsibility;
+  this doc ships the workflow-env half of the wire.
 
 The result: the same `@test` runs green-with-skips on every PR and
 green-with-the-key-exercised on every nightly release-gate, with one
@@ -82,14 +74,6 @@ to consume it.
    allowlist, the workflow `env:` block, and `require_secret` all reference
    the same variable identifier. Adding a new secret is four lockstep
    edits, documented in the worked example below.
-4. **Sandbox keys are rotation-friendly.** A live sandbox key with a
-   90-day rotation cost is cheap insurance against silent staleness.
-   Documenting the procedure means future-you doesn't relearn it under
-   pressure.
-5. **Leak response is a runbook, not a panic.** The leak-response section
-   below is a three-step procedure: revoke, rotate, post-mortem. Knowing
-   the runbook exists is most of its value — the rest is the discipline
-   to follow it without skipping the post-mortem.
 
 ## Related
 
@@ -112,10 +96,10 @@ to consume it.
 Four lockstep edits, plus the GitHub Actions secret-store step:
 
 1. **`.env.local.example`** — add a commented row with a one-line comment
-   pointing at the ticket the secret unblocks:
+   pointing at the behavior the secret unblocks:
 
    ```
-   # NEW_TOKEN — describe purpose; ticket reference here.
+   # NEW_TOKEN — describe purpose and behavior class.
    # NEW_TOKEN=
    ```
 
@@ -124,9 +108,9 @@ Four lockstep edits, plus the GitHub Actions secret-store step:
 
    ```bash
    SECRET_ALLOWLIST=(
-     ANTHROPIC_API_KEY  # AL-54 interactive Claude Code tests
-     FOO                # AL-53 convention smoke
-     NEW_TOKEN          # NEW-XX feature description
+     ANTHROPIC_API_KEY  # interactive Claude Code behavioral tests
+     FOO                # test-secrets convention smoke
+     NEW_TOKEN          # NEW-XX behavior class
    )
    ```
 
@@ -143,12 +127,16 @@ Four lockstep edits, plus the GitHub Actions secret-store step:
    Actions → New repository secret. Name matches step 3.
 
 5. **bats test** — reference the variable from the test body via
-   `require_secret`:
+   `require_secret`. On failure, never echo the secret value; print the
+   variable name and a redacted observation like `<set>` / `<unset>` /
+   `<wrong-length>` so the test diagnostic doesn't leak the key into bats
+   `$output` (and CI logs):
 
    ```bash
    @test "NEW-XX: feature description" {
      require_secret NEW_TOKEN
      # ... test body uses $NEW_TOKEN ...
+     # On failure: __fail "NEW-XX" "NEW_TOKEN <set>" "NEW_TOKEN <unset>" "log-path"
    }
    ```
 
@@ -169,9 +157,7 @@ procedure is five steps:
    `nightly-qemu`) and wait for a green run with the new key.
 5. Revoke the old key in the Anthropic console once the green run lands.
 
-No calendar reminder is automated under AL-53 (single developer, single
-key today — avoid-ceremony rule). If the secret count grows, a future
-ticket can land a reminder mechanism.
+No automated reminder today — single key, single developer.
 
 ### Leak response
 
