@@ -147,4 +147,54 @@ describe("sentinel roundtrip + atomicity", () => {
     assert.equal(got?.remediated_at, "2026-05-24T00:00:00.000Z");
     assert.equal(got?.remediate_failure_reason, "install-failed-post-uninstall");
   });
+
+  // Plan 15-01 (D-15-02): Sentinel.status union widens to include
+  // "reused-with-warning" + new optional decline_reason field. Written by the
+  // bash entrypoint's TTY prompt loop on decline; read by list.ts /
+  // upgrade.ts so subsequent CLI invocations surface the operator's choice.
+  // Three decline_reason tokens are valid: chown-declined,
+  // sudoers-drift-declined, reinstall-broken-declined (one per state-
+  // overwriting action class).
+  test("U5 (D-15-02): roundtrip status='reused-with-warning' + decline_reason='chown-declined' preserves both fields", async () => {
+    const declined: Sentinel = {
+      ...baseSentinel,
+      id: "npm-prefix",
+      version: "0.0.0",
+      status: "reused-with-warning",
+      decline_reason: "chown-declined",
+    };
+    await writeSentinel(declined);
+    const got = await readSentinel("npm-prefix");
+    assert.deepEqual(got, declined);
+    assert.equal(got?.status, "reused-with-warning");
+    assert.equal(got?.decline_reason, "chown-declined");
+  });
+
+  test("U6 (D-15-02): roundtrip status='reused-with-warning' + decline_reason='sudoers-drift-declined'", async () => {
+    const declined: Sentinel = {
+      ...baseSentinel,
+      id: "sudoers",
+      version: "0.0.0",
+      status: "reused-with-warning",
+      decline_reason: "sudoers-drift-declined",
+    };
+    await writeSentinel(declined);
+    const got = await readSentinel("sudoers");
+    assert.equal(got?.status, "reused-with-warning");
+    assert.equal(got?.decline_reason, "sudoers-drift-declined");
+  });
+
+  test("U7 (D-15-02): roundtrip status='reused-with-warning' + decline_reason='reinstall-broken-declined'", async () => {
+    const declined: Sentinel = {
+      ...baseSentinel,
+      id: "claude-code",
+      version: "2.1.98",
+      status: "reused-with-warning",
+      decline_reason: "reinstall-broken-declined",
+    };
+    await writeSentinel(declined);
+    const got = await readSentinel("claude-code");
+    assert.equal(got?.status, "reused-with-warning");
+    assert.equal(got?.decline_reason, "reinstall-broken-declined");
+  });
 });

@@ -638,6 +638,56 @@ describe("upgradeCmd — REUSE-03 reused-entry handling (Plan 13-02)", () => {
   });
 });
 
+// Plan 15-01 (T-15-01-05): upgrade.ts treats sentinel.status="reused-with-
+// warning" IDENTICALLY to "reused" — both are "already installed; honor
+// user's manual ownership of this component". Without this, a subsequent
+// `agentlinux upgrade` would re-attempt the remediation the user just
+// declined, defeating the whole prompt-loop UX.
+describe("upgradeCmd — reused-with-warning handling (Plan 15-01 T-15-01-05)", () => {
+  beforeEach(async () => {
+    await rm(STATE_DIR, { recursive: true, force: true });
+  });
+
+  test("U11 (T-15-01-05): reused-with-warning sentinel is treated identically to reused (no upgrade dispatch in default report-only mode)", async () => {
+    // Pre-seed a reused-with-warning sentinel. The upgrade default path is
+    // report-only — no flag means no mutation. Assert zero dispatches.
+    await writeSentinel({
+      id: "npm-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-25T00:00:00.000Z",
+      status: "reused-with-warning",
+      decline_reason: "chown-declined",
+    });
+    const recipe = makeRecipeCap();
+    const npmLsStub = async () => new Map([["npm-agent", "1.0.0"]]);
+    const viewStub = async () => null;
+    const sil = silenceConsole();
+    try {
+      await upgradeCmd(
+        {},
+        {
+          dispatchRecipe: recipe.impl,
+          queryGlobalNpm: npmLsStub,
+          queryNpmViewLatest: viewStub,
+        },
+      );
+    } finally {
+      sil.restore();
+    }
+    assert.equal(
+      recipe.calls.length,
+      0,
+      "report-only mode never dispatches; reused-with-warning preserved",
+    );
+    // Sentinel preserved with both fields.
+    const s = await readSentinel("npm-agent");
+    assert.equal(s?.status, "reused-with-warning");
+    assert.equal(s?.decline_reason, "chown-declined");
+  });
+});
+
 describe("upgradeCmd — flag priority", () => {
   beforeEach(async () => {
     await rm(STATE_DIR, { recursive: true, force: true });

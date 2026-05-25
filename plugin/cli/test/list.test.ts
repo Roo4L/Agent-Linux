@@ -341,4 +341,108 @@ describe("listCmd — text + JSON + test_only filter", () => {
       await deleteSentinel("real-agent");
     }
   });
+
+  // Plan 15-01 (D-15-02 / UX-02): reused-with-warning sentinel renders with
+  // the literal suffix ' (reused — declined remediation: <decline_reason>;
+  // manual fix needed)' on the INSTALLED column. Precedence rules: the
+  // reused-with-warning suffix takes priority over the plain reused suffix
+  // (a reused-with-warning sentinel is BOTH technically reused AND carries
+  // the decline_reason — the operator most needs to see the decline marker).
+  // broken-after-remediate still takes precedence over reused-with-warning.
+  test("U8 (D-15-02): list.ts renders status='reused-with-warning' + decline_reason='chown-declined' with the literal suffix", async () => {
+    const declined: Sentinel = {
+      id: "real-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-25T00:00:00.000Z",
+      status: "reused-with-warning",
+      decline_reason: "chown-declined",
+    };
+    await writeSentinel(declined);
+    try {
+      const cap = captureStdout();
+      try {
+        await listCmd({});
+      } finally {
+        cap.restore();
+      }
+      const joined = cap.lines.join("\n");
+      // Binding wording — bats Test 8 greps the same literal string too.
+      assert.match(joined, /\(reused — declined remediation: chown-declined; manual fix needed\)/);
+      const realRow = cap.lines.find((l) => l.startsWith("real-agent"));
+      assert.ok(realRow);
+      assert.match(realRow ?? "", /reused — declined remediation: chown-declined/);
+      // Should NOT also render the plain reused suffix.
+      assert.doesNotMatch(realRow ?? "", /reused — managed by agentlinux/);
+    } finally {
+      await deleteSentinel("real-agent");
+    }
+  });
+
+  test("U9 (D-15-02): --json includes decline_reason verbatim for reused-with-warning entries", async () => {
+    const declined: Sentinel = {
+      id: "real-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-25T00:00:00.000Z",
+      status: "reused-with-warning",
+      decline_reason: "sudoers-drift-declined",
+    };
+    await writeSentinel(declined);
+    try {
+      const cap = captureStdout();
+      try {
+        await listCmd({ json: true });
+      } finally {
+        cap.restore();
+      }
+      const parsed = JSON.parse(cap.lines.join("\n"));
+      const row = parsed.find((r: { id: string }) => r.id === "real-agent");
+      assert.ok(row);
+      assert.equal(row.sentinel_status, "reused-with-warning");
+      assert.equal(row.decline_reason, "sudoers-drift-declined");
+      // Same JSON-vs-text convention: text installed has the suffix; JSON
+      // installed is the bare version.
+      assert.equal(row.installed, "1.0.0");
+    } finally {
+      await deleteSentinel("real-agent");
+    }
+  });
+
+  test("U10 (D-15-02): precedence — reused-with-warning suffix takes priority over plain reused suffix", async () => {
+    // The reused-with-warning sentinel is BOTH technically reused (it's a
+    // sentinel describing a not-mutated component) AND carries decline_reason.
+    // list.ts must show the decline marker, NOT the plain reused suffix.
+    const declined: Sentinel = {
+      id: "real-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-25T00:00:00.000Z",
+      status: "reused-with-warning",
+      decline_reason: "reinstall-broken-declined",
+      // Defensive: also set the REUSE-03 fields to confirm precedence — a
+      // sentinel writer might in theory carry both reused fields and
+      // decline_reason; renderer must pick the warning suffix.
+      binary_path: "/home/agent/.local/bin/real",
+      reused_at: "2026-05-25T00:00:00.000Z",
+    };
+    await writeSentinel(declined);
+    try {
+      const cap = captureStdout();
+      try {
+        await listCmd({});
+      } finally {
+        cap.restore();
+      }
+      const realRow = cap.lines.find((l) => l.startsWith("real-agent"));
+      assert.ok(realRow);
+      assert.match(realRow ?? "", /reused — declined remediation: reinstall-broken-declined/);
+      assert.doesNotMatch(realRow ?? "", /reused — managed by agentlinux/);
+    } finally {
+      await deleteSentinel("real-agent");
+    }
+  });
 });
