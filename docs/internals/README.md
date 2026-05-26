@@ -44,6 +44,11 @@ documented here so the layout is in one place.
   live (`.env.local`, GitHub repo secrets, the bats `require_secret`
   helper, the `SECRET_ALLOWLIST` in `tests/docker/run.sh`), how to add a
   new one, and the rotation + leak-response procedure.
+- [Test interactive](test-interactive.md) — `expect`-based helpers for
+  bats tests that need a real TTY (Bun/Ink raw-mode CLIs, idle-session
+  observation). Names three helper functions, the `log_user 0` /
+  env-only-secrets invariants, the add-a-new-.exp checklist, and the
+  pty-debugging steps.
 
 ## Audience
 
