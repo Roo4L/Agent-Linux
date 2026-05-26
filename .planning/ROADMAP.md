@@ -111,7 +111,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
   5. Phase-close audit `.planning/phases/16-documentation-brownfield-acceptance/16-AUDIT.md` cites every v0.3.4 requirement's evidence (bats @test reference, audit doc path, ADR id, CI run URL, or smoke transcript); behavior-coverage-auditor emits `GATE: GREEN`; v0.3.4 is release-ready.
 **Plans**: 2 plans
 - [x] 16-01-PLAN.md — README "Brownfield install" section + docs/MIGRATION.md with four worked scenarios (DOC-01, DOC-02)
-- [ ] 16-02-PLAN.md — brownfield-AGT-02 milestone-close bats gate + transcript capture + 16-AUDIT.md (GATE: GREEN) + REQUIREMENTS/STATE/ROADMAP milestone-close ceremony
+- [x] 16-02-PLAN.md — brownfield-AGT-02 milestone-close bats gate + transcript capture + 16-AUDIT.md (GATE: GREEN) + REQUIREMENTS/STATE/ROADMAP milestone-close ceremony
 
 ## Progress
 
@@ -124,8 +124,8 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 | 13. Reuse Wiring | 2/2 | Complete   | 2026-05-20 |
 | 14. Remediate + Consent Flag + Exit Codes | 3/3 | Complete   | 2026-05-25 |
 | 15. Pre-flight UX | 2/2 | Complete   | 2026-05-26 |
-| 16. Documentation + Brownfield Acceptance Gate | 1/2 | In Progress|  |
-| **Total** | **~12 plans** | 0/5 phases done | — |
+| 16. Documentation + Brownfield Acceptance Gate | 2/2 | Complete   | 2026-05-26 |
+| **Total** | **12 plans** | 5/5 phases done | 2026-05-26 |
 
 ## Coverage Summary
 
