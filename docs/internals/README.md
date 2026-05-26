@@ -46,9 +46,8 @@ documented here so the layout is in one place.
   new one, and the rotation + leak-response procedure.
 - [Test interactive](test-interactive.md) — `expect`-based helpers for
   bats tests that need a real TTY (Bun/Ink raw-mode CLIs, idle-session
-  observation). Names three helper functions, the `log_user 0` /
-  env-only-secrets invariants, the add-a-new-.exp checklist, and the
-  pty-debugging steps.
+  observation), with the secret-handling and pty invariants the helpers
+  enforce.
 
 ## Audience
 

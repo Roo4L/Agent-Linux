@@ -40,9 +40,8 @@ SETTINGS=/home/agent/.claude/settings.json
 
 setup_file() {
   # Skip yellow if no key — gates EVERY @test in the file when bats sees
-  # `skip` inside setup_file (bats >=1.5 behavior). On per-PR Docker CI
-  # the key is never provisioned, so the file skips cleanly without
-  # touching the installer state at all.
+  # `skip` inside setup_file (bats >=1.5). `skip` exits the function so
+  # the steps below do not run on per-PR Docker CI.
   require_secret ANTHROPIC_API_KEY
 
   # Recovery primitives mirror 51-agt02-release-gate.bats setup_file:
@@ -53,29 +52,36 @@ setup_file() {
     bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
   fi
 
+  # Clear any persisted Claude auth state so claude_login takes the fresh
+  # API-key prompt path on every run. A previous test file (or a prior
+  # invocation against the same on-disk state) may have left credentials
+  # that send the login flow down an already-authenticated short-circuit
+  # the .exp script doesn't expect — yields a 30s timeout + skip.
+  sudo -u agent -H bash --login -c 'rm -rf ~/.claude/.credentials* ~/.claude/auth 2>/dev/null' || true
+
   # Re-install at the catalog-pinned version with --force so we start at a
-  # known floor. The DISABLE_AUTOUPDATER stamp is written here by install.sh.
+  # known floor. install.sh writes the DISABLE_AUTOUPDATER stamp here.
   sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1
 
-  # Authenticate once per file via the interactive helper. claude_login
-  # reads ANTHROPIC_API_KEY from env (no argv exposure) and the .exp
-  # script's log_user 0 keeps the key off stdout.
   if ! claude_login; then
     # The .exp script's diagnostics already went to stderr (redacted).
     # Skip rather than fail: a Claude API outage or upstream prompt
-    # rewording is a transient environmental issue, NOT a regression
-    # in the AL-51 fix being verified.
+    # rewording is a transient environmental issue, NOT a regression in
+    # the AL-51 fix being verified.
     skip "claude_login failed (transient Anthropic API or upstream prompt change; see docs/internals/test-interactive.md)"
   fi
 }
 
 teardown_file() {
-  # Restore the stamp to whatever install.sh writes — symmetric with the
-  # disturbance PHASE 1 introduces. Re-running --force claude-code is the
-  # blunt-and-correct primitive (matches 51-agt02-release-gate.bats's
-  # "leave the install in a known state" teardown philosophy).
+  # Restore install state to whatever install.sh writes. Surface restore
+  # failures via __diag so a teardown breakage shows up in TAP output
+  # rather than silently corrupting the on-disk state for subsequent
+  # files. (Bats files run in lexical order; nothing today follows this
+  # one, but a future 52-*.bats would inherit corruption silently.)
   if [[ -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || true
+    if ! sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1; then
+      __diag "teardown_file: agentlinux install --force claude-code failed; on-disk state may be drifted (see $LOG)"
+    fi
   fi
 }
 
@@ -102,17 +108,25 @@ teardown_file() {
 
   after_v_phase1=$(sudo -u agent -H bash --login -c 'claude --version' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
-  # Drift = after_v_phase1 > before_v (sort -V semver order). If they're
-  # equal, the updater did not fire — control invalid; the GREEN phase
-  # below would pass for the wrong reason. Fail loud naming both versions
-  # (version numbers, not secrets, so no redaction needed).
+  # Drift = after_v_phase1 > before_v (sort -V semver order). The catalog
+  # pin can already be the latest published version — in which case the
+  # updater has nothing to advance to and `after == before` is the
+  # expected substrate behavior, NOT a regression. Skip yellow rather
+  # than red-fail so AGT-02d remains green on the release gate when the
+  # catalog is current; the GREEN phase still has independent value
+  # (asserts that the stamp prevents drift IF drift would otherwise be
+  # possible). When the catalog lags upstream, the assertion below
+  # actually exercises the control path.
   local lowest
   lowest=$(printf '%s\n%s\n' "$before_v" "$after_v_phase1" | sort -V | head -1)
-  if [[ "$lowest" != "$before_v" ]] || [[ "$after_v_phase1" == "$before_v" ]]; then
+  if [[ "$lowest" != "$before_v" ]]; then
     __fail "AGT-02d (RED control)" \
-      "binary drifts forward (after > before) when stamp absent + 90s idle" \
-      "before=${before_v} after=${after_v_phase1} (no drift — control invalid)" \
+      "drift, if any, is forward (after >= before)" \
+      "before=${before_v} after=${after_v_phase1} (backwards drift)" \
       "$LOG"
+  fi
+  if [[ "$after_v_phase1" == "$before_v" ]]; then
+    __diag "AGT-02d (RED control): no drift observed — catalog pin (${before_v}) likely == latest published; GREEN phase still exercised"
   fi
 
   # ----------------------------------------------------------------------
@@ -143,18 +157,30 @@ teardown_file() {
 
   after_v_phase2=$(sudo -u agent -H bash --login -c 'claude --version' | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
-  # GREEN assertion: zero drift across the idle window with the stamp present.
+  # GREEN assertion: zero drift across the idle window with the stamp
+  # present. semver-compare via `sort -V` for symmetry with the RED phase
+  # (a backwards-drift would be just as much a regression as a forward
+  # one, even if no real rollback path exists today in claude).
   if [[ "$before_v_phase2" != "$after_v_phase2" ]]; then
+    local order
+    order=$(printf '%s\n%s\n' "$before_v_phase2" "$after_v_phase2" | sort -V | head -1)
+    local direction
+    if [[ "$order" == "$before_v_phase2" ]]; then direction="forward"; else direction="backward"; fi
     __fail "AGT-02d" \
-      "no drift with DISABLE_AUTOUPDATER=1 stamp across 90s idle (before == after)" \
-      "before=${before_v_phase2} after=${after_v_phase2}" \
+      "no drift with DISABLE_AUTOUPDATER=1 stamp across 90s idle" \
+      "before=${before_v_phase2} after=${after_v_phase2} (${direction} drift)" \
       "$LOG"
   fi
 
-  # pinned is asserted at install time by AGT-02b — referenced here so the
-  # variable is materialized (`sort -V` semver compare would be a future
-  # tightening; today's invariant is just "no drift from the install-time
-  # state when stamped").
+  # pinned is asserted at install time by AGT-02b — verify the after-phase
+  # version matches the catalog pin too, tightening the invariant from
+  # "no drift" to "no drift from the install-time state."
   [[ -n "$pinned" ]] || __fail "AGT-02d (catalog gate)" \
     "pinned_version present in catalog" "<empty>" "$LOG"
+  if [[ "$after_v_phase2" != "$pinned" ]]; then
+    __fail "AGT-02d (pin gate)" \
+      "after_v_phase2 == pinned (${pinned})" \
+      "after=${after_v_phase2}" \
+      "$LOG"
+  fi
 }

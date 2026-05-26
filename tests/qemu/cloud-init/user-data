@@ -35,4 +35,4 @@ write_files:
       AcceptEnv ANTHROPIC_API_KEY
 runcmd:
   - systemctl enable --now ssh
-  - systemctl restart ssh
+  - systemctl reload ssh

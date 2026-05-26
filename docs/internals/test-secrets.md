@@ -86,6 +86,10 @@ to consume it.
 - `.github/workflows/nightly-qemu.yml` — release-gate workflow that
   receives the secret from the repo Actions secrets.
 - `.env.local.example` — committed template; commented placeholders only.
+- [Test interactive](test-interactive.md) — `expect`-based helpers for
+  bats tests that need a real TTY. The sibling pipeline that consumes
+  `ANTHROPIC_API_KEY` via `require_secret` for interactive Claude Code
+  behavioral coverage.
 - ADR-014 (SEC-05) — full-history gitleaks secret-scanning gate; defence
   in depth alongside the `.gitignore` rule for `.env.*`.
 

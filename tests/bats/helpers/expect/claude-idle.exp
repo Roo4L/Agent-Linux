@@ -7,19 +7,14 @@
 #
 # Invariants:
 #   - `log_user 0`: no secret travels through this script, but suppressing
-#     CLI banner echo keeps bats $output clean and avoids any future leak
-#     shape if a feature flag ever surfaces auth state to stdout.
-#   - IDLE_SECONDS in argv 1; default 90 (empirical: the in-tool updater
-#     fires after auth + ~60-90s idle; pick a value safely above the lower
-#     bound to avoid flakes on a slow CI substrate).
+#     CLI banner echo keeps bats $output clean.
+#   - IDLE_SECONDS in argv 1; default 90.
 #   - Clean exit via Ctrl-D (send "\004"). `:quit` is REPL-specific and
-#     not guaranteed across CLI versions; Ctrl-D is the POSIX/expect
-#     idiom for "close the pty's input side."
-#   - No `expect` for any specific prompt — what matters is that the
-#     session is LIVE for the idle window, not what the REPL renders.
-#     Sleeping INSIDE expect (not bash) keeps the pty attached; a
-#     bash-side `sleep N; kill $pid` would race-condition against the
-#     updater's binary swap.
+#     not guaranteed across CLI versions.
+#   - Wait inside expect (not bash) so the pty stays attached for the full
+#     idle window. A premature eof during the wait (claude crashed
+#     mid-idle) returns exit 1 immediately rather than burning the
+#     remaining budget on a bash-side sleep.
 
 log_user 0
 set idle_seconds 90
@@ -27,17 +22,25 @@ if {[llength $argv] > 0} {
     set idle_seconds [lindex $argv 0]
 }
 
-# Spawn an interactive claude session. No subcommand → drops into the
-# REPL after login state is read from ~agent/.claude/.
 spawn claude
 
-# Sleep INSIDE expect so the pty stays attached for the full idle window.
-sleep $idle_seconds
+# Wait for the idle window. If the spawned process exits early (eof), the
+# expected post-idle Ctrl-D would race against an already-closed pty —
+# return exit 1 so the caller fails the test rather than masking the
+# crash with a clean teardown.
+set timeout $idle_seconds
+expect {
+    eof {
+        puts stderr "claude-idle.exp: claude process exited before idle window completed"
+        exit 1
+    }
+    timeout {
+        # Expected path — idle window completed without an early exit.
+    }
+}
 
-# Clean exit. Ctrl-D on the REPL prompt terminates the session.
 send "\004"
 
-# Bounded wait for the spawned process to exit; 10s is generous.
 set timeout 10
 expect eof
 exit 0
