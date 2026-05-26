@@ -571,8 +571,17 @@ setup_brownfield_for_bail_sudoers_drift() {
 
 # Test 19: NO-MUTATION SNAPSHOT — wrong-shell bail. The architectural proof
 # of UX-03 atomicity: snapshot before, run without --yes, assert exit 65 +
-# [BAIL] line, snapshot after, assert byte-equality.
-@test "UX-03 (T-14-13): NO-MUTATION SNAPSHOT — wrong-shell user bail leaves /etc/sudoers.d /home /etc/passwd byte-identical" {
+# bail message, snapshot after, assert byte-equality.
+#
+# Plan 15-02 (UX-04 / D-15-08) refactor: the wrong-shell incompatible-user
+# case now routes through main()'s alt-user gate BEFORE
+# remediate::collect_all_decisions. In non-TTY mode (this test pipes no TTY)
+# prompt::alt_user_or_bail emits the locked hint message and exits 65 — the
+# Phase 14 `[BAIL] component=user` line is REPLACED by the D-15-08 hint
+# message. The atomicity invariant (zero host mutation) is preserved because
+# the gate exits BEFORE any provisioner runs; only the user-facing
+# diagnostic surface changes.
+@test "UX-03 (T-14-13) / UX-04 (D-15-08): NO-MUTATION SNAPSHOT — wrong-shell user bail leaves /etc/sudoers.d /home /etc/passwd byte-identical" {
   setup_brownfield_for_bail_user_wrongshell
 
   local before="$BATS_TEST_TMPDIR/before"
@@ -582,8 +591,12 @@ setup_brownfield_for_bail_sudoers_drift() {
   run bash "$INSTALLER"
   [[ "$status" -eq 65 ]] \
     || __fail "UX-03" "exit 65 on wrong-shell bail without --yes" "exit=$status output=$output" "$LOG"
-  printf '%s' "$output" | grep -qF '[BAIL] component=user' \
-    || __fail "UX-03" "[BAIL] component=user line in bail message" "$output" "$LOG"
+  # Plan 15-02: assert the new D-15-08 bail-with-hint message replaces the
+  # Phase 14 `[BAIL] component=user` line for the wrong-shell case.
+  printf '%s' "$output" | grep -qF 'agentlinux: existing user "agent" is incompatible (wrong-shell).' \
+    || __fail "D-15-08" "wrong-shell bail-with-hint message in stderr" "$output" "$LOG"
+  printf '%s' "$output" | grep -qF 'Re-run with --user=' \
+    || __fail "D-15-08" "--user= suggestion in bail-with-hint message" "$output" "$LOG"
 
   snapshot_capture "$after" /etc/sudoers.d /home /etc/passwd
 

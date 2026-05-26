@@ -334,6 +334,9 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # Original incompatible agent is untouched (still /bin/sh shell).
   getent passwd agent | grep -qE ':/bin/sh$' \
     || __fail "UX-04" "original agent user untouched (still /bin/sh)" "$(getent passwd agent)" "$LOG"
+  # Teardown: remove agent2 so subsequent tests' find_alt_user_name still
+  # suggests "agent2" (the deterministic first-suggestion contract).
+  userdel -rf agent2 2>/dev/null || true
 }
 
 # Test 14 (UX-04 TTY accept-typed): operator types a custom name.

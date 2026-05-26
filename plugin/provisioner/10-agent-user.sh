@@ -93,13 +93,21 @@ esac
 # the user's own configuration (idempotent re-runs against a REUSE branch were
 # never the use case here — REUSE is "do nothing" and we mean it).
 if [[ "${REUSED_USER:-false}" != true ]]; then
-  # Step 1: agent user (BHV-01 — bash shell, home directory).
-  # ensure_user is a no-op if `agent` already exists (T-02-05 mitigation:
-  # existing `agent` user belonging to a different human is not modified; we
+  # Plan 15-02 (UX-04 — Rule 2 deviation): the alt-user flow updates
+  # INSTALL_USER (via prompt::alt_user_or_bail). The CREATE path here must
+  # honor that update so `id -u <new-name>` succeeds end-to-end. Resolve
+  # the target user once and use it consistently below; falls back to the
+  # historical literal `agent` when INSTALL_USER is unset/empty so Phase 13
+  # callers are unaffected.
+  _AL_INSTALL_USER="${INSTALL_USER:-agent}"
+  _AL_INSTALL_HOME="/home/${_AL_INSTALL_USER}"
+  # Step 1: install user (BHV-01 — bash shell, home directory).
+  # ensure_user is a no-op if the user already exists (T-02-05 mitigation:
+  # existing user belonging to a different human is not modified; we
   # only assert existence). ensure_dir then asserts mode/ownership on the
-  # already-created /home/agent to correct any out-of-band drift on re-run.
-  ensure_user agent
-  ensure_dir /home/agent 0755 agent:agent
+  # already-created home to correct any out-of-band drift on re-run.
+  ensure_user "${_AL_INSTALL_USER}"
+  ensure_dir "${_AL_INSTALL_HOME}" 0755 "${_AL_INSTALL_USER}:${_AL_INSTALL_USER}"
 
   # Step 2: Locale (BHV-01 — LANG=C.UTF-8, LC_ALL=C.UTF-8 system-wide).
   #
@@ -150,7 +158,9 @@ fi
 # The body MUST include the three canonical anti-pattern strings that bats
 # tests in Plan 02-05 grep-verify: `usr/local/bin`, `sudo npm install -g`,
 # and `second Node.js install`.
-ensure_marker_block /home/agent/CLAUDE.md "agentlinux-doc-02" --top <<'DOC02'
+_AL_DOC02_USER="${INSTALL_USER:-agent}"
+_AL_DOC02_HOME="/home/${_AL_DOC02_USER}"
+ensure_marker_block "${_AL_DOC02_HOME}/CLAUDE.md" "agentlinux-doc-02" --top <<'DOC02'
 # /home/agent/CLAUDE.md — AgentLinux agent-user guidance
 
 ## This environment is correctly owned
@@ -203,8 +213,8 @@ DOC02
 # ensure_marker_block uses `install -m 0644` which leaves the file root-owned;
 # re-assert agent:agent ownership so the agent user can read + edit it outside
 # the marker block on subsequent runs.
-chmod 0644 /home/agent/CLAUDE.md
-chown agent:agent /home/agent/CLAUDE.md
-log_info "wrote DOC-02 CLAUDE.md to /home/agent/CLAUDE.md"
+chmod 0644 "${_AL_DOC02_HOME}/CLAUDE.md"
+chown "${_AL_DOC02_USER}:${_AL_DOC02_USER}" "${_AL_DOC02_HOME}/CLAUDE.md"
+log_info "wrote DOC-02 CLAUDE.md to ${_AL_DOC02_HOME}/CLAUDE.md"
 
 log_info "10-agent-user: done"

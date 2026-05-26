@@ -553,6 +553,56 @@ main() {
     detect::emit_report "$REPORT_FORMAT"
     exit 0
   fi
+  # Phase 15 (Plan 15-02 — UX-04): alt-user gate. Runs BEFORE
+  # remediate::collect_all_decisions because user identity is upstream of
+  # every downstream decision (npm-prefix path is ~<user>/.npm-global,
+  # sudoers target is `<user> ALL=(ALL)`, agent installs via sudo -u <user>).
+  # If reuse::user_decision bails on an incompatible existing user AND we are
+  # NOT in --dry-run (dry-run lets the bail surface IN the report per D-15-01):
+  #   - TTY: prompt::alt_user_or_bail offers an alt name; on accept,
+  #     update INSTALL_USER and re-run detect::run_once so DETECT_USER_*
+  #     reflects the alt user; on decline (EOF / 3-invalid) it exits 65/64.
+  #   - Non-TTY: prompt::alt_user_or_bail emits the locked hint message
+  #     (D-15-08) and exits 65.
+  #
+  # The function uses `exit` on bail paths (terminal sink) and `return 0` on
+  # accept. We capture the user-decision token via cmd-sub; reuse::user_decision
+  # sets DETECT_USER_BAIL_REASON (T-15-02-01: unset at function entry, set
+  # ONLY on bail-returning paths) so main() can trust the export.
+  if [[ $DRY_RUN_REQUESTED != true ]]; then
+    # Capture the decision token via a tmp file (NOT cmd-sub) so the
+    # DETECT_USER_BAIL_REASON export set inside reuse::user_decision
+    # propagates back to this (parent) shell. `$(...)` cmd-sub runs in a
+    # subshell and exports inside it never reach the parent — the alt-user
+    # gate would silently no-op (T-15-02-01 regression risk). Per
+    # tests/bats/15-preflight-ux.bats Test 17 the gate MUST fire so the
+    # operator gets the validate_user_name re-prompt rather than the
+    # generic Phase 14 [BAIL] flush.
+    local _user_decision_token _user_decision_tmp
+    _user_decision_tmp=$(mktemp)
+    reuse::user_decision "$INSTALL_USER" >"$_user_decision_tmp"
+    _user_decision_token=$(cat "$_user_decision_tmp")
+    rm -f "$_user_decision_tmp"
+    if [[ "$_user_decision_token" == "bail" && -n "${DETECT_USER_BAIL_REASON:-}" ]]; then
+      # shellcheck source=../lib/remediate.sh
+      . "$LIB_DIR/remediate.sh" # provides find_alt_user_name + validate_user_name
+      # shellcheck source=../lib/prompt.sh
+      . "$LIB_DIR/prompt.sh" # provides prompt::alt_user_or_bail
+      # TTY: returns 0 with INSTALL_USER updated; Non-TTY: exits 65; 3-invalid TTY: exits 64.
+      prompt::alt_user_or_bail
+      # Re-run detection against the new user. Every downstream decision
+      # depends on DETECT_USER_* exports being oriented to the alt user.
+      # detect::run_once is memoized via DETECT_RAN — clear it so the new
+      # invocation actually re-runs the probes (otherwise DETECT_USER_* stays
+      # pinned to the original incompatible user and reuse::user_decision in
+      # collect_all_decisions re-bails on stale exports).
+      log_info "alt-user accepted: re-running detection against ${INSTALL_USER}"
+      unset DETECT_RAN
+      detect::run_once "$INSTALL_USER"
+      # Emit the canonical [ALT-USER] marker for transcript visibility.
+      remediate::user::log_alt_user_accepted
+    fi
+  fi
   # Phase 14 (Plan 14-01): DECIDE-THEN-ACT main() flow.
   #
   # remediate.sh provides collect_all_decisions (calls every reuse::*_decision,

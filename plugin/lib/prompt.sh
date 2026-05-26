@@ -179,3 +179,99 @@ prompt::run_all() {
   done
   return 0
 }
+
+# prompt::alt_user_or_bail
+#
+# Plan 15-02 (UX-04). Called from agentlinux-install main() BEFORE
+# remediate::collect_all_decisions when reuse::user_decision returned 'bail'
+# AND DETECT_USER_BAIL_REASON is set to one of the documented values
+# (wrong-shell, home-unwritable, name-mismatch).
+#
+# TTY mode (D-15-07):
+#   - Print the alt-user prompt with the suggested name (numeric suffix scan
+#     via remediate::find_alt_user_name).
+#   - Read response line-based (-r, no -n 1 — names are >1 char).
+#   - On Enter with non-empty suggested: accept suggested.
+#   - On typed name: validate via remediate::validate_user_name; re-prompt
+#     up to 3 times on invalid; on 3 invalid → exit 64 EX_USAGE.
+#   - On accept: export INSTALL_USER=<new>; log [ALT-USER] accepted; return 0.
+#   - On EOF: log [ALT-USER] declined; exit 65.
+#
+# Non-TTY mode (D-15-08):
+#   - log_error the LOCKED hint message + exit 65 EX_DATAERR.
+#     Format: 'agentlinux: existing user "<NAME>" is incompatible (<REASON>).
+#              Re-run with --user=<SUGGESTED> or fix the existing user manually.'
+#
+# This function deliberately uses `exit` (not return) for the bail paths —
+# main() relies on the alt-user gate being a terminal sink when the operator
+# declines or supplies bad input. The accept path uses `return 0` so main()
+# can re-run detect::run_once against the new INSTALL_USER.
+prompt::alt_user_or_bail() {
+  local existing_user="${INSTALL_USER:-agent}"
+  local reason="${DETECT_USER_BAIL_REASON:-unknown}"
+  local suggested
+  # find_alt_user_name returns non-zero on exhaustion; `|| true` keeps the
+  # function moving so we can emit a graceful "no auto-suggested" message
+  # rather than tripping `set -e`.
+  suggested=$(remediate::find_alt_user_name) || true
+
+  # Non-TTY: bail-with-hint (D-15-08). Exit 65 EX_DATAERR.
+  if [[ ! -t 0 ]]; then
+    if [[ -n "$suggested" ]]; then
+      log_error "agentlinux: existing user \"${existing_user}\" is incompatible (${reason}). Re-run with --user=${suggested} or fix the existing user manually."
+    else
+      log_error "agentlinux: existing user \"${existing_user}\" is incompatible (${reason}). Re-run with --user=NAME (no auto-suggested name available — agent2..agent99 all taken) or fix the existing user manually."
+    fi
+    exit 65
+  fi
+
+  # TTY: render the alt-user prompt. Header on stderr so capture-stdout
+  # consumers (jq) are unaffected; same convention as prompt::confirm_remediate.
+  {
+    printf 'pre-flight: existing user "%s" has %s (DET-01 requires bash + writable home).\n' "$existing_user" "$reason"
+    printf 'AgentLinux can create a new install user instead.\n'
+    if [[ -n "$suggested" ]]; then
+      printf 'Suggested alternate name: %s\n' "$suggested"
+    else
+      printf 'No auto-suggested name available (agent2..agent99 all taken).\n'
+    fi
+  } >&2
+
+  local response chosen=""
+  local tries=0
+  while [[ $tries -lt 3 ]]; do
+    if [[ -n "$suggested" ]]; then
+      printf 'Press Enter to use "%s", or type another name: ' "$suggested" >&2
+    else
+      printf 'Type a name for the new install user: ' >&2
+    fi
+    # -r: no backslash escapes (T-15-02-05 belt-and-braces). Line-based read
+    # (no -n N) — alt-user names are >1 char and arrive as a full line from
+    # the TTY driver.
+    if ! IFS= read -r response; then
+      printf '\n' >&2
+      log_error "[ALT-USER] declined — exiting 65 (EOF on prompt)"
+      exit 65
+    fi
+    # Accept Enter as "use suggested" iff suggested is set.
+    if [[ -z "$response" && -n "$suggested" ]]; then
+      chosen="$suggested"
+      break
+    fi
+    if remediate::validate_user_name "$response"; then
+      chosen="$response"
+      break
+    fi
+    tries=$((tries + 1))
+    printf 'invalid name: %q — must match ^[a-z][a-z0-9_-]*$\n' "$response" >&2
+  done
+
+  if [[ -z "$chosen" ]]; then
+    log_error "[ALT-USER] 3 invalid responses — exiting 64 EX_USAGE"
+    exit 64
+  fi
+
+  log_info "[ALT-USER] accepted: ${chosen}"
+  export INSTALL_USER="$chosen"
+  return 0
+}

@@ -44,6 +44,23 @@ fi
 reuse::user_decision() {
   local requested_user=${1:-}
 
+  # Plan 15-02 (T-15-02-01): clear any stale DETECT_USER_BAIL_REASON from a
+  # previous invocation BEFORE evaluating predicates. The export is set ONLY
+  # on bail-returning paths below so main()'s alt-user gate can trust it as
+  # a non-stale signal. Defense in depth: main() also gates on the return
+  # token ('bail') BEFORE reading the reason.
+  #
+  # CRITICAL: callers that invoke this function via `$(reuse::user_decision)`
+  # cmd-sub will NOT see the DETECT_USER_BAIL_REASON export because cmd-sub
+  # runs in a subshell. The Plan 15-02 alt-user gate in main() therefore
+  # routes around cmd-sub via a tmp-file capture (see agentlinux-install
+  # main()). The remediate.sh collect_all_decisions caller uses cmd-sub but
+  # does NOT consume DETECT_USER_BAIL_REASON (it bail-registers without the
+  # reason), so the subshell loss is harmless on that path. Unsetting here
+  # in BOTH parent and subshell contexts protects against stale-reason
+  # leakage across multiple invocations in the parent shell.
+  unset DETECT_USER_BAIL_REASON
+
   # Predicate 1: presence. Absent → no user to reuse, fall through to Create.
   if ! detect::user_present; then
     printf 'create'
@@ -64,6 +81,9 @@ reuse::user_decision() {
   case "$shell_real" in
     /bin/bash | /usr/bin/bash) ;;
     *)
+      # Plan 15-02 (D-15-07 / D-15-08): record the bail reason so main()'s
+      # alt-user gate knows WHY and renders the right prompt + hint message.
+      export DETECT_USER_BAIL_REASON=wrong-shell
       printf 'bail'
       return 0
       ;;
@@ -74,6 +94,8 @@ reuse::user_decision() {
   # bootstrap needs to write ~/.npmrc. Phase 14 does not own a chmod-home
   # handler (out of scope per CONTEXT.md Area 1 Q1).
   if ! detect::user_home_writable; then
+    # Plan 15-02 (D-15-07): home-unwritable bail reason.
+    export DETECT_USER_BAIL_REASON=home-unwritable
     printf 'bail'
     return 0
   fi
@@ -84,6 +106,8 @@ reuse::user_decision() {
   # class (CONTEXT.md "user mismatch is its own incompatibility class") — bail
   # immediately so the operator passes --user=<correct-name>.
   if [[ -n "$requested_user" && "$requested_user" != "${DETECT_USER_NAME:-}" ]]; then
+    # Plan 15-02 (D-15-07): name-mismatch bail reason.
+    export DETECT_USER_BAIL_REASON=name-mismatch
     printf 'bail'
     return 0
   fi

@@ -87,6 +87,49 @@ declare -gA RESOLUTIONS=()
 # record on a decline.
 declare -gA ACTION_MAP=()
 
+# remediate::find_alt_user_name
+#
+# Plan 15-02 (UX-04 / D-15-07). Scan /etc/passwd for the lowest N ≥ 2 such
+# that `agent<N>` does NOT already exist. Prints `agent<N>` on stdout and
+# returns 0. If all of agent2..agent99 are taken (T-15-02-04 exhaustion),
+# prints empty string and returns 1 — caller emits the no-auto-suggested
+# message that still names --user=NAME as the operator escape hatch.
+#
+# Pure-read function — never mutates /etc/passwd. Safe to call during the
+# DECIDE phase (before any provisioner runs). Uses getent (not bash `id -u`
+# lookups) so NSS-backed sources are consulted too.
+remediate::find_alt_user_name() {
+  local n
+  for ((n = 2; n <= 99; n++)); do
+    if ! getent passwd "agent${n}" >/dev/null 2>&1; then
+      printf 'agent%d' "$n"
+      return 0
+    fi
+  done
+  # Exhaustion: agent2..agent99 all taken.
+  printf ''
+  return 1
+}
+
+# remediate::validate_user_name <name>
+#
+# Plan 15-02 (UX-04 / T-15-02-05). Validates an operator-supplied alt-user
+# name against POSIX-friendly rules:
+#   - First char: lowercase letter (a-z)
+#   - Remainder: lowercase letters, digits, underscore, or hyphen
+# Returns 0 on valid, 1 on invalid (including empty).
+#
+# T-15-02-05 mitigation: rejects ALL shell metachars (;, |, &, $, `, \, etc.).
+# The accepted name is later passed to useradd argv-literally (no shell eval),
+# but this is the documented contract every downstream component depends on
+# (ensure_user, ensure_dir, sudoers drop-in literal, [REMEDIATE-NN] markers).
+remediate::validate_user_name() {
+  local name=${1:-}
+  [[ -n "$name" ]] || return 1
+  [[ "$name" =~ ^[a-z][a-z0-9_-]*$ ]] || return 1
+  return 0
+}
+
 # remediate::register_bail <component> <reason> <hint>
 #
 # Appends one entry to BAILED_COMPONENTS for later flush. Caller responsibility

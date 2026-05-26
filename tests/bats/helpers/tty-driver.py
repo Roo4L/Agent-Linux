@@ -78,9 +78,11 @@ def main() -> int:
     #
     # See plugin/lib/prompt.sh for the prompt format.
     PROMPT_QUIET_THRESHOLD = 2  # consecutive empty-read cycles → assume read-block
+    EOF_AFTER_EMPTY_QUIET = 6  # cycles of quiet AFTER write_buf is empty → send EOF (^D)
     write_buf = input_bytes
     output: list[bytes] = []
     quiet_cycles = 0
+    eof_sent = False
     while True:
         rlist = [fd]
         try:
@@ -105,6 +107,23 @@ def main() -> int:
                 try:
                     os.write(fd, write_buf[:1])
                     write_buf = write_buf[1:]
+                    quiet_cycles = 0
+                except OSError:
+                    break
+            # Plan 15-02 (UX-04 Test 15): once input is exhausted AND the child
+            # is still blocked on read, send EOF (^D = 0x04 in canonical/ICANON
+            # pty mode) so `read -r response` returns non-zero and the alt-user
+            # prompt's EOF-bail path fires. Without this, Test 15 (decline-and-
+            # bail via EOF) hangs forever because pty.fork()'s slave-side TTY
+            # never closes on its own.
+            elif (
+                quiet_cycles >= EOF_AFTER_EMPTY_QUIET
+                and not write_buf
+                and not eof_sent
+            ):
+                try:
+                    os.write(fd, b"\x04")  # Ctrl-D / EOT
+                    eof_sent = True
                     quiet_cycles = 0
                 except OSError:
                     break

@@ -49,3 +49,16 @@ remediate::user::log_path_wiring_remediated() {
 remediate::user::path_wiring_stub() {
   remediate::user::log_path_wiring_remediated
 }
+
+# remediate::user::log_alt_user_accepted
+#
+# Plan 15-02 (UX-04). Emits a stable [ALT-USER] marker line for transcript
+# visibility when main()'s alt-user gate accepts an alternate install user.
+# Called by main() AFTER prompt::alt_user_or_bail returns 0 (TTY mode) and
+# AFTER detect::run_once is re-run against the new user — at which point
+# INSTALL_USER + DETECT_USER_NAME both reflect the alt user.
+#
+# The marker is grep-stable for the bats @tests and audit-doc cross-refs.
+remediate::user::log_alt_user_accepted() {
+  log_info "[ALT-USER] component=user action=alt-user-accepted new_user=${INSTALL_USER:-agent} reason=${DETECT_USER_BAIL_REASON:-unknown}"
+}
