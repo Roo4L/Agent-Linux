@@ -450,3 +450,207 @@ setup_brownfield_host_with_agent2_taken() {
     useradd -m -s /bin/bash agent2
   fi
 }
+
+# -----------------------------------------------------------------------------
+# Plan 16-02 — Milestone-close brownfield-AGT-02 fixture helpers.
+#
+# T-16-01-05 mitigation: as brownfield fixtures multiply, the apt/NodeSource/
+# agent-user/sudoers base risks drifting between fixtures. The
+# `_setup_brownfield_apt_layer` helper below is the shared base every NEW
+# Phase-16+ fixture builds on. Existing helpers (setup_brownfield_host,
+# _brownfield_baseline) stay byte-stable in this commit — the new fixture is
+# ADDITIVE; a follow-on refactor can collapse the duplication safely once the
+# 13-* + 14-* + 15-* bats matrix has been re-verified against the new shared
+# base.
+# -----------------------------------------------------------------------------
+
+# _setup_brownfield_apt_layer
+# Internal helper (T-16-01-05). Shared base that every brownfield fixture
+# in this file builds on. Lays down:
+#   - --purge of any existing AgentLinux state (idempotent on re-run)
+#   - agent user with /bin/bash login shell + writable home
+#   - canonical ADR-012 sudoers drop-in (mode 0440, agent ALL=(ALL) NOPASSWD: ALL)
+#   - NodeSource Node 22 (skip if dpkg shows installed)
+#
+# Existing fixtures (setup_brownfield_host, _brownfield_baseline) keep their
+# inline equivalents in this commit; new fixtures from Plan 16-02 onward use
+# this helper as the canonical base. Adding a new brownfield fixture? Call
+# this first.
+_setup_brownfield_apt_layer() {
+  local installer=/opt/agentlinux-src/plugin/bin/agentlinux-install
+
+  log_brownfield "purging any existing AgentLinux state (idempotent)"
+  bash "$installer" --purge >/dev/null 2>&1 || true
+
+  if ! id -u agent >/dev/null 2>&1; then
+    log_brownfield "creating agent user (useradd -m -s /bin/bash)"
+    useradd -m -s /bin/bash agent
+  else
+    usermod -s /bin/bash agent >/dev/null 2>&1 || true
+  fi
+
+  if [[ ! -f /etc/sudoers.d/agentlinux ]]; then
+    log_brownfield "installing canonical ADR-012 sudoers drop-in"
+    local tmp
+    tmp=$(mktemp)
+    printf 'agent ALL=(ALL) NOPASSWD: ALL\n' >"$tmp"
+    if visudo -cf "$tmp" >/dev/null; then
+      install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
+    fi
+    rm -f "$tmp"
+  fi
+
+  if ! dpkg-query -W -f='${Status}' nodejs 2>/dev/null \
+    | grep -q "install ok installed"; then
+    log_brownfield "installing NodeSource Node 22 (apt-get install -y nodejs)"
+    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
+    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/dev/null 2>&1
+  fi
+}
+
+# setup_brownfield_host_full
+# Phase 16 / Plan 16-02 / D-16-03 — milestone-close brownfield-AGT-02
+# fixture. Pre-populates the container with ALL FIVE pre-existing artifacts
+# the milestone-close gate exercises:
+#
+#   (1) agent user (manually created — REUSE-01 fixture)
+#   (2) canonical ADR-012 sudoers drop-in (REUSE-by-SHA from Phase 12)
+#   (3) NodeSource Node 22 (REUSE-02 fixture)
+#   (4) claude-code installed at PATH-MISMATCH location
+#       (~agent/.npm-global/bin/claude via `npm install -g
+#       @anthropic-ai/claude-code@<pin>`) — REMEDIATE-04 PATH-MISMATCH
+#       fixture (the headline brownfield case)
+#   (5) gsd + playwright-cli installed globally at the canonical
+#       npm-global path (REUSE-03 fixtures for the other two catalog
+#       agents)
+#
+# IMPORTANT: the claude-code install is INTENTIONALLY at the PATH-MISMATCH
+# location (npm-global/bin/claude instead of the canonical .local/bin/claude).
+# This is what makes the gate brownfield-AGT-02: agentlinux install --yes
+# must REMEDIATE-04 reinstall claude-code under the canonical path, THEN
+# `claude update` must succeed against the live Anthropic CDN with zero EACCES.
+#
+# The gsd + playwright-cli installs are REUSE fixtures — at canonical paths,
+# healthy. They demonstrate the REUSE-03 short-circuit on a populated host.
+setup_brownfield_host_full() {
+  local installer=/opt/agentlinux-src/plugin/bin/agentlinux-install
+  local pkg_version catalog
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  catalog=/opt/agentlinux/catalog/${pkg_version}/catalog.json
+
+  # Step 1-3: shared apt layer (agent user + sudoers + Node 22).
+  _setup_brownfield_apt_layer
+
+  # Step 4: run the bash entrypoint baseline so PATH wiring is in place for
+  # subsequent npm-global installs (mirrors setup_brownfield_broken_claude_code).
+  # --yes required because brownfield npm-prefix may trigger REMEDIATE-01.
+  log_brownfield "running agentlinux-install --yes to wire PATH for agent's login shell"
+  bash "$installer" --yes >/dev/null 2>&1 || true
+
+  # Re-resolve catalog path after install (catalog is staged by the installer).
+  catalog=/opt/agentlinux/catalog/${pkg_version}/catalog.json
+
+  # Step 5: install claude-code at PATH-MISMATCH location (npm-global, NOT
+  # canonical native installer path) so REMEDIATE-04 fires.
+  local claude_pin
+  claude_pin=$(jq -r '.agents[] | select(.id=="claude-code") | .pinned_version' "$catalog")
+  log_brownfield "installing claude-code@${claude_pin} via npm at PATH-MISMATCH location (~agent/.npm-global/bin)"
+  sudo -u agent -H bash --login -c \
+    "npm install -g --no-fund --no-audit @anthropic-ai/claude-code@${claude_pin}" \
+    >/dev/null 2>&1 || true
+
+  # Step 6: install gsd globally at canonical npm-global path (REUSE-03 fixture).
+  local gsd_pin
+  gsd_pin=$(jq -r '.agents[] | select(.id=="gsd") | .pinned_version' "$catalog")
+  log_brownfield "installing get-shit-done-cc@${gsd_pin} via npm (canonical path; REUSE-03 fixture)"
+  sudo -u agent -H bash --login -c \
+    "npm install -g --no-fund --no-audit get-shit-done-cc@${gsd_pin}" \
+    >/dev/null 2>&1 || true
+
+  # Step 7: install playwright-cli globally at canonical npm-global path.
+  # DEVIATION FROM PLAN (Rule 1): plan said `npm install -g playwright@<pin>`
+  # but the catalog id `playwright-cli` actually maps to npm package
+  # `@playwright/cli` (Microsoft's token-efficient CLI tool) with binary
+  # `playwright-cli` — NOT the upstream `playwright` package (which ships a
+  # `playwright` binary at a different pin range). BHV-52b's artifact-5
+  # assertion correctly checks for `playwright-cli` binary per the catalog.
+  # Resolve the package name + pin via jq so the fixture stays honest as the
+  # catalog evolves.
+  local pw_pin pw_pkg
+  pw_pin=$(jq -r '.agents[] | select(.id=="playwright-cli") | .pinned_version' "$catalog")
+  pw_pkg=$(jq -r '.agents[] | select(.id=="playwright-cli") | .npm_package_name' "$catalog")
+  log_brownfield "installing ${pw_pkg}@${pw_pin} via npm (canonical npm-global path; binary lands at playwright-cli)"
+  sudo -u agent -H bash --login -c \
+    "npm install -g --no-fund --no-audit ${pw_pkg}@${pw_pin}" \
+    >/dev/null 2>&1 || true
+
+  # Step 8: pre-populate ~/.claude/test-marker-file so we can verify CAT-04
+  # preserve_paths survives REMEDIATE-04 reinstall (matches
+  # setup_brownfield_broken_claude_code's marker convention).
+  install -d -m 0755 -o agent -g agent /home/agent/.claude
+  echo "preserve-this-test-marker-content-line" \
+    >/home/agent/.claude/test-marker-file
+  chown agent:agent /home/agent/.claude/test-marker-file
+
+  log_brownfield "setup_brownfield_host_full complete — 5 artifacts in place"
+}
+
+# capture_transcript_to <dest> [<pre_version> [<post_version>]]
+# Phase 16 / Plan 16-02 / D-16-09 — write the captured `run` $output (the
+# bats subshell's stdout/stderr from the most recent `run` invocation) to
+# <dest>, prepending a stable header block so the committed audit doc is
+# self-describing.
+#
+# Header format (markdown-safe; the file is a .md):
+#   # AGT-02 brownfield acceptance transcript
+#
+#   - Generated: <ISO-8601 date>
+#   - Distro: <distro> <version>
+#   - Kernel: <uname -r>
+#   - AgentLinux pin: <agentlinux package.json .version>
+#   - Fixture: setup_brownfield_host_full (5 brownfield artifacts)
+#   - Bats fixture marker: [bats fixture: brownfield-AGT-02]
+#
+#   ## Transcript
+#
+#   <captured run $output, verbatim, fenced in ```console block>
+#
+# T-16-01-02 mitigation: ONLY quoted parameter expansion + printf '%s';
+# NEVER eval or bash -c "$output". The captured content is treated as
+# opaque text.
+capture_transcript_to() {
+  local dest=$1
+  local pre_version=${2:-(not captured)}
+  local post_version=${3:-(not captured)}
+  local distro=unknown distro_ver=unknown kernel=unknown pkg_version=unknown
+
+  if [[ -f /etc/os-release ]]; then
+    # shellcheck disable=SC1091
+    source /etc/os-release
+    distro="${ID:-unknown}"
+    distro_ver="${VERSION_ID:-unknown}"
+  fi
+  kernel=$(uname -r 2>/dev/null || printf 'unknown')
+  if [[ -f /opt/agentlinux-src/plugin/cli/package.json ]]; then
+    pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json 2>/dev/null || printf 'unknown')
+  fi
+
+  mkdir -p "$(dirname "$dest")"
+  {
+    printf '# AGT-02 brownfield acceptance transcript\n\n'
+    printf -- '- Generated: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+    printf -- '- Distro: %s %s\n' "$distro" "$distro_ver"
+    printf -- '- Kernel: %s\n' "$kernel"
+    printf -- '- AgentLinux pin: %s\n' "$pkg_version"
+    printf -- '- Fixture: setup_brownfield_host_full (5 brownfield artifacts)\n'
+    printf -- '- Bats fixture marker: [bats fixture: brownfield-AGT-02]\n'
+    printf -- '- claude --version BEFORE update: %s\n' "$pre_version"
+    printf -- '- claude --version AFTER  update: %s\n\n' "$post_version"
+    printf '## Transcript\n\n'
+    printf '```console\n'
+    # $output is bats's captured stdout/stderr from the last `run`.
+    # Quoted to prevent any shell metachars from being interpreted.
+    printf '%s\n' "${output:-(no output captured)}"
+    printf '```\n'
+  } >"$dest"
+}
