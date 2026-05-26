@@ -19,5 +19,20 @@ packages:
   - jq
   - ca-certificates
   - curl
+  - expect
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-agentlinux-test-acceptenv.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      # Forwarded by the release-gate harness from the host runner into the
+      # in-guest bats process. The host-side `ssh -o SendEnv=ANTHROPIC_API_KEY`
+      # in tests/qemu/boot.sh pairs with this AcceptEnv drop-in — sshd silently
+      # drops any SendEnv var not listed here, so this file is what lets the
+      # sandbox key cross the host-to-guest boundary into bats. Scoped to the
+      # single allowlisted var (not `AcceptEnv *`) so a future test cannot
+      # accidentally smuggle other host-env vars into the guest.
+      AcceptEnv ANTHROPIC_API_KEY
 runcmd:
   - systemctl enable --now ssh
+  - systemctl restart ssh

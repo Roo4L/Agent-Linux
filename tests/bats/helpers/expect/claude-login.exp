@@ -1,0 +1,78 @@
+#!/usr/bin/env expect
+# tests/bats/helpers/expect/claude-login.exp
+# AGT-02d behavioral test driver: drive `claude /login` non-interactively
+# with the API key from the environment. Owns the pty pair so Bun/Ink
+# raw-mode TTY succeeds — `script(1)` and `<<<` cannot satisfy raw-mode
+# (see the AGT-03 commentary in tests/bats/50-agents.bats for the pattern
+# that motivated this helper).
+#
+# Invariants:
+#   - `log_user 0` MANDATORY: suppresses stdout echo of the spawned process's
+#     output. Without this, the API key the script sends back lands in the
+#     bash wrapper's stdout — bats captures that as $output — and from there
+#     into CI logs. Defence-in-depth pairs with the bash wrapper passing the
+#     key via subprocess env (not argv).
+#   - Reads ANTHROPIC_API_KEY from env (NOT argv): keeps the key out of
+#     /proc/<pid>/cmdline and out of `ps` output for the lifetime of the
+#     expect invocation.
+#   - Tolerant `-re` prompt match: the upstream CLI's login prompt wording
+#     is not part of this project's contract and has shifted between
+#     releases. An exact-string match would silently false-negative on an
+#     upstream rewording. The 30s per-prompt timeout calls `exit 1` so an
+#     upstream change fails LOUDLY rather than hanging the bats run.
+#   - Exit codes: 0 on successful login, 1 on any prompt timeout or auth
+#     failure. The bash wrapper translates these into bats __fail diagnostics
+#     in the consuming @test.
+
+log_user 0
+set timeout 30
+
+if {![info exists env(ANTHROPIC_API_KEY)] || $env(ANTHROPIC_API_KEY) eq ""} {
+    # Print the diagnostic WITHOUT echoing the var name's value (we just
+    # checked it's empty, but defence-in-depth — the error path must not
+    # rely on the empty-check to keep secrets out of stderr).
+    puts stderr "claude-login.exp: ANTHROPIC_API_KEY env var unset or empty"
+    exit 1
+}
+
+# Spawn the in-tool login flow. The exact subcommand shape (`claude /login`
+# vs `claude login` vs an interactive `/login` slash-command at the REPL) is
+# upstream-controlled; if the live CLI surface differs, update this spawn
+# line AND the corresponding paragraph in docs/internals/test-interactive.md
+# debugging checklist.
+spawn claude /login
+
+expect {
+    -re {[Aa]pi[ _-]?[Kk]ey|[Pp]aste.*key|sk-} {
+        # Send the key + Enter. NOT echoed because log_user 0.
+        send "$env(ANTHROPIC_API_KEY)\r"
+    }
+    timeout {
+        puts stderr "claude-login.exp: timed out waiting for API-key prompt (30s)"
+        exit 1
+    }
+    eof {
+        puts stderr "claude-login.exp: process exited before API-key prompt"
+        exit 1
+    }
+}
+
+# Wait for a success signal — login confirmation or REPL prompt return. The
+# tolerant regex covers a handful of plausible success markers; the 30s
+# budget accommodates the first-time auth round-trip to the Anthropic API.
+expect {
+    -re {[Ll]ogged in|[Ss]uccessfully|[Ww]elcome|>|\$ } {
+        # Success — close the session cleanly.
+        send "\004"
+        expect eof
+        exit 0
+    }
+    -re {[Ii]nvalid|[Uu]nauthorized|[Ff]ailed} {
+        puts stderr "claude-login.exp: login rejected (auth failure)"
+        exit 1
+    }
+    timeout {
+        puts stderr "claude-login.exp: timed out waiting for login confirmation (30s)"
+        exit 1
+    }
+}
