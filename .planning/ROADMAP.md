@@ -30,7 +30,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
 - [x] **Phase 12: Detection Layer** — Read-only discovery primitives covering install user, Node.js sources, npm prefix, catalog agents, sudoers drop-in; pre-flight report in human text + stable JSON. (completed 2026-05-11)
 - [x] **Phase 13: Reuse Wiring** — Plumb DET output into existing provisioners and the recipe runner so they short-circuit when detected components match contract; first end-to-end brownfield smoke. (completed 2026-05-20)
 - [x] **Phase 14: Remediate + Consent Flag + Exit Codes** — Mutating fix paths (chown npm prefix, refresh PATH wiring, install missing/drifted sudoers, reinstall broken catalog agent), single `--yes` consent flag for non-TTY mode (Unix-convention, matching `apt install -y`), structured exit codes 64/65/1 that downstream phases honor. Per-action TTY prompts land in Phase 15. (completed 2026-05-25)
-- [ ] **Phase 15: Pre-flight UX** — `--dry-run`, interactive `Proceed? [y/N]` for state-overwriting actions, alt-user-name prompt for incompatible existing user, JSON-format finalization for the report.
+- [x] **Phase 15: Pre-flight UX** — `--dry-run`, interactive `Proceed? [y/N]` for state-overwriting actions, alt-user-name prompt for incompatible existing user, JSON-format finalization for the report. (completed 2026-05-26)
 - [ ] **Phase 16: Documentation + Brownfield Acceptance Gate** — README "Brownfield install" section, `docs/MIGRATION.md` with four worked scenarios, milestone-close brownfield-AGT-02 smoke transcript on a pre-populated host.
 
 ## Phase Details
@@ -96,7 +96,7 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
   5. Greenfield invariant: a fresh container's `agentlinux install --dry-run` produces a report where every component is `absent` → `Create`; running `agentlinux install` after the dry-run produces a v0.3.0-identical greenfield install (66/66 bats green).
 **Plans**: 2 plans
 - [x] 15-01-PLAN.md — --dry-run (bash + CLI) + TTY per-action prompts + sentinel widening (reused-with-warning) + list-suffix rendering (UX-01, UX-02)
-- [ ] 15-02-PLAN.md — Alt-user TTY prompt + non-TTY bail-with-hint + REQUIREMENTS.md flip + 15-AUDIT.md (UX-04)
+- [x] 15-02-PLAN.md — Alt-user TTY prompt + non-TTY bail-with-hint + REQUIREMENTS.md flip + 15-AUDIT.md (UX-04)
 **UI hint**: no
 
 ### Phase 16: Documentation + Brownfield Acceptance Gate
@@ -121,7 +121,7 @@ Phases execute in numeric order: 12 → 13 → 14 → 15 → 16. Decimal phases 
 | 12. Detection Layer | 3/3 | Complete   | 2026-05-11 |
 | 13. Reuse Wiring | 2/2 | Complete   | 2026-05-20 |
 | 14. Remediate + Consent Flag + Exit Codes | 3/3 | Complete   | 2026-05-25 |
-| 15. Pre-flight UX | 1/2 | In Progress|  |
+| 15. Pre-flight UX | 2/2 | Complete   | 2026-05-26 |
 | 16. Documentation + Brownfield Acceptance Gate | ~2 | Not started | - |
 | **Total** | **~12 plans** | 0/5 phases done | — |
 
