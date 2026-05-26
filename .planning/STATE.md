@@ -4,14 +4,14 @@ milestone: v0.3.4
 milestone_name: milestone
 status: verifying
 stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-05-26T09:36:04.268Z"
+last_updated: "2026-05-26T13:31:30.829Z"
 last_activity: 2026-05-26
 progress:
   total_phases: 5
   completed_phases: 4
-  total_plans: 10
-  completed_plans: 10
-  percent: 100
+  total_plans: 12
+  completed_plans: 11
+  percent: 92
 ---
 
 # Project State
@@ -95,6 +95,7 @@ Progress: [░░░░░░░░░░] 0% (0 of ~12 v0.3.4 plans done; v0.3.
 | Phase 14-remediate-consent-flag-exit-codes P03 | 75min | 3 tasks | 18 files |
 | Phase 15-preflight-ux P01 | 4h 10m | 2 tasks | 13 files |
 | Phase Phase 15-preflight-ux PP02 | 3h | 2 tasks tasks | 11 files files |
+| Phase 16-documentation-brownfield-acceptance P01 | 33min | 2 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -319,6 +320,8 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - [Phase ?]: REMEDIATE-04 wired via tryRemediate + preserve_paths.json + claude-code uninstall.sh PATH-MISMATCH npm tear-down
 - [Phase ?]: CAT-04 behavior shift: ~/.claude/downloads now preserved across REMEDIATE-04 reinstall via descendant rule
 - [Phase ?]: Plan 15-01: --dry-run flag on both bash + TS halves; TTY per-action prompts with decline-and-continue (reused-with-warning sentinel); symmetric --dry-run + --yes contradiction rejection
+- [Phase ?]: Plan 16-01: README mid-doc placement (D-16-01) + relative-path link to MIGRATION.md (T-16-01-03)
+- [Phase ?]: Plan 16-01: 4 mandatory scenarios B/A/C/D in difficulty order with spec letters preserved in anchors (D-16-07)
 
 ### Key Infrastructure Details
 
@@ -351,6 +354,6 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Session Continuity
 
-Last session: 2026-05-26T09:36:04.261Z
+Last session: 2026-05-26T13:31:26.613Z
 Stopped at: Completed 15-02-PLAN.md
 Resume file: None

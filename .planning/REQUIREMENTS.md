@@ -66,8 +66,8 @@ Grouped by category. Each `XXX-NN` is a testable, verifiable outcome — auditab
 
 ### Documentation (DOC)
 
-- [ ] **DOC-01**: README gains a "Brownfield install" section explaining the detection pass + dry-run + the four states (Reuse / Create / Remediate / Bail) with a worked example transcript on a host that has Claude Code already installed. The section is linked from the README's main "Install" section so a user landing on the canonical install path discovers the brownfield contract immediately.
-- [ ] **DOC-02**: A focused `docs/MIGRATION.md` walks through four representative pre-existing-setup scenarios: (a) `agent` user from a manual `useradd` setup, (b) Node.js from NodeSource that is already correct, (c) Claude Code installed under root that needs reinstall under the agent user, (d) Playwright with a broken chromium cache. Each scenario shows the pre-flight report output, the user's decision tree, the flags they would pass in non-interactive mode, and the resulting host state. README links to it.
+- [x] **DOC-01**: README gains a "Brownfield install" section explaining the detection pass + dry-run + the four states (Reuse / Create / Remediate / Bail) with a worked example transcript on a host that has Claude Code already installed. The section is linked from the README's main "Install" section so a user landing on the canonical install path discovers the brownfield contract immediately.
+- [x] **DOC-02**: A focused `docs/MIGRATION.md` walks through four representative pre-existing-setup scenarios: (a) `agent` user from a manual `useradd` setup, (b) Node.js from NodeSource that is already correct, (c) Claude Code installed under root that needs reinstall under the agent user, (d) Playwright with a broken chromium cache. Each scenario shows the pre-flight report output, the user's decision tree, the flags they would pass in non-interactive mode, and the resulting host state. README links to it.
 
 ## Future Requirements (not in this milestone)
 
@@ -120,8 +120,8 @@ Populated by gsd-roadmapper during ROADMAP creation. Empty initially.
 | UX-03 | Phase 14 | Complete |
 | UX-04 | Phase 15 | Complete |
 | UX-05 | Phase 14 | Complete |
-| DOC-01 | Phase 16 | Pending |
-| DOC-02 | Phase 16 | Pending |
+| DOC-01 | Phase 16 | Complete |
+| DOC-02 | Phase 16 | Complete |
 
 **Coverage:**
 - v0.3.4 requirements: 20 total
