@@ -109,7 +109,9 @@ Key locked decisions honored by this roadmap (from REQUIREMENTS.md "Design Philo
   3. **Milestone-close gate (brownfield-AGT-02):** on a Docker container pre-populated with a manually-created `agent` user + NodeSource Node 22 + `claude-code` global + `gsd` global + `playwright` global, `agentlinux install` (with whatever Remediate flags the scenario's pre-flight report justifies) completes; afterwards `sudo -u agent -H bash --login -c 'claude update'` against the live Anthropic CDN exits 0 with zero EACCES / permission-denied lines and version monotonicity holds (`sort -V` confirms post >= pre); transcript committed to `docs/audits/v0.3.4/AGT-02-brownfield-acceptance.md`. This is the v0.3.4 phase-close-gate equivalent of v0.3.0's TST-07.
   4. Greenfield invariant: the v0.3.0 greenfield AGT-02 release-gate test (`tests/bats/51-agt02-release-gate.bats`) stays green on Ubuntu 22.04 + 24.04 Docker; the brownfield path is additive only.
   5. Phase-close audit `.planning/phases/16-documentation-brownfield-acceptance/16-AUDIT.md` cites every v0.3.4 requirement's evidence (bats @test reference, audit doc path, ADR id, CI run URL, or smoke transcript); behavior-coverage-auditor emits `GATE: GREEN`; v0.3.4 is release-ready.
-**Plans**: TBD (estimated 2 plans — DOC-01 README + DOC-02 MIGRATION.md as one wave, brownfield-AGT-02 smoke + phase-close audit + milestone-close audit as the second)
+**Plans**: 2 plans
+- [ ] 16-01-PLAN.md — README "Brownfield install" section + docs/MIGRATION.md with four worked scenarios (DOC-01, DOC-02)
+- [ ] 16-02-PLAN.md — brownfield-AGT-02 milestone-close bats gate + transcript capture + 16-AUDIT.md (GATE: GREEN) + REQUIREMENTS/STATE/ROADMAP milestone-close ceremony
 
 ## Progress
 
