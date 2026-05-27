@@ -10,19 +10,38 @@ The project also maintains a landing page at **agentlinux.org** for validation a
 
 An agent can be dropped into any supported Linux system and *just work* — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights, sudo prompts, or recursive-shim workarounds. Installing AgentLinux on your distro gives you an agent environment that was built right the first time.
 
-## Current Milestone: v0.3.4 Aware Installation Process
+## Current State
 
-**Goal:** Make AgentLinux installation aware of pre-existing AI/agent setups on the host — pre-existing `agent` user, Node.js, npm-global prefix, Claude Code, GSD, Playwright — and either reuse, remediate, or bail with a clear error rather than failing or silently overwriting user state. Triggered by [AL-38](https://copiedwonder.atlassian.net/browse/AL-38): agents are commonly run on long-lived VMs that already have partial agent toolchains installed; v0.3.0's installer assumed a fresh host and clobbers or aborts otherwise.
+**Shipped:** v0.3.4 Aware Installation Process — feature-complete 2026-05-27 (GATE: GREEN, release-ready, awaiting `v0.3.4-rc1` tag push).
 
-**Target features:**
-- Detection pass: discovery layer that catalogs pre-existing agent user (UID/GID, shell, home, groups), Node.js (NodeSource / distro APT / nvm / fnm / volta / mise), npm-global prefix + ownership, sudoers drop-in drift, and each catalog agent (claude-code, gsd, playwright — version + binary path + ownership + health)
-- Reuse path: if a detected component matches AgentLinux's contract (correct ownership, version-compatible per the catalog's pin window, PATH-wireable), skip the corresponding provisioner / recipe — never re-clobber working state
-- Remediate path: when a component is mostly-correct (wrong-owner npm-global prefix, missing PATH wiring, drifted sudoers drop-in, broken catalog-agent install), fix it in place — gated by user opt-in for any overwrite of pre-existing user state
-- Pre-flight report: before any mutation, print a Reuse / Create / Remediate / Bail report (text + machine-readable JSON via `--report-format`) so the user knows exactly what the installer will do
-- Dry-run mode: `agentlinux install --dry-run` produces the pre-flight report without writing anything
-- Non-interactive default: when stdin is not a TTY (cron, CI, ssh-non-interactive, automation, `curl | sudo bash`), pick safe defaults (reuse-or-bail), never prompt, never overwrite user state without an explicit flag
-- Interactive prompts: alternate-user-name prompt when the existing `agent` user is incompatible; reinstall confirmation when an agent tool fails its health check
-- Documentation: a "Brownfield Install" section in README plus a focused `docs/MIGRATION.md` walking through the common pre-existing-setup scenarios
+**What v0.3.4 delivers:** AgentLinux installation is now aware of pre-existing AI/agent setups on the host. The installer detects pre-existing `agent` user, Node.js, npm-global prefix, Claude Code, GSD, and Playwright, then either reuses (compatible state), creates (absent), remediates (fixable drift), or bails (incompatible) on a per-component basis. `agentlinux install --dry-run` provides a non-mutating preview; TTY mode prompts per state-overwriting action with skip-and-continue semantics; non-TTY mode uses the single `--yes` consent flag (Unix convention). Structured exit codes (64 EX_USAGE, 65 EX_DATAERR, 1 runtime, 0 success) gate downstream automation. The brownfield-AGT-02 milestone-close gate verified `claude update` succeeds with zero EACCES on a pre-populated host against the live Anthropic CDN.
+
+**Test surface:** 204/204 bats green on Ubuntu 22.04 + 24.04 (Phase 14 baseline +18 from Phase 15 +2 from Phase 16); 165/165 TS unit tests green; greenfield invariant preserved (v0.3.0 baseline @tests untouched).
+
+**Documentation:** README has a new `## Brownfield install` section linked from main Install; `docs/MIGRATION.md` walks 4 worked scenarios (manual `useradd`, NodeSource Node, root-Claude reinstall, broken Playwright); per-phase AUDITs at `.planning/phases/{12..16}-*/`-AUDIT.md`; milestone audit at `.planning/v0.3.4-MILESTONE-AUDIT.md`.
+
+## Next Milestone Goals
+
+- **v0.3.5 AlmaLinux support** (AL-47 / Epic AL-48): port the aware-install pipeline to AlmaLinux 9. Phase 12-15 detection layer is mostly distro-portable; brownfield-AGT-02 gate runs against a different baseline (DNF + EL8/EL9 idiom).
+- **`v0.3.4-rc1` tag push**: shipping event for the v0.3.4 milestone (release.yml pipeline already wired).
+
+<details>
+<summary>v0.3.4 Aware Installation Process — original goal (archived 2026-05-27)</summary>
+
+**Goal:** Make AgentLinux installation aware of pre-existing AI/agent setups on the host — pre-existing `agent` user, Node.js, npm-global prefix, Claude Code, GSD, Playwright — and either reuse, remediate, or bail with a clear error rather than failing or silently overwriting user state. Triggered by [AL-38](https://copiedwonder.atlassian.net/browse/AL-38).
+
+**Target features (all delivered):**
+- Detection pass (DET-01..06): discovery layer catalogs pre-existing agent user, Node.js installs, npm-global prefix + ownership, sudoers drift, catalog agent state
+- Reuse path (REUSE-01..03): compatible state → skip the corresponding provisioner / recipe
+- Remediate path (REMEDIATE-01..04): mostly-correct state → fix in place, gated by `--yes` in non-TTY mode
+- Pre-flight report (DET-06): text + JSON report before any mutation
+- Dry-run mode (UX-01): `agentlinux install --dry-run` non-mutating preview
+- Non-interactive default + `--yes` (UX-03, UX-05): cron/CI safe defaults; structured exit codes 64/65/1/0
+- Interactive prompts (UX-02, UX-04): per-action prompts in TTY mode; alt-user-name prompt for incompatible existing user
+- Documentation (DOC-01, DOC-02): README "Brownfield install" + `docs/MIGRATION.md`
+
+Archived: `.planning/milestones/v0.3.4-ROADMAP.md`, `.planning/milestones/v0.3.4-REQUIREMENTS.md`.
+</details>
 
 ## Previous Milestone: v0.4.0 Open-Source Release — feature-complete (formal closeout pending)
 

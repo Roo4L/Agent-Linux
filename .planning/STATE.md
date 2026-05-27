@@ -350,9 +350,15 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ## Deferred Items
 
+Items acknowledged and deferred at v0.3.4 milestone close on 2026-05-27:
+
 | Category | Item | Status | Deferred At |
 |----------|------|--------|-------------|
-| *(none)* | | | |
+| verification_gap | Phase 05 (v0.3.0): 05-VERIFICATION.md | human_needed | 2026-05-27 (predates v0.3.4; pre-existing v0.3.0 follow-up) |
+| quick_task | 1-debug-and-fix-claude-code-post-hooks-fai | missing | 2026-05-27 (legacy stub; not v0.3.4 scope) |
+| quick_task | 260502-i4p-add-stop-hook-reminding-claude-to-run-re | missing | 2026-05-27 (legacy stub; not v0.3.4 scope) |
+| quick_task | 260503-8z4-al-24-add-stop-hook-for-session-tracking | missing | 2026-05-27 (legacy stub; not v0.3.4 scope) |
+| todo | 2026-03-09-add-pr-preview-deployments-for-website (tooling) | pending | 2026-05-27 (general tooling; not v0.3.4 scope) |
 
 ## Session Continuity
 
