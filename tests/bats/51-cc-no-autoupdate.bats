@@ -5,7 +5,7 @@
 # `claude --version` matches the catalog pin at install time; AGT-02c proves
 # the stamp is WRITTEN; AGT-02d proves the stamp's RUNTIME EFFECT — the
 # binary does not drift forward over a 90s idle interactive session (which
-# it would otherwise, given a valid login + sandbox key).
+# it would otherwise, given a valid sandbox key in ANTHROPIC_API_KEY).
 #
 # Red-green pair design:
 #   PHASE 1 (RED, control): strip the stamp, idle 90s, observe drift > 0.
@@ -19,9 +19,16 @@
 #   Release-gate (nightly-qemu) sees the key via the workflow-env + ssh
 #   SendEnv path; AGT-02d runs green there.
 #
-# Wall-clock budget: two 90s idle windows + login + version checks ≈ 200s
-# per test file. The release-gate workflow timeout is 45min total across
-# the matrix; 200s is well within budget for a single matrix leg.
+# Auth model:
+#   `claude` reads ANTHROPIC_API_KEY from its environment when no stored
+#   credentials exist — no /login dance, no expect-driven prompt parsing.
+#   claude_idle_for forwards the key via sudo --preserve-env. The pty pair
+#   still has to be real (Bun/Ink raw mode), which is why we drive via
+#   expect rather than `claude -p`.
+#
+# Wall-clock budget: two 90s idle windows + version checks ≈ 190s per
+# test file. The release-gate workflow timeout is 45min total across
+# the matrix; 190s is well within budget for a single matrix leg.
 #
 # Refs:
 #   - .claude/skills/behavior-test-contract/SKILL.md (ID-in-@test-name)
@@ -52,23 +59,17 @@ setup_file() {
     bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
   fi
 
-  # Clear any persisted Claude auth state so claude_login takes the fresh
-  # API-key prompt path on every run. A previous test file (or a prior
-  # invocation against the same on-disk state) may have left credentials
-  # that send the login flow down an already-authenticated short-circuit
-  # the .exp script doesn't expect — yields a 30s timeout + skip.
-  sudo -u agent -H bash --login -c 'rm -rf ~/.claude/.credentials* ~/.claude/auth 2>/dev/null' || true
+  # Scrub stored credentials so claude takes the env-var auth path. A
+  # prior file (50-agents.bats AGT-02b/c, 51-agt02-release-gate.bats's
+  # `claude update`) may have left ~/.claude/.credentials* on disk;
+  # claude prefers stored creds over ANTHROPIC_API_KEY when both exist,
+  # which would mask the env-var path this test depends on.
+  sudo -u agent -H bash --login -c 'rm -f ~/.claude/.credentials*' || true
 
   # Re-install at the catalog-pinned version with --force so we start at a
   # known floor. install.sh writes the DISABLE_AUTOUPDATER stamp here.
-  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1
-
-  if ! claude_login; then
-    # The .exp script's diagnostics already went to stderr (redacted).
-    # Skip rather than fail: a Claude API outage or upstream prompt
-    # rewording is a transient environmental issue, NOT a regression in
-    # the AL-51 fix being verified.
-    skip "claude_login failed (transient Anthropic API or upstream prompt change; see docs/internals/test-interactive.md)"
+  if ! sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1; then
+    __diag "setup_file: agentlinux install --force claude-code failed (see $LOG); subsequent assertions may misattribute the failure"
   fi
 }
 
@@ -133,7 +134,12 @@ teardown_file() {
   # PHASE 2 (GREEN, fix-acceptance): re-stamp, idle 90s, version MUST NOT drift.
   # ----------------------------------------------------------------------
   # Reset to the pin and re-write the stamp via --force install.
-  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1
+  if ! sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1; then
+    __fail "AGT-02d (GREEN setup)" \
+      "agentlinux install --force claude-code exits 0" \
+      "install failed" \
+      "$LOG"
+  fi
 
   # Confirm the stamp is present before idling (gate AGT-02c shares).
   local stamped
