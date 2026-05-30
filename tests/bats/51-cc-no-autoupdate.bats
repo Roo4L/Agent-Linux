@@ -45,53 +45,41 @@ PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 SETTINGS=/home/agent/.claude/settings.json
 
-setup_file() {
-  # Skip yellow if no key — gates EVERY @test in the file when bats sees
-  # `skip` inside setup_file (bats >=1.5). `skip` exits the function so
-  # the steps below do not run on per-PR Docker CI.
+# No setup_file / teardown_file. bats's ERR trap on bash 5.1 (Ubuntu
+# 22.04) fires for `skip` and for false `[[ ]]` / `(( ))` exits inside
+# setup_file/teardown_file even when those exits are immediately
+# absorbed by `|| true`. The @test body's bats wrapper has a looser
+# trap, so we move every gate (secret check, recovery primitive,
+# baseline install) into the test itself. Nothing follows this file in
+# lexical order today; a 52-*.bats would own its own cleanup.
+
+@test "AGT-02d: claude binary does not drift forward over 90s idle when DISABLE_AUTOUPDATER stamp is present (with red-phase control)" {
+  # Skip yellow if no key — per-PR Docker CI never sees ANTHROPIC_API_KEY
+  # by design; release-gate (nightly-qemu) does.
   require_secret ANTHROPIC_API_KEY
 
   # Recovery primitives mirror 51-agt02-release-gate.bats setup_file:
-  # filename sort puts 40-*.bats (INST-04 --purge) before 51-*.bats, so by
-  # the time we get here the installer may have been torn down. Re-run
-  # plugin/bin/agentlinux-install when the agentlinux symlink is absent.
-  # `cmd || cmd` form (not `if [[ ]]`): bats's ERR trap fires for any
-  # non-zero exit including false `[[ ]]` / `(( ))` tests on bash 5.1
-  # (Ubuntu 22.04) — only `||` short-circuits are exempt.
-  [[ -L /home/agent/.npm-global/bin/agentlinux ]] || \
+  # filename sort puts 40-*.bats (INST-04 --purge) before 51-*.bats, so
+  # by the time we get here the installer may have been torn down.
+  if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
     bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+  fi
 
   # Scrub stored credentials so claude takes the env-var auth path. A
   # prior file (50-agents.bats AGT-02b/c, 51-agt02-release-gate.bats's
   # `claude update`) may have left ~/.claude/.credentials* on disk;
-  # claude prefers stored creds over ANTHROPIC_API_KEY when both exist,
-  # which would mask the env-var path this test depends on.
+  # claude prefers stored creds over ANTHROPIC_API_KEY when both exist.
   sudo -u agent -H bash --login -c 'rm -f ~/.claude/.credentials*' || true
 
-  # Re-install at the catalog-pinned version with --force so we start at a
-  # known floor. install.sh writes the DISABLE_AUTOUPDATER stamp here.
-  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || \
-    __diag "setup_file: agentlinux install --force claude-code failed (see $LOG); subsequent assertions may misattribute the failure"
+  # Re-install at the catalog-pinned version with --force so we start at
+  # a known floor. install.sh writes the DISABLE_AUTOUPDATER stamp here.
+  if ! sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1; then
+    __fail "AGT-02d (setup)" \
+      "agentlinux install --force claude-code exits 0" \
+      "install failed" \
+      "$LOG"
+  fi
 
-  return 0
-}
-
-teardown_file() {
-  # Restore install state to whatever install.sh writes. Surface restore
-  # failures via __diag so a teardown breakage shows up in TAP output
-  # rather than silently corrupting the on-disk state for subsequent
-  # files. (Bats files run in lexical order; nothing today follows this
-  # one, but a future 52-*.bats would inherit corruption silently.)
-  # `[[ ]] || return 0` for the same reason setup_file uses `cmd || cmd`:
-  # on bash 5.1 the bats ERR trap fires for a false `[[ ]]` exit inside
-  # an `if`-condition. The `||` form is exempt.
-  [[ -L /home/agent/.npm-global/bin/agentlinux ]] || return 0
-  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || \
-    __diag "teardown_file: agentlinux install --force claude-code failed; on-disk state may be drifted (see $LOG)"
-  return 0
-}
-
-@test "AGT-02d: claude binary does not drift forward over 90s idle when DISABLE_AUTOUPDATER stamp is present (with red-phase control)" {
   local pinned before_v after_v_phase1 after_v_phase2
 
   pinned=$(jq -r '.agents[] | select(.id=="claude-code") | .pinned_version' "$CATALOG")
@@ -138,15 +126,11 @@ teardown_file() {
   # ----------------------------------------------------------------------
   # PHASE 2 (GREEN, fix-acceptance): re-stamp, idle 90s, version MUST NOT drift.
   # ----------------------------------------------------------------------
-  # Reset to the pin and re-write the stamp via --force install. Avoid
-  # `if ! cmd; then` — bats's ERR trap fires inside if-conditions on
-  # bash 5.1 (22.04), so capture rc explicitly instead.
-  local install_rc=0
-  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || install_rc=$?
-  if (( install_rc != 0 )); then
+  # Reset to the pin and re-write the stamp via --force install.
+  if ! sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1; then
     __fail "AGT-02d (GREEN setup)" \
       "agentlinux install --force claude-code exits 0" \
-      "install failed rc=${install_rc}" \
+      "install failed" \
       "$LOG"
   fi
 
