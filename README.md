@@ -138,6 +138,19 @@ preserved by default; add `--remove-nodejs` to drop the NodeSource apt list
 and the `nodejs` package as well. A re-run of the curl installer after
 `--purge` starts from a clean slate — there is no state hidden elsewhere.
 
+## Why AgentLinux — concepts
+
+Each AgentLinux surface — installer, agent user, sudo drop-in, Node.js runtime,
+the agent catalog, the registry CLI, and the curated agent set (Claude Code,
+GSD, Playwright) — solves a specific bug class that the naive `sudo npm
+install -g` path leaves broken. The internals docs walk through one component
+at a time: what the problem is, what AgentLinux does about it, and the value
+vs. the naive approach.
+
+See [docs/internals/README.md](docs/internals/README.md) for the index — nine
+short component docs, each answering "what value does AgentLinux provide
+here" in under a minute.
+
 ## Stability model
 
 AgentLinux ships *curated combos*: every catalog agent is pinned to an exact
@@ -147,9 +160,10 @@ curated pin; when you want to run ahead of it, you can — `agentlinux upgrade`
 shows the 3-way divergence between installed, curated, and upstream latest,
 and `agentlinux pin` sets sticky overrides so power users are not re-nagged.
 
-AGT-02 remains a permission invariant: whether you stay on the curated pin or
-run `claude update` past it, AgentLinux's release-gate test verifies the
-self-update path succeeds with zero `EACCES` and zero `sudo` prompts.
+The self-update-without-sudo invariant is permanent: whether you stay on the
+curated pin or run `claude update` past it, AgentLinux's release-gate test
+verifies the self-update path succeeds with zero `EACCES` and zero `sudo`
+prompts.
 
 See [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md) for the user-facing
 one-page summary and [docs/decisions/011-stability-first-version-pinning.md](docs/decisions/011-stability-first-version-pinning.md)
@@ -174,8 +188,7 @@ catalog's curated choice. Precedent: Homebrew's `brew pin`.
 - `curl` preinstalled (stock on all three releases)
 
 Not yet supported in v0.3.0: ARM64, Fedora/Alma/Rocky/Arch. Those are on the
-v0.4+ roadmap. See [.planning/REQUIREMENTS.md](.planning/REQUIREMENTS.md) for
-the full behavior contract.
+v0.4+ roadmap.
 
 ## Security
 
@@ -184,7 +197,8 @@ download (connection reset mid-transfer) yields a bash syntax error *before*
 any commands run — partial-download execution is not possible. The release
 tarball is fetched over HTTPS and verified against a sibling `.sha256` asset
 published on the same GitHub Release before extraction. GPG signatures are
-on the v0.4+ roadmap (ADR-006); v0.3.0's trust story is HTTPS + SHA256 +
+on the v0.4+ roadmap — see [`docs/decisions/006-curl-pipe-bash-plus-deb.md`](docs/decisions/006-curl-pipe-bash-plus-deb.md)
+for the distribution decision; v0.3.0's trust story is HTTPS + SHA256 +
 maintainer 2FA + branch protection.
 
 Report vulnerabilities via the repository's Security tab (coordinated
@@ -212,6 +226,8 @@ endorsement.
 - **Source + issues:** https://github.com/Roo4L/Agent-Linux
 - **Releases:** https://github.com/Roo4L/Agent-Linux/releases
 - **Architecture decisions:** [docs/decisions/](docs/decisions/)
+- **Vision:** [docs/VISION.md](docs/VISION.md)
+- **Internals (developer docs):** [docs/internals/](docs/internals/)
 - **Test harness spec:** [docs/HARNESS.md](docs/HARNESS.md)
 - **Stability model (user-facing):** [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md)
 - **Landing page:** https://agentlinux.org
@@ -228,3 +244,9 @@ invocation mode (interactive shell, non-interactive SSH, cron, systemd user
 units, `sudo -u agent`, `sudo -u agent -i`). Everything else — the catalog,
 the curated combos, the reconciliation verbs — is downstream of that one
 decision.
+
+AgentLinux is framed around two pillars: **Time-to-productive** (the
+assembly the user gets on install — agent user, runtime, permissions,
+catalog — without learning to assemble it themselves) and **Stability**
+(the curated toolchain holds compatible across upstream churn). See
+[docs/VISION.md](docs/VISION.md) for the full framing.

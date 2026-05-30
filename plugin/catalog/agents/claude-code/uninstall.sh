@@ -85,6 +85,23 @@ fi
 # on-disk state, not the path bash hashed before this uninstall.
 hash -r 2>/dev/null || true
 
+# CLI-04 symmetric removal of the DISABLE_AUTOUPDATER stamp: strip our
+# key only, drop the file iff nothing of the user's remains. Malformed
+# JSON is left alone (idempotent + non-fatal).
+settings_file="${AGENTLINUX_AGENT_HOME}/.claude/settings.json"
+if [[ -f "${settings_file}" ]]; then
+  tmp="${settings_file}.tmp.$$"
+  if jq 'if (.env | type) == "object" then .env = (.env | del(.DISABLE_AUTOUPDATER)) else . end | if (.env == {}) then del(.env) else . end' "${settings_file}" > "${tmp}" 2>/dev/null; then
+    if jq -e 'length == 0' "${tmp}" >/dev/null 2>&1; then
+      rm -f "${settings_file}" "${tmp}"
+    else
+      mv "${tmp}" "${settings_file}"
+    fi
+  else
+    rm -f "${tmp}"
+  fi
+fi
+
 # Intentionally NOT removed (user data; matches Anthropic's uninstall-config
 # warning): ~/.claude/, ~/.claude.json. Users wanting a full wipe run the
 # documented steps manually; INST-04 --purge sweeps the entire agent home.

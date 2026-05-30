@@ -1,5 +1,20 @@
 # Milestones
 
+## v0.3.3 Agenda Redefinition (Shipped: 2026-05-24)
+
+**Phases completed:** 5 phases, 7 plans, 20 tasks
+
+**Key accomplishments:**
+
+- Canonical pillar 2 verdict published with hard reframe (infrastructure, not agent product) + 8/8 EXPL-01 grep tokens + 3-times-stated next-milestone priority + voice-rule-clean Direction subsection — Phase 15's verbatim-lift target ready for consumption.
+- Verdict (b) authored at `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md`: security is not a separate pillar in v0.3.3; the one substantive forward-looking commitment — active supply-chain monitoring + curated catalog admission — folds into Pillar 2; phase-close audit emits GREEN with all five EXPL-02 success criteria passing and 12 distinct named-reference tokens cited.
+- Phase 15 gate: GREEN.
+- Landed the canonical product strategy/roadmap document with the Rumelt-style 5-section spine; amended REQUIREMENTS.md STRATR-02 in the same commit window; captured pre-audit evidence for STRATR-01..06.
+- Ran the reviewer pass on docs/STRATEGY.md (inline autonomous mode), triaged 3 LOW comments to skip, and authored 16-AUDIT.md emitting the Phase 16 GREEN gate with all 6 STRATR-XX requirements PASS.
+- Repaired `index.html` to remove every contradiction with the post-Phase-14 vision and post-Phase-15 strategy — rewrote hero value-prop, OG/Twitter meta, 6 of 8 `#features` cards + intro, 3 `#comparison` blocks + intro + closing, FAQ #1 + #5; rendered OG card to PNG; amended REQUIREMENTS.md with the 2026-05-24 scope re-cut; and emitted the v0.3.3 milestone-close gate GREEN.
+
+---
+
 ## v0.1.0 AgentLinux Landing Page (Shipped: 2026-03-10)
 
 **Phases completed:** 2 phases, 5 plans
@@ -7,6 +22,7 @@
 **LOC:** 1,045 (HTML/CSS/JS/SVG/XML)
 
 **Key accomplishments:**
+
 - Full landing page with dark terminal aesthetic, crab mascot SVG, and sticky navigation
 - Problem/features/comparison content sections with 11 inline Lucide SVG icons
 - Email signup form integrated with Buttondown API, FAQ accordion, responsive design
@@ -27,6 +43,7 @@
 **Timeline:** 2026-03-15 → 2026-03-18 active execution
 
 **What shipped:**
+
 - Packer + QEMU build infrastructure for Debian 12 QCOW2 images
 - 6-script provisioner chain: base → one-context → Node.js → Chrome → agent-tools → cleanup
 - Node.js 22 LTS install from NodeSource (carries forward)
@@ -36,6 +53,7 @@
 - /etc/skel-based Claude Code config with Chrome DevTools MCP pre-wired
 
 **What was dropped:**
+
 - Phase 5 (End-to-End OpenNebula Validation) — not started, retired with pivot
 - The QCOW2-image-as-product distribution model
 - OpenNebula deploy / contextualize / verify pipeline
@@ -56,6 +74,7 @@
 **Timeline:** 2026-04-18 → 2026-04-20 (~3 days active execution)
 
 **Key accomplishments:**
+
 - One-command installable Ubuntu plugin (curl-pipe-bash + optional `.deb` via fpm) with SHA256-verified release tarball
 - Dedicated `agent` user provisioned with correctly-owned Node.js 22 LTS runtime, per-user npm prefix at `/home/agent/.npm-global/`, and six-mode PATH wiring (interactive, non-interactive SSH, cron, systemd `User=agent`, `sudo -u agent`, `sudo -u agent -i`)
 - Passwordless sudo for agent user via `/etc/sudoers.d/agentlinux` (ADR-012) — required for Playwright `install --with-deps`
@@ -69,13 +88,37 @@
 
 ---
 
-## v0.4.0 Open-Source Release — IN PROGRESS
+## v0.4.0 Open-Source Release — Shipped: 2026-05-09
 
-**Started:** 2026-04-26
+**Started:** 2026-04-26 | **Phases completed:** 5 (Phases 7–11) | **Anchor:** Issue AGE-6
 
-**Goal:** Open-source the AgentLinux GitHub repository — establish OSS licensing, eliminate any leaked secrets from git history, clean up build artifacts and stale branches, verify CI/CD operates correctly under public-repo permissions, and flip visibility to public so AgentLinux can ride free GitHub Actions minutes and accept community contributions.
+**Key accomplishments:**
 
-**Why now:** Private-repo CI/CD spend has become non-trivial as the QEMU release-gate matrix grew (Phase 6 of v0.3.0). Public repos get free Actions minutes. Public visibility also unblocks community contributions and outside marketing/outreach.
+- MIT OSS license (ADR-013); LICENSE at repo root, README license badge + section, SPDX headers on first-party source files (LIC-01..04)
+- Secret scanning sweep: gitleaks (1 finding, triaged false positive) + trufflehog (0 verified) + targeted manual audit (8 patterns × 255 commits = 0 matches); SEC-04 closes as no-op (ADR-014); gitleaks gate live in pre-commit + CI (SEC-01..05)
+- Repository hygiene: 0 stale branches, 0 blobs >500 KB anywhere in history, .gitignore hardened (CLEAN-01..04)
+- Public CI/CD readiness: workflow `permissions:` blocks at least-privilege; 0 `pull_request_target` usage; branch protection on `master` applied (CIPUB-01..04)
+- Repository visibility flipped to public; anonymous-clone + `curl | bash` smoke test against v0.3.0 release tag both green (PUB-01..04)
+
+**What carries forward into v0.3.3:** Free GitHub Actions minutes (unblocks the broader benchmark + security work pillars 2 and 3 will eventually require). OSS license + CONTRIBUTING surface for external contributors. ADR-001..ADR-014 + behavior-test contract + per-phase TST-07-style phase-close gate convention.
+
+**Archived planning:** `.planning/milestones/v0.4.0-REQUIREMENTS.md` + `.planning/milestones/v0.4.0-ROADMAP.md` (preserved for traceability; phase directories `.planning/phases/07-*..11-*` remain in place — formal archive happens via `/gsd-complete-milestone v0.4.0`).
+
+---
+
+## v0.3.3 Agenda Redefinition — IN PROGRESS
+
+**Started:** 2026-05-09 | **Anchor:** Jira epic [AL-7 — Project agenda redefinition](https://copiedwonder.atlassian.net/browse/AL-7)
+
+**Goal:** Broaden AgentLinux's mission from a single-pillar product ("separated, correctly-owned agent environment") to a three-pillar product, capture the new framing in a canonical product-strategy document, and propagate the framing to the public landing page at agentlinux.org.
+
+**Three pillars (per AL-7):**
+
+1. Separated, correctly-owned agent environment — the existing v0.3.0 core (foundational; not changing in v0.3.3)
+2. Stability + best-tested setup with measurable benchmarks (token consumption, speed, task success rate vs vanilla)
+3. Security hardening against supply-chain + prompt/tool-injection attacks
+
+**Why now:** A single-pillar framing is too narrow to position AgentLinux against agent-environment competitors and to attract the right contributors. The strategy doc becomes a single source of truth that downstream surfaces (website, CONTRIBUTING, future milestone roadmaps) reference; pillar 2 + pillar 3 implementation lands in v0.6+ milestones with the framing locked.
 
 See: `.planning/PROJECT.md` and `.planning/ROADMAP.md` for active scope and phases.
 

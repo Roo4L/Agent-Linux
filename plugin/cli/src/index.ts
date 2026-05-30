@@ -94,7 +94,7 @@ program
 
 program
   .command("upgrade")
-  .description("Reconcile installed versions against the curated catalog (CLI-06)")
+  .description("Reconcile installed versions against the curated catalog")
   .option("--reset-all-curated", "accept curated versions for all agents; clear overrides")
   .option("--respect-overrides", "install curated only for non-overridden agents")
   .option("--all-latest", "install npm latest for all (implies --check-upstream)")
@@ -106,7 +106,7 @@ program
 
 program
   .command("pin <spec>")
-  .description("Set sticky override: <name>=curated|latest|x.y.z (CLI-07)")
+  .description("Set sticky override: <name>=curated|latest|x.y.z")
   .action(async (spec: string, opts) => {
     await pinCmd(spec, opts);
   });
