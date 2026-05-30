@@ -68,8 +68,13 @@ setup_file() {
 
   # Re-install at the catalog-pinned version with --force so we start at a
   # known floor. install.sh writes the DISABLE_AUTOUPDATER stamp here.
-  if ! sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1; then
-    __diag "setup_file: agentlinux install --force claude-code failed (see $LOG); subsequent assertions may misattribute the failure"
+  # Capture rc via `|| rc=$?` rather than `if ! cmd; then` — bats's ERR
+  # trap fires inside if-conditions on bash 5.1 (Ubuntu 22.04), failing
+  # the whole setup_file even when the failure is intentionally handled.
+  local install_rc=0
+  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || install_rc=$?
+  if (( install_rc != 0 )); then
+    __diag "setup_file: agentlinux install --force claude-code failed rc=${install_rc} (see $LOG); subsequent assertions may misattribute the failure"
   fi
 }
 
@@ -80,8 +85,10 @@ teardown_file() {
   # files. (Bats files run in lexical order; nothing today follows this
   # one, but a future 52-*.bats would inherit corruption silently.)
   if [[ -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    if ! sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1; then
-      __diag "teardown_file: agentlinux install --force claude-code failed; on-disk state may be drifted (see $LOG)"
+    local install_rc=0
+    sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || install_rc=$?
+    if (( install_rc != 0 )); then
+      __diag "teardown_file: agentlinux install --force claude-code failed rc=${install_rc}; on-disk state may be drifted (see $LOG)"
     fi
   fi
 }
@@ -133,11 +140,15 @@ teardown_file() {
   # ----------------------------------------------------------------------
   # PHASE 2 (GREEN, fix-acceptance): re-stamp, idle 90s, version MUST NOT drift.
   # ----------------------------------------------------------------------
-  # Reset to the pin and re-write the stamp via --force install.
-  if ! sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1; then
+  # Reset to the pin and re-write the stamp via --force install. Avoid
+  # `if ! cmd; then` — bats's ERR trap fires inside if-conditions on
+  # bash 5.1 (22.04), so capture rc explicitly instead.
+  local install_rc=0
+  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || install_rc=$?
+  if (( install_rc != 0 )); then
     __fail "AGT-02d (GREEN setup)" \
       "agentlinux install --force claude-code exits 0" \
-      "install failed" \
+      "install failed rc=${install_rc}" \
       "$LOG"
   fi
 
