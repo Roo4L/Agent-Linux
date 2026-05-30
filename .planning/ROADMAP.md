@@ -13,10 +13,12 @@
 **Depends on:** Phase 16 (v0.3.4 feature-complete, GATE: GREEN)
 **Anchor:** [AL-38](https://copiedwonder.atlassian.net/browse/AL-38) — file a Phase 17 subtask on plan; this is the maintainer-validation gate referenced at milestone close.
 
-**Plans:** 0 plans (run `/gsd-plan-phase 17` to break down)
+**Plans:** 3 plans (3 waves — strict delivery ordering with 2 human checkpoints)
 
 Plans:
-- [ ] TBD (run /gsd-plan-phase 17)
+- [ ] 17-01-PLAN.md — DEL-02a + DEL-01: lockstep version bump 0.3.2→0.3.4 + merge-integrate origin/master + full suite green (autonomous)
+- [ ] 17-02-PLAN.md — DEL-01b/DEL-02b/DEL-03/DEL-04: push branch + open PR → [HUMAN: merge PR] → push v0.3.4-rc1 tag + watch release → write brownfield-VM runbook → [HUMAN: VM validation] (orchestrator-supervised)
+- [ ] 17-03-PLAN.md — DEL-05: promote-or-iterate decision record + [HUMAN: decision gate] (describe-only; no autonomous promote/close)
 
 ## Shipped / Feature-Complete Milestones
 
