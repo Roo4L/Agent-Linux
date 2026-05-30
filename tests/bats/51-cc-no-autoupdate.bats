@@ -50,8 +50,16 @@ SETTINGS=/home/agent/.claude/settings.json
 # setup_file/teardown_file even when those exits are immediately
 # absorbed by `|| true`. The @test body's bats wrapper has a looser
 # trap, so we move every gate (secret check, recovery primitive,
-# baseline install) into the test itself. Nothing follows this file in
-# lexical order today; a 52-*.bats would own its own cleanup.
+# baseline install) into the test itself.
+#
+# Post-@test on-disk state contract for a future 52-*.bats:
+#   - skip-yellow path (no key): claude-code in whatever state the
+#     prior file left it (typically installed at the catalog pin).
+#   - green path: claude-code installed at pinned_version with the
+#     DISABLE_AUTOUPDATER stamp present.
+#   - red path (assertion failed): indeterminate. A future file that
+#     depends on a clean floor should re-`install --force claude-code`
+#     in its own setup_file rather than trust this file's exit state.
 
 @test "AGT-02d: claude binary does not drift forward over 90s idle when DISABLE_AUTOUPDATER stamp is present (with red-phase control)" {
   # Skip yellow if no key — per-PR Docker CI never sees ANTHROPIC_API_KEY
