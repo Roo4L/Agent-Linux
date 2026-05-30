@@ -55,9 +55,11 @@ setup_file() {
   # filename sort puts 40-*.bats (INST-04 --purge) before 51-*.bats, so by
   # the time we get here the installer may have been torn down. Re-run
   # plugin/bin/agentlinux-install when the agentlinux symlink is absent.
-  if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
+  # `cmd || cmd` form (not `if [[ ]]`): bats's ERR trap fires for any
+  # non-zero exit including false `[[ ]]` / `(( ))` tests on bash 5.1
+  # (Ubuntu 22.04) — only `||` short-circuits are exempt.
+  [[ -L /home/agent/.npm-global/bin/agentlinux ]] || \
     bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
-  fi
 
   # Scrub stored credentials so claude takes the env-var auth path. A
   # prior file (50-agents.bats AGT-02b/c, 51-agt02-release-gate.bats's
@@ -68,14 +70,10 @@ setup_file() {
 
   # Re-install at the catalog-pinned version with --force so we start at a
   # known floor. install.sh writes the DISABLE_AUTOUPDATER stamp here.
-  # Capture rc via `|| rc=$?` rather than `if ! cmd; then` — bats's ERR
-  # trap fires inside if-conditions on bash 5.1 (Ubuntu 22.04), failing
-  # the whole setup_file even when the failure is intentionally handled.
-  local install_rc=0
-  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || install_rc=$?
-  if (( install_rc != 0 )); then
-    __diag "setup_file: agentlinux install --force claude-code failed rc=${install_rc} (see $LOG); subsequent assertions may misattribute the failure"
-  fi
+  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || \
+    __diag "setup_file: agentlinux install --force claude-code failed (see $LOG); subsequent assertions may misattribute the failure"
+
+  return 0
 }
 
 teardown_file() {
@@ -84,13 +82,13 @@ teardown_file() {
   # rather than silently corrupting the on-disk state for subsequent
   # files. (Bats files run in lexical order; nothing today follows this
   # one, but a future 52-*.bats would inherit corruption silently.)
-  if [[ -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    local install_rc=0
-    sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || install_rc=$?
-    if (( install_rc != 0 )); then
-      __diag "teardown_file: agentlinux install --force claude-code failed rc=${install_rc}; on-disk state may be drifted (see $LOG)"
-    fi
-  fi
+  # `[[ ]] || return 0` for the same reason setup_file uses `cmd || cmd`:
+  # on bash 5.1 the bats ERR trap fires for a false `[[ ]]` exit inside
+  # an `if`-condition. The `||` form is exempt.
+  [[ -L /home/agent/.npm-global/bin/agentlinux ]] || return 0
+  sudo -u agent -H bash --login -c 'agentlinux install --force claude-code' >/dev/null 2>&1 || \
+    __diag "teardown_file: agentlinux install --force claude-code failed; on-disk state may be drifted (see $LOG)"
+  return 0
 }
 
 @test "AGT-02d: claude binary does not drift forward over 90s idle when DISABLE_AUTOUPDATER stamp is present (with red-phase control)" {
