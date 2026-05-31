@@ -225,9 +225,3 @@ remediate::nodejs::chown_or_rebase() {
       ;;
   esac
 }
-
-# remediate::nodejs::npm_prefix_stub — LEGACY shim kept for source compat;
-# delegates to chown_or_rebase.
-remediate::nodejs::npm_prefix_stub() {
-  remediate::nodejs::chown_or_rebase
-}

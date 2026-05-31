@@ -227,43 +227,31 @@ __reset_remediate_state() {
   done
 }
 
-@test "REMEDIATE foundation: per-component stub files source + define stub functions emitting [REMEDIATE-NN] markers" {
+@test "REMEDIATE foundation: per-component handler files source + define their [REMEDIATE-NN] handler functions" {
   # REQ: UX-03 (per-component handler scaffolding for Plan 14-02/14-03).
   __source_lib_chain_with_remediate
 
-  # Stub source presence.
-  for stub in user.sh nodejs.sh sudoers.sh agents.sh; do
-    [[ -f "$REMEDIATE_LIB_DIR/$stub" ]] \
-      || __fail "UX-03" "$REMEDIATE_LIB_DIR/$stub exists" "missing" "$REMEDIATE_LIB_DIR"
+  # Per-component file presence.
+  for handler in user.sh nodejs.sh sudoers.sh agents.sh; do
+    [[ -f "$REMEDIATE_LIB_DIR/$handler" ]] \
+      || __fail "UX-03" "$REMEDIATE_LIB_DIR/$handler exists" "missing" "$REMEDIATE_LIB_DIR"
   done
 
-  # Stub / handler function presence — each file declares at least one
-  # `remediate::<component>::<action>` function. Plan 14-01 named these as
-  # *_stub; Plan 14-02 lands the real handlers + keeps the legacy *_stub
-  # symbols as thin shims for source compatibility. Both symbol sets must
-  # be defined for backward + forward compat.
-  declare -F remediate::user::path_wiring_stub >/dev/null \
-    || __fail "UX-03" "remediate::user::path_wiring_stub defined" "not defined" "$REMEDIATE_LIB_DIR/user.sh"
+  # Handler function presence — each component file with a bash-side handler
+  # declares its `remediate::<component>::<action>` function. agents.sh has no
+  # bash handler by design (catalog-agent reinstall is owned by the registry
+  # CLI, install.ts); its file presence is asserted by the loop above.
   declare -F remediate::user::log_path_wiring_remediated >/dev/null \
-    || __fail "UX-03" "remediate::user::log_path_wiring_remediated defined (Plan 14-02 marker)" "not defined" "$REMEDIATE_LIB_DIR/user.sh"
-  declare -F remediate::nodejs::npm_prefix_stub >/dev/null \
-    || __fail "UX-03" "remediate::nodejs::npm_prefix_stub defined" "not defined" "$REMEDIATE_LIB_DIR/nodejs.sh"
+    || __fail "UX-03" "remediate::user::log_path_wiring_remediated defined" "not defined" "$REMEDIATE_LIB_DIR/user.sh"
   declare -F remediate::nodejs::chown_or_rebase >/dev/null \
-    || __fail "UX-03" "remediate::nodejs::chown_or_rebase defined (Plan 14-02 handler)" "not defined" "$REMEDIATE_LIB_DIR/nodejs.sh"
-  declare -F remediate::sudoers::install_stub >/dev/null \
-    || __fail "UX-03" "remediate::sudoers::install_stub defined" "not defined" "$REMEDIATE_LIB_DIR/sudoers.sh"
-  declare -F remediate::sudoers::overwrite_stub >/dev/null \
-    || __fail "UX-03" "remediate::sudoers::overwrite_stub defined" "not defined" "$REMEDIATE_LIB_DIR/sudoers.sh"
+    || __fail "UX-03" "remediate::nodejs::chown_or_rebase defined" "not defined" "$REMEDIATE_LIB_DIR/nodejs.sh"
   declare -F remediate::sudoers::install_or_overwrite >/dev/null \
-    || __fail "UX-03" "remediate::sudoers::install_or_overwrite defined (Plan 14-02 helper)" "not defined" "$REMEDIATE_LIB_DIR/sudoers.sh"
-  declare -F remediate::agents::reinstall_stub >/dev/null \
-    || __fail "UX-03" "remediate::agents::reinstall_stub defined" "not defined" "$REMEDIATE_LIB_DIR/agents.sh"
+    || __fail "UX-03" "remediate::sudoers::install_or_overwrite defined" "not defined" "$REMEDIATE_LIB_DIR/sudoers.sh"
 
   # Spot-check the user-side marker emitter: it's non-mutating (just a
-  # log_info call) so safe to invoke directly. Plan 14-01 originally checked
-  # the sudoers stub but Plan 14-02's stub delegates to install_or_overwrite
-  # which IS mutating — the marker-emission contract is now checked on user.sh
-  # (additive by definition; never mutates state).
+  # log_info call) so safe to invoke directly. The sudoers handler
+  # (install_or_overwrite) mutates state, so the marker-emission contract is
+  # checked here on user.sh (additive by definition; never mutates state).
   run remediate::user::log_path_wiring_remediated
   assert_exit_zero "UX-03"
   printf '%s' "$output" | grep -qF '[REMEDIATE-02]' \

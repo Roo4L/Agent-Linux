@@ -320,6 +320,10 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
 
 # Test 13 (UX-04 TTY accept-suggested): wrong-shell fixture; TTY feeds '\n' so
 # the operator accepts the suggested alternate name (agent2).
+# KNOWN LIMITATION (AL-59): this asserts user CREATION + the accepted marker
+# only — NOT that agent2 receives a working install (npm prefix / PATH wiring /
+# sudoers under /home/agent2). Those still land on the canonical `agent`; full
+# alt-user provisioning + the assertions that would verify it are tracked in AL-59.
 @test "UX-04 (D-15-07 accept-suggested): TTY alt-user prompt on wrong-shell fixture; Enter accepts 'agent2' → install proceeds with INSTALL_USER=agent2 + [ALT-USER] accepted marker" {
   setup_brownfield_host_user_wrong_shell
   # Feed just \n (Enter = accept suggested name).
@@ -340,6 +344,8 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
 }
 
 # Test 14 (UX-04 TTY accept-typed): operator types a custom name.
+# KNOWN LIMITATION (AL-59): asserts user CREATION + the accepted marker only,
+# not that `mybot` gets a working install — see Test 13's note + AL-59.
 @test "UX-04 (D-15-07 accept-typed): TTY alt-user prompt; operator types 'mybot' → install proceeds with INSTALL_USER=mybot" {
   setup_brownfield_host_user_wrong_shell
   run python3 "$TTY_DRIVER" 'mybot\n' -- bash "$INSTALLER"

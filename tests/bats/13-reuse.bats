@@ -328,18 +328,23 @@ __source_lib_chain_with_reuse() {
   # `reuse::user_decision` cmdsub to a pre-resolved RESOLUTIONS[user] lookup
   # — decisions are made up-front in main() by remediate::collect_all_decisions
   # BEFORE any provisioner runs, so the bail arm here is unreachable (the
-  # flush_bails_or_continue policy gate would have exited 65 first). The
-  # 4-token enumeration is preserved (CONTEXT.md "Phase 13 → Phase 14
-  # contract"); only the source of the token changed.
+  # flush_bails_or_continue policy gate would have exited 65 first). All four
+  # dispatch tokens stay handled (CONTEXT.md "Phase 13 → Phase 14 contract");
+  # only the source of the token changed. `reuse` and `remediate` may share one
+  # arm (`reuse | remediate)`) — the user component's remediate is definitionally
+  # identical to reuse (the sudoers fix is owned by RESOLUTIONS[sudoers], not
+  # here), so the check verifies each token is DISPATCHED, not that it sits in
+  # its own arm.
   local prov=/opt/agentlinux-src/plugin/provisioner/10-agent-user.sh
   grep -qE '\$\{RESOLUTIONS\[user\]' "$prov" \
     || __fail "REUSE-01" "10-agent-user.sh dispatches on \${RESOLUTIONS[user]}" "no RESOLUTIONS lookup found" "$prov"
-  # Extract the case-block body and check all four tokens are enumerated.
+  # Extract the case-block body and assert each of the four tokens labels a case
+  # arm (followed by `|` or `)`), tolerant of combined arms.
   local case_body
   case_body=$(awk '/case .*RESOLUTIONS\[user\]/,/esac/' "$prov")
-  for token in 'reuse)' 'create)' 'remediate' 'bail'; do
-    printf '%s' "$case_body" | grep -qF "$token" \
-      || __fail "REUSE-01" "case-branch enumerates dispatch token '$token'" "case body: $case_body" "$prov"
+  for token in reuse create remediate bail; do
+    printf '%s' "$case_body" | grep -qE "(^|[[:space:]|])${token}[[:space:]]*[|)]" \
+      || __fail "REUSE-01" "case-branch dispatches token '$token'" "case body: $case_body" "$prov"
   done
   # REUSED_USER guard wraps Steps 1+2 (CREATE path) but NOT Step 3 (DOC-02
   # ensure_marker_block). Verify by awk-extracting the REUSED_USER block and

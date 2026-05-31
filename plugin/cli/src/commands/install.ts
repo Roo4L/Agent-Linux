@@ -68,20 +68,19 @@ function detectCachePath(): string {
   return process.env.AGENTLINUX_DETECT_CACHE ?? "/run/agentlinux-detect.json";
 }
 
-// REUSE-03 pre-runner check: parse the detect cache + semver-check the catalog's
-// compatibility_window against the detected version. Returns a ReuseHit on full
-// match, null on any non-REUSE condition (absent agent, path-mismatch,
-// version-out-of-window, missing cache, etc.).
-function tryReuse(entry: CatalogEntry): ReuseHit | null {
+// Shared detect-cache reader for tryReuse / tryRemediate. Resolves the cache
+// path, parses it (accepting both the on-disk top-level `agents` shape from
+// detect::run_once AND the `--report-only` `.components.agents` wrapped shape),
+// and returns the detected agent for <entry> with its canonical path. Returns
+// null on every condition both callers treat as "not a candidate": cache
+// absent/unparseable, id has no canonical path, or the agent isn't in the cache.
+function readDetectedAgent(
+  entry: CatalogEntry,
+): { detected: DetectCacheAgent; canonical: string } | null {
   const cachePath = detectCachePath();
   if (!existsSync(cachePath)) return null;
-  if (!entry.compatibility_window) return null;
   const canonical = CANONICAL_PATHS[entry.id];
   if (!canonical) return null;
-
-  // Cache shape: `agents` may be top-level (the on-disk shape from
-  // detect::run_once) OR under `.components.agents` (the --report-only wrapped
-  // shape). Accept both.
   let cache: { agents?: DetectCacheAgent[]; components?: { agents?: DetectCacheAgent[] } };
   try {
     cache = JSON.parse(readFileSync(cachePath, "utf8"));
@@ -91,6 +90,18 @@ function tryReuse(entry: CatalogEntry): ReuseHit | null {
   const agents = cache.agents ?? cache.components?.agents;
   const detected = agents?.find((a) => a.id === entry.id);
   if (!detected) return null;
+  return { detected, canonical };
+}
+
+// REUSE-03 pre-runner check: read the detect cache + semver-check the catalog's
+// compatibility_window against the detected version. Returns a ReuseHit on full
+// match, null on any non-REUSE condition (absent agent, path-mismatch,
+// version-out-of-window, missing cache, etc.).
+function tryReuse(entry: CatalogEntry): ReuseHit | null {
+  if (!entry.compatibility_window) return null;
+  const hit = readDetectedAgent(entry);
+  if (!hit) return null;
+  const { detected, canonical } = hit;
   if (detected.status !== "healthy") return null;
   if (detected.path !== canonical) return null;
   if (!semver.valid(detected.version)) return null;
@@ -111,26 +122,16 @@ function tryReuse(entry: CatalogEntry): ReuseHit | null {
   };
 }
 
-// REMEDIATE-04 pre-runner check. Mirrors tryReuse's cache reader but with the
-// inverse discriminator: returns a RemediateHit when status=broken OR
-// status=healthy with a non-canonical path (PATH-MISMATCH); null otherwise
+// REMEDIATE-04 pre-runner check. Shares readDetectedAgent with tryReuse but
+// applies the inverse discriminator: returns a RemediateHit when status=broken
+// OR status=healthy with a non-canonical path (PATH-MISMATCH); null otherwise
 // (cache absent, parse fails, greenfield, or REUSE territory). No
 // compatibility_window check — REMEDIATE-04 reinstalls at pinned_version
 // regardless of detected version, since the bad install is being replaced.
 function tryRemediate(entry: CatalogEntry): RemediateHit | null {
-  const cachePath = detectCachePath();
-  if (!existsSync(cachePath)) return null;
-  const canonical = CANONICAL_PATHS[entry.id];
-  if (!canonical) return null;
-  let cache: { agents?: DetectCacheAgent[]; components?: { agents?: DetectCacheAgent[] } };
-  try {
-    cache = JSON.parse(readFileSync(cachePath, "utf8"));
-  } catch {
-    return null;
-  }
-  const agents = cache.agents ?? cache.components?.agents;
-  const detected = agents?.find((a) => a.id === entry.id);
-  if (!detected) return null;
+  const hit = readDetectedAgent(entry);
+  if (!hit) return null;
+  const { detected, canonical } = hit;
   if (detected.status === "broken") {
     return { reason: "broken", detected_path: detected.path, canonical_path: canonical };
   }

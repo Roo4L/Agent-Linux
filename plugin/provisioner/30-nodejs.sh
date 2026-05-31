@@ -10,6 +10,9 @@
 # is written by 40-path-wiring.sh for systemd/cron). Runs after 10-agent-user.sh
 # and before 40-path-wiring.sh. Mutations route through idempotency.sh
 # primitives so re-runs converge (INST-02).
+#
+# NOTE (AL-59): the /home/agent paths below are hardcoded — an accepted
+# alternate install user (INSTALL_USER != agent) is NOT provisioned here yet.
 
 log_info "30-nodejs: starting"
 

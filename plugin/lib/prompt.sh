@@ -60,12 +60,12 @@ _prompt::describe_action() {
   esac
 }
 
-# prompt::confirm_remediate <component> <action> <description>
+# prompt::confirm_remediate <component> <description>
 # Renders "Proceed with this remediation? [Y/n] (<component> — <description>)".
 # Returns 0 on accept (Y/y/Enter), 1 on decline (N/n). Re-prompts on other
 # chars up to 3 times, then defaults to decline.
 prompt::confirm_remediate() {
-  local component=$1 action=$2 description=$3
+  local component=$1 description=$2
   local response tries=0
   while [[ $tries -lt 3 ]]; do
     # Prompt on stderr so capture-stdout consumers (jq) are unaffected.
@@ -90,7 +90,6 @@ prompt::confirm_remediate() {
         local _discard
         # shellcheck disable=SC2034  # _discard is intentionally unused
         IFS= read -r _discard || true
-        action=$action # silence unused-arg lint (action used only via description above)
         ;;
     esac
   done
@@ -123,7 +122,7 @@ prompt::run_all() {
     remediate_action_overwrites_state "$action" || continue
 
     description=$(_prompt::describe_action "$action")
-    if prompt::confirm_remediate "$component" "$action" "$description"; then
+    if prompt::confirm_remediate "$component" "$description"; then
       # Accept: RESOLUTIONS stays "remediate"; provisioner mutates.
       log_info "[PROMPT] $component: ACCEPTED ($action)"
     else
@@ -147,6 +146,12 @@ prompt::run_all() {
 #   Non-TTY: emit the hint message and exit 65.
 # Uses `exit` (not return) on bail paths — main() relies on this being a
 # terminal sink; the accept path returns 0 so main() can re-run detection.
+#
+# KNOWN LIMITATION (AL-59): accepting an alternate name only partially
+# provisions it. 10-agent-user.sh honors INSTALL_USER, but 30-nodejs.sh,
+# 40-path-wiring.sh, and the sudoers content still hardcode agent / /home/agent
+# — so the npm prefix, PATH wiring, and passwordless sudo land on the canonical
+# `agent`, not the alternate. Full alt-user provisioning is tracked in AL-59.
 prompt::alt_user_or_bail() {
   local existing_user="${INSTALL_USER:-agent}"
   local reason="${DETECT_USER_BAIL_REASON:-unknown}"

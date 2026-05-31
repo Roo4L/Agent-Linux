@@ -19,6 +19,9 @@
 # (user-owned ~agent/.bashrc); no raw-append or in-place edit. No wrapper shim
 # pointing at an agent-owned binary (the canonical self-update bug). The
 # profile.d fragment is written, never executed during install.
+#
+# NOTE (AL-59): every /home/agent path below is hardcoded — an accepted
+# alternate install user (INSTALL_USER != agent) is NOT wired here yet.
 
 # Runs UNCONDITIONALLY for both CREATE and REUSE — the artefacts are additive
 # (ensure_marker_block preserves user content outside its block; the three

@@ -26,7 +26,11 @@ log_info "10-agent-user: starting"
 # (flush_bails_or_continue would have exited 65); enumerated defensively.
 REUSED_USER=false
 case "${RESOLUTIONS[user]:-create}" in
-  reuse)
+  reuse | remediate)
+    # `remediate` is `reuse` at this component: a user that's compatible except
+    # for missing passwordless-apt-sudo keeps its identity here; the actual fix
+    # (the sudoers drop-in) is owned by 20-sudoers.sh (RESOLUTIONS[sudoers]), so
+    # the two tokens act identically on the user itself — skip useradd + locale.
     reuse::log_user_reuse "${INSTALL_USER:-agent}"
     log_info "10-agent-user: REUSE branch — skipping useradd + locale-gen for existing user"
     REUSED_USER=true
@@ -34,14 +38,6 @@ case "${RESOLUTIONS[user]:-create}" in
   create)
     # Fall through to the existing CREATE path (unchanged from v0.3.0).
     REUSED_USER=false
-    ;;
-  remediate)
-    # user "remediate" maps to the sudoers fix owned by 20-sudoers.sh
-    # (RESOLUTIONS[sudoers]); here we just reuse the user so that provisioner
-    # has a valid target.
-    reuse::log_user_reuse "${INSTALL_USER:-agent}"
-    log_info "10-agent-user: REUSE branch (sudoers fix dispatched to 20-sudoers.sh per RESOLUTIONS[sudoers])"
-    REUSED_USER=true
     ;;
   reuse-with-warning)
     # Defensive arm — user-decision never currently produces a state-overwriting

@@ -28,11 +28,6 @@ remediate::user::log_path_wiring_remediated() {
   log_info "[REMEDIATE-02] component=user action=path-wiring-additive user=${INSTALL_USER:-agent} (ensure_marker_block + write_file_atomic; user content outside markers preserved)"
 }
 
-# remediate::user::path_wiring_stub (LEGACY symbol kept for source compat).
-remediate::user::path_wiring_stub() {
-  remediate::user::log_path_wiring_remediated
-}
-
 # remediate::user::log_alt_user_accepted
 # Emits the grep-stable [ALT-USER] marker when main()'s alt-user gate accepts
 # an alternate install user (called after detect::run_once re-runs against the

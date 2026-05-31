@@ -78,13 +78,3 @@ SUDOERS
   log_info "[REMEDIATE-03] component=sudoers action=$action path=$sudoers_file (mode 0440 root:root — ADR-012)"
   return 0
 }
-
-# remediate::sudoers::install_stub (LEGACY symbol kept for source compat)
-remediate::sudoers::install_stub() {
-  remediate::sudoers::install_or_overwrite "install"
-}
-
-# remediate::sudoers::overwrite_stub (LEGACY symbol kept for source compat)
-remediate::sudoers::overwrite_stub() {
-  remediate::sudoers::install_or_overwrite "overwrite"
-}
