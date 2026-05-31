@@ -1,43 +1,21 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
 # plugin/lib/remediate.sh — remediate-decision orchestrator + DECIDE-THEN-ACT
-# policy gate (Phase 14, Plan 14-01).
+# policy gate.
 #
-# Sourced by plugin/bin/agentlinux-install AFTER plugin/lib/reuse.sh (which
-# itself is sourced AFTER plugin/lib/detect.sh + detect::run_once). This file
-# owns the bail-aggregation policy gate AND the DECIDE-THEN-ACT orchestration
-# that lets the Phase 14 contract enforce UX-03's "non-TTY without --yes never
-# overwrites user state" guarantee atomically.
+# DECIDE-THEN-ACT: collect_all_decisions populates RESOLUTIONS +
+# BAILED_COMPONENTS with ZERO mutation; flush_bails_or_continue exits 65 if any
+# bail is registered; only then does run_provisioners run. main() MUST keep
+# flush before run_provisioners so a bail leaves the host byte-identical.
 #
-# Per CONTEXT.md Area 1:
-#   Q1 (--yes scope): state-overwriting Remediates only — additive paths
-#       (PATH wiring, missing-file sudoers install) run unconditionally.
-#   Q2 ([BAIL] line format): LOCKED at
-#         [BAIL] component=<name> reason=<token> hint=<short message>
-#       The header + footer wrap the per-component lines.
-#   Q3 (exit code mapping): 64 EX_USAGE | 65 EX_DATAERR | 1 runtime | 0 success.
-#   Q4 (--help surface): "Exit codes:" section in usage().
+# --yes gates state-overwriting Remediates only; additive paths (PATH wiring,
+# missing-file sudoers install) run unconditionally. Exit codes: 64 EX_USAGE,
+# 65 EX_DATAERR, 1 runtime, 0 success.
 #
-# DECIDE-THEN-ACT contract (the architectural shape Plan 14-01 establishes):
-#
-#   parse_args                                # --yes / --no-yes; EX_USAGE on bad flags
-#   detect::run_once                          # read-only (Phase 12)
-#   . remediate.sh                            # source THIS file
-#   remediate::collect_all_decisions          # populate RESOLUTIONS + BAILED_COMPONENTS; ZERO mutation
-#   remediate::flush_bails_or_continue        # exit 65 here if any bail; ZERO mutation done
-#   run_provisioners                          # each provisioner reads RESOLUTIONS[<component>]
-#
-# Verified by tests/bats/14-remediate.bats no-mutation snapshot @tests:
-# snapshot /etc/sudoers.d + /home + /etc/passwd BEFORE bail run; snapshot AFTER;
-# assert byte-equality via diff. A regression that re-orders main() to put
-# run_provisioners BEFORE flush_bails_or_continue would be caught immediately.
-#
-# Inherits `set -euo pipefail`, the ERR trap, the tee redirect, and the log.sh
-# / as_user.sh dependencies from the entrypoint. MUST NOT set its own
-# strict-mode flags. Uses `return 1` (not `exit 1`) on misuse paths — sourced
-# fragment (pattern from plugin/lib/reuse.sh). The flush_bails_or_continue
-# function DOES use `exit 65` deliberately: it is the terminal sink that
-# short-circuits main() out before any provisioner runs.
+# Sourced fragment: inherits `set -euo pipefail` + ERR trap + log.sh/as_user.sh
+# from the entrypoint; MUST NOT set its own strict-mode flags. Uses `return 1`
+# on misuse paths. flush_bails_or_continue deliberately uses `exit 65` — it is
+# the terminal sink that short-circuits main() before any provisioner runs.
 #
 # Source-once guard.
 [[ -n "${AGENTLINUX_REMEDIATE_SH_SOURCED:-}" ]] && return 0
@@ -48,15 +26,11 @@ if ! command -v log_error >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
-# Resolve the per-component dir relative to this file. Split declare/assign per
-# SC2155 so a cmdsub failure surfaces as non-zero rather than being masked by
-# the readonly wrapper. Same idiom as plugin/lib/reuse.sh REUSE_LIB_DIR.
+# Split declare/assign per SC2155 so a cmdsub failure surfaces as non-zero.
 REMEDIATE_LIB_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/remediate" && pwd)
 readonly REMEDIATE_LIB_DIR
 
-# Source per-component handler stubs. (Caller — agentlinux-install — has
-# already sourced log.sh + as_user.sh + detect.sh + reuse.sh.) Per-component
-# files have their own source-once guards; safe to re-source.
+# Per-component handlers (own source-once guards; safe to re-source).
 # shellcheck source=remediate/user.sh
 . "$REMEDIATE_LIB_DIR/user.sh"
 # shellcheck source=remediate/nodejs.sh
@@ -66,38 +40,23 @@ readonly REMEDIATE_LIB_DIR
 # shellcheck source=remediate/agents.sh
 . "$REMEDIATE_LIB_DIR/agents.sh"
 
-# Global aggregation arrays. The `-g` flag is critical — otherwise these
-# become function-local when remediate.sh is sourced from inside a function
-# context (bats @tests source via __source_lib_chain functions).
-#
-# BAILED_COMPONENTS: pipe-separated "component|reason|hint" entries; flushed
-# as [BAIL] lines by flush_bails_or_continue.
-#
-# RESOLUTIONS: associative array keyed by canonical component name (`user`,
-# `npm-prefix`, `sudoers`, `agents.<id>`) with values from the four-token
-# enumeration {reuse, create, remediate, bail}. Provisioners dispatch on
-# RESOLUTIONS[<component>] rather than calling reuse::*_decision themselves.
+# Global aggregation arrays. `-g` is critical — without it these become
+# function-local when remediate.sh is sourced inside a function (bats @tests).
+#   BAILED_COMPONENTS: pipe-separated "component|reason|hint" entries.
+#   RESOLUTIONS: keyed by canonical component name (`user`, `npm-prefix`,
+#     `sudoers`, `agents.<id>`) → {reuse, create, remediate, bail}. Provisioners
+#     dispatch on RESOLUTIONS[<component>], not reuse::*_decision directly.
 declare -ga BAILED_COMPONENTS=()
 declare -gA RESOLUTIONS=()
 
-# Plan 15-01 (Phase 15, UX-02): ACTION_MAP maps component → action-token for
-# the prompt loop. Populated by collect_all_decisions (via gate_or_bail)
-# alongside RESOLUTIONS. Consumed by plugin/lib/prompt.sh::run_all so the
-# prompt knows which action token to render + which decline_reason token to
-# record on a decline.
+# ACTION_MAP maps component → action-token; consumed by plugin/lib/prompt.sh in
+# TTY mode to render the per-action prompt + decline_reason token.
 declare -gA ACTION_MAP=()
 
 # remediate::find_alt_user_name
-#
-# Plan 15-02 (UX-04 / D-15-07). Scan /etc/passwd for the lowest N ≥ 2 such
-# that `agent<N>` does NOT already exist. Prints `agent<N>` on stdout and
-# returns 0. If all of agent2..agent99 are taken (T-15-02-04 exhaustion),
-# prints empty string and returns 1 — caller emits the no-auto-suggested
-# message that still names --user=NAME as the operator escape hatch.
-#
-# Pure-read function — never mutates /etc/passwd. Safe to call during the
-# DECIDE phase (before any provisioner runs). Uses getent (not bash `id -u`
-# lookups) so NSS-backed sources are consulted too.
+# Prints the lowest free `agent<N>` (N≥2) and returns 0; on exhaustion
+# (agent2..agent99 all taken) prints "" and returns 1. Pure read (getent, so
+# NSS sources are consulted); safe during the DECIDE phase.
 remediate::find_alt_user_name() {
   local n
   for ((n = 2; n <= 99; n++)); do
@@ -106,23 +65,15 @@ remediate::find_alt_user_name() {
       return 0
     fi
   done
-  # Exhaustion: agent2..agent99 all taken.
   printf ''
   return 1
 }
 
 # remediate::validate_user_name <name>
-#
-# Plan 15-02 (UX-04 / T-15-02-05). Validates an operator-supplied alt-user
-# name against POSIX-friendly rules:
-#   - First char: lowercase letter (a-z)
-#   - Remainder: lowercase letters, digits, underscore, or hyphen
-# Returns 0 on valid, 1 on invalid (including empty).
-#
-# T-15-02-05 mitigation: rejects ALL shell metachars (;, |, &, $, `, \, etc.).
-# The accepted name is later passed to useradd argv-literally (no shell eval),
-# but this is the documented contract every downstream component depends on
-# (ensure_user, ensure_dir, sudoers drop-in literal, [REMEDIATE-NN] markers).
+# Returns 0 for a POSIX-friendly name (first char lowercase a-z, remainder
+# [a-z0-9_-]), 1 otherwise (including empty). Rejecting all shell metachars is
+# the documented contract every downstream component depends on, even though
+# the name is later passed to useradd argv-literally (no shell eval).
 remediate::validate_user_name() {
   local name=${1:-}
   [[ -n "$name" ]] || return 1
@@ -131,14 +82,10 @@ remediate::validate_user_name() {
 }
 
 # remediate::register_bail <component> <reason> <hint>
-#
-# Appends one entry to BAILED_COMPONENTS for later flush. Caller responsibility
-# to dedup if needed — additive shape is correct (two bails of the same
-# component from different code paths is itself an actionable signal).
-#
-# Pipe separator is used internally; component/reason/hint must not contain
-# pipes. T-14-06 mitigation: all in-tree register_bail callers pass hardcoded
-# literal strings (verified by bats grep @test); no $VAR-driven values.
+# Appends one entry to BAILED_COMPONENTS for later flush. No dedup — two bails
+# of the same component from different paths is itself an actionable signal.
+# Pipe-separated internally; args must not contain pipes. All in-tree callers
+# pass hardcoded literal strings (no $VAR into the message).
 remediate::register_bail() {
   if [[ $# -lt 3 ]]; then
     log_error "remediate::register_bail: argc=$# (expected 3: <component> <reason> <hint>)"
@@ -151,20 +98,11 @@ remediate::register_bail() {
 }
 
 # remediate::flush_bails_or_continue
-#
-# DECIDE-THEN-ACT terminal sink. Called from main() AFTER
-# remediate::collect_all_decisions and BEFORE run_provisioners. If
-# BAILED_COMPONENTS is non-empty, prints the LOCKED structured bail message
-# (CONTEXT.md Area 1 Q2) and exits 65 — no provisioner has run, host is
-# byte-identical to its pre-call state (verified by tests/bats/14-remediate.bats
-# no-mutation snapshot @tests).
-#
-# When empty (greenfield, or all decisions resolved without bails), returns 0
-# silently and main() proceeds to run_provisioners.
-#
-# Exits 65 (NOT return) — deliberate terminal sink. The bail message is
-# stderr-only so `agentlinux-install | downstream-consumer` does not feed
-# operator-facing diagnostics into a JSON parser.
+# DECIDE-THEN-ACT terminal sink: if any bail is registered, print the LOCKED
+# structured [BAIL] message and `exit 65` (not return — short-circuits main()
+# before run_provisioners, leaving the host byte-identical). Empty → return 0
+# silently. The message is stderr-only so it never feeds a downstream JSON
+# parser on stdout.
 remediate::flush_bails_or_continue() {
   if [[ ${#BAILED_COMPONENTS[@]} -eq 0 ]]; then
     return 0
@@ -187,23 +125,9 @@ remediate::flush_bails_or_continue() {
 }
 
 # remediate_action_overwrites_state <action>
-#
-# Predicate returning 0 (true) for state-overwriting Remediate actions that
-# require --yes consent per CONTEXT.md Area 1 Q1, 1 (false) for additive
-# actions that run unconditionally.
-#
-# Centralized here so Phase 15 (TTY-interactive prompts) doesn't duplicate the
-# policy — Phase 15's confirm_remediate routes through this same predicate.
-#
-# Overwriting (require --yes when non-TTY):
-#   npm-prefix-chown      — REMEDIATE-01 chown -R agent:agent <prefix>
-#   npm-prefix-rebase     — REMEDIATE-01 rebase to ~user/.npm-global
-#   sudoers-drift-overwrite — REMEDIATE-03 replace non-canonical sudoers
-#   agent-reinstall       — REMEDIATE-04 uninstall + reinstall catalog agent
-#
-# Additive (run unconditionally):
-#   path-wiring           — REMEDIATE-02 ensure_marker_block (additive)
-#   sudoers-missing-install — REMEDIATE-03 missing-file install (not overwriting)
+# Returns 0 (true) for state-overwriting actions that require --yes consent,
+# 1 (false) for additive actions that run unconditionally. Centralized so the
+# TTY-interactive prompt path routes through the same policy.
 remediate_action_overwrites_state() {
   local action=${1:-}
   case "$action" in
@@ -214,22 +138,16 @@ remediate_action_overwrites_state() {
       return 1
       ;;
     *)
-      # Unknown action: default to false (additive) so an unrecognized token
-      # does not silently gate a critical Remediate. Caller should be explicit.
+      # Unknown action defaults to additive — be explicit at the call site.
       return 1
       ;;
   esac
 }
 
 # remediate::gate_or_bail <component> <action> <reason> <hint>
-#
-# Phase 14 policy gate. For state-overwriting actions: if --yes was passed,
-# returns 0 (consent granted, caller may proceed to mutation). Otherwise
-# registers a bail and returns 1. Additive actions short-circuit to return 0
-# without consulting --yes.
-#
-# Phase 15 will extend this with a TTY-interactive branch (`[ -t 0 ] &&
-# confirm_remediate "$action"`); Phase 14 ships the non-TTY branch only.
+# Policy gate. Additive actions short-circuit to return 0. State-overwriting
+# actions: return 0 if --yes (or TTY, deferring to the prompt loop), else
+# register a bail and return 1.
 remediate::gate_or_bail() {
   if [[ $# -lt 4 ]]; then
     log_error "remediate::gate_or_bail: argc=$# (expected 4: <component> <action> <reason> <hint>)"
@@ -241,9 +159,8 @@ remediate::gate_or_bail() {
     return 0
   fi
 
-  # Plan 15-01 (UX-02): record the action regardless of consent outcome —
-  # plugin/lib/prompt.sh consults ACTION_MAP in TTY mode to know which action
-  # token to render in the per-action prompt + which decline_reason to record.
+  # Record the action regardless of consent outcome — prompt.sh consults
+  # ACTION_MAP in TTY mode for the per-action prompt + decline_reason token.
   # shellcheck disable=SC2034  # consumed by plugin/lib/prompt.sh via cross-file source
   ACTION_MAP[$component]="$action"
 
@@ -251,87 +168,56 @@ remediate::gate_or_bail() {
     return 0
   fi
 
-  # Plan 15-01 (D-15-05, D-15-10): TTY mode defers consent to the prompt loop
-  # (which runs AFTER flush_bails_or_continue). In TTY mode we do NOT register
-  # a bail here — the prompt loop will ask the operator and either approve
-  # (proceed with mutation) or decline (convert RESOLUTIONS[<c>] to
-  # reuse-with-warning so the provisioner skips the mutation). The DRY_RUN
-  # branch likewise wants a populated ACTION_MAP without bails — but it short-
-  # circuits in main() before flush_bails_or_continue runs anyway, so the
-  # bail register here would never reach the operator. In dry-run we ALWAYS
-  # register the bail so the printed report carries the [BAIL] line per
-  # D-15-01 ("bails surface IN the report, not via exit code").
+  # TTY (non-dry-run) defers consent to the prompt loop, which runs AFTER
+  # flush_bails_or_continue — so do NOT register a bail here. Dry-run DOES
+  # register so the printed report carries the [BAIL] line.
   if [[ "${DRY_RUN_REQUESTED:-false}" != "true" ]] && [[ -t 0 ]]; then
     return 0
   fi
 
-  # Non-TTY without --yes (or dry-run): Phase 14 bail-aggregation path.
+  # Non-TTY without --yes (or dry-run): aggregate the bail.
   remediate::register_bail "$component" "$reason" "$hint"
   return 1
 }
 
 # remediate::collect_all_decisions
-#
-# DECIDE-THEN-ACT entry point. Calls EVERY reuse::*_decision function exactly
-# once, populates RESOLUTIONS[<component>]=<token>, and (where the token maps
-# to a state-overwriting Remediate AND --yes was not passed) registers a bail.
-#
-# Invariant: this function makes NO host mutation. It only reads detect::*
-# exports and calls reuse::*_decision functions which themselves are pure
-# readers. Verified by tests/bats/14-remediate.bats Test 11 (filesystem-
-# mutation shim records zero invocations after this returns).
-#
-# After this returns, downstream consumers (run_provisioners) read
-# RESOLUTIONS[<component>] and dispatch — they do NOT call reuse::*_decision
-# themselves (decisions are pre-resolved here).
-#
-# Components populated (canonical keys):
-#   user           — REUSE-01 / unfixable bails (wrong shell, home unwritable)
-#   node           — REUSE-02 (reuse|create only; no remediate token here)
-#   npm-prefix     — REMEDIATE-01 (reuse|create|remediate per writability)
-#   sudoers        — REMEDIATE-03 (reuse|create|remediate per drift)
-#   agents.<id>    — REMEDIATE-04 (one per REUSE_AGENT_CANONICAL_PATHS key)
+# DECIDE-THEN-ACT entry point. Calls every reuse::*_decision once, populates
+# RESOLUTIONS[<component>]=<token>, and registers a bail where the token maps to
+# a state-overwriting Remediate without consent. Makes NO host mutation —
+# downstream run_provisioners reads RESOLUTIONS and dispatches.
+# Components: user (REUSE-01), node (REUSE-02), npm-prefix (REMEDIATE-01),
+# sudoers (REMEDIATE-03), agents.<id> (REMEDIATE-04).
 remediate::collect_all_decisions() {
   local user=${INSTALL_USER:-agent}
 
-  # 1. User decision (REUSE-01).
   RESOLUTIONS[user]=$(reuse::user_decision "$user")
   case "${RESOLUTIONS[user]}" in
     bail)
-      # T-14-06 mitigation: hardcoded literal component/reason/hint strings,
-      # no $VAR substitution into register_bail args.
+      # register_bail uses hardcoded literal strings, no $VAR into the message.
       remediate::register_bail \
         "user" "incompatible" \
         "use --user=NAME with a compatible user, or fix shell/home of existing user"
       ;;
     remediate)
-      # The user-decision "remediate" token maps to REMEDIATE-03 (sudoers fix
-      # — agent exists but lacks NOPASSWD-for-apt). That fix is OWNED by the
-      # sudoers component below, NOT by the user component. We record the
-      # resolution but do NOT register a bail here — the sudoers branch handles
-      # gating. This keeps the responsibility for sudoers state in one place.
+      # user "remediate" maps to the sudoers fix — gating is OWNED by the
+      # sudoers branch below, not here, so sudoers state lives in one place.
       :
       ;;
   esac
 
-  # 2. Node decision (Phase 13 — returns reuse|create only; no remediate
-  # token at the Node-install layer per CONTEXT.md Area 1 Q2).
   RESOLUTIONS[node]=$(reuse::nodejs_decision)
 
-  # 3. npm-prefix decision (Plan 14-01 NEW — REMEDIATE-01).
   RESOLUTIONS[npm-prefix]=$(reuse::npm_prefix_decision)
   if [[ "${RESOLUTIONS[npm-prefix]}" == "remediate" ]]; then
     # gate_or_bail returns 1 when it registers a bail; `|| true` keeps the
-    # collect-all loop moving so we aggregate every bail rather than
-    # short-circuiting on the first one.
+    # collect loop aggregating every bail rather than short-circuiting.
     remediate::gate_or_bail \
       "npm-prefix" "npm-prefix-chown" "wrong-owner" \
       "run with --yes to chown or rebase" \
       || true
   fi
 
-  # 4. Sudoers decision (inline — small enough; see CONTEXT.md Area 1 Q1).
-  # Per detect/sudoers.sh exports:
+  # Sudoers decision (inline). detect/sudoers.sh exports:
   #   DETECT_SUDOERS_PRESENT      true iff /etc/sudoers.d/agentlinux exists
   #   DETECT_SUDOERS_NOPASSWD_OK  true iff the canonical ADR-012 line is present
   local sudoers_token=create
@@ -350,9 +236,8 @@ remediate::collect_all_decisions() {
       || true
   fi
 
-  # 5. Per-agent decisions (Phase 13 — iterate the canonical-path map).
-  # Each agent decides independently; keys are namespaced as `agents.<id>` so
-  # the operator can see exactly which agent is in which state.
+  # Per-agent decisions: iterate the canonical-path map. Keys are namespaced
+  # `agents.<id>` so the operator sees which agent is in which state.
   local agent_id
   if declare -p REUSE_AGENT_CANONICAL_PATHS >/dev/null 2>&1; then
     for agent_id in "${!REUSE_AGENT_CANONICAL_PATHS[@]}"; do

@@ -2,29 +2,14 @@
 # SPDX-License-Identifier: MIT
 # plugin/lib/remediate/sudoers.sh — REMEDIATE-03 sudoers handlers.
 #
-# Phase 14 Plan 14-02 lands the install_or_overwrite helper that BOTH
-# additive missing-file install AND state-overwriting drift overwrite call.
-# Factored out of the original 20-sudoers.sh CREATE-path body (visudo-cf
-# gate → install -m 0440 root:root → post-install visudo-cf gate) so the
-# two arms cannot drift in semantics.
+# install_or_overwrite is the single helper BOTH the additive missing-file
+# install AND the state-overwriting drift overwrite call, so the two arms cannot
+# drift in semantics — both share the same visudo -cf gate (pre + post). The
+# additive arm runs without --yes; the overwrite arm is gated by the bail
+# (which exits 65 before this handler runs when --yes is absent).
 #
-# Per CONTEXT.md Area 1 Q1:
-#   sudoers-missing-install  — additive (no --yes); collect_all_decisions
-#                              registers no bail when DETECT_SUDOERS_PRESENT
-#                              is false.
-#   sudoers-drift-overwrite  — state-overwriting (--yes required); without
-#                              --yes the bail gate exits 65 before this
-#                              handler ever runs.
-#
-# T-14-02 mitigation: the drift overwrite uses the SAME visudo -cf gate as
-# the create path (pre-install + post-install). install_or_overwrite is the
-# single function both paths call, so a future change to the validation
-# protocol cannot drift between additive and overwriting arms.
-#
-# Sourced (transitively) by plugin/bin/agentlinux-install via
-# plugin/lib/remediate.sh. Inherits `set -euo pipefail`, the ERR trap, and the
-# log.sh dependency from the entrypoint. MUST NOT set its own strict-mode
-# flags. Uses `return 1` (not `exit 1`) on any error path — sourced fragment.
+# Sourced fragment: inherits `set -euo pipefail` + ERR trap + log.sh from the
+# entrypoint; MUST NOT set its own strict-mode flags; uses `return 1` on error.
 #
 # Source-once guard.
 [[ -n "${AGENTLINUX_REMEDIATE_SUDOERS_SH_SOURCED:-}" ]] && return 0
@@ -36,29 +21,16 @@ if ! command -v log_error >/dev/null 2>&1; then
 fi
 
 # remediate::sudoers::install_or_overwrite [action_label]
-#
-# The single helper called by BOTH 20-sudoers.sh's CREATE arm AND its
-# REMEDIATE arm. action_label is "install" (additive missing-file) or
-# "overwrite" (drift overwrite); it appears in the [REMEDIATE-03] log marker
-# for transcript clarity. Behavior is identical between arms — the
-# distinction is purely diagnostic.
-#
-# Steps:
-#   1. Compose the canonical ADR-012 content (single-quoted heredoc — byte-
-#      stable across re-runs; BHV-07 sha256-stability contract).
-#   2. Write content to a tmpfile in $TMPDIR.
-#   3. visudo -cf <tmpfile>  — pre-install syntax gate (T-05.1-01).
-#   4. install -m 0440 -o root -g root <tmpfile> /etc/sudoers.d/agentlinux
-#      (atomic rename with mode+ownership set at install time; T-05.1-02).
-#   5. visudo -cf <sudoers_file>  — post-install verify (TOCTOU belt).
-#   6. Emit [REMEDIATE-03] marker.
-#   7. RETURN-scoped trap cleans the tmpfile on every exit path.
+# Called by both the CREATE arm and the REMEDIATE arm; action_label
+# ("install"/"overwrite") is purely diagnostic in the [REMEDIATE-03] marker —
+# behavior is identical. Composes the canonical ADR-012 content, writes a
+# tmpfile, gates it through visudo -cf (pre-install), installs atomically at
+# 0440 root:root, then re-verifies with visudo -cf (post-install TOCTOU belt).
+# A RETURN-scoped trap cleans the tmpfile on every exit path.
 #
 # Test hatch: AGENTLINUX_TEST_MODE=1 + AGENTLINUX_TEST_SUDOERS_OVERRIDE=<body>
-# replaces the canonical content with the override body. This lets the bats
-# T-14-02 mitigation test (Test 41) force visudo -cf to fail by injecting
-# deliberately invalid syntax. Both env vars must be set; production builds
-# leave them unset and the branch is dead code.
+# swaps in override content so a test can force visudo -cf to fail. Both env
+# vars are unset in production (dead branch).
 remediate::sudoers::install_or_overwrite() {
   local action=${1:-install}
   local sudoers_file=/etc/sudoers.d/agentlinux
@@ -69,8 +41,7 @@ remediate::sudoers::install_or_overwrite() {
 # Scope: ALL commands. See docs/decisions/012-agent-user-full-sudo.md.
 agent ALL=(ALL) NOPASSWD: ALL
 SUDOERS
-  # Test-only override hatch (Test 41 — T-14-02 visudo-fail mitigation).
-  # In production both env vars are unset and this branch is dead.
+  # Test-only override hatch (production: both unset, dead branch).
   if [[ "${AGENTLINUX_TEST_MODE:-}" == "1" && -n "${AGENTLINUX_TEST_SUDOERS_OVERRIDE:-}" ]]; then
     content=$AGENTLINUX_TEST_SUDOERS_OVERRIDE
   fi
@@ -84,24 +55,21 @@ SUDOERS
 
   printf '%s\n' "$content" >"$tmpfile"
 
-  # T-05.1-01 / T-14-02 pre-install gate: visudo -cf catches syntax errors
-  # before /etc/sudoers.d/ is touched. Drift overwrite uses the SAME gate as
-  # missing-file install (factored helper — both arms share semantics).
+  # Pre-install gate: visudo -cf catches syntax errors before /etc/sudoers.d/
+  # is touched.
   if ! visudo -cf "$tmpfile" >/dev/null; then
     log_error "[REMEDIATE-03:visudo-fail] tmpfile syntax check failed; refusing to install $sudoers_file"
     return 1
   fi
 
-  # T-05.1-02 atomic install: mode + ownership set at rename time. install(1)
-  # is rename-like — no window where the file exists with wrong permissions.
+  # Atomic install: install(1) sets mode + ownership at rename time — no window
+  # where the file exists with wrong permissions.
   if ! install -m "0440" -o root -g root "$tmpfile" "$sudoers_file"; then
     log_error "[REMEDIATE-03:install-fail] install -m 0440 failed for $sudoers_file"
     return 1
   fi
 
-  # Post-install verify — hashes the installed file through visudo to catch
-  # any TOCTOU corruption between rename and exit (paranoid; visudo -cf on a
-  # 3-line file is sub-millisecond).
+  # Post-install verify — catches any TOCTOU corruption between rename and exit.
   if ! visudo -cf "$sudoers_file" >/dev/null; then
     log_error "[REMEDIATE-03:visudo-fail] post-install verify failed for $sudoers_file"
     return 1

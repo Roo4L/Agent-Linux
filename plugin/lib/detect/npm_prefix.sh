@@ -2,41 +2,26 @@
 # SPDX-License-Identifier: MIT
 # plugin/lib/detect/npm_prefix.sh — DET-03 npm global prefix discovery probe.
 #
-# Sourced (transitively) by plugin/bin/agentlinux-install via plugin/lib/detect.sh.
-# Inherits `set -euo pipefail`, the ERR trap, and the log.sh / as_user.sh
-# dependencies from the entrypoint. MUST NOT set its own strict-mode flags.
-# Uses `return 1` (not `exit 1`) on any error path — sourced fragment.
+# Sourced fragment: inherits set -euo pipefail / ERR trap / log.sh / as_user.sh
+# and uses `return 1` (not `exit 1`).
 #
-# Three-value report (per RESEARCH §Pattern 3):
+# Three-value report:
 #   user_prefix      — `npm config get prefix --location=user` (reads ONLY
-#                      ~/.npmrc; returns the npm builtin /usr when ~/.npmrc has
-#                      no prefix= line — disambiguated by prefix_declarations
-#                      counter per Pitfall 6).
+#                      ~/.npmrc; returns the builtin /usr when no prefix= line —
+#                      disambiguated by the prefix_declarations counter).
 #   system_prefix    — `env NPM_CONFIG_PREFIX= npm config get prefix
-#                      --no-userconfig` (npm builtin default; clears env so
-#                      sudo -E does not carry over an existing override).
-#   effective_prefix — `npm config get prefix` (resolves precedence:
+#                      --no-userconfig` (builtin default; clears env so sudo -E
+#                      doesn't carry over an existing override).
+#   effective_prefix — `npm config get prefix` (resolved precedence:
 #                      env > project .npmrc > user ~/.npmrc > builtin).
 #
-# CRITICAL: every npm config get goes through `as_user_login` (sudo -i, login
-# shell) so the install user's ~/.profile / ~/.bashrc NPM_CONFIG_PREFIX export
-# propagates — Pitfall 7 mitigation. Bare `as_user` (sudo -E without -i) does
-# NOT source the profile.
+# Every `npm config get` runs through as_user_login (login shell) so the install
+# user's profile NPM_CONFIG_PREFIX export propagates; bare as_user wouldn't.
 #
-# READ-ONLY contract: never any package-manager mutation, never any write to
-# /etc /home /usr/local/bin /opt. Reading ~/.npmrc as root is fine (root can
-# stat + grep), only writing would violate the contract.
-#
-# npm log-file silencing: `npm config get` by default writes a debug log to
-# ~/.npm/_logs/<timestamp>-debug-N.log on every invocation (even non-mutating
-# reads). That violates the read-only contract Plan 12-03 enforces via its
-# snapshot @test. Setting `npm_config_logs_max=0` + `npm_config_loglevel=silent`
-# instructs npm to skip log file creation entirely — verified locally:
-# `HOME=$tmp npm_config_logs_max=0 npm_config_loglevel=silent npm config get
-# prefix` leaves $tmp/.npm/_logs nonexistent. Plan 12-03 Rule 1 fix (Plan 12-02
-# npm probe shipped without log-silencing; the read-only @test surfaced it).
-#
-# Source-once guard.
+# Read-only: no package mutation, no writes. Reading ~/.npmrc as root is fine.
+# `npm config get` would otherwise write a debug log on every read; the
+# npm_config_logs_max=0 + npm_config_loglevel=silent vars below suppress it to
+# keep the probe side-effect-free.
 [[ -n "${AGENTLINUX_DETECT_NPM_PREFIX_SH_SOURCED:-}" ]] && return 0
 readonly AGENTLINUX_DETECT_NPM_PREFIX_SH_SOURCED=1
 
@@ -53,9 +38,8 @@ fi
 detect::npm_prefix_probe() {
   local user=$1 fragment_path=$2
 
-  # ---- Early bail when npm is absent ----
-  # The entrypoint may have been invoked --report-only on a host that hasn't
-  # run 30-nodejs.sh yet. Emit a npm_present=false fragment with all nulls.
+  # Early bail when npm is absent (e.g. --report-only before Node is installed):
+  # emit a npm_present=false fragment with all nulls.
   if ! as_user_login "$user" command -v npm >/dev/null 2>&1; then
     jq -n --arg user "$user" \
       '{npm_prefix: {npm_present: false, user_prefix: null, system_prefix: null, effective_prefix: null, effective_owner: null, effective_mode: null, install_user_writable: false, prefix_declarations: 0}}' \
@@ -71,18 +55,13 @@ detect::npm_prefix_probe() {
     return 0
   fi
 
-  # npm log-file silencing (Plan 12-03 Rule 1 fix per the read-only invariant
-  # @test). Every `npm config get` writes ~/.npm/_logs/<timestamp>-debug-N.log
-  # by default — even pure reads. Setting npm_config_logs_max=0 +
-  # npm_config_loglevel=silent skips log creation entirely. Verified locally:
-  # `HOME=$tmp npm_config_logs_max=0 npm_config_loglevel=silent npm config get
-  # prefix` leaves $tmp/.npm/_logs nonexistent. The vars are passed through
-  # the login shell via `env` (as_user_login uses `sudo -i`, which does not
-  # preserve caller env).
+  # The npm_config_* vars below are passed via `env` (as_user_login uses
+  # `sudo -i`, which doesn't preserve caller env) to suppress npm's per-read
+  # debug log; see the header.
 
-  # ---- user_prefix: per-user override (Pitfall 2 location semantics) ----
-  # `--location=user` reads ONLY ~/.npmrc; returns /usr when the file lacks
-  # a `prefix=` line. Disambiguated by prefix_declarations below.
+  # ---- user_prefix: per-user override ----
+  # `--location=user` reads ONLY ~/.npmrc; returns /usr when the file lacks a
+  # `prefix=` line. Disambiguated by prefix_declarations below.
   local user_prefix
   user_prefix=$(as_user_login "$user" env npm_config_logs_max=0 npm_config_loglevel=silent npm config get prefix --location=user 2>/dev/null | tr -d '[:space:]')
 
@@ -93,10 +72,9 @@ detect::npm_prefix_probe() {
   local system_prefix
   system_prefix=$(as_user_login "$user" env npm_config_logs_max=0 npm_config_loglevel=silent NPM_CONFIG_PREFIX= npm config get prefix --no-userconfig 2>/dev/null | tr -d '[:space:]')
 
-  # ---- effective_prefix: resolved precedence (Pitfall 7 user-shell exports) ----
-  # Precedence: env (NPM_CONFIG_PREFIX) > project .npmrc > user ~/.npmrc >
-  # builtin. as_user_login sources the user's profile, so a user-shell
-  # NPM_CONFIG_PREFIX export propagates.
+  # ---- effective_prefix: resolved precedence ----
+  # env (NPM_CONFIG_PREFIX) > project .npmrc > user ~/.npmrc > builtin.
+  # as_user_login sources the profile so a user-shell export propagates.
   local effective_prefix
   effective_prefix=$(as_user_login "$user" env npm_config_logs_max=0 npm_config_loglevel=silent npm config get prefix 2>/dev/null | tr -d '[:space:]')
 
@@ -116,15 +94,13 @@ detect::npm_prefix_probe() {
     user_writable=false
   fi
 
-  # ---- prefix_declarations: count `^prefix=` lines in ~/.npmrc (Pitfall 6) ----
-  # Reads ~/.npmrc as root (root can read; we don't write). Discover the home
-  # dir from getent passwd column 6 — same idiom as detect/user.sh.
+  # ---- prefix_declarations: count `^prefix=` lines in ~/.npmrc ----
+  # Reads ~/.npmrc as root (no write). Home comes from getent passwd column 6.
   local home count=0
   home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)
   if [[ -n "$home" && -f "$home/.npmrc" ]]; then
     count=$(grep -cE '^prefix=' "$home/.npmrc" 2>/dev/null || true)
-    # Defensive: grep -c may print empty on some pathological inputs; coerce
-    # to numeric 0.
+    # grep -c can print empty on pathological input; coerce to 0.
     [[ -z "$count" ]] && count=0
   fi
 
@@ -150,7 +126,7 @@ detect::npm_prefix_probe() {
     }}' \
     >"$fragment_path"
 
-  # ---- Exports (renderer + Phase 13 readers consume these) ----
+  # ---- Exports (renderer + readers consume these) ----
   export DETECT_NPM_PREFIX_PATH="$effective_prefix"
   export DETECT_NPM_PREFIX_USER_WRITABLE="$user_writable"
   export DETECT_NPM_PREFIX_USER_VALUE="$user_prefix"
@@ -161,10 +137,7 @@ detect::npm_prefix_probe() {
   export DETECT_NPM_PREFIX_SECTION_STATUS=present
 }
 
-# --- Phase 13 reader functions (CONTEXT.md "Phase 12 → Phase 13 contract") ---
-# Body unchanged from Plan 12-01 stub — already correct accessors over the
-# DETECT_NPM_PREFIX_* exports populated above.
-
+# Thin accessors over the DETECT_NPM_PREFIX_* exports populated above.
 detect::npm_prefix_path() { printf '%s' "${DETECT_NPM_PREFIX_PATH:-}"; }
 detect::npm_prefix_writable_by_install_user() {
   [[ "${DETECT_NPM_PREFIX_USER_WRITABLE:-false}" == "true" ]]

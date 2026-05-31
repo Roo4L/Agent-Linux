@@ -2,30 +2,23 @@
 # SPDX-License-Identifier: MIT
 # plugin/lib/detect/nodejs.sh — DET-02 Node.js multi-source discovery probe.
 #
-# Sourced (transitively) by plugin/bin/agentlinux-install via plugin/lib/detect.sh.
-# Inherits `set -euo pipefail`, the ERR trap, and the log.sh dependency from the
-# entrypoint. MUST NOT set its own strict-mode flags. Uses `return 1` (not
-# `exit 1`) on any error path — sourced fragment.
+# Sourced fragment: inherits set -euo pipefail / ERR trap / log.sh and uses
+# `return 1` (not `exit 1`).
 #
-# Enumerates Node.js installations across 8 sources WITHOUT sourcing any
-# manager's shell init (Q4 read-only contract; Pitfall 1 territory). Per the
-# read-only contract: never any package-manager mutation, never any write to
-# /etc /home /usr/local/bin /opt.
+# Enumerates Node.js installations across several sources WITHOUT sourcing any
+# manager's shell init. Read-only: no package mutation, no writes.
 #
-# Sources covered (RESEARCH §Pattern 2):
+# Sources covered:
 #   1. NodeSource APT  — dpkg-query Version contains `-1nodesource` AND
-#                        nodesource.{sources,list} dual-gate (Pitfall 10)
+#                        nodesource.{sources,list} present (dual-gate)
 #   2. Distro APT      — dpkg-query Version present but lacks `-1nodesource`
-#   3. Manual          — /usr/local/bin/node real file (readlink -f self;
-#                        Pitfall 5 symlink-into-manager dedup)
+#   3. Manual          — /usr/local/bin/node real file (readlink -f self)
 #   4. nvm             — $HOME/.nvm/versions/node                      (depth 3)
 #   5. fnm             — $HOME/.local/share/fnm/node-versions          (depth 4)
 #   6. volta           — $HOME/.volta/tools/image/node                  (depth 4)
 #   7. mise            — $HOME/.local/share/mise/installs/node          (depth 4)
 #   8. asdf-node       — $HOME/.asdf/installs/nodejs                    (depth 4)
 #   9. pnpm-managed    — $HOME/.local/share/pnpm/nodejs                 (depth 4)
-#
-# Source-once guard.
 [[ -n "${AGENTLINUX_DETECT_NODEJS_SH_SOURCED:-}" ]] && return 0
 readonly AGENTLINUX_DETECT_NODEJS_SH_SOURCED=1
 
@@ -36,11 +29,10 @@ fi
 
 # __det_nodejs_entry <source> <bin_path> <version> <install_user> <prefix_root>
 #
-# Emits one JSON object on stdout: {source, path, version,
-# install_user_can_write_prefix, prefix_root}. Probed strings are passed to jq
-# via --arg / --argjson exclusively — T-12-02 mitigation (no eval, no shell
-# interpolation). Writability is computed AS THE INSTALL USER (Pitfall 4 —
-# root sees every dir as writable, so probing as root would always report true).
+# Emits one JSON object: {source, path, version, install_user_can_write_prefix,
+# prefix_root}. Strings reach jq only via --arg/--argjson. Writability is
+# computed as the install user — root sees every dir as writable, so probing as
+# root would always report true.
 __det_nodejs_entry() {
   local source=$1 bin=$2 version=$3 user=$4 prefix_root=$5
   local writable
@@ -60,11 +52,10 @@ __det_nodejs_entry() {
 
 # __det_nodejs_manager <name> <root> <maxdepth> <user> <accumulator-name>
 #
-# When <root> exists, find -maxdepth N -name node -type f (canonical-path file
-# existence — never sources the manager's shell init). Per binary, capture
-# `node --version` AS THE INSTALL USER (the binary may need user env to run,
-# e.g. nvm-shipped node sometimes requires HOME to be set). Append one entry
-# per discovered binary to the caller's accumulator via nameref.
+# When <root> exists, find node binaries by file existence (never sourcing the
+# manager's shell init). Captures `node --version` as the install user (the
+# binary may need user env, e.g. HOME) and appends one entry per discovered
+# binary to the caller's accumulator via nameref.
 __det_nodejs_manager() {
   local name=$1 root=$2 maxdepth=$3 user=$4 acc=$5
   [[ -d "$root" ]] || return 0
@@ -79,19 +70,16 @@ __det_nodejs_manager() {
 
 # detect::nodejs_probe <user> <home> <fragment_path>
 #
-# Enumerates Node.js across the 8 covered sources and writes a {nodejs: [...]}
-# fragment to <fragment_path>. Each entry has 5 fields (per RESEARCH §7
-# JSON shape). Empty array when nothing is found (greenfield host). Exports
-# DETECT_NODEJS_COUNT + per-index DETECT_NODEJS_${i}_{SOURCE,PATH,VERSION,
-# WRITABLE,PREFIX_ROOT} so render.sh and the Phase 13 readers consume them by
-# name without re-parsing the JSON.
+# Enumerates Node.js across the covered sources and writes a {nodejs: [...]}
+# fragment (empty array on a greenfield host). Exports DETECT_NODEJS_COUNT +
+# per-index DETECT_NODEJS_${i}_{SOURCE,PATH,VERSION,WRITABLE,PREFIX_ROOT} so the
+# renderer and readers consume them by name without re-parsing JSON.
 detect::nodejs_probe() {
   local user=$1 home=$2 fragment_path=$3
   local entries=()
 
-  # ---- 1. NodeSource APT (dual-gate per Pitfall 10) ----
-  # `|| true` because dpkg-query exits 1 when nodejs is not installed; that's
-  # an expected greenfield state, not an error.
+  # ---- 1. NodeSource APT (dual-gate) ----
+  # `|| true` because dpkg-query exits 1 when nodejs is absent — expected.
   local ns_version
   ns_version=$(dpkg-query -W -f='${Version}\n' nodejs 2>/dev/null || true)
   if [[ "$ns_version" == *"-1nodesource"* ]]; then
@@ -106,10 +94,10 @@ detect::nodejs_probe() {
     entries+=("$(__det_nodejs_entry distro_apt /usr/bin/node "$ns_version" "$user" /usr)")
   fi
 
-  # ---- 3. Manual /usr/local/bin/node (Pitfall 5 dedup) ----
-  # readlink -f resolves the entire chain; if it equals self, the file is real
-  # (not a symlink into a manager prefix — that case is reported by the
-  # corresponding manager block below, no double-count).
+  # ---- 3. Manual /usr/local/bin/node ----
+  # readlink -f resolves the chain; if it equals self the file is real (a
+  # symlink into a manager prefix is reported by that manager block instead, so
+  # no double-count).
   if [[ -f /usr/local/bin/node ]]; then
     local resolved
     resolved=$(readlink -f /usr/local/bin/node 2>/dev/null || true)
@@ -120,7 +108,7 @@ detect::nodejs_probe() {
     fi
   fi
 
-  # ---- 4-9. Per-user managers (canonical-path file-existence; no shell init) ----
+  # ---- 4-9. Per-user managers (file existence; no shell init) ----
   __det_nodejs_manager nvm "$home/.nvm/versions/node" 3 "$user" entries
   __det_nodejs_manager fnm "$home/.local/share/fnm/node-versions" 4 "$user" entries
   __det_nodejs_manager volta "$home/.volta/tools/image/node" 4 "$user" entries
@@ -128,14 +116,13 @@ detect::nodejs_probe() {
   __det_nodejs_manager asdf "$home/.asdf/installs/nodejs" 4 "$user" entries
   __det_nodejs_manager pnpm "$home/.local/share/pnpm/nodejs" 4 "$user" entries
 
-  # Final fragment: {nodejs: []} when empty, {nodejs: [...]} otherwise.
   if [[ ${#entries[@]} -eq 0 ]]; then
     jq -n '{nodejs: []}' >"$fragment_path"
   else
     printf '%s\n' "${entries[@]}" | jq -s '{nodejs: .}' >"$fragment_path"
   fi
 
-  # Per-entry exports so render.sh can iterate by name without re-parsing JSON.
+  # Per-entry exports so the renderer can iterate by name without re-parsing.
   local i=0 entry
   for entry in "${entries[@]}"; do
     export "DETECT_NODEJS_${i}_SOURCE"="$(printf '%s' "$entry" | jq -r '.source')"
@@ -154,11 +141,8 @@ detect::nodejs_probe() {
   fi
 }
 
-# --- Phase 13 reader functions (CONTEXT.md "Phase 12 → Phase 13 contract") ---
-
 # detect::nodejs_satisfies_pin — exit 0 if any enumerated entry's version
-# string matches Node 22 LTS (leading major `v?22.`). Walks the per-index
-# DETECT_NODEJS_${i}_VERSION exports populated by detect::nodejs_probe.
+# matches Node 22 LTS (leading major `v?22.`).
 detect::nodejs_satisfies_pin() {
   local count=${DETECT_NODEJS_COUNT:-0}
   local i v_var v
@@ -172,10 +156,9 @@ detect::nodejs_satisfies_pin() {
   return 1
 }
 
-# detect::nodejs_prefix_writable — exit 0 if ANY enumerated entry has
-# install_user_can_write_prefix=true (the install user can write to at least
-# one Node prefix root). Phase 13 REUSE-02 consults this to decide whether to
-# reuse an existing Node install or land a new one.
+# detect::nodejs_prefix_writable — exit 0 if any enumerated entry has
+# install_user_can_write_prefix=true (the install user can write to at least one
+# Node prefix root).
 detect::nodejs_prefix_writable() {
   local count=${DETECT_NODEJS_COUNT:-0}
   local i w_var

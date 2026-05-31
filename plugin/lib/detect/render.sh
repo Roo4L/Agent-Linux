@@ -2,24 +2,15 @@
 # SPDX-License-Identifier: MIT
 # plugin/lib/detect/render.sh — text renderer helpers for the detection layer.
 #
-# Sourced (transitively) by plugin/bin/agentlinux-install via plugin/lib/detect.sh.
-# Inherits `set -euo pipefail`, the ERR trap, and the log.sh dependency from the
-# entrypoint. MUST NOT set its own strict-mode flags. Uses `return 1` (not
-# `exit 1`) on any error path — this is a sourced fragment.
+# Sourced fragment: inherits set -euo pipefail / ERR trap / log.sh and uses
+# `return 1` (not `exit 1`).
 #
 # Renders the detection report on stdout in a grep-stable shape:
 #   ## DET-NN — <Title>          (section header)
 #   ✓ present                    (one glyph line per section, optional)
 #   [DET-NN] key=value           (one field marker per captured probe)
-# Glyphs: ✓ (ok, green) / ✗ (bad, red) / • (warn, yellow) / — (absent, dim).
-# TTY-aware via [[ -t 1 ]]; honor NO_COLOR env var per https://no-color.org.
-#
-# Plan 12-01 wires DET-01 + DET-05 sections with full field listings; DET-02 /
-# DET-03 / DET-04 sections print one placeholder marker line each so the
-# DET-06: "[DET-NN] markers present" @test passes for all five marker IDs from
-# day one. Plan 12-02 fills the DET-02/03/04 section bodies.
-#
-# Source-once guard.
+# Glyphs: ✓ (ok) / ✗ (bad) / • (warn) / — (absent).
+# TTY-aware via [[ -t 1 ]]; honors NO_COLOR per https://no-color.org.
 [[ -n "${AGENTLINUX_DETECT_RENDER_SH_SOURCED:-}" ]] && return 0
 readonly AGENTLINUX_DETECT_RENDER_SH_SOURCED=1
 
@@ -28,11 +19,9 @@ if ! command -v log_error >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
-# __det_color <fd> <name> — emit ANSI escape for <name> only when:
-#   (a) <fd> is a TTY ([[ -t $fd ]])
-#   (b) NO_COLOR env var is unset/empty (https://no-color.org)
-# Modeled on plugin/lib/log.sh:23-35 (__log_color); separated here because the
-# detection report goes to stdout (FD 1) while log.sh's color emit targets FD 2.
+# __det_color <fd> <name> — emit the ANSI escape for <name>, but only when <fd>
+# is a TTY and NO_COLOR is unset. Separate from log.sh's color emit because the
+# report goes to stdout (FD 1) while log.sh targets FD 2.
 __det_color() {
   local fd=$1 color=$2
   [[ -t $fd ]] || {
@@ -69,21 +58,15 @@ __det_field() {
   printf '[%s] %s=%s\n' "$req" "$key" "$val"
 }
 
-# Section header line. One '## DET-NN' marker per section so a human reader
-# (and a future bats @test) can locate sections without parsing JSON.
+# Section header line. One '## DET-NN' marker per section so a reader can locate
+# sections without parsing JSON.
 __det_section() {
   local req=$1 title=$2
   printf '\n## %s — %s\n' "$req" "$title"
 }
 
-# detect::render_text — emit the full text report on stdout.
-#
-# Section ordering matches REQUIREMENTS.md / ROADMAP success-criteria order:
-# User → Node.js → npm prefix → Catalog agents → Sudoers. Plan 12-01 wires the
-# DET-01 + DET-05 fields fully; DET-02/03/04 sections print one
-# `[DET-NN] section.status=stub` line each so the marker @test (Task 2) passes
-# without surfacing fake data. Plan 12-02 rewrites the placeholder lines into
-# full field listings as it fills the per-detector probes.
+# detect::render_text — emit the full text report on stdout. Section order:
+# User → Node.js → npm prefix → Catalog agents → Sudoers.
 detect::render_text() {
   __det_section "DET-01" "Install User"
   if [[ "${DETECT_USER_PRESENT:-false}" == "true" ]]; then
@@ -144,8 +127,8 @@ detect::render_text() {
     printf '%s present (%s agent(s))\n' "$(__det_glyph ok)" "${DETECT_AGENTS_COUNT:-0}"
     local id upper s_var p_var v_var o_var status path version glyph
     for id in claude-code gsd playwright-cli; do
-      # Sanitize id to suffix used in DETECT_AGENT_* export names. Plan 12-02
-      # convention: uppercase + replace '-' with '_' (e.g. claude-code → CLAUDE_CODE).
+      # Map id to the DETECT_AGENT_* export suffix: uppercase, '-' → '_'
+      # (claude-code → CLAUDE_CODE).
       upper=${id^^}
       upper=${upper//-/_}
       s_var="DETECT_AGENT_${upper}_STATUS"
@@ -190,28 +173,16 @@ detect::render_text() {
   fi
 }
 
-# detect::render_json — emit the locked top-level shape on stdout.
+# detect::render_json — emit the top-level shape on stdout. Reads the cache at
+# $DETECT_CACHE_PATH (populated by detect::run_once) and wraps it under
+# {generated_at, host, components}. Final `jq -S` sorts keys for byte-stable
+# output across re-runs.
 #
-# Reads the merged-fragment cache at $DETECT_CACHE_PATH (populated by
-# detect::run_once). Wraps it under {generated_at, host, components: {...}}.
-# Final output goes through `jq -S` for byte-stable key sort order
-# (RESEARCH §Open Question 4 — critical for Phase 13 REUSE-02 which may
-# re-run detection multiple times and compare outputs).
-#
-# Per CONTEXT.md Area 2 amendment of DET-06: the top-level object emits ONLY
-# generated_at + host + components. No phase-or-format version string, no
-# schema URL, no ADR-style consumer contract. Reviewers (security-engineer +
-# technical-writer) gate this on PR.
-#
-# T-12-02 mitigation (Plan 12-03 threat model): JSON construction uses the
-# `jq -n --arg / --slurpfile` family exclusively. The function NEVER builds
-# JSON via printf-with-quotes, shell-evaluator, or nested-shell interpolation.
-# Probed values that flow into this function (generated_at + host strings)
-# reach jq through --arg, which quotes the value as a JSON string regardless
-# of bytes — newlines, embedded quotes, dollar-signs, command-substitutions,
-# unicode escapes are all neutered by jq's string parser. The cache file is
-# read via --slurpfile, making jq own the parse — a malformed fragment fails
-# the merge instead of corrupting output.
+# JSON is built only via `jq -n --arg / --slurpfile` — never printf-with-quotes
+# or shell interpolation. --arg quotes every value as a JSON string regardless
+# of bytes (newlines, quotes, command-subs are neutralized), and --slurpfile
+# makes jq own the parse so a malformed fragment fails the merge instead of
+# corrupting output.
 detect::render_json() {
   [[ -r "$DETECT_CACHE_PATH" ]] || {
     log_error "detect::render_json: cache file not found at $DETECT_CACHE_PATH (was detect::run_once called?)"
@@ -221,13 +192,10 @@ detect::render_json() {
   local generated_at os version
   generated_at=$(date -u '+%Y-%m-%dT%H:%M:%SZ')
 
-  # AGENTLINUX_DISTRO_VERSION is the only distro export emitted by
-  # plugin/lib/distro_detect.sh (the value is the VERSION_ID like "22.04").
-  # The locked CONTEXT.md Area 1 host shape requires {os, version}, so source
-  # /etc/os-release directly here for the ID. Sourcing in a function body
-  # scopes ID / VERSION_ID to this invocation — no caller-shell pollution.
-  # Falls back to "unknown" when /etc/os-release is missing (CI fixture / dev
-  # host that bypassed detect_distro).
+  # distro_detect.sh only exports the version (VERSION_ID like "22.04"), but the
+  # host shape needs {os, version}, so source /etc/os-release here for the ID.
+  # Sourcing in a function body scopes the vars to this invocation. Falls back
+  # to "unknown" when /etc/os-release is missing.
   os="unknown"
   version="${AGENTLINUX_DISTRO_VERSION:-unknown}"
   if [[ -r /etc/os-release ]]; then
@@ -238,10 +206,8 @@ detect::render_json() {
     [[ "$version" == "unknown" ]] && version="${VERSION_ID:-unknown}"
   fi
 
-  # Use --arg for strings + --slurpfile for the cache (slurpfile reads the
-  # file as a single-element array; [0] unwraps to the merged object). Final
-  # `jq -n -S` (capital S) sorts keys recursively for byte-stable output
-  # across runs on an unchanged host (RESEARCH §Open Question 4).
+  # --slurpfile reads the cache as a single-element array; [0] unwraps to the
+  # merged object. `-S` sorts keys recursively for byte-stable output.
   jq -n -S \
     --arg generated_at "$generated_at" \
     --arg os "$os" \

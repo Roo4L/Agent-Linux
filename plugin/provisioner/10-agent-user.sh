@@ -1,54 +1,30 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# plugin/provisioner/10-agent-user.sh — agent user creation, locale, DOC-02 CLAUDE.md.
+# plugin/provisioner/10-agent-user.sh — agent user creation, locale, CLAUDE.md.
 #
-# Sourced by plugin/bin/agentlinux-install. Inherits `set -euo pipefail`, the
-# ERR trap, and the tee redirect to /var/log/agentlinux-install.log from the
-# entrypoint; this fragment therefore MUST NOT set its own strict-mode flags.
+# Sourced by agentlinux-install. Inherits set -euo pipefail, the ERR trap, and
+# the tee redirect — MUST NOT set its own strict-mode flags.
 #
-# Requirements satisfied:
-#   BHV-01 — agent user exists, has /bin/bash, real home, C.UTF-8 locale
-#   DOC-02 — /home/agent/CLAUDE.md with explicit anti-pattern list
+# Satisfies BHV-01 (agent user: /bin/bash, real home, C.UTF-8 locale) and
+# DOC-02 (/home/agent/CLAUDE.md with the anti-pattern list). Every mutation
+# routes through idempotency.sh primitives (ensure_user / ensure_dir /
+# ensure_marker_block) so re-runs converge — no raw useradd / echo >> / sed -i.
 #
-# Every state mutation routes through plugin/lib/idempotency.sh primitives
-# (ensure_user / ensure_dir / ensure_marker_block). Raw `useradd`, `install -d`,
-# `echo >>`, `sed -i` are forbidden in this file — re-runs must converge.
-#
-# Locale handling folds into this provisioner (RESEARCH §"Architectural
-# Responsibility Map": "20-locale.sh OR folded into 10-"). Locale is tied to
-# the agent user identity, fits in ~10 lines, and keeps the Phase 2 provisioner
-# count minimal. See DEVIATIONS in 02-03-SUMMARY for the fold-vs-split call.
+# Locale is folded in here (rather than a separate 20-locale.sh) — it is tied
+# to the agent user identity and fits in ~10 lines.
 
 log_info "10-agent-user: starting"
 
-# Phase 13 (REUSE-01) — dispatch on reuse::user_decision before any state
-# mutation. When the install user is REUSE-compatible (CONTEXT.md Area 1 Q1's
-# five predicates — present, /bin/bash shell, writable home, NOPASSWD-for-apt,
-# --user-name match), skip useradd + locale-gen + ensure_dir on the existing
-# home. Step 3 (DOC-02 CLAUDE.md ensure_marker_block) and 40-path-wiring.sh
-# still run UNCONDITIONALLY — additive against existing user content per the
-# non-mutating REUSE semantics for "attach to existing user".
+# Dispatch on the pre-resolved RESOLUTIONS[user] token (decisions are made
+# up-front in main()). On a REUSE-compatible user, skip useradd + locale-gen +
+# ensure_dir on the existing home; Step 3 (CLAUDE.md) and 40-path-wiring.sh
+# still run unconditionally (additive).
 #
-# Phase 14 will replace the `remediate)` and `bail)` branches with real
-# handlers WITHOUT changing the dispatch shape (CONTEXT.md "Phase 13 → Phase
-# 14 contract"). The case enumerates all four dispatch tokens even though
-# Phase 13's reuse::user_decision emits all four — explicit-enumeration form
-# keeps the surface stable across the contract.
-#
-# CRITICAL caveat — 10-agent-user.sh hardcodes literal `agent` paths
-# throughout (Step 1 ensure_dir /home/agent, Step 3 DOC-02 CLAUDE.md path).
-# When --user=NAME is supplied and the user IS REUSE-compatible, those literal
-# paths still resolve correctly only because CONTEXT.md Area 1 Q1 predicate 5
-# bails on name mismatch — i.e., REUSE only fires when the requested user is
-# named `agent` OR no --user was supplied. Phase 14/15 will extend to alt-user
-# names; Phase 13 keeps the literal `agent` paths intact under REUSE-compatible
-# cases.
+# Caveat: this file hardcodes literal `agent` paths. Those resolve correctly
+# under REUSE only because the user-decision bails on a name mismatch — REUSE
+# fires only when the user is named `agent`. The bail arm is unreachable
+# (flush_bails_or_continue would have exited 65); enumerated defensively.
 REUSED_USER=false
-# Phase 14 (Plan 14-01): provisioner reads pre-resolved token from RESOLUTIONS
-# map. Decisions are made up-front in main() by remediate::collect_all_decisions
-# BEFORE any provisioner runs, so the `bail` arm here is unreachable — if a
-# bail had fired, remediate::flush_bails_or_continue would have exited 65
-# already. The case still enumerates all four tokens defensively.
 case "${RESOLUTIONS[user]:-create}" in
   reuse)
     reuse::log_user_reuse "${INSTALL_USER:-agent}"
@@ -60,87 +36,61 @@ case "${RESOLUTIONS[user]:-create}" in
     REUSED_USER=false
     ;;
   remediate)
-    # The user-decision "remediate" token maps to REMEDIATE-03 (sudoers fix —
-    # agent exists but lacks NOPASSWD-for-apt). That fix is OWNED by
-    # 20-sudoers.sh via RESOLUTIONS[sudoers]. Here we reuse the existing user
-    # so the downstream sudoers provisioner has a valid target.
+    # user "remediate" maps to the sudoers fix owned by 20-sudoers.sh
+    # (RESOLUTIONS[sudoers]); here we just reuse the user so that provisioner
+    # has a valid target.
     reuse::log_user_reuse "${INSTALL_USER:-agent}"
     log_info "10-agent-user: REUSE branch (sudoers fix dispatched to 20-sudoers.sh per RESOLUTIONS[sudoers])"
     REUSED_USER=true
     ;;
   reuse-with-warning)
-    # Plan 15-01 (UX-02 / D-15-02): defensive arm — user-decision currently
-    # never produces a state-overwriting action that goes through the prompt
-    # loop (user remediate maps to sudoers fix owned by 20-sudoers.sh). If a
-    # future plan adds a user-level overwriting action and the operator
-    # declines it, this arm keeps the existing user as-is and emits a
-    # [REUSE-WARN] marker for transcript visibility.
+    # Defensive arm — user-decision never currently produces a state-overwriting
+    # action through the prompt loop. If a future plan does and the operator
+    # declines, keep the existing user and emit a [REUSE-WARN] marker.
     reuse::log_user_reuse "${INSTALL_USER:-agent}"
     log_warn "[REUSE-WARN] component=user decline_reason=${DECLINED_COMPONENTS[user]:-unknown} — skipped (user declined remediation; manual fix needed). Existing user unchanged."
     REUSED_USER=true
     ;;
   bail)
-    # UNREACHABLE: flush_bails_or_continue should have exited 65 before
-    # run_provisioners. If we somehow get here, it's a hard programming error
-    # (e.g., remediate.sh not sourced, or collect_all_decisions not called).
+    # Unreachable — flush_bails_or_continue should have exited 65 before now.
     log_error "10-agent-user: unreachable bail arm — flush_bails_or_continue should have gated this"
     return 1
     ;;
 esac
 
-# Steps 1 + 2 (CREATE path) are wrapped in the REUSED_USER guard so the REUSE
-# branch skips them entirely; the existing user's identity + locale state is
-# the user's own configuration (idempotent re-runs against a REUSE branch were
-# never the use case here — REUSE is "do nothing" and we mean it).
+# Steps 1+2 (CREATE path) run only when the user was not reused — REUSE means
+# "do nothing" to the existing user's identity + locale state.
 if [[ "${REUSED_USER:-false}" != true ]]; then
-  # Plan 15-02 (UX-04 — Rule 2 deviation): the alt-user flow updates
-  # INSTALL_USER (via prompt::alt_user_or_bail). The CREATE path here must
-  # honor that update so `id -u <new-name>` succeeds end-to-end. Resolve
-  # the target user once and use it consistently below; falls back to the
-  # historical literal `agent` when INSTALL_USER is unset/empty so Phase 13
-  # callers are unaffected.
+  # The alt-user flow may have updated INSTALL_USER; honor it here. Fall back
+  # to literal `agent` when unset/empty.
   _AL_INSTALL_USER="${INSTALL_USER:-agent}"
   _AL_INSTALL_HOME="/home/${_AL_INSTALL_USER}"
-  # Step 1: install user (BHV-01 — bash shell, home directory).
-  # ensure_user is a no-op if the user already exists (T-02-05 mitigation:
-  # existing user belonging to a different human is not modified; we
-  # only assert existence). ensure_dir then asserts mode/ownership on the
-  # already-created home to correct any out-of-band drift on re-run.
+  # Step 1: install user (BHV-01). ensure_user is a no-op if the user already
+  # exists (an existing user belonging to a different human is not modified —
+  # we only assert existence); ensure_dir then corrects home mode/ownership.
   ensure_user "${_AL_INSTALL_USER}"
   ensure_dir "${_AL_INSTALL_HOME}" 0755 "${_AL_INSTALL_USER}:${_AL_INSTALL_USER}"
 
-  # Step 2: Locale (BHV-01 — LANG=C.UTF-8, LC_ALL=C.UTF-8 system-wide).
-  #
-  # Pitfall 5 (02-RESEARCH.md): `locale-gen C.UTF-8` is a no-op on glibc 2.35+
-  # (Ubuntu 22.04 and later) because C.UTF-8 is a built-in locale. That is why
-  # we do NOT rely on its exit code — it may legitimately succeed without doing
-  # anything — and instead verify outcome with `locale -a` below.
-  #
-  # Docker slim images strip the `locales` package entirely, so ensure it is
-  # installed before invoking locale-gen / update-locale. DEBIAN_FRONTEND +
-  # --no-install-recommends keep the install non-interactive and minimal.
-  # `apt-get update` runs first because the cache is empty on freshly pulled
-  # Ubuntu containers and long-idle hosts; without it `apt-get install` exits
-  # with "Package locales has no installation candidate" (AL-37). Mirrors the
-  # pattern at 30-nodejs.sh:33.
+  # Step 2: locale (BHV-01 — LANG/LC_ALL=C.UTF-8 system-wide).
+  # locale-gen C.UTF-8 is a no-op on glibc 2.35+ (Ubuntu 22.04+) since C.UTF-8
+  # is built in, so we don't trust its exit code and verify via `locale -a`.
+  # Docker slim images strip the `locales` package; install it first.
+  # apt-get update first — the cache may be empty on fresh containers and
+  # long-idle hosts, else apt-get install reports "no installation candidate".
   if ! command -v locale-gen >/dev/null 2>&1; then
     log_warn "locale-gen not found; installing 'locales' package"
     DEBIAN_FRONTEND=noninteractive apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales
   fi
 
-  # The one documented `|| true` skip-path in this provisioner (per CLAUDE.md
-  # "unconditional || true hides real failures" rule). Allowed here because
-  # C.UTF-8 is a glibc built-in on every supported host — locale-gen may exit
-  # non-zero if /etc/locale.gen has no matching line, which is the expected
-  # state on Ubuntu 22.04+. The `locale -a` verification below is the real
-  # correctness check.
+  # The one allowed `|| true` here: locale-gen may exit non-zero when
+  # /etc/locale.gen has no matching line (the expected state on 22.04+, where
+  # C.UTF-8 is a glibc built-in). The `locale -a` check below is the real test.
   locale-gen C.UTF-8 >/dev/null 2>&1 || true
   update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
 
-  # Outcome verification: accept both `C.UTF-8` (canonical) and `C.utf8` (the
-  # form Ubuntu 24.04 reports via `locale -a`). Case-insensitive; optional dash
-  # before the `8` per RESEARCH Pitfall 5's verification regex.
+  # Accept both `C.UTF-8` and `C.utf8` (the form Ubuntu 24.04 reports);
+  # case-insensitive, optional dash before the 8.
   if ! locale -a 2>/dev/null | grep -Eiq '^c\.utf-?8$'; then
     log_error "C.UTF-8 locale not available after locale-gen + update-locale"
     return 1
@@ -149,20 +99,11 @@ if [[ "${REUSED_USER:-false}" != true ]]; then
 fi
 
 # Step 3: DOC-02 — /home/agent/CLAUDE.md with anti-pattern guidance.
-#
-# Uses ensure_marker_block with the stable tag `agentlinux-doc-02` and --top
-# placement so:
-#   (a) Re-runs are idempotent — identical body produces zero diff (T-02-07).
-#   (b) User-added content OUTSIDE the marker block survives re-run.
-#   (c) Anti-pattern guidance appears before any user-added sections, so
-#       agent tooling reading the file encounters DO-NOT first.
-#
-# The heredoc tag is stable across phases: Phase 4/5 may extend this block
-# but MUST reuse the `agentlinux-doc-02` tag. Do not rename.
-#
-# The body MUST include the three canonical anti-pattern strings that bats
-# tests in Plan 02-05 grep-verify: `usr/local/bin`, `sudo npm install -g`,
-# and `second Node.js install`.
+# ensure_marker_block with the stable `agentlinux-doc-02` tag and --top
+# placement: re-runs are idempotent, user content outside the block survives,
+# and the DO-NOT guidance lands before any user-added sections. Do not rename
+# the tag. The body must keep the three anti-pattern strings the bats tests
+# grep for: `usr/local/bin`, `sudo npm install -g`, `second Node.js install`.
 _AL_DOC02_USER="${INSTALL_USER:-agent}"
 _AL_DOC02_HOME="/home/${_AL_DOC02_USER}"
 ensure_marker_block "${_AL_DOC02_HOME}/CLAUDE.md" "agentlinux-doc-02" --top <<'DOC02'
@@ -215,9 +156,8 @@ diagnose. DO NOT "recover" by climbing the privilege ladder — that is
 precisely the bug class AgentLinux exists to prevent.
 DOC02
 
-# ensure_marker_block uses `install -m 0644` which leaves the file root-owned;
-# re-assert agent:agent ownership so the agent user can read + edit it outside
-# the marker block on subsequent runs.
+# ensure_marker_block leaves the file root-owned; re-assert agent:agent so the
+# user can read + edit it outside the marker block.
 chmod 0644 "${_AL_DOC02_HOME}/CLAUDE.md"
 chown "${_AL_DOC02_USER}:${_AL_DOC02_USER}" "${_AL_DOC02_HOME}/CLAUDE.md"
 log_info "wrote DOC-02 CLAUDE.md to ${_AL_DOC02_HOME}/CLAUDE.md"

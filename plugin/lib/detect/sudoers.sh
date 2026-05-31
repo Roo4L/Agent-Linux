@@ -2,20 +2,12 @@
 # SPDX-License-Identifier: MIT
 # plugin/lib/detect/sudoers.sh — DET-05 sudoers drop-in discovery probe.
 #
-# Sourced (transitively) by plugin/bin/agentlinux-install via plugin/lib/detect.sh.
-# Inherits `set -euo pipefail`, the ERR trap, the tee redirect, and the log.sh
-# dependency from the entrypoint. MUST NOT set its own strict-mode flags. Uses
-# `return 1` (not `exit 1`) on any error path — this is a sourced fragment
-# (pattern from plugin/provisioner/30-nodejs.sh:71).
+# Sourced fragment: inherits set -euo pipefail / ERR trap / log.sh and uses
+# `return 1` (not `exit 1`).
 #
-# READ-ONLY by contract (T-12-01 mitigation): the probe uses ONLY stat,
-# sha256sum, and grep -Fxq. NEVER `visudo` (no-arg visudo opens the editor —
-# would be a side effect), NEVER `install`, NEVER `chmod`, NEVER `>` redirect
-# to /etc/sudoers.d/agentlinux. The dedicated bats @test in
-# tests/bats/15-detection.bats captures sha256 before+after a --report-only
-# invocation and asserts byte-equality.
-#
-# Source-once guard.
+# Read-only by contract: uses ONLY stat, sha256sum, and grep -Fxq. Never
+# `visudo` (no-arg visudo opens the editor), never install/chmod, never a `>`
+# redirect to the drop-in.
 [[ -n "${AGENTLINUX_DETECT_SUDOERS_SH_SOURCED:-}" ]] && return 0
 readonly AGENTLINUX_DETECT_SUDOERS_SH_SOURCED=1
 
@@ -24,18 +16,15 @@ if ! command -v log_error >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
-# DETECT_SUDOERS_PATH and DETECT_SUDOERS_EXPECTED_LINE are LOCKED constants
-# (ADR-012; mirrored from plugin/provisioner/20-sudoers.sh:50 + :59 and
-# tests/bats/22-agent-sudo.bats:51). Hardcoded — never $VAR-driven path — so a
-# tampered env cannot redirect the probe at a different file.
+# LOCKED constants (ADR-012, mirrored from provisioner/20-sudoers.sh). Hardcoded
+# rather than $VAR-driven so a tampered env can't redirect the probe at a
+# different file.
 readonly DETECT_SUDOERS_PATH=/etc/sudoers.d/agentlinux
 readonly DETECT_SUDOERS_EXPECTED_LINE='agent ALL=(ALL) NOPASSWD: ALL'
 
 # detect::sudoers_probe <fragment_path>
 #
-# Populates DETECT_SUDOERS_* exports and writes a `{sudoers: {...}}` JSON
-# object to <fragment_path>. The orchestrator merges this with the other
-# detector fragments via `jq -s 'add'`.
+# Populates DETECT_SUDOERS_* exports and writes a `{sudoers: {...}}` fragment.
 detect::sudoers_probe() {
   local fragment_path=$1
   local present mode owner sha256 nopasswd_present
@@ -45,9 +34,8 @@ detect::sudoers_probe() {
     mode=$(stat -c '%a' "$DETECT_SUDOERS_PATH" 2>/dev/null || echo "")
     owner=$(stat -c '%U:%G' "$DETECT_SUDOERS_PATH" 2>/dev/null || echo "unknown")
     sha256=$(sha256sum "$DETECT_SUDOERS_PATH" | cut -d' ' -f1)
-    # `--` terminates options for grep so a hypothetical leading-dash content
-    # cannot be reparsed as a flag (defense-in-depth — the expected line begins
-    # with `agent`, but `--` is the safe pattern in tests/bats/22-agent-sudo.bats).
+    # `--` terminates grep options so leading-dash content can't be reparsed as
+    # a flag (defense-in-depth).
     if grep -Fxq -- "$DETECT_SUDOERS_EXPECTED_LINE" "$DETECT_SUDOERS_PATH"; then
       nopasswd_present=true
     else
@@ -61,16 +49,14 @@ detect::sudoers_probe() {
     nopasswd_present=false
   fi
 
-  # Export for in-process readers + the renderer (render.sh reads
-  # DETECT_SUDOERS_{PRESENT,PATH,MODE,OWNER,SHA256,NOPASSWD_OK}).
+  # Export for in-process readers + the renderer.
   export DETECT_SUDOERS_PRESENT="$present"
   export DETECT_SUDOERS_MODE="$mode"
   export DETECT_SUDOERS_OWNER="$owner"
   export DETECT_SUDOERS_SHA256="$sha256"
   export DETECT_SUDOERS_NOPASSWD_OK="$nopasswd_present"
 
-  # `--argjson present` because $present is the literal token true/false (jq
-  # boolean), not a quoted string. `--arg sha256 ""` is fine when absent.
+  # --argjson for the true/false booleans (jq boolean, not a quoted string).
   jq -n \
     --arg path "$DETECT_SUDOERS_PATH" \
     --argjson present "$present" \

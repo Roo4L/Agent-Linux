@@ -2,101 +2,46 @@
 # SPDX-License-Identifier: MIT
 # plugin/provisioner/40-path-wiring.sh — six-mode PATH/locale wiring.
 #
-# Sourced by plugin/bin/agentlinux-install. Inherits `set -euo pipefail`, the
-# ERR trap, and the tee redirect to /var/log/agentlinux-install.log from the
-# entrypoint; this fragment therefore MUST NOT set its own strict-mode flags.
+# Sourced by agentlinux-install. Inherits set -euo pipefail, the ERR trap, and
+# the tee redirect — MUST NOT set its own strict-mode flags.
 #
-# Requirements satisfied:
-#   BHV-02 — non-interactive SSH (`ssh agent@host '<cmd>'`)
-#   BHV-03 — cron (`/etc/cron.d/agentlinux` PATH header)
-#   BHV-04 — systemd `User=agent` (`EnvironmentFile=/etc/agentlinux.env`)
-#   BHV-05 — `sudo -u agent [-i]` (profile.d for -i; .bashrc for bash -c)
-#   BHV-06 — interactive bash login (/etc/profile → /etc/profile.d/*.sh)
-#   RT-02  — /home/agent/.npm-global/bin is on PATH in every invocation mode
-#   RT-04  — NPM_CONFIG_PREFIX env var (belt-and-braces for Pitfall 5)
+# Wires /home/agent/.npm-global/bin onto PATH across all six invocation modes
+# (BHV-02 SSH, BHV-03 cron, BHV-04 systemd, BHV-05 sudo -u [-i], BHV-06 login;
+# RT-02 PATH, RT-04 NPM_CONFIG_PREFIX) via four artefacts:
+#   1. /etc/profile.d/agentlinux.sh  (0644 root:root)  — login + sudo -u -i
+#   2. /home/agent/.bashrc TOP block (0644 agent:agent) — SSH + sudo -u bash -c
+#   3. /etc/agentlinux.env           (0644 root:root)  — systemd EnvironmentFile
+#   4. /etc/cron.d/agentlinux        (0644 root:root)  — cron PATH header
 #
-# Four artefacts cover all six invocation modes (02-RESEARCH §Pattern 4):
-#   1. /etc/profile.d/agentlinux.sh  (0644 root:root)  — BHV-05 -i + BHV-06
-#   2. /home/agent/.bashrc TOP block (0644 agent:agent) — BHV-02 + BHV-05 bash -c
-#   3. /etc/agentlinux.env           (0644 root:root)  — BHV-04
-#   4. /etc/cron.d/agentlinux        (0644 root:root)  — BHV-03
-#
-# Path ordering: agent-owned prefixes FIRST, system prefixes last. Only paths
-# under /home/agent are agent-owned; /usr/local/bin is root-owned standard.
-# This prevents T-02-08 path-injection by a wider-writable directory earlier
-# in PATH. Phase 3 extended this file: /home/agent/.npm-global/bin is
-# prepended in all three literal-PATH artefacts (profile.d case-stack,
-# agentlinux.env, cron.d); NPM_CONFIG_PREFIX (value: /home/agent/.npm-global)
-# ships in agentlinux.env as a belt-and-braces Pitfall 5 mitigation (env-var
-# precedence over .npmrc per npm docs, ensures systemd EnvironmentFile
-# consumers see the prefix even if ~agent/.npmrc read regresses).
-#
-# Invariants enforced by this file (the plan's acceptance greps cross-verify
-# the forbidden substrings literally do not appear anywhere in this source):
-#   - State mutation routes through `write_file_atomic <mode> <dest> <<EOF`
-#     (installer-owned full-file writes — same atomic-rename semantics as
-#     `install -m <mode> /dev/stdin <dest>`, but portable to uutils-coreutils
-#     on Ubuntu 26.04) or `ensure_marker_block` (partial edit on user-owned
-#     ~agent/.bashrc). No raw-append or in-place editing.
-#   - Zero privilege-escalation configuration shipped: Phase 2 locks the
-#     no-default-drop-in rule; future phases use visudo_validate + 0440.
-#   - Zero wrapper shim pointing at an agent-owned binary from a root-owned
-#     bin directory (DOC-02 canonical anti-pattern — the exact class of bug
-#     that breaks Claude Code self-update).
-#   - Installer does not execute the profile.d fragment during install
-#     (would pollute root's environment). It is written once, read later
-#     by the login shells that source /etc/profile.
+# Path ordering: agent-owned prefixes FIRST, system prefixes last — prevents
+# path-injection by a wider-writable directory earlier in PATH. Mutations go
+# through write_file_atomic (installer-owned files) or ensure_marker_block
+# (user-owned ~agent/.bashrc); no raw-append or in-place edit. No wrapper shim
+# pointing at an agent-owned binary (the canonical self-update bug). The
+# profile.d fragment is written, never executed during install.
 
-# Phase 13: this provisioner runs UNCONDITIONALLY — for both the CREATE path
-# (10-agent-user.sh created the user) and the REUSE path (10-agent-user.sh
-# found an existing compatible user and short-circuited). PATH artefacts are
-# additive against existing user state — ensure_marker_block preserves user
-# content outside the AGENTLINUX-managed marker block, and the three
-# installer-owned files (profile.d, agentlinux.env, cron.d) are root-owned
-# system files that are written-or-overwritten by the installer regardless of
-# REUSE branch. No reuse::-driven case here.
-#
-# Phase 14 (Plan 14-01): DELIBERATELY no RESOLUTIONS dispatch here either.
-# REMEDIATE-02 (PATH wiring) is the canonical additive Remediate per
-# CONTEXT.md Area 1 Q1 — ensure_marker_block never touches user content
-# outside the AGENTLINUX-managed marker, and the three root-owned files
-# (profile.d, agentlinux.env, cron.d) are installer-owned by contract.
-# remediate_action_overwrites_state returns FALSE for `path-wiring`, so even
-# if a RESOLUTIONS lookup were added it would never gate or bail.
+# Runs UNCONDITIONALLY for both CREATE and REUSE — the artefacts are additive
+# (ensure_marker_block preserves user content outside its block; the three
+# root-owned files are installer-owned by contract). PATH wiring is the
+# canonical additive Remediate, so no RESOLUTIONS dispatch is needed here.
 log_info "40-path-wiring: starting"
 
-# Phase 14 (Plan 14-02 — REMEDIATE-02): when the user was REUSED (REUSED_USER
-# sentinel set by 10-agent-user.sh's REUSE branch), emit the [REMEDIATE-02]
-# transcript marker BEFORE the additive ensure_marker_block / write_file_atomic
-# calls run. This distinguishes "re-attaching PATH wiring to a pre-existing
-# user" from "creating PATH wiring for a fresh user" in the install log —
-# operator-visible signal that the additive remediation fired (the actual
-# wiring code is identical between the two cases because the additive
-# primitives converge regardless of pre-existing state).
+# When the user was REUSED, emit the [REMEDIATE-02] marker so the log
+# distinguishes re-attaching PATH wiring from creating it (the wiring code is
+# identical — the additive primitives converge regardless of prior state).
 [[ "${REUSED_USER:-false}" == "true" ]] && remediate::user::log_path_wiring_remediated
 
-# Ensure /home/agent/.local/bin exists so the PATH prefix written below is not
-# a dangling reference before the user ever writes a binary there. ensure_dir
-# re-asserts mode+ownership on re-run to correct any out-of-band drift.
+# Ensure /home/agent/.local/bin exists so the PATH prefix below isn't a dangling
+# reference. ensure_dir re-asserts mode+ownership on re-run.
 ensure_dir /home/agent/.local 0755 agent:agent
 ensure_dir /home/agent/.local/bin 0755 agent:agent
 
-# ---------------------------------------------------------------
-# Artefact 1: /etc/profile.d/agentlinux.sh
-# BHV-06 (interactive login) + BHV-05 (`sudo -u agent -i` login variant).
-# Sourced by /etc/profile on login shells. Re-source guard prevents double
-# PATH-prepend if the file is sourced twice in the same shell session
-# (T-02-09 mitigation + INST-02 idempotency contract).
-# `write_file_atomic` is the portable analogue of
-# `install -m 0644 /dev/stdin <dest>` — same atomic-rename semantics, but
-# routed through a same-directory tmpfile so it works on uutils-coreutils 0.7.0
-# (the Rust `install` shipped on Ubuntu 26.04). uutils' install recursively
-# readlink-chases /dev/stdin → /proc/self/fd/0 → "pipe:[NNN]" and ENOENTs
-# whenever the destination already exists; the first run succeeds, the
-# idempotent re-run fails. See plugin/lib/idempotency.sh `write_file_atomic`
-# header for the full strace trail. The single-quoted heredoc tag keeps `$PATH`
-# etc. literal in the written file.
-# ---------------------------------------------------------------
+# Artefact 1: /etc/profile.d/agentlinux.sh — interactive login + `sudo -u -i`.
+# Sourced by /etc/profile; the re-source guard prevents a double PATH-prepend.
+# write_file_atomic is the portable analogue of `install -m 0644 /dev/stdin
+# <dest>` (atomic rename via a same-dir tmpfile), needed because uutils' Rust
+# install on Ubuntu 26.04 ENOENTs chasing /dev/stdin when the dest exists. The
+# single-quoted heredoc tag keeps $PATH etc. literal in the written file.
 write_file_atomic 0644 /etc/profile.d/agentlinux.sh <<'PROFILE'
 # AgentLinux login environment (generated by agentlinux-install).
 # Sourced by /etc/profile on interactive login shells AND `sudo -u agent -i`.
@@ -109,11 +54,10 @@ export LANG="${LANG:-C.UTF-8}"
 export LC_ALL="${LC_ALL:-C.UTF-8}"
 
 # Prepend in order so /home/agent/.npm-global/bin lands FIRST in the final
-# PATH (Pitfall 4 — a stray /usr/local/bin shim must lose to the agent-owned
-# binary). Case-prepend stacks LIFO: the LAST successful case-block prepends
-# in front of everything, so we put .local/bin FIRST and .npm-global/bin
-# SECOND. Case-guards prevent double-prepend on re-source (INST-02
-# idempotency). Phase 3 RT-02 + RT-04.
+# PATH (a stray /usr/local/bin shim must lose to the agent-owned binary).
+# Case-prepend stacks LIFO: the LAST successful case-block prepends in front
+# of everything, so we put .local/bin FIRST and .npm-global/bin SECOND.
+# Case-guards prevent double-prepend on re-source (idempotency).
 case ":${PATH}:" in
   *:/home/agent/.local/bin:*) : ;;
   *) PATH="/home/agent/.local/bin:${PATH}" ;;
@@ -126,23 +70,13 @@ export PATH
 PROFILE
 log_info "wrote /etc/profile.d/agentlinux.sh"
 
-# ---------------------------------------------------------------
-# Artefact 2: /home/agent/.bashrc marker block at TOP.
-# BHV-02 (non-interactive SSH: `ssh agent@host 'cmd'`) + BHV-05 non-login
-# (`sudo -u agent bash -c 'cmd'`).
-#
-# Pitfall 2 (02-RESEARCH): the Ubuntu skel /etc/skel/.bashrc starts with
-#   case $- in *i*) ;; *) return;; esac
-# which early-returns for non-interactive shells. An agentlinux block placed
-# AFTER that guard would never run under `ssh host 'cmd'` or `sudo -u agent
-# bash -c 'cmd'`. Our --top placement puts the guard-source BEFORE the skel
-# early-return so non-interactive bash invocations pick up PATH + locale.
-#
-# If /home/agent/.bashrc doesn't exist (no skel copied — e.g., agent user
-# created in a minimal container), create an empty agent-owned file so
-# ensure_marker_block has a target. `install /dev/null` is atomic and sets
-# mode + ownership at creation time.
-# ---------------------------------------------------------------
+# Artefact 2: /home/agent/.bashrc marker block at TOP — non-interactive SSH
+# (`ssh agent@host 'cmd'`) + `sudo -u agent bash -c 'cmd'`.
+# The Ubuntu skel .bashrc early-returns for non-interactive shells
+# (`case $- in *i*) ;; *) return;; esac`); --top placement puts our
+# guard-source BEFORE that return so those invocations still pick up PATH +
+# locale. Create an empty agent-owned file first if .bashrc is absent (minimal
+# container with no skel copy) so ensure_marker_block has a target.
 if [[ ! -f /home/agent/.bashrc ]]; then
   install -m 0644 -o agent -g agent /dev/null /home/agent/.bashrc
 fi
@@ -154,28 +88,18 @@ if [ -f /etc/profile.d/agentlinux.sh ]; then
   . /etc/profile.d/agentlinux.sh
 fi
 BASHRC
-# ensure_marker_block uses `install -m 0644` which leaves the file root-owned;
-# re-assert agent:agent ownership so the user can edit outside the block on
-# subsequent runs, and enforce 0644 to correct any out-of-band chmod drift.
+# ensure_marker_block leaves the file root-owned; re-assert agent:agent + 0644
+# so the user can edit outside the block.
 chown agent:agent /home/agent/.bashrc
 chmod 0644 /home/agent/.bashrc
 log_info "wrote agentlinux-path marker block to /home/agent/.bashrc (--top)"
 
-# ---------------------------------------------------------------
-# Artefact 3: /etc/agentlinux.env
-# BHV-04 (systemd `User=agent` units via `EnvironmentFile=/etc/agentlinux.env`).
-# RT-02 + RT-04 (npm-global/bin prepend + NPM_CONFIG_PREFIX).
-# FORMAT: literal `KEY=VALUE` lines, NO `export`, NO shell expansion. Both
-# systemd EnvironmentFile and cron parse this shape literally (Pitfall 4);
-# `PATH=$PATH:...` would store the literal string `$PATH:...` — never a
-# runtime expansion. Fully-expanded literal PATH is the only correct form.
-# NPM_CONFIG_PREFIX is the belt-and-braces fallback (Pitfall 5): systemd
-# EnvironmentFile= consumers see the prefix even if ~agent/.npmrc read
-# regresses. T-03-03 mitigation: value MUST be byte-identical to the prefix
-# line in ~agent/.npmrc written by 30-nodejs.sh (/home/agent/.npm-global) —
-# split-brain avoidance; a future accidental divergence fails the plan's
-# cross-grep acceptance criterion.
-# ---------------------------------------------------------------
+# Artefact 3: /etc/agentlinux.env — systemd EnvironmentFile (BHV-04), RT-02 +
+# RT-04. FORMAT: literal KEY=VALUE, no `export`, no shell expansion (systemd and
+# cron parse this shape literally; `PATH=$PATH:...` would store the literal
+# string). NPM_CONFIG_PREFIX is the belt-and-braces fallback so consumers see
+# the prefix even if ~agent/.npmrc regresses; keep its value byte-identical to
+# the .npmrc prefix line written by 30-nodejs.sh (a cross-grep enforces this).
 write_file_atomic 0644 /etc/agentlinux.env <<'ENVFILE'
 PATH=/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin
 NPM_CONFIG_PREFIX=/home/agent/.npm-global
@@ -184,15 +108,10 @@ LC_ALL=C.UTF-8
 ENVFILE
 log_info "wrote /etc/agentlinux.env (systemd EnvironmentFile + cron header template)"
 
-# ---------------------------------------------------------------
-# Artefact 4: /etc/cron.d/agentlinux
-# BHV-03 (cron). The `PATH=` line at the top of a cron.d file applies to every
-# job below it. Phase 2 ships NO default jobs — this file is the PATH contract
-# future agent cron jobs inherit. Pitfall 4: classical vixie-cron does NOT
-# expand `$PATH`, so the literal PATH is written author-time-expanded. Keep
-# this PATH byte-identical to /etc/agentlinux.env — the plan's acceptance
-# criterion cross-greps both for the same literal string.
-# ---------------------------------------------------------------
+# Artefact 4: /etc/cron.d/agentlinux — cron PATH header (BHV-03). The top-of-file
+# `PATH=` applies to every job below. No default jobs ship. vixie-cron does NOT
+# expand $PATH, so the literal PATH is written fully expanded; keep it
+# byte-identical to /etc/agentlinux.env (a cross-grep enforces this).
 write_file_atomic 0644 /etc/cron.d/agentlinux <<'CRON'
 # AgentLinux cron environment (generated by agentlinux-install).
 # Any agent cron job placed in this file inherits the PATH/locale below.

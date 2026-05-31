@@ -41,75 +41,24 @@ nothing on disk.
 
 ## Brownfield install (existing user / Node.js / agents)
 
-If your host already has an `agent` user, a Node.js install, or any of the
-catalog agents (claude-code, gsd, playwright), AgentLinux detects them up
-front and decides on a per-component basis. There are four possible
-states:
+Already have an `agent` user, Node.js, or some of these agents? AgentLinux
+detects them before changing anything and decides per component: **reuse**
+what already works, **create** what's missing, **remediate** a fixable defect
+(e.g. a root-owned npm prefix, drifted sudoers, a broken agent), or **bail**
+on something it can't reconcile (e.g. the existing `agent` user has the wrong
+shell).
 
-- **Reuse** — the existing component matches AgentLinux's contract; the
-  provisioner or recipe short-circuits without writing.
-- **Create** — the component is absent; the greenfield path runs as in
-  a fresh-host install.
-- **Remediate** — the component is present but has a fixable defect
-  (wrong ownership on the npm prefix, drifted sudoers, broken catalog
-  agent). The installer either prompts you per action in TTY mode or
-  requires `--yes` in non-interactive mode (`apt install -y`-style).
-- **Bail** — the component has an irreconcilable defect (e.g. the
-  existing `agent` user has the wrong login shell). The installer
-  exits with code `65` and a remediation hint.
+Preview exactly what it would do — no changes, exits 0:
 
-**Preview first — zero changes:**
-
-```console
-$ agentlinux install --dry-run
-[DET-01] user=agent uid=1001 shell=/bin/bash home=/home/agent writable=true
-[DET-02] nodejs=v22.x source=nodesource user_writable=false
-[DET-04] claude-code status=broken path=/usr/local/bin/claude owner=root
-[DET-04] gsd status=absent
-[DET-04] playwright-cli status=absent
-[DET-05] sudoers=present sha256=ok
-
-pre-flight resolution:
-  user        agent       Reuse      (existing user matches contract)
-  nodejs      v22.x       Reuse      (NodeSource, correct major)
-  npm-prefix  /usr/lib/   Remediate  (REMEDIATE-01 — root-owned; rebases to ~agent/.npm-global)
-  sudoers     ok          Reuse
-  claude-code broken      Remediate  (REMEDIATE-04 — reinstall under agent)
-
-exit code: 0 (dry-run — no state changed)
-```
-*(illustrative — version strings and component layout may differ on your host)*
-
-**Apply in non-interactive mode** (`--yes` opts in to every required
-remediation in one shot — there are no per-action flags):
-
-```console
-$ agentlinux install --yes
-[REMEDIATE-01] rebasing npm-global to /home/agent/.npm-global
-[REMEDIATE-04] reinstalling claude-code under agent (preserving ~/.claude/)
-[INSTALL] complete
+```bash
+sudo agentlinux install --dry-run
 ```
 
-**In a terminal** (`stdin` is a TTY), the installer asks `Proceed with
-this remediation? [Y/n]` per state-overwriting action; declining one
-skips it (the component stays as-is, flagged
-`reused — declined remediation` in `agentlinux list`) and continues
-with the others.
-
-**Exit codes:**
-
-- `0` — success
-- `64` (`EX_USAGE`) — bad command-line flags or contradictory options
-  (e.g. `--dry-run --yes`)
-- `65` (`EX_DATAERR`) — incompatible host state surfaced by detection
-  that `--yes` cannot resolve (e.g. existing `agent` user has shell
-  `/bin/sh`); the bail message names the conflicting attribute and
-  suggests `--user=NAME` or manual remediation
-- `1` — runtime failure during the Create / Remediate path
-
-For per-scenario walkthroughs (manual useradd, NodeSource already
-correct, root-installed Claude Code, broken Playwright), see
-[per-scenario walkthroughs](docs/MIGRATION.md).
+Anything that would overwrite existing state asks first in a terminal
+(`Proceed? [Y/n]`), or needs `--yes` in non-interactive mode (`apt install -y`
+style). Nothing is overwritten without your consent; an unreconcilable host
+exits `65` with a hint. See [docs/MIGRATION.md](docs/MIGRATION.md) for worked
+examples and exit codes.
 
 ## Verify
 
