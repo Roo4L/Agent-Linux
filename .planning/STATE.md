@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.3.4
 milestone_name: milestone
-status: executing
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-05-30T16:36:31.970Z"
-last_activity: 2026-05-30 -- Phase 17 planning complete
+status: shipping
+stopped_at: "Phase 17 Wave 1 done (merge origin/master + bump 0.3.2->0.3.4 + v0.3.3 phase-archive reconciliation + fast checks green) + Wave 2 Task 1 done (PR #34 open). HALTED at human checkpoint 1: maintainer merges PR #34. After merge -> push pre-authorized v0.3.4-rc1 tag -> runbook -> human checkpoint 2 (VM validation) -> promote-or-iterate (Plan 17-03)."
+last_updated: "2026-05-31T00:00:00.000Z"
+last_activity: 2026-05-31 -- Phase 17 PR #34 open, awaiting maintainer merge
 progress:
   total_phases: 1
   completed_phases: 0
