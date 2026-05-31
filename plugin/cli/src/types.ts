@@ -1,12 +1,8 @@
 // SPDX-License-Identifier: MIT
 // plugin/cli/src/types.ts — shared interfaces for the registry CLI.
-// Single source of truth consumed by src/commands/*, src/state/*, src/version/*,
-// src/catalog/*, and every test fixture.
-// Contracts:
 //   - CatalogEntry mirrors plugin/catalog/schema.json $defs/agent (ADR-011).
 //   - Sentinel mirrors /opt/agentlinux/state/installed.d/<id>.json shape.
-//   - Status enumerates the six divergence states in 04-RESEARCH §Pattern 6.
-// Downstream plans 04-03/04/05 import from here without further exploration.
+//   - Status enumerates the six divergence states.
 
 export interface CatalogEntry {
   id: string;
@@ -18,21 +14,17 @@ export interface CatalogEntry {
   npm_package_name?: string; // required when source_kind === 'npm' (allOf clause)
   pinned_version: string; // exact semver — CAT-04 / ADR-011
   version_constraint?: string; // e.g. '^2.1' — --all-latest upper-bound
-  compatibility_window?: string; // Phase 13 (REUSE-03): semver range — pre-existing install adopted via REUSE-03 when version satisfies this
+  compatibility_window?: string; // REUSE-03 semver range: adopt a detected install whose version satisfies this
   install_recipe_path: string; // e.g. 'install.sh'
   uninstall_recipe_path: string; // e.g. 'uninstall.sh'
   post_install_verify?: string;
-  // Plan 14-03 (REMEDIATE-04 CAT-04): optional sibling-file pointer (relative
-  // to the agent's catalog dir, e.g. 'preserve_paths.json'). When set, the
-  // loader reads + normalizes the listed home-relative paths and exposes them
-  // as `preserve_paths`. The runner.ts dispatcher joins them with ':' and
-  // injects AGENTLINUX_PRESERVE_PATHS into install.sh + uninstall.sh env so
-  // catalog uninstall.sh's _should_remove helper can skip user-data dirs
-  // during REMEDIATE-04 reinstall.
+  // CAT-04: optional sibling-file pointer (e.g. 'preserve_paths.json'). When
+  // set, the loader normalizes the listed paths into `preserve_paths`, which
+  // the runner injects as AGENTLINUX_PRESERVE_PATHS for uninstall.sh.
   preserve_paths_file?: string;
   preserve_paths?: string[]; // normalized list — empty/undefined when no file
   tags?: string[];
-  test_only?: boolean; // hide from default `list`; exercised by bats (CAT-02 test-dummy)
+  test_only?: boolean; // hide from default `list` (CAT-02)
 }
 
 export interface Catalog {
@@ -47,49 +39,31 @@ export interface Sentinel {
   source: "curated" | "override" | "latest" | "pinned";
   sticky: boolean;
   installed_at: string; // ISO-8601
-  // Phase 13 (REUSE-03): when AgentLinux ADOPTED a pre-existing healthy
-  // install rather than running install.sh. Optional + defaults-to-"installed"
-  // for backwards-compat with Phase 4-shipped sentinels (which have no status
-  // field; readSentinel treats missing as "installed").
-  //
-  // Plan 14-03 (REMEDIATE-04): widened to include "broken-after-remediate" —
-  // the terminal state reached when uninstall.sh succeeded but the follow-up
-  // install.sh failed. list.ts renders this with the
-  // ` (broken — half-uninstalled, manual recovery needed)` suffix; user must
-  // intervene manually (`agentlinux remove <id>` to clean up the sentinel,
-  // then a fresh `agentlinux install <id>`).
-  //
-  // Plan 15-01 (D-15-02 / UX-02): further widened to include
-  // "reused-with-warning" — written by the bash entrypoint's TTY prompt loop
-  // when the operator DECLINED a state-overwriting REMEDIATE. The component
-  // is left as-is (no mutation); the sentinel records `decline_reason` so a
-  // later `agentlinux list` shows what the user chose to keep manually owning.
-  // upgrade.ts treats this identically to "reused" (T-15-01-05 mitigation —
-  // upgrade does NOT re-attempt the declined remediation).
+  // Install-record status. Defaults to "installed" when absent (Phase 4
+  // sentinels had no status field). Other states:
+  //   - "reused"                 — REUSE-03 adopted a pre-existing healthy install
+  //   - "broken-after-remediate" — uninstall.sh succeeded but install.sh failed;
+  //                                needs manual recovery (remove + reinstall)
+  //   - "reused-with-warning"    — operator declined a REMEDIATE; component left
+  //                                as-is, `decline_reason` records the choice.
+  //                                upgrade.ts treats it like "reused".
   status?: "installed" | "reused" | "broken-after-remediate" | "reused-with-warning";
-  // Plan 15-01 (D-15-02): short token explaining which remediation the user
-  // declined. Set ONLY when status="reused-with-warning". Restricted to a
-  // three-value enum mirroring the prompt loop's action-token map in
-  // plugin/lib/prompt.sh:
+  // Which remediation the operator declined; set only when
+  // status="reused-with-warning". Tokens mirror plugin/lib/prompt.sh and name
+  // the fix to apply manually:
   //   chown-declined            — REMEDIATE-01 npm-prefix chown/rebase
   //   sudoers-drift-declined    — REMEDIATE-03 sudoers drift overwrite
   //   reinstall-broken-declined — REMEDIATE-04 catalog-agent uninstall+reinstall
-  // Renderer (list.ts) interpolates the literal token into the suffix —
-  // operator-facing text but operator-actionable (each token names the fix
-  // they declined so they know what to do manually).
   decline_reason?: "chown-declined" | "sudoers-drift-declined" | "reinstall-broken-declined";
   binary_path?: string; // canonical-path-matched binary; only set when status="reused"
   detected_source?: string; // e.g., "pre-existing"; only set when status="reused"
   reused_at?: string; // ISO-8601; only set when status="reused"
-  compatibility_window_at_reuse?: string; // semver range at adoption time (audit trail); only set when status="reused"
-  // Plan 14-03 (REMEDIATE-04): ISO-8601 timestamp of the most recent
-  // remediation attempt. Set on BOTH the success path (status="installed",
-  // record-keeping) and the half-uninstalled failure path
-  // (status="broken-after-remediate", forensic trail).
+  compatibility_window_at_reuse?: string; // semver range at adoption (audit trail); only set when status="reused"
+  // ISO-8601 of the most recent remediation attempt; set on both the success
+  // path and the broken-after-remediate failure path.
   remediated_at?: string;
-  // Plan 14-03 (REMEDIATE-04): short token explaining why remediation landed
-  // in the broken-after-remediate state. Currently the only value is
-  // "install-failed-post-uninstall"; future Remediate paths may add more.
+  // Why remediation landed in broken-after-remediate (currently only
+  // "install-failed-post-uninstall").
   remediate_failure_reason?: string;
 }
 
@@ -107,16 +81,10 @@ export type Status =
   | "pinned-override"
   | "drift-undeclared";
 
-// DivergenceReport — added in Plan 04-04 for `agentlinux upgrade`.
-// Extends the Plan 04-01 Status classifier with the four inputs (sentinel,
-// catalog pin, installed, optional upstream latest) reified into a single
-// per-agent record. Rendered as a table row OR emitted as JSON.
-//
-// Fields are null-vs-string rather than "-" placeholders — presentation
-// concerns live in the command layer (upgrade.ts / list.ts), not the data
-// type. `source: 'none'` is the sentinel-less fallback; lifts the Sentinel
-// 'source' enum to a narrowed string literal so the command layer can switch
-// on it exhaustively without nullable handling.
+// DivergenceReport — per-agent record for `agentlinux upgrade`, reifying the
+// four inputs (sentinel, catalog pin, installed, optional upstream latest)
+// behind the Status classifier. Fields are null-vs-string (the command layer
+// handles presentation); `source: 'none'` is the sentinel-less fallback.
 export interface DivergenceReport {
   id: string;
   status: Status;

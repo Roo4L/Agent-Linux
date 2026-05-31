@@ -1,33 +1,16 @@
-// plugin/cli/src/commands/upgrade.ts — `agentlinux upgrade` (CLI-06).
-// Pattern ref: 04-RESEARCH §Pattern 7 lines 830-864 + ADR-011 stability-first.
+// plugin/cli/src/commands/upgrade.ts — `agentlinux upgrade` (CLI-06, ADR-011).
 //
-// Orchestration flow:
-//   1. loadCatalog(validate:true) — reject malformed catalogs up front (upgrade
-//      is a mutation path; Open Q2 says validate here unlike the `list` hot path)
-//   2. listSentinels() → Map<id, Sentinel>
-//   3. queryGlobalNpm() once — populates installed-version for every npm entry
-//   4. For each catalog entry: build DivergenceReport (with optional upstream
-//      latest if --check-upstream / --all-latest). Any per-entry upstream
-//      failure is logged as a warning and the row still renders with
-//      latestVersion=null.
-//   5. Render report (text table OR JSON).
-//   6. If no bulk flag → return (report-only).
-//   7. Otherwise iterate: shouldReinstall(report, opts) → 'curated' | 'latest'
-//      | null. Dispatch the recipe sequentially (for-of rather than Promise.all
-//      — sentinel writes must not race on the same filesystem).
+// Flow: loadCatalog → listSentinels → queryGlobalNpm once → build a
+// DivergenceReport per entry → render (table/JSON). With no bulk flag it's
+// report-only; otherwise iterate shouldReinstall() and dispatch recipes
+// sequentially (sentinel writes must not race).
 //
-// Flag priority (from the plan):
-//   --reset-all-curated wins over --respect-overrides (explicit "reset everything")
-//   --all-latest implies upstream-resolution; skips sticky entries
-//   --reset-all-curated ALSO resets sticky entries (explicit override per ADR-011)
+// Flag priority: --reset-all-curated wins over --respect-overrides and also
+// resets sticky entries; --all-latest implies upstream resolution and skips
+// sticky entries. Offline default: upstream is queried only with
+// --check-upstream / --all-latest.
 //
-// Offline default (T-04-12): willTouchUpstream() returns true only when the
-// user opts in through --check-upstream or --all-latest. Ordinary
-// `agentlinux upgrade` never shells out to `npm view`.
-//
-// Testability: `deps` DI object — tests inject stubbed dispatchRecipe,
-// queryGlobalNpm, queryNpmViewLatest so no sudo/network happens under
-// `pnpm test`. Same pattern used in install.ts / remove.ts.
+// `deps` is a DI object — tests inject stubs so no sudo/network runs.
 
 import { statSync } from "node:fs";
 import { join } from "node:path";
@@ -42,25 +25,14 @@ import {
   queryNpmViewLatest as realQueryNpmViewLatest,
 } from "../upgrade/npm_ls.js";
 
-// T-13-07 mitigation (Plan 13-02): a sentinel with status: "reused" whose
-// binary_path no longer exists at upgrade-time has drifted out from under us.
-// Treat as un-installed for reconciliation purposes (force reinstall, do not
-// trust the stale sentinel's binary_path). Returns true when the sentinel is
-// non-reused (no validation needed) OR when the reused binary still exists.
-//
-// Plan 15-01 (T-15-01-05): reused-with-warning is a separate signal — the
-// component was NOT mutated by AgentLinux (user declined remediation), so
-// upgrade.ts must NOT try to upgrade it. We treat reused-with-warning
-// identically to reused for the "is it already installed?" check, but the
-// binary_path may not be populated (the declined remediation never wrote a
-// binary_path); skip the stat check and trust the sentinel.
+// validateReusedBinary — true when the sentinel is trustworthy for "is it
+// already installed?". A "reused" sentinel whose binary_path has vanished has
+// drifted and must be reinstalled (returns false). Non-reused and
+// reused-with-warning sentinels are trusted as-is.
 function validateReusedBinary(sentinel: Sentinel | null): boolean {
   if (!sentinel) return true;
-  // reused-with-warning sentinels carry no binary_path — trust the sentinel
-  // (user declared manual ownership). The default reconcile loop below skips
-  // dispatch for them because reused-with-warning sentinels do not appear as
-  // 'diverged' in the divergence report (their version matches the catalog
-  // pin in the brownfield combo fixture, so report.status === 'synced').
+  // reused-with-warning carries no binary_path (user declared manual
+  // ownership) — trust it; the reconcile loop won't dispatch for it.
   if (sentinel.status === "reused-with-warning") return true;
   if (sentinel.status !== "reused" || !sentinel.binary_path) return true;
   try {
@@ -78,8 +50,7 @@ export interface UpgradeOpts {
   json?: boolean;
 }
 
-// DI seam. Each function has a production default; tests replace them with
-// capturing/stubbing impls. Matches the install.ts / remove.ts pattern.
+// DI seam — production defaults, replaced by tests.
 export interface UpgradeDeps {
   dispatchRecipe?: (
     args: {
@@ -99,33 +70,26 @@ function willTouchUpstream(opts: UpgradeOpts): boolean {
   return opts.checkUpstream === true || opts.allLatest === true;
 }
 
-// shouldReinstall: returns the reinstall SOURCE for this entry, or null to skip.
-// Logic follows the flag priority contract documented at the top of this file.
+// shouldReinstall: returns the reinstall source for this entry, or null to skip.
+// Follows the flag-priority contract at the top of this file.
 function shouldReinstall(report: DivergenceReport, opts: UpgradeOpts): "curated" | "latest" | null {
-  // Highest priority: --reset-all-curated hits every diverged (non-synced)
-  // entry regardless of source/sticky. Synced entries are skipped so we don't
-  // re-run the recipe for a no-op.
+  // --reset-all-curated hits every diverged entry; synced entries are no-ops.
   if (opts.resetAllCurated) {
     return report.status === "synced" ? null : "curated";
   }
-  // --all-latest: skip sticky entries (ADR-011 — pin semantics). For
-  // non-sticky entries we need a resolved latestVersion; the caller layer
-  // surfaces the "latest unknown" case and this function just commits to the
-  // intent — the actual null-check happens at dispatch time.
+  // --all-latest: skip sticky entries (ADR-011). The latestVersion null-check
+  // happens at dispatch time.
   if (opts.allLatest && !report.sticky) {
     return "latest";
   }
-  // --respect-overrides: only re-install entries whose sentinel.source is
-  // 'curated' AND that are diverged from their pin. Leaves 'override',
-  // 'pinned', 'latest' alone.
+  // --respect-overrides: reinstall only 'curated'-source entries that diverged.
   if (opts.respectOverrides) {
     if (report.source === "curated" && report.status !== "synced") {
       return "curated";
     }
     return null;
   }
-  // No bulk flag → report-only (caller short-circuits before reaching here,
-  // but returning null keeps this function total).
+  // No bulk flag → report-only (null keeps this function total).
   return null;
 }
 
@@ -159,21 +123,18 @@ export async function upgradeCmd(opts: UpgradeOpts, deps: UpgradeDeps = {}): Pro
 
   const reports: DivergenceReport[] = [];
   for (const entry of catalog.agents) {
-    if (entry.test_only) continue; // match list default — hidden unless --include-test (Phase 5+)
+    if (entry.test_only) continue; // hidden, matching list default
 
     const sentinel = bySentinel.get(entry.id) ?? null;
-    // installed-version resolution:
-    //   - npm-kind: npm ls map (truth for the agent user's global namespace)
-    //   - script-kind: sentinel.version (Phase 5 may add a native version
-    //     probe; for Phase 4 the sentinel is the declared-install record)
+    // installed-version: npm-kind from the npm ls map, script-kind from the
+    // sentinel's declared-install record.
     const installed =
       entry.source_kind === "npm" && entry.npm_package_name
         ? (npmLs.get(entry.npm_package_name) ?? null)
         : (sentinel?.version ?? null);
 
-    // Upstream-latest (opt-in only): T-04-12 — offline default honored.
-    // Errors are non-fatal per-entry so one dead registry call doesn't break
-    // the whole upgrade run. The row still renders with latestVersion=null.
+    // Upstream-latest (opt-in only). Per-entry errors are non-fatal — the row
+    // still renders with latestVersion=null.
     let latest: string | null = null;
     if (willTouchUpstream(opts) && entry.source_kind === "npm") {
       try {
@@ -197,37 +158,28 @@ export async function upgradeCmd(opts: UpgradeOpts, deps: UpgradeDeps = {}): Pro
   const isReportOnly = !opts.resetAllCurated && !opts.respectOverrides && !opts.allLatest;
   if (isReportOnly) return;
 
-  // Reconcile loop. Sequential on purpose — concurrent sentinel writes on the
-  // same filesystem are safe (atomic rename per agent) but we still want
-  // deterministic log ordering for debugging failed upgrades.
+  // Reconcile loop. Sequential for deterministic log ordering.
   const entryById = new Map(catalog.agents.map((e) => [e.id, e]));
   for (const report of reports) {
     const sentinel = bySentinel.get(report.id) ?? null;
 
-    // Plan 13-02 (REUSE-03): pre-upgrade visibility. When the prior sentinel
-    // had status: "reused", surface that this upgrade flips ownership from
+    // REUSE-03: surface that upgrading a reused install flips ownership from
     // adopted to AgentLinux-managed.
     if (sentinel?.status === "reused") {
       console.log(
         `${report.id}: upgrading reused install (binary=${sentinel.binary_path ?? "?"} -> catalog pin)`,
       );
     }
-    // Plan 15-01 (T-15-01-05): when the prior sentinel had status:
-    // "reused-with-warning" (operator declined a remediation in the bash
-    // entrypoint's TTY prompt loop), surface that upgrade is NOT going to
-    // re-attempt the declined remediation — same treatment as plain reused.
-    // The reconcile loop below will skip dispatch in default report-only
-    // mode; the explicit log makes the no-op visible to the operator.
+    // reused-with-warning: surface that upgrade does NOT re-attempt the declined
+    // remediation.
     if (sentinel?.status === "reused-with-warning") {
       console.log(
         `${report.id}: skipping upgrade for reused-with-warning sentinel (decline_reason=${sentinel.decline_reason ?? "unknown"}; user retains manual ownership)`,
       );
     }
 
-    // T-13-07 mitigation: if a reused sentinel's binary_path is gone, we MUST
-    // reinstall — the adopted binary has drifted. shouldReinstall may have
-    // returned null for a "synced" report; override that to force a curated
-    // reinstall when the underlying binary disappeared.
+    // If a reused sentinel's binary has vanished, force a curated reinstall even
+    // when shouldReinstall returned null for a "synced" report.
     const reusedBinaryGone = sentinel?.status === "reused" && !validateReusedBinary(sentinel);
     let target = shouldReinstall(report, opts);
     if (reusedBinaryGone && !target) {
@@ -242,9 +194,8 @@ export async function upgradeCmd(opts: UpgradeOpts, deps: UpgradeDeps = {}): Pro
     let source: Sentinel["source"];
     if (target === "latest") {
       if (!report.latestVersion) {
-        // --all-latest was requested but upstream didn't produce a version —
-        // either script-kind (no npm identity) or the view call failed.
-        // Skip with a diagnostic rather than guess at the right action.
+        // --all-latest requested but no upstream version (script-kind or the
+        // view call failed). Skip rather than guess.
         console.error(`${entry.id}: skipping (no upstream latest resolved)`);
         continue;
       }
@@ -266,26 +217,20 @@ export async function upgradeCmd(opts: UpgradeOpts, deps: UpgradeDeps = {}): Pro
     if (result.exitCode !== 0) {
       console.error(`${entry.id}: recipe failed (exit ${result.exitCode})`);
       if (result.stderr) console.error(result.stderr);
-      continue; // Preserve pre-upgrade sentinel on failure (integrity — don't
-      // mark "installed at X" when X didn't actually install).
+      continue; // Preserve pre-upgrade sentinel — don't mark "installed" on failure.
     }
     if (result.stdout) console.log(result.stdout.trimEnd());
 
-    // Sticky preservation: when source='latest' and a prior sentinel was
-    // sticky (user ran `agentlinux pin <name>=latest`), keep the sticky flag.
-    // Explicit --reset-all-curated clears sticky (source='curated', sticky=false).
+    // Sticky preservation: keep the sticky flag when source='latest' and the
+    // prior sentinel was sticky. --reset-all-curated clears it.
     let sticky = false;
     if (source === "latest") {
       const prior = await readSentinel(entry.id);
       sticky = prior?.sticky ?? false;
     }
 
-    // Plan 13-02 (REUSE-03): post-upgrade sentinel has status: "installed"
-    // unconditionally. The REUSE-only fields (binary_path, detected_source,
-    // reused_at, compatibility_window_at_reuse) are cleared by omission —
-    // the widened type makes them optional. After upgrade, the sentinel
-    // describes an AgentLinux-managed install (we just ran install.sh against
-    // it), not a passively-adopted one.
+    // Post-upgrade sentinel is always status: "installed" — the REUSE-only
+    // fields are cleared by omission, since we just ran install.sh.
     await writeSentinel({
       id: entry.id,
       version,

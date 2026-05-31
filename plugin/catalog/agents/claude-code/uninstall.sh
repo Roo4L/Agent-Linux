@@ -2,33 +2,20 @@
 set -euo pipefail
 # claude-code uninstall.sh — symmetric inverse of install.sh.
 # Follows Anthropic's documented uninstall (code.claude.com/docs/en/setup#uninstall):
-#   rm -f ~/.local/bin/claude
-#   rm -rf ~/.local/share/claude
+#   rm -f ~/.local/bin/claude; rm -rf ~/.local/share/claude
 #
-# CAT-04 BEHAVIOR SHIFT (Plan 14-03):
-#   Previously this script unconditionally removed ~/.claude/downloads (the
-#   bootstrap's scratch dir). With Plan 14-03's AGENTLINUX_PRESERVE_PATHS
-#   mechanism, ~/.claude/ is on the preserve list (REMEDIATE-04 must not lose
-#   credentials/session state), and the _should_remove helper's descendant
-#   rule preserves ANY path under a preserved root — including
-#   ~/.claude/downloads. This is intentional: avoid re-downloading bootstrap
-#   content on REMEDIATE-04 reinstall. See 14-AUDIT.md "CAT-04 behavior shift".
-#   Operators wanting a fresh scratch dir can `rm -rf ~/.claude/downloads`
-#   manually.
+# CAT-04 note: ~/.claude/ is on the preserve list, so ~/.claude/downloads (a
+# descendant) now survives uninstall too — intentional, to avoid re-downloading
+# bootstrap content on REMEDIATE-04 reinstall. Operators wanting a fresh scratch
+# dir can `rm -rf ~/.claude/downloads` manually.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 
-# _should_remove <abs-path>
-#
-# Returns 0 (true → proceed with rm) iff <abs-path> is NOT in or under any
-# entry of AGENTLINUX_PRESERVE_PATHS. The env var is a colon-separated list
-# of HOME-relative paths (already normalized + traversal-rejected by the
-# loader). Empty env var means "no preserves" → always return 0.
-#
-# Descendant rule: if a preserved entry P is the target T, OR T is anywhere
-# beneath P (T starts with "${HOME}/${P}/"), the rm is skipped.
-#
-# Plan 14-03 (REMEDIATE-04 CAT-04). Verified by bats Test 48.
+# _should_remove <abs-path> — returns 0 (proceed with rm) unless <abs-path> is
+# in or under any AGENTLINUX_PRESERVE_PATHS entry. The env var is a
+# colon-separated list of HOME-relative paths (normalized by the loader); empty
+# means "no preserves". Descendant rule: a preserved root protects everything
+# beneath it.
 _should_remove() {
   local target=$1
   [[ -z "${AGENTLINUX_PRESERVE_PATHS:-}" ]] && return 0
@@ -45,9 +32,8 @@ _should_remove() {
   return 0
 }
 
-# _rm helper — wraps `rm -rf` / `rm -f` with _should_remove gate. Emits a
-# transcript line when a path is preserved so REMEDIATE-04 reinstall logs are
-# auditable.
+# _rm — wraps rm with the _should_remove gate; logs preserved paths for an
+# auditable transcript.
 _rm() {
   local mode=$1 target=$2
   if _should_remove "$target"; then
@@ -59,25 +45,16 @@ _rm() {
 
 echo "claude-code: removing native Claude Code install"
 
-# rm -f / rm -rf are idempotent on missing targets. _rm wraps the _should_remove
-# gate. Plan 14-03 (REMEDIATE-04 CAT-04): ~/.claude/downloads is now preserved
-# by virtue of being a descendant of preserved ~/.claude/.
+# rm is idempotent on missing targets. ~/.claude/downloads is preserved as a
+# descendant of ~/.claude/.
 _rm -f "${AGENTLINUX_AGENT_HOME}/.local/bin/claude"
 _rm -rf "${AGENTLINUX_AGENT_HOME}/.local/share/claude"
 _rm -rf "${AGENTLINUX_AGENT_HOME}/.claude/downloads"
 
-# Plan 14-03 (REMEDIATE-04 PATH-MISMATCH): also tear down the npm-installed
-# variant at ~/.npm-global/bin/claude. The native installer is canonical (per
-# CANONICAL_PATHS in plugin/cli/src/commands/install.ts) but operators on
-# brownfield hosts may have installed via `npm install -g @anthropic-ai/
-# claude-code` (PATH-MISMATCH at ~/.npm-global/bin/claude). REMEDIATE-04
-# expects this uninstall.sh to teardown BOTH variants so the post-uninstall
-# T-14-05 verification passes (canonical AND detected_path absent).
-#
-# `npm uninstall -g` is idempotent (silent no-op when package not installed)
-# and uses the agent-owned ~/.npm-global prefix (NPM_CONFIG_PREFIX inherited
-# from runner.ts dispatchRecipe env). The package name matches the upstream
-# Anthropic package; if the package isn't installed via npm, this is a no-op.
+# PATH-MISMATCH: also tear down the npm-installed variant at
+# ~/.npm-global/bin/claude. The native installer is canonical, but brownfield
+# hosts may have `npm install -g`'d it. REMEDIATE-04 needs both variants gone so
+# the post-uninstall verification passes. `npm uninstall -g` is idempotent.
 if command -v npm >/dev/null 2>&1; then
   npm uninstall -g @anthropic-ai/claude-code --no-fund --no-audit >/dev/null 2>&1 || true
 fi

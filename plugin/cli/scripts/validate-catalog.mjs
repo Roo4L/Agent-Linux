@@ -1,12 +1,7 @@
 #!/usr/bin/env node
-// plugin/cli/scripts/validate-catalog.mjs — Phase 4 ajv-driven pre-commit wrapper.
-// Replaces the Phase 1 zero-dep scaffold; invoked by .pre-commit-config.yaml
-// on plugin/catalog/ changes. Pattern ref: 04-RESEARCH §Example 2 lines 1296-1337.
-//
-// Keeps a graceful early-exit if catalog.json does not yet exist (Wave 1 hasn't
-// shipped it — Plan 04-02). Dynamic import of ajv/ajv-formats means the script
-// is runnable even before `pnpm install` completes, yielding a clearer error
-// than a top-level import failure.
+// plugin/cli/scripts/validate-catalog.mjs — ajv-driven pre-commit wrapper,
+// invoked by .pre-commit-config.yaml on plugin/catalog/ changes. Dynamic import
+// of ajv means a missing dep yields a clear error rather than a top-level crash.
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -40,9 +35,9 @@ try {
   process.exit(1);
 }
 
-// strictRequired:false mirrors plugin/cli/src/catalog/schema.ts — the
-// allOf/then `required` clause references `npm_package_name` defined on
-// the parent $defs/agent; Ajv 2020's strict mode flags this false-positive.
+// strictRequired:false mirrors schema.ts — the allOf/then `required` clause
+// references a parent-scope property, which Ajv strict mode flags as a
+// false-positive.
 const ajv = new Ajv2020({ allErrors: true, strict: true, strictRequired: false });
 addFormats(ajv);
 const validate = ajv.compile(JSON.parse(readFileSync(SCHEMA, "utf8")));
@@ -58,10 +53,8 @@ if (!validate(catalog)) {
   process.exit(1);
 }
 
-// Plan 14-03: validate sibling preserve_paths.json for each agent that
-// declares preserve_paths_file. Schema-level: shape must match
-// preserve_paths.schema.json (preserve_paths array of strings starting with
-// '~/'). Loader-level (T-14-04): also reject '..' path traversal here so
+// Validate each agent's sibling preserve_paths.json against
+// preserve_paths.schema.json, then re-check the loader's traversal rules so
 // pre-commit catches malformed catalogs before they ship.
 let validatePreserve = null;
 if (existsSync(PRESERVE_SCHEMA)) {
@@ -101,10 +94,8 @@ for (const agent of catalog.agents) {
     preserveErrors++;
     continue;
   }
-  // T-14-04 mitigation: reject `..` path traversal AND absolute paths even
-  // when the schema's pattern would allow `~/foo/../etc`. Mirror the
-  // normalize-and-check logic from plugin/cli/src/catalog/loader.ts so the
-  // pre-commit gate catches drift before it ships.
+  // Reject `..` traversal + absolute paths (the schema pattern alone would
+  // allow `~/foo/../etc`). Mirrors loader.ts's normalize-and-check.
   for (let i = 0; i < preserved.preserve_paths.length; i++) {
     const raw = preserved.preserve_paths[i];
     if (typeof raw !== "string" || !raw.startsWith("~/")) {

@@ -1,28 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # playwright-cli uninstall.sh — symmetric inverse of install.sh.
-#
-# Order matters:
-#   1. Tear down the wired Claude Code skill (mirror of `--skills` install)
-#   2. npm uninstall -g @playwright/cli
-#   3. hash -r so command -v reflects on-disk state, not bash's cache
-#
-# Plan 14-03 (REMEDIATE-04 CAT-04): AGENTLINUX_PRESERVE_PATHS contains
-# `.cache/ms-playwright` for this agent — Playwright browser binaries are
-# expensive to re-download (hundreds of MB) so they survive REMEDIATE-04.
-# Bats Test 50 verifies the preserve via a small fixture.
+# Order: tear down the wired Claude Code skill → npm uninstall -g → hash -r.
+# CAT-04: AGENTLINUX_PRESERVE_PATHS keeps ~/.cache/ms-playwright (browser
+# binaries are hundreds of MB to re-download) across REMEDIATE-04.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 
-# _should_remove <abs-path>
-#
-# Returns 0 (true → proceed with rm) iff <abs-path> is NOT in or under any
-# entry of AGENTLINUX_PRESERVE_PATHS. The env var is a colon-separated list
-# of HOME-relative paths (already normalized + traversal-rejected by the
-# loader). Empty env var means "no preserves" → always return 0.
-#
-# Descendant rule: if a preserved entry P is the target T, OR T is anywhere
-# beneath P (T starts with "${HOME}/${P}/"), the rm is skipped.
+# _should_remove <abs-path> — returns 0 (proceed with rm) unless <abs-path> is
+# in or under any AGENTLINUX_PRESERVE_PATHS entry. The env var is a
+# colon-separated list of HOME-relative paths (normalized by the loader); empty
+# means "no preserves". Descendant rule: a preserved root protects everything
+# beneath it.
 _should_remove() {
   local target=$1
   [[ -z "${AGENTLINUX_PRESERVE_PATHS:-}" ]] && return 0
@@ -41,11 +30,9 @@ _should_remove() {
 
 echo "playwright-cli: removing @playwright/cli + Claude Code skill"
 
-# Step 1: best-effort skill teardown via the bootstrapper itself. Some
-# upstream versions support a symmetric --uninstall flag; if absent or it
-# returns non-zero, we still proceed with the npm uninstall + defensive
-# skill directory cleanup below. We do NOT swallow stderr — the tee
-# transcript should preserve the actual upstream error if there is one.
+# Step 1: best-effort skill teardown via the bootstrapper. If it's absent or
+# fails we still proceed with the npm uninstall + defensive cleanup below.
+# stderr is not swallowed so the transcript keeps any upstream error.
 if command -v playwright-cli >/dev/null 2>&1; then
   playwright-cli install --skills --uninstall \
     || playwright-cli uninstall --skills \
@@ -53,14 +40,10 @@ if command -v playwright-cli >/dev/null 2>&1; then
 fi
 
 # Step 2: defensive removal of the playwright-cli skill dirs under
-# ~/.claude/skills/. Anchor the match on `playwright-cli` (mirroring the
-# install side) so an unrelated user-authored `~/.claude/skills/playwright-
-# notes/` is NOT collateral damage. `-name` (not `-iname`) is sufficient
-# because upstream's skill dir is conventionally lower-case-kebab.
-# Per-match loop so each entry runs through _should_remove. Skill dirs under
-# ~/.claude/skills/playwright-cli* are NOT in the playwright preserve set
-# (~/.cache/ms-playwright/), so the gate proceeds with rm — matching the
-# pre-Plan-14-03 behavior. Plan 14-03 only gates the cache dir.
+# ~/.claude/skills/. The match is anchored on `playwright-cli` so an unrelated
+# user-authored dir isn't collateral damage. Looping (not find -exec) so each
+# entry runs through _should_remove; these dirs aren't in the preserve set, so
+# rm proceeds.
 while IFS= read -r -d '' skill_dir; do
   if _should_remove "$skill_dir"; then
     rm -rf -- "$skill_dir" || true

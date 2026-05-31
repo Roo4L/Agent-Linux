@@ -1,19 +1,8 @@
 // plugin/cli/src/commands/install.ts — `agentlinux install <name>` (CLI-03).
-// Pattern ref: 04-RESEARCH §Pattern 3 lines 555-628.
 //
-// Flow:
-//   1. loadCatalog(validate:true) — ajv rejects malformed catalogs up front
-//   2. Resolve entry by string equality; process.exit(64) on miss (EX_USAGE)
-//   3. Honor test_only unless --include-test (RESEARCH §Pattern 11)
-//   4. Validate opts.version semver if provided
-//   5. decideVersion(entry, --version, existing sentinel) → {version, source, sticky}
-//   6. Idempotent short-circuit: same version + !force → log and return
-//   7. dispatchRecipe(install.sh) via runner.ts — env-injected, sudo -u agent
-//   8. writeSentinel on success; atomic rename guarantees no partial state
-//
-// Testability: accepts optional `dispatcher` parameter (DI seam — same as
-// runner.ts). Default dispatches through the real runner; tests inject
-// capturing mocks to assert call shape + idempotency + override paths.
+// Flow: loadCatalog → resolve entry (exit 64 on miss) → honor test_only →
+// REUSE-03 / REMEDIATE-04 short-circuits → decideVersion → dispatchRecipe →
+// writeSentinel. The optional `dispatcher` param is a DI seam for unit tests.
 
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -29,29 +18,19 @@ export interface InstallOpts {
   version?: string;
   json?: boolean;
   includeTest?: boolean;
-  // Plan 14-03 (REMEDIATE-04 + T-14-12): consent surface for state-overwriting
-  // REMEDIATE-04 (uninstall + reinstall a broken/path-mismatched catalog agent).
-  // The CLI's --yes is INDEPENDENT of the bash entrypoint's --yes — they're
-  // separate operator invocations. Required when stdin is NOT a TTY (CI,
-  // cron, curl|bash); interactive sessions skip the gate. CLI never reads
-  // AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES env vars (T-14-12 / T-14-01).
+  // Consent surface for state-overwriting REMEDIATE-04. Required when stdin is
+  // not a TTY; interactive sessions skip the gate. No env-var equivalent — the
+  // CLI never reads AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES.
   yes?: boolean;
-  // Plan 15-01 (UX-01 / D-15-01): preview the install decision (reuse |
-  // remediate | create) without dispatching install.sh. Parallels the bash
-  // entrypoint's --dry-run flag and exits 0 after emitting the per-agent
-  // summary. D-15-04: --dry-run + --yes is contradictory (exit 64) in both
-  // orders — the guard fires at the top of installCmd.
+  // UX-01: preview the install decision (reuse|remediate|create) without
+  // dispatching install.sh; exits 0. Contradicts --yes (exit 64, both orders).
   dryRun?: boolean;
 }
 
-// REUSE-03 canonical path map (Plan 13-02). MUST stay byte-identical to the
-// bash REUSE_AGENT_CANONICAL_PATHS in plugin/lib/reuse/agents.sh. Drift
-// surfaces immediately in the brownfield E2E smoke @test (REUSE-03 path-match
-// fails -> emits remediate instead of reuse).
-//
-// claude-code's canonical path is ~agent/.local/bin/claude (the native
-// installer's default), NOT ~agent/.npm-global/bin/claude — the latter is
-// PATH-MISMATCH territory handled by Phase 14 REMEDIATE-04.
+// REUSE-03 canonical path map. MUST stay byte-identical to the bash
+// REUSE_AGENT_CANONICAL_PATHS in plugin/lib/reuse/agents.sh. claude-code's
+// canonical path is the native installer's ~agent/.local/bin/claude, NOT the
+// npm-global variant (that's PATH-MISMATCH territory for REMEDIATE-04).
 const CANONICAL_PATHS: Record<string, string> = {
   "claude-code": "/home/agent/.local/bin/claude",
   gsd: "/home/agent/.npm-global/bin/get-shit-done-cc",
@@ -64,16 +43,12 @@ interface ReuseHit {
   detected_source: string;
 }
 
-// Plan 14-03 (REMEDIATE-04): tryRemediate return shape. The reason discriminates
-// between the two trigger paths so the [REMEDIATE-04] log line is precise:
-//   - "broken"        — detect cache reports status=broken (binary present but
-//                       --version exits non-zero, OR path doesn't resolve)
-//   - "path-mismatch" — detect cache reports status=healthy BUT the resolved
-//                       path differs from CANONICAL_PATHS[id] (e.g. claude
-//                       installed via `npm install -g` lands at
-//                       ~/.npm-global/bin/claude instead of the canonical
-//                       ~/.local/bin/claude — exactly the PATH-MISMATCH case
-//                       that motivates this entire feature)
+// REMEDIATE-04: tryRemediate return shape. `reason` discriminates the two
+// trigger paths for the log line:
+//   - "broken"        — detect cache reports status=broken
+//   - "path-mismatch" — status=healthy but resolved path != CANONICAL_PATHS[id]
+//                       (e.g. `npm install -g` landed claude at the npm-global
+//                       path instead of the canonical native one)
 interface RemediateHit {
   reason: "broken" | "path-mismatch";
   detected_path: string;
@@ -87,21 +62,16 @@ interface DetectCacheAgent {
   version: string;
 }
 
-// REUSE-03 cache reader. AGENTLINUX_DETECT_CACHE env override is install.ts-
-// ONLY (T-13-05 mitigation; upgrade.ts + remove.ts do not read the detect
-// cache — they only re-validate via existsSync(sentinel.binary_path)).
+// REUSE-03 cache reader. The AGENTLINUX_DETECT_CACHE override is install.ts-only
+// — upgrade.ts and remove.ts never read the detect cache.
 function detectCachePath(): string {
   return process.env.AGENTLINUX_DETECT_CACHE ?? "/run/agentlinux-detect.json";
 }
 
-// REUSE-03 pre-runner check: parse /run/agentlinux-detect.json + semver-check
-// the catalog's compatibility_window against the detected version. Returns a
-// ReuseHit on full match, null on any non-REUSE condition (absent agent,
-// path-mismatch, version-out-of-window, missing cache, etc.).
-//
-// T-13-07 mitigation: re-validate the binary actually exists at install time
-// via statSync (cache may be stale; user may have uninstalled between
-// detect:: run and CLI invocation).
+// REUSE-03 pre-runner check: parse the detect cache + semver-check the catalog's
+// compatibility_window against the detected version. Returns a ReuseHit on full
+// match, null on any non-REUSE condition (absent agent, path-mismatch,
+// version-out-of-window, missing cache, etc.).
 function tryReuse(entry: CatalogEntry): ReuseHit | null {
   const cachePath = detectCachePath();
   if (!existsSync(cachePath)) return null;
@@ -109,11 +79,9 @@ function tryReuse(entry: CatalogEntry): ReuseHit | null {
   const canonical = CANONICAL_PATHS[entry.id];
   if (!canonical) return null;
 
-  // Cache shape: `agents` may be at the top level (the actual on-disk shape
-  // written by detect::run_once at /run/agentlinux-detect.json) OR under
-  // `.components.agents` (the wrapped shape that the `--report-only` formatter
-  // emits). Accept both for compatibility — matches the `(.components.agents
-  // // .agents)` fallback that tests/bats/15-detection.bats uses.
+  // Cache shape: `agents` may be top-level (the on-disk shape from
+  // detect::run_once) OR under `.components.agents` (the --report-only wrapped
+  // shape). Accept both.
   let cache: { agents?: DetectCacheAgent[]; components?: { agents?: DetectCacheAgent[] } };
   try {
     cache = JSON.parse(readFileSync(cachePath, "utf8"));
@@ -128,10 +96,8 @@ function tryReuse(entry: CatalogEntry): ReuseHit | null {
   if (!semver.valid(detected.version)) return null;
   if (!semver.satisfies(detected.version, entry.compatibility_window)) return null;
 
-  // T-13-07 mitigation: re-validate the binary actually exists at install time.
-  // The cache is overwritten on every agentlinux-install run, but the binary
-  // itself could have been removed by an unrelated process between detect::
-  // run_once and the CLI install.ts invocation.
+  // Re-validate the binary actually exists at install time — the cache may be
+  // stale (binary removed by an unrelated process since detect::run_once).
   try {
     const st = statSync(detected.path);
     if (!st.isFile()) return null;
@@ -145,27 +111,12 @@ function tryReuse(entry: CatalogEntry): ReuseHit | null {
   };
 }
 
-// Plan 14-03 (REMEDIATE-04) pre-runner check. Mirrors tryReuse's cache-reader
-// shape but with INVERSE discriminator: triggers on the "broken catalog agent"
-// path OR the "PATH-MISMATCH" path (status=healthy but detected path !=
-// canonical). Both signals mean "AgentLinux is in charge — uninstall + reinstall
-// at the canonical location".
-//
-// Returns null when:
-//   - cache absent (no detect:: run; greenfield install)
-//   - canonical path not in CANONICAL_PATHS (test_only entry)
-//   - cache parse fails (T-14-10 safe-fall-through; same shape as tryReuse)
-//   - agent absent from cache (greenfield)
-//   - status=absent (greenfield — nothing to remediate)
-//   - status=healthy AND path === canonical (REUSE territory, not REMEDIATE)
-//
-// Returns RemediateHit when:
-//   - status=broken (binary present but unhealthy; REMEDIATE)
-//   - status=healthy AND path != canonical (PATH-MISMATCH; REMEDIATE-04)
-//
-// The version check (compatibility_window) is NOT applied here — REMEDIATE-04
-// reinstalls at entry.pinned_version regardless of the detected version. That's
-// the whole point: the broken/mis-pathed install is being replaced.
+// REMEDIATE-04 pre-runner check. Mirrors tryReuse's cache reader but with the
+// inverse discriminator: returns a RemediateHit when status=broken OR
+// status=healthy with a non-canonical path (PATH-MISMATCH); null otherwise
+// (cache absent, parse fails, greenfield, or REUSE territory). No
+// compatibility_window check — REMEDIATE-04 reinstalls at pinned_version
+// regardless of detected version, since the bad install is being replaced.
 function tryRemediate(entry: CatalogEntry): RemediateHit | null {
   const cachePath = detectCachePath();
   if (!existsSync(cachePath)) return null;
@@ -194,10 +145,8 @@ export async function installCmd(
   opts: InstallOpts,
   dispatcher?: Dispatcher,
 ): Promise<void> {
-  // Plan 15-01 (D-15-04 / T-15-01-06): --dry-run + --yes is contradictory
-  // in BOTH orders. --dry-run NEVER mutates, --yes is a mutation gate; the
-  // combination is ambiguous and must be rejected upfront with exit 64
-  // EX_USAGE. Mirror the bash entrypoint's symmetric guard in parse_args.
+  // --dry-run + --yes is contradictory (dry-run never mutates; --yes is a
+  // mutation gate). Reject upfront with exit 64; mirrors the bash entrypoint.
   if (opts.dryRun && opts.yes) {
     console.error(
       "agentlinux install: contradictory flags — --dry-run forbids --yes (dry-run never mutates; --yes is a mutation gate)",
@@ -218,8 +167,7 @@ export async function installCmd(
     process.exit(64); // EX_USAGE
   }
 
-  // test_only: hidden from default `list` and refused by default `install`.
-  // --include-test opts in for bats integration + developer-debug flows.
+  // test_only entries are refused unless --include-test.
   if (entry.test_only && !opts.includeTest) {
     console.error(`agentlinux: ${name} is a test-only entry; pass --include-test to install`);
     process.exit(64);
@@ -232,17 +180,10 @@ export async function installCmd(
 
   const existing = await readSentinel(entry.id);
 
-  // Plan 15-01 (UX-01 / D-15-01): --dry-run early-return. Compute the same
-  // tryReuse + tryRemediate decisions a real install would make, render a
-  // [DRY-RUN] summary, and exit 0 WITHOUT calling dispatchRecipe or
-  // writeSentinel. Mirrors the bash entrypoint's main() dry-run branch (which
-  // hooks AFTER collect_all_decisions, BEFORE flush_bails_or_continue). Skips
-  // the --yes consent gate by design — dry-run never mutates so consent does
-  // not apply (D-15-04 rejected the combo as contradictory upstream).
+  // UX-01: --dry-run early-return. Compute the same reuse/remediate decisions a
+  // real install would make, render a summary, and exit 0 without dispatching
+  // or writing a sentinel.
   if (opts.dryRun) {
-    // Compute decisions the same way the real install path does, but WITHOUT
-    // applying --force / --version / existing-sentinel skip semantics — the
-    // operator wants to see what *would* happen on a normal invocation.
     const reuseHit = !opts.force && !opts.version && !existing ? tryReuse(entry) : null;
     const remediateHit = !opts.force && !opts.version && !reuseHit ? tryRemediate(entry) : null;
     const decision: "reuse" | "remediate" | "create" = reuseHit
@@ -269,20 +210,13 @@ export async function installCmd(
     } else {
       console.log(`[DRY-RUN] ${entry.id}: ${decision} — would ${wouldAction}`);
     }
-    return; // exit 0; no dispatchRecipe, no writeSentinel
+    return;
   }
 
-  // REUSE-03 pre-runner check (Plan 13-02). Phase 12 cache at the path resolved
-  // by detectCachePath() is populated by the bash entrypoint's detect::run_once.
-  // When the detected state is { status: "healthy", path: canonical, version
-  // satisfies compatibility_window }, skip dispatchRecipe entirely and write a
-  // status: "reused" sentinel.
-  //
-  // Skip the REUSE check when:
-  //   - opts.force          (force always installs fresh)
-  //   - opts.version        (explicit version override means "I want this exact
-  //                          version", not adoption)
-  //   - existing sentinel   (don't override an existing installed/reused record)
+  // REUSE-03: when the detect cache reports a healthy install at the canonical
+  // path whose version satisfies compatibility_window, skip dispatchRecipe and
+  // write a status: "reused" sentinel. Skipped on --force, --version, or an
+  // existing sentinel (don't adopt over an explicit/recorded install).
   const reuseHit = !opts.force && !opts.version && !existing ? tryReuse(entry) : null;
   if (reuseHit) {
     const now = new Date().toISOString();
@@ -304,23 +238,14 @@ export async function installCmd(
     return;
   }
 
-  // Plan 14-03 (REMEDIATE-04 CAT-04): the REMEDIATE branch. After REUSE has had
-  // its chance, check whether the detect cache reports a state that requires
-  // uninstall+reinstall (broken catalog agent OR PATH-MISMATCH). Skip when:
-  //   - opts.force      (--force always installs fresh at the canonical path
-  //                      without consulting detect; mirrors REUSE skip semantic)
-  //   - opts.version    (explicit version override = "I want this exact version",
-  //                      not adoption-via-remediation)
-  // Note: unlike REUSE, REMEDIATE-04 DOES fire even when a sentinel exists —
-  // the existing sentinel tells us "AgentLinux thought it owned this install"
-  // but the detect cache says "but it's broken/mispathed now". Remediating is
-  // the right response.
+  // REMEDIATE-04: after REUSE, check whether the detect cache reports a state
+  // that needs uninstall+reinstall (broken or PATH-MISMATCH). Skipped on
+  // --force / --version. Unlike REUSE, this fires even when a sentinel exists —
+  // a recorded install that's now broken/mispathed still needs remediating.
   const remediateHit = !opts.force && !opts.version ? tryRemediate(entry) : null;
   if (remediateHit) {
-    // T-14-12 mitigation: --yes is the SOLE consent surface. CLI never reads
-    // AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES env vars (verified by bats
-    // grep). In TTY mode the gate auto-passes — Phase 15 will add an
-    // interactive `Proceed? [Y/n]` prompt here on top of the same predicate.
+    // --yes is the sole consent surface (no env-var equivalent). In TTY mode
+    // the gate auto-passes.
     const isTTY = process.stdin.isTTY === true;
     if (!opts.yes && !isTTY) {
       console.error(
@@ -340,9 +265,7 @@ export async function installCmd(
     );
 
     // Step 1: uninstall.sh. Version env carries the existing-sentinel version
-    // when present (so uninstall.sh knows what it's tearing down); falls back
-    // to the catalog's pinned_version when no sentinel exists (e.g. brownfield
-    // claude installed via npm, no AgentLinux sentinel ever written).
+    // when present, else the catalog's pinned_version (brownfield: no sentinel).
     const uninstallPath = join(catalog.catalogDir, "agents", entry.id, entry.uninstall_recipe_path);
     const uninstallResult = await dispatchRecipe(
       {
@@ -361,10 +284,9 @@ export async function installCmd(
       process.exit(1); // runtime
     }
 
-    // T-14-05 mitigation: post-uninstall verification. uninstall.sh could exit
-    // 0 while leaving the binary at either the canonical path OR the detected
-    // (PATH-MISMATCH) path. Check BOTH — if either still exists, we cannot
-    // proceed to install (would risk double-install / corrupted state).
+    // Post-uninstall verification: uninstall.sh could exit 0 while leaving the
+    // binary at the canonical OR detected path. If either remains, abort rather
+    // than risk a double-install.
     if (existsSync(remediateHit.canonical_path) || existsSync(remediateHit.detected_path)) {
       console.error(
         `[REMEDIATE-04:uninstall-incomplete] ${entry.id} uninstall.sh exited 0 but binary still present (canonical=${existsSync(remediateHit.canonical_path)} detected=${existsSync(remediateHit.detected_path)})`,
@@ -372,9 +294,8 @@ export async function installCmd(
       process.exit(1); // runtime
     }
 
-    // Step 2: install.sh at the catalog's pinned_version. On failure we land
-    // in the half-uninstalled state (uninstall succeeded, install failed) —
-    // write a broken-after-remediate sentinel as forensic trail + exit 1.
+    // Step 2: install.sh at pinned_version. On failure we're half-uninstalled —
+    // write a broken-after-remediate sentinel as a forensic trail + exit 1.
     const installPath = join(catalog.catalogDir, "agents", entry.id, entry.install_recipe_path);
     const installResult = await dispatchRecipe(
       {
@@ -405,7 +326,7 @@ export async function installCmd(
     }
     if (installResult.stdout) console.log(installResult.stdout.trimEnd());
 
-    // Step 3: success — write status=installed sentinel + remediated_at trail.
+    // Step 3: success — status=installed sentinel + remediated_at trail.
     const now = new Date().toISOString();
     await writeSentinel({
       id: entry.id,
@@ -422,9 +343,7 @@ export async function installCmd(
 
   const decision = decideVersion(entry, opts.version, existing);
 
-  // Idempotent short-circuit: sentinel-version === decision-version and no
-  // --force → log "already installed" and return 0. T-04-08 mitigation:
-  // second invocation produces byte-stable result.
+  // Idempotent short-circuit: same version + no --force → "already installed".
   if (!opts.force && existing && semver.eq(existing.version, decision.version)) {
     console.log(
       `${entry.id}: already installed at ${existing.version} (${existing.source}); no-op`,

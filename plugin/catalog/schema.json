@@ -51,7 +51,7 @@
         },
         "compatibility_window": {
           "type": "string",
-          "description": "Semver range (e.g., '>=2.0.0 <3.0.0'); REUSE-03 (Plan 13-02) accepts a detected install whose version satisfies this range. Optional — present on non-test entries only.",
+          "description": "Semver range (e.g., '>=2.0.0 <3.0.0'); REUSE-03 adopts a detected install whose version satisfies it. Optional.",
           "minLength": 1
         },
         "install_recipe_path": {
@@ -69,7 +69,7 @@
         "preserve_paths_file": {
           "type": "string",
           "pattern": "^[a-z0-9_./-]+\\.json$",
-          "description": "Optional path (relative to the agent's catalog dir) to a sibling preserve_paths.json. Loader injects the listed paths into AGENTLINUX_PRESERVE_PATHS env var for uninstall.sh (Plan 14-03, REMEDIATE-04 CAT-04). Absent → no paths preserved across REMEDIATE-04 reinstall."
+          "description": "Optional path (relative to the agent's catalog dir) to a sibling preserve_paths.json. The loader injects the listed paths into AGENTLINUX_PRESERVE_PATHS for uninstall.sh (CAT-04). Absent → nothing preserved across REMEDIATE-04 reinstall."
         },
         "tags": { "type": "array", "items": { "type": "string" } },
         "test_only": {

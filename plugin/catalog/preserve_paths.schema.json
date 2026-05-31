@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentlinux.org/schemas/preserve_paths.json",
   "title": "AgentLinux preserve_paths.json",
-  "description": "Per-agent allowlist of home-relative paths that MUST survive REMEDIATE-04 uninstall+reinstall (Phase 14 Plan 14-03, CAT-04). Each path must start with '~/' or be home-relative; absolute paths and '..' traversal are rejected by the loader (T-14-04 mitigation).",
+  "description": "Per-agent allowlist of home-relative paths that survive REMEDIATE-04 uninstall+reinstall (CAT-04). Each path must start with '~/'; absolute paths and '..' traversal are rejected by the loader.",
   "type": "object",
   "required": ["preserve_paths"],
   "additionalProperties": false,

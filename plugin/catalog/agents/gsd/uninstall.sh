@@ -1,23 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # gsd uninstall.sh — symmetric inverse. npm uninstall -g is idempotent.
-#
-# Plan 14-03 (REMEDIATE-04 CAT-04): AGENTLINUX_PRESERVE_PATHS contains
-# `.gsd:.config/get-shit-done` for this agent so the rm-skipping helper
-# preserves user workflow state across REMEDIATE-04 reinstall. Bats Test 49
-# verifies the gsd preserve set survives the helper invocation.
+# CAT-04: AGENTLINUX_PRESERVE_PATHS preserves user workflow state
+# (.gsd, .config/get-shit-done) across REMEDIATE-04 reinstall.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 
-# _should_remove <abs-path>
-#
-# Returns 0 (true → proceed with rm) iff <abs-path> is NOT in or under any
-# entry of AGENTLINUX_PRESERVE_PATHS. The env var is a colon-separated list
-# of HOME-relative paths (already normalized + traversal-rejected by the
-# loader). Empty env var means "no preserves" → always return 0.
-#
-# Descendant rule: if a preserved entry P is the target T, OR T is anywhere
-# beneath P (T starts with "${HOME}/${P}/"), the rm is skipped.
+# _should_remove <abs-path> — returns 0 (proceed with rm) unless <abs-path> is
+# in or under any AGENTLINUX_PRESERVE_PATHS entry. The env var is a
+# colon-separated list of HOME-relative paths (normalized by the loader); empty
+# means "no preserves". Descendant rule: a preserved root protects everything
+# beneath it.
 _should_remove() {
   local target=$1
   [[ -z "${AGENTLINUX_PRESERVE_PATHS:-}" ]] && return 0
@@ -34,8 +27,7 @@ _should_remove() {
   return 0
 }
 
-# _rm_path — wraps rm with the _should_remove gate. find -exec uses a
-# separate path-skipping helper below since it operates per-entry.
+# _rm_path — wraps rm with the _should_remove gate.
 _rm_path() {
   local mode=$1 target=$2
   if _should_remove "$target"; then
@@ -58,17 +50,10 @@ if command -v get-shit-done-cc >/dev/null 2>&1; then
 fi
 
 # Step 2: defensive cleanup of GSD-installed Claude Code state. The
-# bootstrapper's `--uninstall` flag is best-effort (older versions don't
-# support it; failure modes leave skill dirs behind). install.sh's comment
-# block notes that --global --claude writes "skill dirs, hooks, statusline,
-# settings". We sweep the skills (deterministic, dir-naming convention) and
-# leave settings.json + hooks alone (user-edited surface; touching it could
-# clobber non-GSD config). The user can `rm ~/.claude/settings.json` if they
-# want a clean slate.
-# find -exec is replaced with a loop so each match runs through _should_remove.
-# Plan 14-03: ~/.claude/skills/gsd-* skill dirs are under ~/.claude/, NOT
-# under either preserved root (~/.gsd or ~/.config/get-shit-done), so the
-# gate returns true and rm proceeds — matching the pre-Plan-14-03 behavior.
+# bootstrapper's `--uninstall` is best-effort, so sweep the gsd-* skill dirs
+# ourselves; leave settings.json + hooks alone (user-edited surface). Looping
+# (not find -exec) so each match runs through _should_remove. These dirs live
+# under ~/.claude/, not a preserved root, so the gate lets rm proceed.
 while IFS= read -r -d '' skill_dir; do
   if _should_remove "$skill_dir"; then
     rm -rf -- "$skill_dir" 2>/dev/null || true
