@@ -2,8 +2,8 @@
 
 Allowed read-only probes: dpkg-query (read-only DB query), apt list --installed,
 id, getent, stat, sha256sum, grep -Fxq, find -printf, readlink -f,
-node --version, npm config get prefix, command -v, &lt;agent&gt; --version,
-&lt;agent&gt; --help. Always invoke install-user-scoped commands via
+node --version, npm config get prefix, command -v, `<agent> --version`,
+`<agent> --help`. Always invoke install-user-scoped commands via
 plugin/lib/as_user.sh — root's view of PATH and ~/.npmrc is wrong.
 
 NEVER call from this directory: apt-get update / apt-get install,

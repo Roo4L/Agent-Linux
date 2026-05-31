@@ -82,16 +82,3 @@ reuse::agent_decision() {
   printf 'reuse'
   return 0
 }
-
-# reuse::log_agent_reuse <id>
-# Emits the [REUSE-03] marker. The real emission happens in the CLI (REUSE-03
-# is dispatched via `agentlinux install <name>`); this helper exists for any
-# bash-side caller that needs the line.
-reuse::log_agent_reuse() {
-  local id=${1:-}
-  local upper=${id^^}
-  upper=${upper//-/_}
-  local path_var="DETECT_AGENT_${upper}_PATH"
-  local version_var="DETECT_AGENT_${upper}_VERSION"
-  log_info "[REUSE-03] ${id} reused: binary=${!path_var:-} version=${!version_var:-} status=healthy"
-}

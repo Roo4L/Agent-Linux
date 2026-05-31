@@ -91,7 +91,6 @@ detect::user_probe() {
 # Thin accessors over the exported DETECT_USER_* vars (REUSE decisions without
 # parsing JSON).
 detect::user_present() { [[ "${DETECT_USER_PRESENT:-false}" == "true" ]]; }
-detect::user_uid() { printf '%s' "${DETECT_USER_UID:-}"; }
 detect::user_shell() { printf '%s' "${DETECT_USER_SHELL:-}"; }
 detect::user_home_writable() { [[ "${DETECT_USER_HOME_WRITABLE:-false}" == "true" ]]; }
 

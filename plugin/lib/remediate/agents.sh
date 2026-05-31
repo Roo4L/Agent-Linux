@@ -22,6 +22,6 @@ fi
 # No-op placeholder for REMEDIATE-04 broken-agent reinstall; the real flow runs
 # in plugin/cli/src/commands/install.ts.
 remediate::agents::reinstall_stub() {
-  log_info "[REMEDIATE-04] component=agents action=stub (Plan 14-03 wires real CLI install.ts path)"
+  log_info "[REMEDIATE-04] component=agents action=noop (real reinstall runs in the registry CLI: agentlinux install)"
   return 0
 }

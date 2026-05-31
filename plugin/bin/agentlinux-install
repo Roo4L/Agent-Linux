@@ -73,9 +73,8 @@ Options:
                         without rebuilding argv. Contradicts --yes (the
                         installer exits with usage error in that case).
       --dry-run         Run detection + decisions, print the pre-flight
-                        report, exit 0 WITHOUT mutating host state. Covers
-                        the full Phase 12-14 decision pipeline (bails
-                        surface IN the report, NOT as exit code). Useful
+                        report, exit 0 WITHOUT mutating host state. Bails
+                        surface IN the report, NOT as exit code. Useful
                         before a real install to preview what will happen.
                         Contradicts --yes (rejected as usage error) — dry-run
                         never mutates, --yes is a mutation gate.
@@ -281,6 +280,10 @@ parse_args() {
 ensure_jq() {
   if ! command -v jq >/dev/null 2>&1; then
     log_warn "jq not found; installing 'jq' package (required by detection layer)"
+    # apt-get update first — this runs before any provisioner, and the cache
+    # may be empty on fresh containers / long-idle hosts (else apt-get install
+    # reports "no installation candidate").
+    DEBIAN_FRONTEND=noninteractive apt-get update
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
   fi
 }
@@ -302,7 +305,7 @@ run_provisioners() {
   # compgen also sidesteps shfmt 3.8.0 misreading `[0-9][0-9]` as a subscript.
   mapfile -t steps < <(compgen -G "$PROV_DIR/[0-9][0-9]-*.sh" | sort || true)
   if [[ ${#steps[@]} -eq 0 ]]; then
-    log_warn "no provisioner scripts found under ${PROV_DIR} (Phase 2 provisioners land in sibling plans)"
+    log_warn "no provisioner scripts found under ${PROV_DIR}"
     return 0
   fi
   for step in "${steps[@]}"; do

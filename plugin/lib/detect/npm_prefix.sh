@@ -137,8 +137,7 @@ detect::npm_prefix_probe() {
   export DETECT_NPM_PREFIX_SECTION_STATUS=present
 }
 
-# Thin accessors over the DETECT_NPM_PREFIX_* exports populated above.
-detect::npm_prefix_path() { printf '%s' "${DETECT_NPM_PREFIX_PATH:-}"; }
+# Thin accessor over the DETECT_NPM_PREFIX_* exports populated above.
 detect::npm_prefix_writable_by_install_user() {
   [[ "${DETECT_NPM_PREFIX_USER_WRITABLE:-false}" == "true" ]]
 }

@@ -171,9 +171,10 @@ remediate::nodejs::_apply_rebase() {
     local pkg_at_ver
     while IFS= read -r pkg_at_ver; do
       [[ -z "$pkg_at_ver" ]] && continue
-      # `--` terminates sudo AND npm option parsing, so a `-flag@1` package name
-      # cannot be reparsed as a flag; npm rejects adversarial version strings.
-      if as_user "$user" -- npm install -g -- "$pkg_at_ver" >/dev/null 2>&1; then
+      # The npm-level `--` stops a `-flag@1` package name being reparsed as an
+      # npm flag. (as_user already supplies sudo's `--`; a second one here would
+      # make sudo treat `--` as the command name and fail.)
+      if as_user "$user" npm install -g -- "$pkg_at_ver" >/dev/null 2>&1; then
         log_info "[REMEDIATE-01:migrated] module=$pkg_at_ver"
         migrated_count=$((migrated_count + 1))
       else
