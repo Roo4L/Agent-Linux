@@ -113,10 +113,15 @@ jobs:
 
   bats-docker:
     runs-on: ubuntu-24.04
-    # 15 minutes comfortably covers a cold apt cache + Docker build + installer
-    # + bats suite (~2–5 min per 02-RESEARCH.md "Test Infrastructure"). A stuck
-    # systemctl is-system-running wait is the usual long-tail; this caps it.
-    timeout-minutes: 15
+    # The full Phase 2–6 acceptance suite (200+ bats tests) does real apt/npm
+    # installs, agent installs (Claude Code / GSD / Playwright), `claude update`,
+    # and brownfield E2E across five invocation modes — ~30–40 min on a cold CI
+    # runner, well past the original ~2–5 min Phase-1 estimate (the suite has
+    # grown ~10x since). timeout-minutes is a CAP (the job ends the moment bats
+    # finishes), so it is sized generously to absorb runner variance + a cold
+    # Docker build without flaky re-timeouts; it still bounds a genuinely stuck
+    # run (e.g. a hung systemctl is-system-running wait).
+    timeout-minutes: 60
     strategy:
       # Phase 2 acceptance matrix: every supported Ubuntu LTS version runs on
       # every PR. fail-fast=false so a single arm failure still reports the
