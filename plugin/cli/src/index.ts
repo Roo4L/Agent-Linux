@@ -1,17 +1,10 @@
 #!/usr/bin/env node
 // SPDX-License-Identifier: MIT
-// plugin/cli/src/index.ts — agentlinux CLI entrypoint.
-// Pattern ref: 04-RESEARCH §Pattern 2 lines 474-548 + ADR-008 (Commander ^12).
+// plugin/cli/src/index.ts — agentlinux CLI entrypoint (ADR-008, Commander ^12).
 //
-// Flow:
-//   1. Commander registers five subcommands (list, install, remove, upgrade, pin)
-//   2. preAction hook fires guardAgentUser(<cmd>) BEFORE any action runs —
-//      blocks root + any non-agent user with exit 64 (CLI-05)
-//   3. parseAsync awaits async action handlers (Pitfall 3: .parse() silently
-//      drops rejected promises; .parseAsync() awaits them)
-//
-// Every subcommand handler is a STUB in Wave 1 — real implementations land in
-// Plans 04-03 (list/install/remove), 04-04 (upgrade), 04-05 (pin).
+// Registers five subcommands; a preAction hook runs guardAgentUser before any
+// action (blocks root + non-agent users with exit 64, CLI-05). parseAsync is
+// required so rejected async-handler promises aren't silently dropped.
 
 import { Command } from "commander";
 import { installCmd } from "./commands/install.js";
@@ -29,23 +22,14 @@ program
   .description("AgentLinux registry CLI — install, upgrade, remove catalog agents")
   .version(VERSION, "-V, --version");
 
-// Commander's `.enablePositionalOptions()` is REQUIRED so the install
-// subcommand's `--version <semver>` override (CLI-03) can shadow the
-// program-level `-V, --version` flag when placed AFTER the subcommand
-// name (`agentlinux install --version 1.2.3 foo`). Without it, Commander's
-// global option-parser intercepts `--version` first, emits "0.3.0" and
-// exits before the install action ever fires. Plan 04-07 Rule 1 auto-fix.
-//
-// Side-effect of positional options: an option registered at program level
-// (e.g. a shared `--json`) is NOT recognized when placed AFTER a subcommand
-// name. So `--json` is registered on each subcommand that actually supports
-// machine-readable output (list, upgrade) rather than once at the program
-// level.
+// enablePositionalOptions() is required so the install subcommand's
+// `--version <semver>` override (CLI-03) can shadow the program-level
+// `-V, --version`; without it Commander intercepts `--version` and exits early.
+// Side-effect: program-level options aren't recognized after a subcommand name,
+// so `--json` is registered per-subcommand (list, upgrade) instead.
 program.enablePositionalOptions();
 
-// CLI-05: fail fast when invoked as a non-agent user BEFORE any subcommand runs.
-// preAction hook fires after parsing but before the action handler. Commander
-// v12 supports .hook('preAction', fn) (see Commander README).
+// CLI-05: fail fast as a non-agent user before any subcommand runs.
 program.hook("preAction", (_thisCommand, actionCommand) => {
   guardAgentUser(actionCommand.name());
 });
@@ -65,6 +49,14 @@ program
   .option("--force", "re-run install.sh even if sentinel matches")
   .option("--version <semver>", "override catalog pin with a specific version")
   .option("--include-test", "allow installing test-only entries (hidden by default)")
+  // Consent gate for state-overwriting REMEDIATE-04, required in non-TTY mode.
+  // No env-var equivalent.
+  .option("--yes", "approve state-overwriting REMEDIATE-04 (uninstall + reinstall) in non-TTY mode")
+  // Preview the install decision without dispatching; contradicts --yes (exit 64).
+  .option(
+    "--dry-run",
+    "preview the install decision (reuse|remediate|create) without dispatching install.sh; exits 0",
+  )
   .action(async (name: string, opts) => {
     await installCmd(name, opts);
   });
@@ -96,7 +88,5 @@ program
     await pinCmd(spec, opts);
   });
 
-// Async actions REQUIRE parseAsync (Pitfall 3). Top-level await requires
-// "type": "module" + NodeNext module resolution (both set in package.json +
-// tsconfig.json).
+// Async actions require parseAsync; top-level await needs "type": "module".
 await program.parseAsync(process.argv);

@@ -1,88 +1,108 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# plugin/provisioner/10-agent-user.sh — agent user creation, locale, DOC-02 CLAUDE.md.
+# plugin/provisioner/10-agent-user.sh — agent user creation, locale, CLAUDE.md.
 #
-# Sourced by plugin/bin/agentlinux-install. Inherits `set -euo pipefail`, the
-# ERR trap, and the tee redirect to /var/log/agentlinux-install.log from the
-# entrypoint; this fragment therefore MUST NOT set its own strict-mode flags.
+# Sourced by agentlinux-install. Inherits set -euo pipefail, the ERR trap, and
+# the tee redirect — MUST NOT set its own strict-mode flags.
 #
-# Requirements satisfied:
-#   BHV-01 — agent user exists, has /bin/bash, real home, C.UTF-8 locale
-#   DOC-02 — /home/agent/CLAUDE.md with explicit anti-pattern list
+# Satisfies BHV-01 (agent user: /bin/bash, real home, C.UTF-8 locale) and
+# DOC-02 (/home/agent/CLAUDE.md with the anti-pattern list). Every mutation
+# routes through idempotency.sh primitives (ensure_user / ensure_dir /
+# ensure_marker_block) so re-runs converge — no raw useradd / echo >> / sed -i.
 #
-# Every state mutation routes through plugin/lib/idempotency.sh primitives
-# (ensure_user / ensure_dir / ensure_marker_block). Raw `useradd`, `install -d`,
-# `echo >>`, `sed -i` are forbidden in this file — re-runs must converge.
-#
-# Locale handling folds into this provisioner (RESEARCH §"Architectural
-# Responsibility Map": "20-locale.sh OR folded into 10-"). Locale is tied to
-# the agent user identity, fits in ~10 lines, and keeps the Phase 2 provisioner
-# count minimal. See DEVIATIONS in 02-03-SUMMARY for the fold-vs-split call.
+# Locale is folded in here (rather than a separate 20-locale.sh) — it is tied
+# to the agent user identity and fits in ~10 lines.
 
 log_info "10-agent-user: starting"
 
-# Step 1: agent user (BHV-01 — bash shell, home directory).
-# ensure_user is a no-op if `agent` already exists (T-02-05 mitigation:
-# existing `agent` user belonging to a different human is not modified; we
-# only assert existence). ensure_dir then asserts mode/ownership on the
-# already-created /home/agent to correct any out-of-band drift on re-run.
-ensure_user agent
-ensure_dir /home/agent 0755 agent:agent
-
-# Step 2: Locale (BHV-01 — LANG=C.UTF-8, LC_ALL=C.UTF-8 system-wide).
+# Dispatch on the pre-resolved RESOLUTIONS[user] token (decisions are made
+# up-front in main()). On a REUSE-compatible user, skip useradd + locale-gen +
+# ensure_dir on the existing home; Step 3 (CLAUDE.md) and 40-path-wiring.sh
+# still run unconditionally (additive).
 #
-# Pitfall 5 (02-RESEARCH.md): `locale-gen C.UTF-8` is a no-op on glibc 2.35+
-# (Ubuntu 22.04 and later) because C.UTF-8 is a built-in locale. That is why
-# we do NOT rely on its exit code — it may legitimately succeed without doing
-# anything — and instead verify outcome with `locale -a` below.
-#
-# Docker slim images strip the `locales` package entirely, so ensure it is
-# installed before invoking locale-gen / update-locale. DEBIAN_FRONTEND +
-# --no-install-recommends keep the install non-interactive and minimal.
-# `apt-get update` runs first because the cache is empty on freshly pulled
-# Ubuntu containers and long-idle hosts; without it `apt-get install` exits
-# with "Package locales has no installation candidate" (AL-37). Mirrors the
-# pattern at 30-nodejs.sh:33.
-if ! command -v locale-gen >/dev/null 2>&1; then
-  log_warn "locale-gen not found; installing 'locales' package"
-  DEBIAN_FRONTEND=noninteractive apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales
-fi
+# Caveat: this file hardcodes literal `agent` paths. Those resolve correctly
+# under REUSE only because the user-decision bails on a name mismatch — REUSE
+# fires only when the user is named `agent`. The bail arm is unreachable
+# (flush_bails_or_continue would have exited 65); enumerated defensively.
+REUSED_USER=false
+case "${RESOLUTIONS[user]:-create}" in
+  reuse | remediate)
+    # `remediate` is `reuse` at this component: a user that's compatible except
+    # for missing passwordless-apt-sudo keeps its identity here; the actual fix
+    # (the sudoers drop-in) is owned by 20-sudoers.sh (RESOLUTIONS[sudoers]), so
+    # the two tokens act identically on the user itself — skip useradd + locale.
+    reuse::log_user_reuse "${INSTALL_USER:-agent}"
+    log_info "10-agent-user: REUSE branch — skipping useradd + locale-gen for existing user"
+    REUSED_USER=true
+    ;;
+  create)
+    # Fall through to the existing CREATE path (unchanged from v0.3.0).
+    REUSED_USER=false
+    ;;
+  reuse-with-warning)
+    # Defensive arm — user-decision never currently produces a state-overwriting
+    # action through the prompt loop. If a future plan does and the operator
+    # declines, keep the existing user and emit a [REUSE-WARN] marker.
+    reuse::log_user_reuse "${INSTALL_USER:-agent}"
+    log_warn "[REUSE-WARN] component=user decline_reason=${DECLINED_COMPONENTS[user]:-unknown} — skipped (user declined remediation; manual fix needed). Existing user unchanged."
+    REUSED_USER=true
+    ;;
+  bail)
+    # Unreachable — flush_bails_or_continue should have exited 65 before now.
+    log_error "10-agent-user: unreachable bail arm — flush_bails_or_continue should have gated this"
+    return 1
+    ;;
+esac
 
-# The one documented `|| true` skip-path in this provisioner (per CLAUDE.md
-# "unconditional || true hides real failures" rule). Allowed here because
-# C.UTF-8 is a glibc built-in on every supported host — locale-gen may exit
-# non-zero if /etc/locale.gen has no matching line, which is the expected
-# state on Ubuntu 22.04+. The `locale -a` verification below is the real
-# correctness check.
-locale-gen C.UTF-8 >/dev/null 2>&1 || true
-update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
+# Steps 1+2 (CREATE path) run only when the user was not reused — REUSE means
+# "do nothing" to the existing user's identity + locale state.
+if [[ "${REUSED_USER:-false}" != true ]]; then
+  # The alt-user flow may have updated INSTALL_USER; honor it here. Fall back
+  # to literal `agent` when unset/empty.
+  _AL_INSTALL_USER="${INSTALL_USER:-agent}"
+  _AL_INSTALL_HOME="/home/${_AL_INSTALL_USER}"
+  # Step 1: install user (BHV-01). ensure_user is a no-op if the user already
+  # exists (an existing user belonging to a different human is not modified —
+  # we only assert existence); ensure_dir then corrects home mode/ownership.
+  ensure_user "${_AL_INSTALL_USER}"
+  ensure_dir "${_AL_INSTALL_HOME}" 0755 "${_AL_INSTALL_USER}:${_AL_INSTALL_USER}"
 
-# Outcome verification: accept both `C.UTF-8` (canonical) and `C.utf8` (the
-# form Ubuntu 24.04 reports via `locale -a`). Case-insensitive; optional dash
-# before the `8` per RESEARCH Pitfall 5's verification regex.
-if ! locale -a 2>/dev/null | grep -Eiq '^c\.utf-?8$'; then
-  log_error "C.UTF-8 locale not available after locale-gen + update-locale"
-  return 1
+  # Step 2: locale (BHV-01 — LANG/LC_ALL=C.UTF-8 system-wide).
+  # locale-gen C.UTF-8 is a no-op on glibc 2.35+ (Ubuntu 22.04+) since C.UTF-8
+  # is built in, so we don't trust its exit code and verify via `locale -a`.
+  # Docker slim images strip the `locales` package; install it first.
+  # apt-get update first — the cache may be empty on fresh containers and
+  # long-idle hosts, else apt-get install reports "no installation candidate".
+  if ! command -v locale-gen >/dev/null 2>&1; then
+    log_warn "locale-gen not found; installing 'locales' package"
+    DEBIAN_FRONTEND=noninteractive apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales
+  fi
+
+  # The one allowed `|| true` here: locale-gen may exit non-zero when
+  # /etc/locale.gen has no matching line (the expected state on 22.04+, where
+  # C.UTF-8 is a glibc built-in). The `locale -a` check below is the real test.
+  locale-gen C.UTF-8 >/dev/null 2>&1 || true
+  update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
+
+  # Accept both `C.UTF-8` and `C.utf8` (the form Ubuntu 24.04 reports);
+  # case-insensitive, optional dash before the 8.
+  if ! locale -a 2>/dev/null | grep -Eiq '^c\.utf-?8$'; then
+    log_error "C.UTF-8 locale not available after locale-gen + update-locale"
+    return 1
+  fi
+  log_info "locale C.UTF-8 enforced (LANG + LC_ALL in /etc/default/locale)"
 fi
-log_info "locale C.UTF-8 enforced (LANG + LC_ALL in /etc/default/locale)"
 
 # Step 3: DOC-02 — /home/agent/CLAUDE.md with anti-pattern guidance.
-#
-# Uses ensure_marker_block with the stable tag `agentlinux-doc-02` and --top
-# placement so:
-#   (a) Re-runs are idempotent — identical body produces zero diff (T-02-07).
-#   (b) User-added content OUTSIDE the marker block survives re-run.
-#   (c) Anti-pattern guidance appears before any user-added sections, so
-#       agent tooling reading the file encounters DO-NOT first.
-#
-# The heredoc tag is stable across phases: Phase 4/5 may extend this block
-# but MUST reuse the `agentlinux-doc-02` tag. Do not rename.
-#
-# The body MUST include the three canonical anti-pattern strings that bats
-# tests in Plan 02-05 grep-verify: `usr/local/bin`, `sudo npm install -g`,
-# and `second Node.js install`.
-ensure_marker_block /home/agent/CLAUDE.md "agentlinux-doc-02" --top <<'DOC02'
+# ensure_marker_block with the stable `agentlinux-doc-02` tag and --top
+# placement: re-runs are idempotent, user content outside the block survives,
+# and the DO-NOT guidance lands before any user-added sections. Do not rename
+# the tag. The body must keep the three anti-pattern strings the bats tests
+# grep for: `usr/local/bin`, `sudo npm install -g`, `second Node.js install`.
+_AL_DOC02_USER="${INSTALL_USER:-agent}"
+_AL_DOC02_HOME="/home/${_AL_DOC02_USER}"
+ensure_marker_block "${_AL_DOC02_HOME}/CLAUDE.md" "agentlinux-doc-02" --top <<'DOC02'
 # /home/agent/CLAUDE.md — AgentLinux agent-user guidance
 
 ## This environment is correctly owned
@@ -132,11 +152,10 @@ diagnose. DO NOT "recover" by climbing the privilege ladder — that is
 precisely the bug class AgentLinux exists to prevent.
 DOC02
 
-# ensure_marker_block uses `install -m 0644` which leaves the file root-owned;
-# re-assert agent:agent ownership so the agent user can read + edit it outside
-# the marker block on subsequent runs.
-chmod 0644 /home/agent/CLAUDE.md
-chown agent:agent /home/agent/CLAUDE.md
-log_info "wrote DOC-02 CLAUDE.md to /home/agent/CLAUDE.md"
+# ensure_marker_block leaves the file root-owned; re-assert agent:agent so the
+# user can read + edit it outside the marker block.
+chmod 0644 "${_AL_DOC02_HOME}/CLAUDE.md"
+chown "${_AL_DOC02_USER}:${_AL_DOC02_USER}" "${_AL_DOC02_HOME}/CLAUDE.md"
+log_info "wrote DOC-02 CLAUDE.md to ${_AL_DOC02_HOME}/CLAUDE.md"
 
 log_info "10-agent-user: done"

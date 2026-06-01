@@ -10,40 +10,52 @@ The project also maintains a landing page at **agentlinux.org** for validation a
 
 An agent can be dropped into any supported Linux system and *just work* — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights, sudo prompts, or recursive-shim workarounds. Installing AgentLinux on your distro gives you an agent environment that was built right the first time.
 
-See [docs/VISION.md](../docs/VISION.md) for the framing this Core Value seeds.
-
 ## Current State
 
-**Last shipped:** v0.3.3 Agenda Redefinition (2026-05-24).
-**Next milestone:** TBD — run `/gsd-new-milestone` to scope.
+**Shipped:** v0.3.4 Aware Installation Process — feature-complete 2026-05-27 (GATE: GREEN, release-ready, awaiting `v0.3.4-rc1` tag push).
 
-The vision/strategy/roadmap framing is locked: `docs/VISION.md` (the canonical "what we want to be"), `docs/STRATEGY.md` (the canonical "how we get there"), `docs/ROADMAP.md` (the time-ordered "what's next"). ADR-016 records the two-pillar framing decision. The agentlinux.org website mirrors the framing.
+**What v0.3.4 delivers:** AgentLinux installation is now aware of pre-existing AI/agent setups on the host. The installer detects pre-existing `agent` user, Node.js, npm-global prefix, Claude Code, GSD, and Playwright, then either reuses (compatible state), creates (absent), remediates (fixable drift), or bails (incompatible) on a per-component basis. `agentlinux install --dry-run` provides a non-mutating preview; TTY mode prompts per state-overwriting action with skip-and-continue semantics; non-TTY mode uses the single `--yes` consent flag (Unix convention). Structured exit codes (64 EX_USAGE, 65 EX_DATAERR, 1 runtime, 0 success) gate downstream automation. The brownfield-AGT-02 milestone-close gate verified `claude update` succeeds with zero EACCES on a pre-populated host against the live Anthropic CDN.
 
-The next milestone is open for scoping. Candidates flagged for v0.6+ (per `docs/ROADMAP.md` themes): Security Hardening (capability-scoped sudoers, cosign-signed catalog releases, npm provenance, bubblewrap-based per-recipe sandbox profile), preset/profile framework, compat-guarded update flow.
+**Test surface:** 204/204 bats green on Ubuntu 22.04 + 24.04 (Phase 14 baseline +18 from Phase 15 +2 from Phase 16); 165/165 TS unit tests green; greenfield invariant preserved (v0.3.0 baseline @tests untouched).
 
-## Previous Milestone: v0.3.3 Agenda Redefinition — Shipped 2026-05-24
+**Documentation:** README has a new `## Brownfield install` section linked from main Install; `docs/MIGRATION.md` walks 4 worked scenarios (manual `useradd`, NodeSource Node, root-Claude reinstall, broken Playwright); per-phase AUDITs at `.planning/phases/{12..16}-*/`-AUDIT.md`; milestone audit at `.planning/v0.3.4-MILESTONE-AUDIT.md`.
 
-**Anchor:** Jira epic [AL-7 — Project agenda redefinition](https://copiedwonder.atlassian.net/browse/AL-7).
+## Next Milestone Goals
 
-Broadened AgentLinux's framing from a single-pillar product to a two-pillar product across 5 phases (Pillar 2 Exploration; Pillar 3 Candidate Exploration; Vision Doc + ADR-016 + Downstream Surface Updates; Strategy + Roadmap Doc; Website Refresh). Phase 14 verdict (b) declined a separate Pillar 3 (security folds into Pillar 2 as sub-concern). Vision/strategy/roadmap separated into three documents (VISION.md, STRATEGY.md, ROADMAP.md). The voice-rule grep gate (VIS-07, STRATR-06, SITE-06) ran green on every artefact. agentlinux.org refreshed to reflect the two pillars. ADR-016 records the framing decision with three considered-and-rejected alternatives.
+- **v0.3.5 AlmaLinux support** (AL-47 / Epic AL-48): port the aware-install pipeline to AlmaLinux 9. Phase 12-15 detection layer is mostly distro-portable; brownfield-AGT-02 gate runs against a different baseline (DNF + EL8/EL9 idiom).
+- **`v0.3.4-rc1` tag push**: shipping event for the v0.3.4 milestone (release.yml pipeline already wired).
 
-**The two pillars (locked by Phase 14 verdict (b)):**
-1. **Time-to-productive** — the assembly the user gets on install: agent user, runtime, permissions, curated catalog. Foundational; settled by v0.3.0.
-2. **Stability** — the curated toolchain holds compatible across upstream churn. The supply-chain monitoring + curated catalog admission sub-concern folded into this pillar in Phase 14 verdict (b) — mechanism work lands in v0.6+.
+<details>
+<summary>v0.3.4 Aware Installation Process — original goal (archived 2026-05-27)</summary>
 
-**What carries forward into the next milestone:** The vision/strategy/roadmap framing locks downstream phases — any v0.6+ work scopes against `docs/STRATEGY.md` "Our bets" + `docs/ROADMAP.md` "What's next." Voice rule applies to every public-facing artefact going forward. PR-preview deployments now live on the agentlinux.org repo so framing changes can be reviewed visually before merge.
+**Goal:** Make AgentLinux installation aware of pre-existing AI/agent setups on the host — pre-existing `agent` user, Node.js, npm-global prefix, Claude Code, GSD, Playwright — and either reuse, remediate, or bail with a clear error rather than failing or silently overwriting user state. Triggered by [AL-38](https://copiedwonder.atlassian.net/browse/AL-38).
 
-## Previous Milestone: v0.4.0 Open-Source Release — Shipped 2026-05-09
+**Target features (all delivered):**
+- Detection pass (DET-01..06): discovery layer catalogs pre-existing agent user, Node.js installs, npm-global prefix + ownership, sudoers drift, catalog agent state
+- Reuse path (REUSE-01..03): compatible state → skip the corresponding provisioner / recipe
+- Remediate path (REMEDIATE-01..04): mostly-correct state → fix in place, gated by `--yes` in non-TTY mode
+- Pre-flight report (DET-06): text + JSON report before any mutation
+- Dry-run mode (UX-01): `agentlinux install --dry-run` non-mutating preview
+- Non-interactive default + `--yes` (UX-03, UX-05): cron/CI safe defaults; structured exit codes 64/65/1/0
+- Interactive prompts (UX-02, UX-04): per-action prompts in TTY mode; alt-user-name prompt for incompatible existing user
+- Documentation (DOC-01, DOC-02): README "Brownfield install" + `docs/MIGRATION.md`
 
-v0.4.0 took AgentLinux from a private repository to a public one across 5 phases (License + Public-Ready Documentation; Secret Scanning + History Audit; Repository Hygiene + Artifact Cleanup; Public CI/CD + Branch Protection; Public Visibility Flip + Smoke Test). MIT licensed (ADR-013). Zero verified secrets in history (gitleaks + trufflehog + targeted manual audit). gitleaks gate live in pre-commit + CI. Workflow `permissions:` blocks at least-privilege; zero `pull_request_target` usage. Branch protection applied on `master`. The visibility flip executed and the post-flip anonymous-clone + `curl | bash` smoke test against the v0.3.0 release tag both succeeded.
+Archived: `.planning/milestones/v0.3.4-ROADMAP.md`, `.planning/milestones/v0.3.4-REQUIREMENTS.md`.
+</details>
 
-**What carries forward into v0.3.3:** Public-repo CI/CD spend now lives on free GitHub Actions minutes, unblocking the broader benchmark/security work that pillars 2 and 3 will eventually require. The OSS license + CONTRIBUTING surface lets external contributors begin engaging with the strategy doc and any v0.6+ work that flows from it. ADR-001..ADR-014 + the behavior-test contract (bats suite as spec) + the per-phase TST-07-style phase-close gate convention all carry forward unchanged; v0.3.3 phases follow the same evidence-cite-per-requirement pattern, with documentation artifacts substituting for bats where appropriate.
+## Previous Milestone: v0.4.0 Open-Source Release — feature-complete (formal closeout pending)
+
+v0.4.0 (Open-Source Release) shipped Phases 7–11 (License + CONTRIBUTING; gitleaks/trufflehog history audit + scanner gate; repo hygiene + branch cleanup; public-CI/CD audit + branch protection; visibility flip + post-flip smoke). The status section of this document and `MILESTONES.md` are scheduled for a maintenance pass that reconciles the formal closeout. v0.3.4 numbering reflects a milestone-rename pass; the formal `MILESTONES.md` ordering will be updated in that same pass.
 
 ## Earlier Milestones
 
-### v0.3.0 AgentLinux Plugin (Ubuntu) — Shipped 2026-04-20
+### v0.3.0 AgentLinux Plugin (Ubuntu) — feature-complete 2026-04-20 (preserved here pending v0.4.0 closeout reconciliation)
 
-v0.3.0 shipped the installable Ubuntu plugin in 6 phases (Harness, Installer Foundation + Agent User, Node.js Runtime, Registry CLI + Catalog, Agent Installability, Distribution + Release Pipeline) plus one inserted phase (5.1 Agent User Sudo Drop-In). All 54 v0.3.0 requirements have observable bats coverage; Ubuntu 22.04 + 24.04 + 26.04 Docker matrices and the QEMU release-gate suite green; AGT-02 (the canonical "Claude Code self-updates without sudo / EACCES" acceptance test) passes end-to-end against the live Anthropic CDN. 4-gate `release.yml` (pre-commit → Docker matrix → QEMU release gate → pinned-combo gate). Carries forward: behavior-test contract (bats suite as spec), curl-pipe-bash installer, catalog + registry CLI, ADR-001..ADR-012, TST-07 phase-close gate convention.
+v0.3.0 shipped the installable Ubuntu plugin in 6 phases (Harness, Installer Foundation + Agent User, Node.js Runtime, Registry CLI + Catalog, Agent Installability, Distribution + Release Pipeline) plus one inserted phase (5.1 Agent User Sudo Drop-In). All 54 v0.3.0 requirements have observable bats coverage, both Ubuntu 22.04 + 24.04 Docker matrices and the QEMU release-gate suite are green, and AGT-02 (the canonical "Claude Code self-updates without sudo / EACCES" acceptance test) passes end-to-end against the live Anthropic CDN. The v0.3.0 release pipeline is wired (4-gate `release.yml`: pre-commit → Docker matrix → QEMU release gate → pinned-combo gate) and awaits its first `v0.3.0-rc1` tag push as the shipping event. v0.4.0 (open-sourcing) does not block on the rc1 tag — repo cleanup runs in parallel.
+
+**What carries forward:** The behavior-test contract (bats suite as spec), curl-pipe-bash installer, catalog + registry CLI, ADR-001..ADR-012, and the phase-close TST-07 behavior-coverage-auditor gate. v0.4.0 phases follow the same per-phase TST-07 pattern: every requirement gets at least one verifiable check (bats @test, CI-gate citation, or auditable artifact) before the phase closes.
+
+## Earlier Milestones
 
 ### v0.2.0 First Distro Image (retired 2026-04-18 — pivot)
 
@@ -83,41 +95,36 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 - ✓ Canonical acceptance test AGT-02: Claude Code self-update without sudo / EACCES — v0.3.0 (live against Anthropic CDN, both Ubuntu 22.04 + 24.04)
 - ✓ Bats behavior-test suite + Docker matrix + QEMU release-gate suite + 4-gate `release.yml` — v0.3.0
 - ✓ Pinned-combo release gate (TST-08) + catalog snapshot publication (CAT-05) per ADR-011 — v0.3.0
-- ✓ MIT OSS license (ADR-013) — `LICENSE` at repo root, README license badge + section, SPDX headers on first-party source files (LIC-01..04) — v0.4.0
-- ✓ Full git-history secret scan (gitleaks + trufflehog + targeted manual audit) — zero verified findings, one false positive triaged (SEC-01..03) — v0.4.0
-- ✓ Pre-commit + CI gitleaks gate live; smoke-test confirms gate fires on contrived secrets (SEC-04..05) — v0.4.0
-- ✓ Repository hygiene: `.gitignore` hardened, no stale branches, no >500 KB blobs in history (CLEAN-01..04) — v0.4.0
-- ✓ Workflow `permissions:` blocks at least-privilege; zero `pull_request_target`; branch protection on `master` applied (CIPUB-01..04) — v0.4.0
-- ✓ Repository visibility flipped to public; anonymous-clone + `curl | bash` smoke against v0.3.0 release tag green (PUB-01..04) — v0.4.0
-- ✓ Pillar 2 verdict published with hard reframe (infrastructure, not agent product) at `docs/exploration/PILLAR-2-NOTES.md` (EXPL-01) — v0.3.3
-- ✓ Pillar 3 candidate verdict (b) at `docs/exploration/PILLAR-3-CANDIDATE-NOTES.md` — security folds into Pillar 2 as sub-concern (EXPL-02) — v0.3.3
-- ✓ Canonical vision document at `docs/VISION.md` — mission, two pillars as optimization values, guiding principles, non-goals (VIS-01..09) — v0.3.3
-- ✓ ADR-016 at `docs/decisions/016-agenda-redefinition.md` records the two-pillar framing decision with three considered-and-rejected alternatives (VIS-09) — v0.3.3
-- ✓ Downstream surface back-pointers to VISION.md across README, CONTRIBUTING, PROJECT.md, STABILITY-MODEL.md (DOC-01..04); DOC-05 closed N/A (no Pillar 3) — v0.3.3
-- ✓ Canonical strategy document at `docs/STRATEGY.md` with the 4-section Rumelt-style spine (diagnosis + bets + guiding policy + execution principles); ROADMAP.md split out per Round-2 amendment (STRATR-01..07) — v0.3.3
-- ✓ Website refresh at agentlinux.org reflecting the two-pillar framing; voice-rule grep gate clean on rendered HTML (SITE-01..09 + SITE-12; SITE-02/03/05/07/11 superseded under scope re-cut, SITE-10 N/A) — v0.3.3
-- ✓ Voice-rule grep gate as hard gate on VISION.md, STRATEGY.md, ROADMAP.md, and rendered HTML (VIS-07, STRATR-06, SITE-06) — v0.3.3
 
-### Active
+### Active (v0.3.4 — Aware Installation Process)
 
-(None — milestone open for scoping. Run `/gsd-new-milestone`.)
+See `.planning/REQUIREMENTS.md` for the full v0.3.4 requirement list (categories: DET, REUSE, REMEDIATE, UX, DOC). Headline outcomes:
+
+- [ ] Pre-flight detection pass identifies pre-existing agent user, Node.js, npm-global prefix, sudoers drop-in, and each catalog agent — surfaced as a Reuse / Create / Remediate / Bail report
+- [ ] `agentlinux install --dry-run` prints the report and exits 0 without mutation
+- [ ] Reuse path: compatible pre-existing components are reused; provisioners / recipes short-circuit instead of clobbering
+- [ ] Remediate path: incompatible-but-fixable components (wrong ownership, missing PATH wiring, drifted sudoers, broken agent install) are fixed — overwrites of user state require an explicit flag in non-interactive mode
+- [ ] Non-interactive default is reuse-or-bail; interactive mode prompts for alternate user name when `agent` clashes and for reinstall confirmation when an agent tool fails its health check
+- [ ] README "Brownfield Install" section + `docs/MIGRATION.md` cover the common pre-existing-setup scenarios
+
+### Validated (v0.4.0 — Open-Source Release; formal closeout pending)
+
+The v0.4.0 requirement set (LIC / SEC / CLEAN / CIPUB / PUB) shipped end-to-end with audit evidence under `docs/audits/v0.4.0/`. Formal status reconciliation (move to Validated, fold into MILESTONES.md) is scheduled for the next maintenance pass alongside the milestone-rename. Detail preserved in `.planning/milestones/v0.4.0-REQUIREMENTS.md`.
 
 ### Out of Scope
 
-**v0.3.3 out of scope:**
-- *Implementing* preset/profile framework or compat-guarded update mechanism (Pillar 2 forward differentiators) — v0.3.3 surfaces them in the strategy doc; the actual implementation lands in a v0.6+ milestone.
-- *Implementing* security-hardening countermeasures (the Phase 14 opportunistic theme) — supply-chain and prompt-injection mitigations land in a v0.6+ milestone.
-- New distro targets, new catalog agents, new installer features — Pillar 1 stays at its v0.3.0 surface for this milestone.
-- A full website redesign — the website-refresh phase keeps the existing dark JetBrains-Mono aesthetic + crab mascot.
-- Renaming, restructuring, or moving the vision or strategy docs after Phase 15 / Phase 16 land — locations lock at `docs/VISION.md` and `docs/STRATEGY.md`.
-- *Resolving* the ADR-012 NOPASSWD tension. The vision doc and ADR-016 *document* the tension; the *resolution* belongs to the v0.6+ Security Hardening milestone.
-- Authoring a Code of Conduct, SECURITY.md, or full issue / PR templates — track separately as a community-platform milestone.
+**v0.3.4 out of scope:**
+- New distro targets (Fedora / CentOS / Alma / Arch / openSUSE) — still deferred; brownfield-aware install is Ubuntu-only for v0.3.4
+- New catalog agents beyond the existing three (claude-code, gsd, playwright) — catalog churn happens in feature milestones, not the brownfield-aware one
+- Auto-detection of arbitrary user-installed npm globals outside the catalog (e.g. `npx`, `tsx`, `vercel`) — out of scope; AgentLinux only owns its catalog
+- Auto-migration of nvm / fnm / volta / mise managed Node.js installs to a system Node.js install — surfaced as "Bail" with a clear remediation hint, not auto-rewritten
+- Replacing or migrating an existing user's shell init files (`.bashrc`, `.profile`) — additive `ensure_marker_block` only; never edit pre-existing lines
+- Multi-arch (ARM) — x86_64 only for now (carried forward)
 
 **v0.4.0 out of scope (carried forward):**
 - New distro targets (Fedora / CentOS / Alma / Arch / openSUSE) — deferred to a later milestone
 - Mutation testing promotion to release gate — still v0.5+ per ADR-010
-- Multi-arch (ARM) — x86_64 only for now
-- Repo migration to a different GitHub organization or rename
+- Repo migration to a different GitHub organization or rename — out of scope
 
 **v0.3.0 out of scope (carried forward):**
 - Fedora / CentOS / Alma / Arch / openSUSE targets (deferred to a later feature milestone)
@@ -143,13 +150,13 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 
 **Distro experiment (v0.2.0, retired 2026-04-18):** Packer + QEMU + fpm stack produced bootable Debian 12 QCOW2 images with three agent tools pre-packaged. Useful provisioner-script learnings. Retired because distro-as-product has too much adoption friction vs. an installable extension.
 
-**Plugin (v0.3.0, shipped 2026-04-20):** All 6 phases plus inserted phase 5.1 shipped. 54/54 requirements covered. v0.3.0-rc1 tag pushed; release pipeline executed end-to-end.
+**Plugin (v0.3.0, feature-complete 2026-04-20):** All 6 phases plus inserted phase 5.1 shipped. 54/54 requirements covered. Awaits the first `v0.3.0-rc1` tag push as the runtime-shipping event.
 
-**Open-Source Release (v0.4.0, shipped 2026-05-09):** Repository is now public. Free GitHub Actions minutes unblock the broader benchmark/security work pillars 2 and 3 will eventually require. MIT licensed (ADR-013). Zero verified secrets in history. Workflow `permissions:` blocks at least-privilege; branch protection on `master`; post-flip anonymous-clone + `curl | bash` smoke green.
+**Open-Source Release (v0.4.0, feature-complete; formal closeout pending):** Phases 7–11 shipped end-to-end (license + CONTRIBUTING; gitleaks/trufflehog history audit + scanner gate; repo hygiene + branch cleanup; public-CI/CD audit + branch protection; visibility flip + post-flip smoke). Audit evidence under `docs/audits/v0.4.0/`. The formal `MILESTONES.md` reconciliation + the milestone-rename pass (which makes v0.3.4 numerically subsequent in the project's revised cadence) are scheduled for the next maintenance pass.
 
-**Agenda Redefinition (v0.3.3, current):** Anchored on Jira epic AL-7. Broadens AgentLinux's framing from a single-pillar product to two pillars (Time-to-productive + Stability) — Phase 14 verdict (b) declined a separate security pillar; the supply-chain monitoring sub-concern folds into Pillar 2. Captures the framing in `docs/VISION.md` (Phase 15), `docs/STRATEGY.md` (Phase 16), ADR-016, and the post-Phase-16 website refresh. Forward-looking — Pillar 2's mechanism work (preset/profile framework + compat-guarded update flow + Security Hardening) seeds v0.6+ milestones; v0.3.3 ships the framing, not the implementation.
+**Aware Installation (v0.3.4, current):** AgentLinux's installer was designed assuming a fresh host. In practice agents run on long-lived VMs that already have an `agent` user, Node.js, and one or more catalog tools installed — often partially, often with permission drift. v0.3.4 introduces a detection-driven path through the installer: pre-flight discovery of every component AgentLinux owns, a Reuse / Create / Remediate / Bail decision per component, a dry-run mode, and a non-interactive default that never overwrites user state without an explicit flag. The bug class is the same one v0.3.0 exists to eliminate — surprise privilege fights — but viewed from the brownfield direction. Triggered by AL-38; the canonical acceptance test is "agent installation completes cleanly on a host with Claude Code, GSD, and Playwright already present, AGT-02 self-update still green afterwards."
 
-Known minor issue (carried forward): OG image (SVG format) doesn't render on all social platforms — convert to PNG for broader support (website todo).
+Known minor issue: OG image (SVG format) doesn't render on all social platforms — convert to PNG for broader support (website todo).
 
 ## Constraints
 
@@ -179,14 +186,13 @@ Known minor issue (carried forward): OG image (SVG format) doesn't render on all
 | Local apt repo in image (no public PPA) | Sufficient for PoC | Retired with pivot |
 | Ubuntu as v0.3.0 target | Largest developer Linux audience; apt-based (leverages v0.2.0 learnings) | ✓ Good — v0.3.0 shipped on Ubuntu 22.04 + 24.04 |
 | Canonical acceptance test: Claude Code self-update | Directly tests the motivating bug class (EACCES / recursive shim) | ✓ Good — AGT-02 green end-to-end against Anthropic CDN |
-| **Open-source the repo (v0.4.0)** (2026-04-26) | Private-repo CI/CD spend is non-trivial; public repos get free Actions minutes; unblocks community contributions and outside marketing | ✓ Shipped 2026-05-09 |
-| MIT as the OSS license (ADR-013) | Permissive, dependency-friendly, low-friction for community adoption | ✓ Applied in v0.4.0 Phase 7 |
-| Visibility flip treated as irreversible-in-practice | Re-private is possible but third parties may have already cloned/forked; one-way trip | ✓ Drove the v0.4.0 Phase 11 pre-flight checklist; flip executed |
-| **Agenda redefinition (v0.3.3)** (2026-05-09, AL-7) | A single-pillar framing was too narrow to position AgentLinux and to attract the right contributors; broadening landed at two pillars per Phase 14 verdict (b) | ✓ Shipped 2026-05-24 — landed at two pillars (Time-to-productive + Stability) |
-| Vision/strategy/roadmap split into three docs | Different audiences (product leadership / contributors + AI agents / time-ordered planning); reduces aspirational drift risk per Pitfall #12 | ✓ Shipped 2026-05-24 — VISION.md + STRATEGY.md + ROADMAP.md all landed |
-| Defer pillar 2 mechanism work to v0.6+ | Framing must lock before mechanism work picks scope; otherwise the implementation ships against an unstable framing | ✓ Good — framing locked; v0.6+ themes seeded in `docs/ROADMAP.md` |
-| **2026-05-16 reframe — two pillars + vision/strategy split** (ADR-016) | Phase 14 verdict (b) declined a separate security pillar (no honest already-shipped table-stakes; aspirational drift risk per Pitfall #6); user reframe split vision/strategy into separate documents because they serve different audiences. Three considered-and-rejected alternatives recorded in ADR-016. | ✓ Shipped 2026-05-24 — ADR-016 landed; vision/strategy/roadmap split executed in Phase 16 Round 2 |
-| Voice-rule grep gate as hard gate on VISION.md / STRATEGY.md / ROADMAP.md / index.html | Single most important defence against shipping vaporware; the grep is the spec | ✓ Good — clean across all four artefacts at v0.3.3 close |
+| **Open-source the repo (v0.4.0)** (2026-04-26) | Private-repo CI/CD spend is non-trivial; public repos get free Actions minutes; unblocks community contributions and outside marketing | — Active |
+| MIT as recommended OSS license | Permissive, dependency-friendly, low-friction for community adoption (vs. Apache-2.0 patent grant or GPL copyleft) | — Active (final pick confirmed in Phase 7) |
+| Visibility flip is irreversible-in-practice | Re-private is possible but third parties may have already cloned/forked; treat as one-way | — Active (drove Phase 11 pre-flight checklist) |
+| **Aware Installation milestone (v0.3.4)** (2026-05-09) | AL-38: real-world hosts already have partial agent toolchains; the v0.3.0 installer's "fresh-host" assumption fails them. Detection + Reuse/Remediate/Bail makes AgentLinux usable on brownfield hosts without changing the v0.3.0 contract for fresh hosts | — Active |
+| Reuse-or-bail as the non-interactive default | Non-interactive contexts (cron, CI, ssh-non-interactive, `curl \| sudo bash`) cannot safely make policy decisions about pre-existing user state; default to the conservative path; require an explicit flag for any overwrite | — Active (drives v0.3.4 UX-03..05) |
+| Detection layer is read-only | Discovery never mutates host state; mutation is the Reuse / Remediate path's responsibility, gated by the pre-flight report. This keeps `--dry-run` trivially correct | — Active (drives v0.3.4 DET-XX) |
+| Brownfield acceptance test: AGT-02 still green after install on a pre-populated host | Same canonical bug class as v0.3.0; the brownfield path must not regress the green-field path | — Active (locks v0.3.4 phase-close gate) |
 
 ## Evolution
 
@@ -206,4 +212,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-24 after v0.3.3 milestone — Agenda Redefinition shipped. Two-pillar framing locked at `docs/VISION.md`; strategy + roadmap at `docs/STRATEGY.md` + `docs/ROADMAP.md`; agentlinux.org refreshed. Next milestone open for scoping via `/gsd-new-milestone`.*
+*Last updated: 2026-05-09 — v0.3.4 (Aware Installation Process) milestone planned via /gsd-new-milestone (AL-38). v0.4.0 (Open-Source Release) feature-complete; formal closeout reconciliation pending.*

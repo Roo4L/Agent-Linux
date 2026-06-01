@@ -1,75 +1,40 @@
-# Roadmap: AgentLinux
+# Roadmap
 
-## Milestones
+**Current milestone:** v0.3.4 Aware Installation Process — **shipping** (Phase 17: delivery → release candidate → maintainer validation → final release)
 
-- [SHIPPED] **v0.1.0 AgentLinux Landing Page** — Phases 1-2 (shipped 2026-03-10) — [archive](./milestones/v0.1.0-ROADMAP.md)
-- [SHIPPED] **v0.2.0 Image-as-Product (retired)** — Phases 1-4 (shipped 2026-04-18, retired with v0.3.0 pivot) — [archive](./milestones/v0.2.0-ROADMAP.md)
-- [SHIPPED] **v0.3.0 Installable Plugin** — Phases 1-6 (shipped 2026-04-20) — [archive](./milestones/v0.3.0-ROADMAP.md)
-- [SHIPPED] **v0.4.0 Open-Source Flip** — Phases 7-11 (shipped 2026-05-02) — [archive](./milestones/v0.4.0-ROADMAP.md)
-- [SHIPPED] **v0.3.3 Agenda Redefinition** — Phases 13-17 (shipped 2026-05-24) — [archive](./milestones/v0.3.3-ROADMAP.md)
-- [PLANNED] **vNext** — TBD (run `/gsd-new-milestone`)
+## Active Phase
 
-## Phases
+### Phase 17: Changes Delivery and Release Candidate
 
-<details>
-<summary>v0.1.0 AgentLinux Landing Page (Phases 1-2) — SHIPPED 2026-03-10</summary>
+**Goal:** Ship the feature-complete v0.3.4 "Aware Installation Process" to a maintainer-testable release candidate and gate the final release on live brownfield review. Polish the worktree branch diff (tests green, commit hygiene), merge to master, cut `v0.3.4-rc1` (tarball + sibling `.sha256` via `scripts/build-release.sh`; push the rc tag to exercise `release.yml` end-to-end — the shipping event), hand the maintainer concrete live-test instructions for his real brownfield VM (non-mutating `agentlinux-install --dry-run` preview + the fail-safe no-`--yes` bail, then the real `--yes` install + `claude update` AGT-02 check, with snapshot/rollback guidance), then await maintainer feedback as an explicit checkpoint. Decision gate: positive feedback → promote rc to final v0.3.4 (close AL-38; transition the 5 phase subtasks AL-41/44/55/56/57 to Done); negative feedback → capture it and spin improvement/bugfix plans before re-cutting.
 
-See [milestones/v0.1.0-ROADMAP.md](./milestones/v0.1.0-ROADMAP.md) for full phase details.
+**Requirements:** Delivery gate — no new behavior requirements (BHV/RT/AGT/CLI/CAT/INST). Re-exercises the existing AGT-02 acceptance (zero-EACCES `claude update`) on the maintainer's real brownfield VM rather than a fixture. Sub-goals: DEL-01 branch polish + merge to master · DEL-02 `v0.3.4-rc1` build (tarball + `.sha256`) + tag push (release.yml green) · DEL-03 maintainer live-test runbook · DEL-04 feedback checkpoint · DEL-05 promote-or-iterate gate.
 
-</details>
+**Depends on:** Phase 16 (v0.3.4 feature-complete, GATE: GREEN)
+**Anchor:** [AL-38](https://copiedwonder.atlassian.net/browse/AL-38) — file a Phase 17 subtask on plan; this is the maintainer-validation gate referenced at milestone close.
 
-<details>
-<summary>v0.2.0 Image-as-Product retired (Phases 1-4) — SHIPPED 2026-04-18</summary>
+**Plans:** 3 plans (3 waves — strict delivery ordering with 2 human checkpoints)
 
-See [milestones/v0.2.0-ROADMAP.md](./milestones/v0.2.0-ROADMAP.md) for full phase details. Distribution model retired with v0.3.0 pivot to installable Ubuntu plugin (ADR-001).
+Plans:
+- [ ] 17-01-PLAN.md — DEL-02a + DEL-01: lockstep version bump 0.3.2→0.3.4 + merge-integrate origin/master + full suite green (autonomous)
+- [ ] 17-02-PLAN.md — DEL-01b/DEL-02b/DEL-03/DEL-04: push branch + open PR → [HUMAN: merge PR] → push v0.3.4-rc1 tag + watch release → write brownfield-VM runbook → [HUMAN: VM validation] (orchestrator-supervised)
+- [ ] 17-03-PLAN.md — DEL-05: promote-or-iterate decision record + [HUMAN: decision gate] (describe-only; no autonomous promote/close)
 
-</details>
+## Shipped / Feature-Complete Milestones
 
-<details>
-<summary>v0.3.0 Installable Plugin (Phases 1-6, incl. 5.1) — SHIPPED 2026-04-20</summary>
+| Version | Name | Phases | Status | Archive |
+|---------|------|--------|--------|---------|
+| v0.3.4 | Aware Installation Process | 5 (Phase 12-16) | feature-complete 2026-05-27 · **shipping via Phase 17** | [v0.3.4-ROADMAP.md](milestones/v0.3.4-ROADMAP.md) · [v0.3.4-REQUIREMENTS.md](milestones/v0.3.4-REQUIREMENTS.md) · [v0.3.4-MILESTONE-AUDIT.md](v0.3.4-MILESTONE-AUDIT.md) |
+| v0.3.3 | Agenda Redefinition | 5 (Phase 13-17) | shipped 2026-05-24 (docs/vision/website) | [v0.3.3-ROADMAP.md](milestones/v0.3.3-ROADMAP.md) · [v0.3.3-REQUIREMENTS.md](milestones/v0.3.3-REQUIREMENTS.md) · phases archived under [milestones/v0.3.3-phases/](milestones/v0.3.3-phases/) |
+| v0.4.0 | Open-Source Release | 5 (Phase 7-11) | feature-complete (formal closeout pending) | [v0.4.0-ROADMAP.md](milestones/v0.4.0-ROADMAP.md) · [v0.4.0-REQUIREMENTS.md](milestones/v0.4.0-REQUIREMENTS.md) |
+| v0.3.0 | AgentLinux Plugin (Ubuntu) | 6 + 1 inserted (Phase 1-6, 5.1) | shipped 2026-04-20 | [v0.3.0-ROADMAP.md](milestones/v0.3.0-ROADMAP.md) · [v0.3.0-REQUIREMENTS.md](milestones/v0.3.0-REQUIREMENTS.md) |
+| v0.2.0 | First Distro Image | 4 (Phase 1-4) | retired 2026-04-18 (pivot) | [v0.2.0-ROADMAP.md](milestones/v0.2.0-ROADMAP.md) · [v0.2.0-REQUIREMENTS.md](milestones/v0.2.0-REQUIREMENTS.md) |
+| v0.1.0 | (initial) | — | — | [v0.1.0-ROADMAP.md](milestones/v0.1.0-ROADMAP.md) · [v0.1.0-REQUIREMENTS.md](milestones/v0.1.0-REQUIREMENTS.md) |
 
-See [milestones/v0.3.0-ROADMAP.md](./milestones/v0.3.0-ROADMAP.md) for full phase details. Phase numbering restarted at 1 with the pivot.
+> **Phase-numbering note (parallel-milestone overlap).** v0.3.3 (Agenda Redefinition, phases **13–17**) and v0.3.4 (Aware Installation, phases **12–17**) were developed concurrently on separate branches and **reused phase numbers** — both number sets are frozen in immutable git commit prefixes (`feat(13-…)` etc.) on their respective lineages, so renumbering is not possible without rewriting shipped history. Reconciliation: v0.3.3's completed phase dirs are **archived** under `milestones/v0.3.3-phases/`, leaving the active `phases/` dir to v0.3.4's 12–17. One residual number reuse remains in the active dir — **phase 12** is both v0.3.4's `12-detection-layer` and v0.4.0's AL-22 addendum `12-developer-documentation-…`; both are completed and distinguished by dir-slug. This mirrors the project's existing cross-milestone number reuse (v0.2.0's archived 1–4 vs v0.3.0's 1–6).
 
-</details>
+## Next Milestone Candidates
 
-<details>
-<summary>v0.4.0 Open-Source Flip (Phases 7-11) — SHIPPED 2026-05-02</summary>
+- **v0.3.5 AlmaLinux support** — port the aware-install pipeline (Phase 12-15 detection + REUSE/REMEDIATE) to AlmaLinux 9. Anchored under [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) (grouped with AL-38 under Epic AL-48 — maintainer-VM daily-driver readiness).
 
-See [milestones/v0.4.0-ROADMAP.md](./milestones/v0.4.0-ROADMAP.md) for full phase details. Phase 12 (developer-internals docs, AL-22) shipped post-milestone as an addendum.
-
-</details>
-
-<details>
-<summary>v0.3.3 Agenda Redefinition (Phases 13-17) — SHIPPED 2026-05-24</summary>
-
-See [milestones/v0.3.3-ROADMAP.md](./milestones/v0.3.3-ROADMAP.md) for full phase details.
-
-- [x] Phase 13: Pillar 2 Exploration (1/1 plan) — completed 2026-05-10
-- [x] Phase 14: Pillar 3 Candidate Exploration (1/1 plan) — completed 2026-05-10
-- [x] Phase 15: Vision Doc + ADR-016 + Downstream Surface Updates (2/2 plans) — completed 2026-05-16
-- [x] Phase 16: Strategy + Roadmap Doc (2/2 plans) — completed 2026-05-23
-- [x] Phase 17: Website Refresh agentlinux.org (1/1 plan) — completed 2026-05-24
-
-</details>
-
-### vNext — TBD
-
-Run `/gsd-new-milestone` to scope the next milestone (questioning → research → requirements → roadmap).
-
-## Progress
-
-| Phase | Milestone | Plans Complete | Status | Completed |
-|-------|-----------|----------------|--------|-----------|
-| 1-2 | v0.1.0 | n/n | Complete | 2026-03-10 |
-| 1-4 | v0.2.0 (retired) | n/n | Complete | 2026-04-18 |
-| 1-6 (incl. 5.1) | v0.3.0 | 30/30 | Complete | 2026-04-20 |
-| 7-11 | v0.4.0 | n/n | Complete | 2026-05-02 |
-| 12 (post-v0.4.0 addendum) | v0.4.0 | 5/5 | Complete | 2026-05-10 |
-| 13 Pillar 2 Exploration | v0.3.3 | 1/1 | Complete | 2026-05-10 |
-| 14 Pillar 3 Candidate Exploration | v0.3.3 | 1/1 | Complete | 2026-05-10 |
-| 15 Vision Doc + ADR-016 + Downstream | v0.3.3 | 2/2 | Complete | 2026-05-16 |
-| 16 Strategy + Roadmap Doc | v0.3.3 | 2/2 | Complete | 2026-05-23 |
-| 17 Website Refresh (agentlinux.org) | v0.3.3 | 1/1 | Complete | 2026-05-24 |
-
----
-*Last reorganized: 2026-05-24 — v0.3.3 milestone shipped; collapsed v0.1.0/v0.2.0/v0.3.0/v0.4.0/v0.3.3 into archive summaries.*
+Run `/gsd-new-milestone` to scope the next milestone (after v0.3.4 ships via Phase 17).

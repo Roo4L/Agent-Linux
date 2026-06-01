@@ -32,10 +32,33 @@ Pin to an exact release (recommended for unattended provisioning):
 AGENTLINUX_VERSION=v0.3.0 curl -fsSL https://agentlinux.org/install.sh | sudo bash
 ```
 
+If you already have an `agent` user, Node.js, or any of these agents installed, see [Brownfield install](#brownfield-install).
+
 The installer downloads the release tarball and verifies its SHA256 against a
 sibling asset on GitHub Releases before executing anything. A tampered or
 partially-downloaded tarball aborts the install with a clear error and touches
 nothing on disk.
+
+## Brownfield install (existing user / Node.js / agents)
+
+Already have an `agent` user, Node.js, or some of these agents? AgentLinux
+detects them before changing anything and decides per component: **reuse**
+what already works, **create** what's missing, **remediate** a fixable defect
+(e.g. a root-owned npm prefix, drifted sudoers, a broken agent), or **bail**
+on something it can't reconcile (e.g. the existing `agent` user has the wrong
+shell).
+
+Preview exactly what it would do — no changes, exits 0:
+
+```bash
+sudo agentlinux install --dry-run
+```
+
+Anything that would overwrite existing state asks first in a terminal
+(`Proceed? [Y/n]`), or needs `--yes` in non-interactive mode (`apt install -y`
+style). Nothing is overwritten without your consent; an unreconcilable host
+exits `65` with a hint. See [docs/MIGRATION.md](docs/MIGRATION.md) for worked
+examples and exit codes.
 
 ## Verify
 

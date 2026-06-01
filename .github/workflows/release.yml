@@ -127,7 +127,11 @@ jobs:
   gate-2-docker:
     needs: gate-1-precommit
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    # The full bats suite now runs ~19-21 min on cold CI runners (real installs +
+    # brownfield E2E across five invocation modes) — past the old 20-min cap. 60
+    # caps a genuine hang without flaky re-timeouts; matches test.yml's bats-docker
+    # budget. (gate-3-qemu stays 45 — that QEMU budget is proven by nightly-qemu.)
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -225,7 +229,9 @@ jobs:
   gate-4-pinned-combo:
     needs: gate-3-qemu
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # Re-runs the full Docker suite (~19-21 min cold) with the pinned catalog
+    # combo; 60 matches gate-2 / test.yml so a slow runner can't flake the gate.
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
       - name: Pinned catalog combo + 50-agents.bats + 51-*.bats (TST-08)

@@ -509,6 +509,185 @@ describe("upgradeCmd — bulk flag reconcile", () => {
   });
 });
 
+// Plan 13-02: REUSE-03 upgrade behavior — reused entries are treated
+// IDENTICALLY to installed entries; post-upgrade sentinel flips status:
+// "reused" -> "installed" and clears REUSE-only fields. T-13-07: stale-reused
+// detection (binary_path missing) forces reinstall.
+describe("upgradeCmd — REUSE-03 reused-entry handling (Plan 13-02)", () => {
+  beforeEach(async () => {
+    await rm(STATE_DIR, { recursive: true, force: true });
+  });
+
+  test("REUSE-03: reused sentinel under --reset-all-curated flips to status=installed + clears REUSE-only fields", async () => {
+    // Pre-seed a reused sentinel for npm-agent at the catalog pin (1.0.0).
+    // Reset-all-curated forces a reinstall against the catalog pin; the
+    // post-upgrade sentinel must be status:"installed" with all REUSE-only
+    // fields cleared.
+    await writeSentinel({
+      id: "npm-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "reused",
+      binary_path: "/home/agent/.npm-global/bin/npm-agent",
+      detected_source: "pre-existing",
+      reused_at: "2026-05-16T00:00:00.000Z",
+      compatibility_window_at_reuse: ">=1.0.0 <2.0.0",
+    });
+    const recipe = makeRecipeCap();
+    // Reflect the pin as what npm ls sees so report.status == 'synced' —
+    // shouldReinstall(synced, reset-all-curated) returns null, but T-13-07's
+    // stale-binary-gone override does not apply here (binary path doesn't
+    // exist in CI, BUT the sentinel is the in-memory one — let's verify the
+    // stale-binary fallback triggers a reinstall).
+    const npmLsStub = async () => new Map([["npm-agent", "1.0.0"]]);
+    const viewStub = async () => null;
+    const sil = silenceConsole();
+    try {
+      await upgradeCmd(
+        { resetAllCurated: true },
+        {
+          dispatchRecipe: recipe.impl,
+          queryGlobalNpm: npmLsStub,
+          queryNpmViewLatest: viewStub,
+        },
+      );
+    } finally {
+      sil.restore();
+    }
+    // The reused binary path /home/agent/.npm-global/bin/npm-agent does not
+    // exist in the test sandbox -> validateReusedBinary returns false ->
+    // forced reinstall regardless of synced status.
+    const byId = new Map(recipe.calls.map((c) => [c.entryId, c]));
+    assert.ok(byId.has("npm-agent"), "stale reused binary forces reinstall");
+    const s = await readSentinel("npm-agent");
+    assert.equal(s?.status, "installed", "status flips to installed");
+    assert.equal(s?.binary_path, undefined, "binary_path cleared post-upgrade");
+    assert.equal(s?.detected_source, undefined, "detected_source cleared");
+    assert.equal(s?.reused_at, undefined, "reused_at cleared");
+    assert.equal(s?.compatibility_window_at_reuse, undefined, "compatibility_window cleared");
+  });
+
+  test("REUSE-03 / T-13-07: stale reused sentinel (binary_path gone) forces reinstall even on 'synced' report", async () => {
+    // npm-agent at 1.0.0 reused + npm ls reports 1.0.0 + no upgrade flag would
+    // normally trigger a re-dispatch — synced reports are skipped. But the
+    // binary_path is missing on disk so validateReusedBinary returns false;
+    // the reconcile loop overrides the null target to "curated".
+    await writeSentinel({
+      id: "npm-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "reused",
+      binary_path: "/no/such/file/anywhere",
+      detected_source: "pre-existing",
+      reused_at: "2026-05-16T00:00:00.000Z",
+    });
+    const recipe = makeRecipeCap();
+    const npmLsStub = async () => new Map([["npm-agent", "1.0.0"]]);
+    const viewStub = async () => null;
+    const sil = silenceConsole();
+    try {
+      await upgradeCmd(
+        { resetAllCurated: true },
+        {
+          dispatchRecipe: recipe.impl,
+          queryGlobalNpm: npmLsStub,
+          queryNpmViewLatest: viewStub,
+        },
+      );
+    } finally {
+      sil.restore();
+    }
+    const byId = new Map(recipe.calls.map((c) => [c.entryId, c]));
+    assert.ok(byId.has("npm-agent"), "stale binary triggers reinstall");
+  });
+
+  test("REUSE-03: reused-flip log line surfaces during upgrade (visibility)", async () => {
+    await writeSentinel({
+      id: "npm-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "reused",
+      binary_path: "/home/agent/.npm-global/bin/npm-agent",
+      detected_source: "pre-existing",
+      reused_at: "2026-05-16T00:00:00.000Z",
+    });
+    const recipe = makeRecipeCap();
+    const npmLsStub = async () => new Map([["npm-agent", "0.9.0"]]);
+    const viewStub = async () => null;
+    const sil = silenceConsole();
+    try {
+      await upgradeCmd(
+        { resetAllCurated: true },
+        {
+          dispatchRecipe: recipe.impl,
+          queryGlobalNpm: npmLsStub,
+          queryNpmViewLatest: viewStub,
+        },
+      );
+    } finally {
+      sil.restore();
+    }
+    const joined = sil.out.join("\n");
+    assert.match(joined, /upgrading reused install/);
+  });
+});
+
+// Plan 15-01 (T-15-01-05): upgrade.ts treats sentinel.status="reused-with-
+// warning" IDENTICALLY to "reused" — both are "already installed; honor
+// user's manual ownership of this component". Without this, a subsequent
+// `agentlinux upgrade` would re-attempt the remediation the user just
+// declined, defeating the whole prompt-loop UX.
+describe("upgradeCmd — reused-with-warning handling (Plan 15-01 T-15-01-05)", () => {
+  beforeEach(async () => {
+    await rm(STATE_DIR, { recursive: true, force: true });
+  });
+
+  test("U11 (T-15-01-05): reused-with-warning sentinel is treated identically to reused (no upgrade dispatch in default report-only mode)", async () => {
+    // Pre-seed a reused-with-warning sentinel. The upgrade default path is
+    // report-only — no flag means no mutation. Assert zero dispatches.
+    await writeSentinel({
+      id: "npm-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-25T00:00:00.000Z",
+      status: "reused-with-warning",
+      decline_reason: "chown-declined",
+    });
+    const recipe = makeRecipeCap();
+    const npmLsStub = async () => new Map([["npm-agent", "1.0.0"]]);
+    const viewStub = async () => null;
+    const sil = silenceConsole();
+    try {
+      await upgradeCmd(
+        {},
+        {
+          dispatchRecipe: recipe.impl,
+          queryGlobalNpm: npmLsStub,
+          queryNpmViewLatest: viewStub,
+        },
+      );
+    } finally {
+      sil.restore();
+    }
+    assert.equal(
+      recipe.calls.length,
+      0,
+      "report-only mode never dispatches; reused-with-warning preserved",
+    );
+    // Sentinel preserved with both fields.
+    const s = await readSentinel("npm-agent");
+    assert.equal(s?.status, "reused-with-warning");
+    assert.equal(s?.decline_reason, "chown-declined");
+  });
+});
+
 describe("upgradeCmd — flag priority", () => {
   beforeEach(async () => {
     await rm(STATE_DIR, { recursive: true, force: true });
