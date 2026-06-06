@@ -315,6 +315,21 @@ run_provisioners() {
   done
 }
 
+# run_agent_adoption — AL-61. After provisioning, record any pre-existing
+# reuse-eligible catalog agents (healthy, at the canonical path, in the
+# compatibility window) into managed sentinels via `agentlinux adopt --all`, so
+# `agentlinux list` reflects what the host already has instead of reporting it
+# not-installed. Adoption installs NOTHING — it only adopts what detect::run_once
+# already found (via /run/agentlinux-detect.json), so the "no agent installed by
+# default" contract holds. Invoked through a login shell so AGENTLINUX_* env +
+# PATH match a normal agent `agentlinux` invocation. Best-effort: a failure here
+# must not fail an otherwise-successful install.
+run_agent_adoption() {
+  log_info "adopting pre-existing reuse-eligible agents (agentlinux adopt --all)"
+  as_user_login agent agentlinux adopt --all \
+    || log_warn "agentlinux adopt --all reported a problem (continuing; run it manually to retry)"
+}
+
 # run_purge [remove_nodejs_flag] — ordered 7-step teardown; every step is
 # idempotent. Ordering matters:
 #   1. per-agent uninstall.sh (needs /opt/agentlinux/catalog/ still present)
@@ -487,6 +502,7 @@ main() {
   if [[ "$DRY_RUN_REQUESTED" == true ]]; then
     log_info "[DRY-RUN] pre-flight report (no host mutation):"
     detect::emit_report "$REPORT_FORMAT"
+    log_info "[DRY-RUN] on apply, reuse-eligible agents are adopted into managed sentinels (agentlinux adopt --all)"
     log_info "[DRY-RUN] exit 0 (no mutation; re-run without --dry-run to apply)"
     exit 0
   fi
@@ -504,6 +520,7 @@ main() {
   fi
 
   run_provisioners
+  run_agent_adoption
   log_info "agentlinux-install complete (transcript: ${LOG_FILE})"
 }
 
