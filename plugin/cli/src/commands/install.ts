@@ -37,6 +37,21 @@ const CANONICAL_PATHS: Record<string, string> = {
   "playwright-cli": "/home/agent/.npm-global/bin/playwright-cli",
 };
 
+// GSD's second canonical presence — the deployed-system VERSION file. `npm
+// install -g get-shit-done-cc` leaves a bootstrapper binary at CANONICAL_PATHS,
+// but the upstream `npx get-shit-done-cc` install path deploys the GSD system
+// (gsd-* skills + this VERSION file) WITHOUT a persistent binary. detect/agents.sh
+// reports gsd at this path when the binary is absent, and it counts as canonical
+// for REUSE. MUST stay byte-identical to REUSE_GSD_SYSTEM_PATH in
+// plugin/lib/reuse/agents.sh.
+const GSD_SYSTEM_PATH = "/home/agent/.claude/get-shit-done/VERSION";
+
+// A detected agent is "at canonical" when its path is the catalog canonical OR,
+// for gsd only, the deployed-system VERSION file (gsd's dual presence).
+function isCanonicalAgentPath(entry: CatalogEntry, path: string, canonical: string): boolean {
+  return path === canonical || (entry.id === "gsd" && path === GSD_SYSTEM_PATH);
+}
+
 interface ReuseHit {
   binary_path: string;
   version: string;
@@ -103,7 +118,7 @@ function tryReuse(entry: CatalogEntry): ReuseHit | null {
   if (!hit) return null;
   const { detected, canonical } = hit;
   if (detected.status !== "healthy") return null;
-  if (detected.path !== canonical) return null;
+  if (!isCanonicalAgentPath(entry, detected.path, canonical)) return null;
   if (!semver.valid(detected.version)) return null;
   if (!semver.satisfies(detected.version, entry.compatibility_window)) return null;
 
@@ -135,7 +150,7 @@ function tryRemediate(entry: CatalogEntry): RemediateHit | null {
   if (detected.status === "broken") {
     return { reason: "broken", detected_path: detected.path, canonical_path: canonical };
   }
-  if (detected.status === "healthy" && detected.path !== canonical) {
+  if (detected.status === "healthy" && !isCanonicalAgentPath(entry, detected.path, canonical)) {
     return { reason: "path-mismatch", detected_path: detected.path, canonical_path: canonical };
   }
   return null;

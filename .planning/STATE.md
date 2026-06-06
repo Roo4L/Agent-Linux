@@ -3,9 +3,9 @@ gsd_state_version: 1.0
 milestone: v0.3.4
 milestone_name: milestone
 status: shipping
-stopped_at: "Phase 17 Wave 1 done (merge origin/master + bump 0.3.2->0.3.4 + v0.3.3 phase-archive reconciliation + fast checks green) + Wave 2 Task 1 done (PR #34 open). HALTED at human checkpoint 1: maintainer merges PR #34. After merge -> push pre-authorized v0.3.4-rc1 tag -> runbook -> human checkpoint 2 (VM validation) -> promote-or-iterate (Plan 17-03)."
-last_updated: "2026-05-31T00:00:00.000Z"
-last_activity: 2026-05-31 -- Phase 17 PR #34 open, awaiting maintainer merge
+stopped_at: "Phase 17 ITERATING on rc1 feedback (checkpoint-2 decision = bugfix rc). v0.3.4-rc1 published + validated by maintainer; validation surfaced a real DET-04 bug: GSD installed via `npx get-shit-done-cc` (deploys gsd-* skills + ~/.claude/get-shit-done/VERSION, no global binary) was misreported `absent` because detection probed only the bootstrapper binary. FIX (branch fix/gsd-npx-detection off master): detect/agents.sh + reuse/agents.sh + install.ts give gsd a second canonical presence (the user-owned deployed-system VERSION file), version-window decides reuse-vs-install; symlink-ownership-gated read. +3 tests (13-reuse npx-reuse, 15-detection npx-E2E, install.test out-of-window) — CLI 167/167; 7-reviewer loop clean. NEXT: PR -> merge -> tag v0.3.4-rc2 -> release.yml -> publish -> back to checkpoint 2. Deferred: alt-user hollow-install (AL-59); release.yml auto-prerelease for -rc tags; Docker-build-cache CI speedup."
+last_updated: "2026-06-06T00:00:00.000Z"
+last_activity: 2026-06-06 -- Phase 17 rc2 in progress: fixed GSD npx-deployed detection (rc1 feedback), cutting v0.3.4-rc2
 progress:
   total_phases: 1
   completed_phases: 0

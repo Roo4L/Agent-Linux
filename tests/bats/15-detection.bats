@@ -17,6 +17,14 @@ load 'helpers/detection'
 LOG=/var/log/agentlinux-install.log
 INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 
+# Backstop cleanup for the npx-form gsd fixture (the "deployed-system VERSION"
+# test below). Runs after EVERY test so the fixture is removed even when an
+# assertion aborts the test body before its inline cleanup. Idempotent + scoped
+# to the gsd fixture paths, so it is a no-op for the other DET-* tests.
+teardown() {
+  rm -rf /home/agent/.claude/get-shit-done /home/agent/.claude/skills/gsd-fixture-skill 2>/dev/null || true
+}
+
 @test "DET-01: --report-only --report-format=json reports install user UID + shell + home_writable" {
   run bash "$INSTALLER" --report-only --report-format=json
   assert_exit_zero "DET-01"
@@ -249,6 +257,34 @@ EOF
     and (.[0].status == "healthy" or .[0].status == "broken" or .[0].status == "absent")
   ' >/dev/null \
     || __fail "DET-04" "gsd agent entry present with status in {healthy, broken, absent}" "$output" "$LOG"
+}
+
+@test "DET-04: gsd classified healthy at the deployed-system VERSION path when the bootstrapper binary is absent (npx form)" {
+  # REQ: DET-04. Regression guard for "dry-run says gsd absent on a host where
+  # GSD is installed via npx". `get-shit-done-cc` is a bootstrapper; the upstream
+  # `npx get-shit-done-cc` install deploys the GSD system (~/.claude/get-shit-done
+  # /VERSION + gsd-* skills) but leaves NO persistent global binary. Detection
+  # must recognize that form via the VERSION file, not report 'absent'.
+  if sudo -u agent -H -i -- command -v get-shit-done-cc >/dev/null 2>&1; then
+    skip "get-shit-done-cc binary present (a prior test installed it) — npx-form fixture not isolable"
+  fi
+  install -d -m 0755 -o agent -g agent /home/agent/.claude/get-shit-done
+  printf '1.37.1\n' >/tmp/gsd-ver-fixture
+  install -m 0644 -o agent -g agent /tmp/gsd-ver-fixture /home/agent/.claude/get-shit-done/VERSION
+  rm -f /tmp/gsd-ver-fixture
+  install -d -m 0755 -o agent -g agent /home/agent/.claude/skills/gsd-fixture-skill
+
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-04"
+  printf '%s' "$output" | jq -e '
+    (.components.agents // .agents)
+    | map(select(.id == "gsd"))
+    | .[0].status == "healthy"
+    and (.[0].path == "/home/agent/.claude/get-shit-done/VERSION")
+    and (.[0].version == "1.37.1")
+  ' >/dev/null \
+    || __fail "DET-04" "gsd healthy at deployed-system VERSION path (npx form, no binary)" "$output" "$LOG"
+  # Fixture removed by teardown() (survives the __fail abort path above too).
 }
 
 @test "DET-04: playwright-cli classified absent when binary missing from install user PATH" {

@@ -37,6 +37,16 @@ const CATALOG = {
       uninstall_recipe_path: "uninstall.sh",
     },
     {
+      id: "gsd",
+      display_name: "Get Shit Done",
+      description: "REUSE-03 fixture — gsd's dual presence (binary OR deployed-system VERSION)",
+      source_kind: "script",
+      pinned_version: "1.37.1",
+      compatibility_window: ">=1.37.0 <2.0.0",
+      install_recipe_path: "install.sh",
+      uninstall_recipe_path: "uninstall.sh",
+    },
+    {
       id: "test-dummy",
       display_name: "Test Dummy",
       description: "test-only fixture",
@@ -55,6 +65,7 @@ before(async () => {
   STATE_DIR = join(TMP, "state/installed.d");
   await mkdir(join(CATALOG_DIR, "agents", "fake-agent"), { recursive: true });
   await mkdir(join(CATALOG_DIR, "agents", "claude-code"), { recursive: true });
+  await mkdir(join(CATALOG_DIR, "agents", "gsd"), { recursive: true });
   await mkdir(join(CATALOG_DIR, "agents", "test-dummy"), { recursive: true });
   await writeFile(join(CATALOG_DIR, "catalog.json"), JSON.stringify(CATALOG));
   await writeFile(
@@ -76,6 +87,16 @@ before(async () => {
   );
   await writeFile(
     join(CATALOG_DIR, "agents", "fake-agent", "uninstall.sh"),
+    "#!/usr/bin/env bash\nexit 0\n",
+    { mode: 0o755 },
+  );
+  await writeFile(
+    join(CATALOG_DIR, "agents", "gsd", "install.sh"),
+    "#!/usr/bin/env bash\nexit 0\n",
+    { mode: 0o755 },
+  );
+  await writeFile(
+    join(CATALOG_DIR, "agents", "gsd", "uninstall.sh"),
     "#!/usr/bin/env bash\nexit 0\n",
     { mode: 0o755 },
   );
@@ -458,6 +479,93 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
     assert.equal(cap.calls.length, 2, "path-mismatch with --yes → REMEDIATE = uninstall + install");
     const s = await readSentinel("claude-code");
     assert.equal(s?.status, "installed");
+  });
+
+  test("REUSE-03 / DET-04: gsd at the deployed-system VERSION path is NOT a path-mismatch (npx form, no binary)", async () => {
+    // GSD's `get-shit-done-cc` is a bootstrapper; `npx get-shit-done-cc` deploys
+    // the system (VERSION + gsd-* skills) but leaves no global binary, so
+    // detect/agents.sh reports gsd at GSD_SYSTEM_PATH. That is a valid canonical
+    // presence — it must NOT trigger REMEDIATE-04's uninstall+reinstall (2
+    // dispatcher calls). Host-independent: if the real VERSION file happens to
+    // exist (dev host with GSD installed), tryReuse short-circuits → reuse (0
+    // calls); if absent (CI greenfield), it falls through → single install (1
+    // call). Either is correct; the BUG (path-mismatch remediate) would be 2
+    // calls. Assert ≤1 call + a reused/installed sentinel (never remediated).
+    const cachePath = join(TMP, "detect-gsd-system.json");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        components: {
+          agents: [
+            {
+              id: "gsd",
+              status: "healthy",
+              path: "/home/agent/.claude/get-shit-done/VERSION", // GSD_SYSTEM_PATH
+              version: "1.37.1",
+            },
+          ],
+        },
+      }),
+    );
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("gsd", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.ok(
+      cap.calls.length <= 1,
+      `gsd@deployed-system path must NOT be a REMEDIATE-04 uninstall+reinstall (got ${cap.calls.length} dispatch calls)`,
+    );
+    const s = await readSentinel("gsd");
+    assert.ok(
+      s?.status === "reused" || s?.status === "installed",
+      `gsd sentinel should be reused or installed, not remediated/broken (got ${s?.status})`,
+    );
+  });
+
+  test("REUSE-03 / DET-04: out-of-window gsd at the deployed-system path installs the pin (not reuse, not remediate)", async () => {
+    // An npx-deployed GSD whose VERSION is below the compatibility_window
+    // (>=1.37.0) must be UPGRADED to the pin, not reused. Deterministic
+    // regardless of whether the real VERSION file exists: tryReuse returns null
+    // on the failed semver.satisfies, and tryRemediate returns null because the
+    // deployed-system path is canonical for gsd (not a path-mismatch) — so it
+    // falls through to a single normal install at the pinned version.
+    const cachePath = join(TMP, "detect-gsd-system-oow.json");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        components: {
+          agents: [
+            {
+              id: "gsd",
+              status: "healthy",
+              path: "/home/agent/.claude/get-shit-done/VERSION", // GSD_SYSTEM_PATH
+              version: "1.36.0", // below compatibility_window >=1.37.0 <2.0.0
+            },
+          ],
+        },
+      }),
+    );
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("gsd", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(
+      cap.calls.length,
+      1,
+      "out-of-window gsd → single install at the pin, not reuse/remediate",
+    );
+    const s = await readSentinel("gsd");
+    assert.equal(s?.status, "installed", "out-of-window gsd installs (not reused)");
   });
 
   test("REUSE-03: cache present but version out-of-window -> normal install path", async () => {

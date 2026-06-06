@@ -34,6 +34,13 @@ declare -gA REUSE_AGENT_CANONICAL_PATHS=(
   [playwright-cli]="/home/agent/.npm-global/bin/playwright-cli"
 )
 
+# GSD second canonical presence — the deployed-system VERSION file. GSD's
+# bootstrapper binary (above) may not persist (the `npx get-shit-done-cc`
+# install path deploys the system but leaves no global binary), so a healthy gsd
+# detected at this path is ALSO reuse-eligible. MUST stay byte-identical to
+# GSD_SYSTEM_PATH in plugin/cli/src/commands/install.ts.
+readonly REUSE_GSD_SYSTEM_PATH="/home/agent/.claude/get-shit-done/VERSION"
+
 # reuse::agent_decision <id>
 # Returns {reuse, remediate, create} per predicates 1 + 2 (predicate 3 layered
 # on by the CLI).
@@ -73,6 +80,13 @@ reuse::agent_decision() {
   local detected_path=${!path_var:-}
 
   if [[ "$detected_path" != "$canonical" ]]; then
+    # GSD's deployed-system form (npx install) lives at the VERSION file rather
+    # than the bootstrapper binary path — also a valid canonical presence, so
+    # reuse instead of treating it as a wrong-path reinstall.
+    if [[ "$id" == "gsd" && "$detected_path" == "$REUSE_GSD_SYSTEM_PATH" ]]; then
+      printf 'reuse'
+      return 0
+    fi
     # Healthy but wrong path → reinstall at the canonical path.
     printf 'remediate'
     return 0
