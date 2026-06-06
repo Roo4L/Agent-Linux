@@ -37,18 +37,16 @@ Stop/no-op and comment with the blocking reason when the fix requires human judg
 
 ## Repair categories
 
-| Category                                                                                                | Posture                                                                                            |
-| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Formatting, lint, typecheck, snapshots, generated fixtures, and lockfile drift                          | Fix and push.                                                                                      |
-| Failing unit/integration tests where PR intent or documented behavior makes the expected behavior clear | Fix implementation or update tests, then push.                                                     |
-| E2E failures with clear evidence from traces, logs, repo behavior, or changed stable selectors          | Fix app code or tests, then push.                                                                  |
-| CI/workflow syntax errors introduced by the PR                                                          | Fix and push.                                                                                      |
-| Simple generated/schema migrations needed by a clear schema/model change                                | Generate or add them and push when the devbox has the required tooling and permissions.            |
-| Flaky checks with strong flake evidence                                                                 | Rerun once when no repo change is needed, or push the narrowest stabilizing fix when one is clear. |
-| Ambiguous product intent, conflicting requirements, or unclear PR direction                             | Stop/no-op; comment if human action is needed.                                                     |
-| Secrets, provider config, CI project settings, or external service failures outside the repo            | Stop/no-op; comment if human action is needed.                                                     |
-| Dependency replacement or vulnerability/security choices                                                | Stop/no-op; comment if human action is needed.                                                     |
-| Production data migrations, backfills, or data-shape decisions                                          | Stop/no-op; comment if human action is needed.                                                     |
+| Category | Posture |
+| --- | --- |
+| `pre-commit` failures (`shellcheck`, `shfmt`, `biome-check`, `catalog-schema-validate`, `check-version-lockstep`, and core file-hygiene hooks) | Fix and push. |
+| `cli-unit` failures (`pnpm exec tsc -p tsconfig.test.json`, `node --test dist-test/test/*.test.js`) | Fix implementation/tests/build inputs and push. |
+| `bats-docker (ubuntu-22.04/24.04/26.04)` failures from `tests/docker/run.sh` | Fix installer/provisioner/CLI packaging/tests and push. |
+| `gitleaks` full-history failures | If true secret exposure or rotation is required, stop/no-op and comment for human security action; if a false positive is clear with evidence, apply a narrow allowlist/fingerprint fix and push. |
+| `PR Preview (website)` failures on website-path PRs (`index.html`, `assets/**`, `packaging/curl-installer/install.sh`, preview/deploy workflows) | Fix workflow/site logic and push when the failure is repo-caused. |
+| CI/workflow YAML/action wiring errors introduced by the PR | Fix and push. |
+| Flaky/transient infra failures with strong flake evidence | Rerun once when no repo change is needed; if persistent, stop/no-op and comment with the blocker. |
+| External outages, missing secrets/permissions, or security/product decisions requiring human judgment | Stop/no-op and comment with required human action. |
 
 ## Branch and concurrency safety
 
