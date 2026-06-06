@@ -75,6 +75,11 @@ export interface VersionDecision {
 
 export type Status =
   | "not-installed"
+  // AL-61: physically present at its canonical presence but not adopted into a
+  // sentinel — `list` overlays this over "not-installed" so a tool the host
+  // already has is never reported as absent. Run `agentlinux install <id>` (or
+  // `adopt`) to manage it.
+  | "present"
   | "synced"
   | "override-ahead"
   | "override-behind"
