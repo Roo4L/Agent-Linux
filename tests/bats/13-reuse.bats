@@ -554,11 +554,12 @@ __source_lib_chain_with_reuse() {
 # at ~/.npm-global/bin/claude → emits `remediate`) is Phase 14 REMEDIATE-04
 # territory and is NOT exercised here.
 
-@test "REUSE-03 brownfield E2E: agentlinux-install on pre-populated host fires REUSE-01 + REUSE-03 + writes reused sentinel" {
+@test "REUSE-03 brownfield E2E: agentlinux-install on pre-populated host fires REUSE-01 + adopt-on-install writes reused sentinel (AL-61)" {
   # REQ: REUSE-01 + REUSE-03 (the canonical brownfield smoke — CANONICAL-PATH-MATCH
   # case per CONTEXT.md Area 2 Q3 + Q4). Asserts the installer detects the
-  # pre-populated agent user (REUSE-01 fires) and the CLI install adopts the
-  # pre-existing claude-code at the canonical path (REUSE-03 fires).
+  # pre-populated agent user (REUSE-01 fires) and that adopt-on-install (AL-61)
+  # adopts the pre-existing claude-code at the canonical path into a reused
+  # sentinel during the install itself — no separate `agentlinux install` needed.
   #
   # NB on REUSE-02: the brownfield helper installs NodeSource Node 22 at /usr
   # (root-owned prefix, not agent-writable). REUSE-02's predicate requires
@@ -605,27 +606,35 @@ __source_lib_chain_with_reuse() {
   printf '%s' "$output" | grep -qF '[REUSE-01]' \
     || __fail "REUSE-03" "[REUSE-01] marker in install transcript" "$output" "$LOG"
 
-  # Trigger REUSE-03 via the CLI install (the bash entrypoint does NOT trigger
-  # REUSE-03 — that's per-catalog-agent and dispatched by the CLI).
-  local cli
-  cli=$(find /opt/agentlinux/cli -maxdepth 3 -name index.js -path '*/dist/*' 2>/dev/null | head -1)
-  [[ -n "$cli" ]] \
-    || __fail "REUSE-03" "CLI index.js exists under /opt/agentlinux/cli/<ver>/dist/" "no match" "/opt/agentlinux/cli/"
+  # AL-61 adopt-on-install: the installer's post-provision adopt pass adopts the
+  # pre-existing claude-code (healthy at the canonical path, in window) into a
+  # reused sentinel during the install — no separate `agentlinux install`. The
+  # transcript carries the [ADOPT] marker.
+  printf '%s' "$output" | grep -qF '[ADOPT] claude-code' \
+    || __fail "REUSE-03/AL-61" "[ADOPT] claude-code marker in install transcript" "$output" "$LOG"
 
-  run sudo -u agent "$cli" install claude-code
-  assert_exit_zero "REUSE-03"
-  printf '%s' "$output" | grep -qF '[REUSE-03]' \
-    || __fail "REUSE-03" "[REUSE-03] marker in CLI install output" "$output" "$LOG"
-
-  # Sentinel exists with status=reused. The CLI writes sentinels at the
-  # state dir (defaults to /opt/agentlinux/state/installed.d).
+  # Sentinel exists with status=reused at the canonical path — written by
+  # adopt-on-install (same shape the CLI's REUSE-03 path writes).
   local sentinel=/opt/agentlinux/state/installed.d/claude-code.json
   [[ -f "$sentinel" ]] \
-    || __fail "REUSE-03" "sentinel written at $sentinel" "(missing)" "$LOG"
+    || __fail "REUSE-03" "reused sentinel written by adopt-on-install at $sentinel" "(missing)" "$LOG"
   jq -e '.status == "reused"' "$sentinel" >/dev/null \
     || __fail "REUSE-03" "sentinel has status=reused" "$(cat "$sentinel")" "$LOG"
   jq -e '.binary_path == "/home/agent/.local/bin/claude"' "$sentinel" >/dev/null \
     || __fail "REUSE-03" "sentinel binary_path == canonical claude path" "$(cat "$sentinel")" "$LOG"
+
+  # A subsequent explicit `agentlinux install claude-code` is now a correct
+  # idempotent no-op (the adopt-on-install sentinel already owns it) — it must
+  # NOT reinstall or re-dispatch.
+  local cli
+  cli=$(find /opt/agentlinux/cli -maxdepth 3 -name index.js -path '*/dist/*' 2>/dev/null | head -1)
+  [[ -n "$cli" ]] \
+    || __fail "REUSE-03" "CLI index.js exists under /opt/agentlinux/cli/<ver>/dist/" "no match" "/opt/agentlinux/cli/"
+  run sudo -u agent "$cli" install claude-code
+  assert_exit_zero "REUSE-03"
+  printf '%s' "$output" | grep -qiE 'already installed|no-op' \
+    || __fail "REUSE-03/AL-61" "explicit install over an adopted sentinel is a no-op" "$output" "$LOG"
+
   # NB: the next @test (list-suffix) reads + then cleans up this sentinel so
   # downstream CAT-02 @test stays green. The sentinel is intentionally LEFT
   # here as a handoff to the next @test — DO NOT remove it inline.

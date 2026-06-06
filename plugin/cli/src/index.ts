@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: MIT
 // plugin/cli/src/index.ts — agentlinux CLI entrypoint (ADR-008, Commander ^12).
 //
-// Registers five subcommands; a preAction hook runs guardAgentUser before any
+// Registers six subcommands; a preAction hook runs guardAgentUser before any
 // action (blocks root + non-agent users with exit 64, CLI-05). parseAsync is
 // required so rejected async-handler promises aren't silently dropped.
 
 import { Command } from "commander";
+import { adoptCmd } from "./commands/adopt.js";
 import { installCmd } from "./commands/install.js";
 import { listCmd } from "./commands/list.js";
 import { pinCmd } from "./commands/pin.js";
@@ -59,6 +60,19 @@ program
   )
   .action(async (name: string, opts) => {
     await installCmd(name, opts);
+  });
+
+program
+  // AL-61: record pre-existing reuse-eligible agents into sentinels without
+  // installing anything. <name> is optional; --all sweeps the catalog. The base
+  // installer runs `agentlinux adopt --all` after a successful --yes apply.
+  .command("adopt [name]")
+  .description("Adopt pre-existing reuse-eligible agents into managed sentinels (no install)")
+  .option("--all", "adopt every reuse-eligible catalog agent")
+  .option("--include-test", "include test-only entries (hidden by default)")
+  .option("--json", "machine-readable JSON array output")
+  .action(async (name: string | undefined, opts) => {
+    await adoptCmd(name, opts);
   });
 
 program
