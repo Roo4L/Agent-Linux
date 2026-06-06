@@ -63,8 +63,9 @@ export interface DetectCacheAgent {
   version: string;
 }
 
-// The AGENTLINUX_DETECT_CACHE override is the reuse-path-only test seam —
-// upgrade.ts and remove.ts never read the detect cache.
+// The AGENTLINUX_DETECT_CACHE override is the detect-cache test seam, shared by
+// install (reuse/remediate), adopt, and list (presence). upgrade.ts and
+// remove.ts never read the detect cache.
 export function detectCachePath(): string {
   return process.env.AGENTLINUX_DETECT_CACHE ?? "/run/agentlinux-detect.json";
 }

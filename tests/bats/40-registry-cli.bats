@@ -58,6 +58,20 @@ setup() {
   fi
 }
 
+teardown() {
+  # AL-61 fixture hygiene. __fail aborts a test body before its trailing
+  # cleanup, so remove the AL-61 stand-ins unconditionally here — a mid-test
+  # failure must not leak a stand-in binary at the canonical claude path (where
+  # 50/51-*.bats install the REAL claude) or a stray reused/present sentinel
+  # that would trip the later CAT-02 "zero residual sentinels" check. Phase 4
+  # never installs a real claude-code/gsd, so these removals are no-ops for
+  # every non-AL-61 test in this file.
+  rm -f /home/agent/.local/bin/claude 2>/dev/null || true
+  rm -f /opt/agentlinux/state/installed.d/claude-code.json \
+    /opt/agentlinux/state/installed.d/gsd.json 2>/dev/null || true
+  rm -f /tmp/al61-* 2>/dev/null || true
+}
+
 # ---------- CLI-01: agentlinux on agent's PATH ----------
 
 # CLI-01: the keystone PATH proof — `command -v agentlinux` resolves under
@@ -160,7 +174,8 @@ setup() {
 # overlay is a pure cache read, so no real binary is needed.
 @test "AL-61: agentlinux list reports a cached-healthy unadopted agent as present (not not-installed)" {
   rm -f /opt/agentlinux/state/installed.d/gsd.json
-  local cache=/tmp/al61-list-detect.json
+  local cache
+  cache=$(mktemp -t al61-list.XXXXXX)
   cat >"$cache" <<'JSON'
 {"components":{"agents":[{"id":"gsd","status":"healthy","path":"/home/agent/.claude/get-shit-done/VERSION","version":"1.37.1"}]}}
 JSON
@@ -169,8 +184,8 @@ JSON
   assert_exit_zero "AL-61"
   echo "$output" | grep -Eq 'gsd[[:space:]]+present' \
     || __fail "AL-61" "gsd reads present" "${output:-<empty>}" "$LOG"
-  echo "$output" | grep -q 'to manage' \
-    || __fail "AL-61" "present manage-hint" "${output:-<empty>}" "$LOG"
+  echo "$output" | grep -qF 'detected — run: agentlinux install gsd to manage' \
+    || __fail "AL-61" "present manage-hint wording" "${output:-<empty>}" "$LOG"
   rm -f "$cache"
 }
 
@@ -179,17 +194,21 @@ JSON
 # stand-in binary at the canonical claude path + a matching detect cache, then
 # cleans both up so siblings (50/51-*.bats install the real claude) see a clean
 # slate.
-@test "AL-61: agentlinux adopt records a present in-window agent as a reused sentinel" {
+@test "AL-61: agentlinux adopt records a present in-window agent as a reused sentinel without installing" {
   local canonical=/home/agent/.local/bin/claude
-  local cache=/tmp/al61-adopt-detect.json
+  local cache
+  cache=$(mktemp -t al61-adopt.XXXXXX)
   # Version inside claude-code's compatibility_window — read the pin from the
   # catalog so a future bump doesn't require editing this test.
   local pin
   pin=$(jq -r '.agents[] | select(.id=="claude-code") | .pinned_version' \
     "/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json")
+  # A unique sentinel string the real claude installer would never write — proves
+  # adopt does NOT reinstall over the stand-in (adopt records, never dispatches).
+  local marker="AL61-STANDIN-DO-NOT-REPLACE"
   install -D -m 0755 -o agent -g agent /dev/stdin "$canonical" <<SH
 #!/usr/bin/env bash
-echo "${pin} (Claude Code)"
+echo "${pin} (Claude Code) ${marker}"
 SH
   cat >"$cache" <<JSON
 {"components":{"agents":[{"id":"claude-code","status":"healthy","path":"${canonical}","version":"${pin}"}]}}
@@ -211,7 +230,12 @@ JSON
   [[ "$ver" == "$pin" ]] \
     || __fail "AL-61" "sentinel records detected version ${pin}" "$ver" "$LOG"
 
-  # Restore greenfield for sibling test files.
+  # adopt installs NOTHING: the stand-in binary is byte-for-byte untouched (a
+  # reinstall would have replaced it with the real claude native installer).
+  grep -qF "$marker" "$canonical" \
+    || __fail "AL-61" "adopt left the existing binary untouched (no reinstall)" "$(head -1 "$canonical" 2>/dev/null)" "$LOG"
+
+  # Restore greenfield for sibling test files (teardown backstops on failure).
   rm -f "$canonical" "$cache" "$sentinel"
 }
 

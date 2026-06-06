@@ -246,6 +246,7 @@ describe("adoptCmd — AL-61 adopt-on-install / honest reuse recording", () => {
     }
     const parsed = JSON.parse(sil.out.join("\n"));
     assert.ok(Array.isArray(parsed));
+    assert.ok(parsed.length >= 1, "--all result array must be non-empty (catalog has agents)");
     for (const r of parsed) {
       assert.ok(typeof r.id === "string");
       assert.ok(["adopted", "already-managed", "skipped"].includes(r.action));

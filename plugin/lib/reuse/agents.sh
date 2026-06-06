@@ -8,7 +8,7 @@
 #   3. detected version satisfies the catalog compatibility_window (semver)
 #
 # Predicate 3 is NOT done here — semver-range satisfaction is non-trivial in
-# bash. The CLI (plugin/cli/src/commands/install.ts) runs semver.satisfies()
+# bash. The CLI (plugin/cli/src/detect.ts, shared by install + adopt) runs semver.satisfies()
 # and treats a path-matched, healthy, out-of-window agent as `remediate`. This
 # bash function returns {reuse, remediate, create} on predicates 1 + 2 only.
 #
@@ -25,7 +25,7 @@ if ! command -v log_error >/dev/null 2>&1; then
 fi
 
 # Canonical binary path map — MUST stay byte-identical to the CANONICAL_PATHS
-# object in plugin/cli/src/commands/install.ts (drift flips reuse→remediate).
+# object in plugin/cli/src/detect.ts (drift flips reuse→remediate).
 # `-g` forces global scope so the array stays visible when this library is
 # sourced from inside a function (as bats @tests do).
 declare -gA REUSE_AGENT_CANONICAL_PATHS=(
@@ -38,7 +38,7 @@ declare -gA REUSE_AGENT_CANONICAL_PATHS=(
 # bootstrapper binary (above) may not persist (the `npx get-shit-done-cc`
 # install path deploys the system but leaves no global binary), so a healthy gsd
 # detected at this path is ALSO reuse-eligible. MUST stay byte-identical to
-# GSD_SYSTEM_PATH in plugin/cli/src/commands/install.ts.
+# GSD_SYSTEM_PATH in plugin/cli/src/detect.ts.
 readonly REUSE_GSD_SYSTEM_PATH="/home/agent/.claude/get-shit-done/VERSION"
 
 # reuse::agent_decision <id>
