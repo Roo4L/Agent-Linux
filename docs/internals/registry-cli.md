@@ -1,8 +1,8 @@
 # Registry CLI
 
 `agentlinux` is the small TypeScript CLI shipped with the plugin. It reads
-the agent catalog and dispatches install / list / remove / upgrade / pin
-commands — every state-changing operation runs as the agent user, never
+the agent catalog and dispatches install / adopt / list / remove / upgrade /
+pin commands — every state-changing operation runs as the agent user, never
 as root. The CLI is the surface developers actually touch; everything
 else (provisioner steps, recipes, sentinels, the catalog itself) is
 wiring underneath.
@@ -39,12 +39,16 @@ README; it is trivial in a CLI.
 
 ## What AgentLinux does
 
-The CLI exposes five verbs:
+The CLI exposes six verbs:
 
 - `agentlinux list` — render the catalog as a table (or JSON), with
-  per-agent status: `not installed`, `synced`, `override-ahead`,
-  `override-behind`. Hides `test_only` entries unless `--include-test`
-  is passed.
+  per-agent status: `not-installed`, `present`, `synced`,
+  `override-ahead`, `override-behind`. `present` is the honest-status
+  case: a tool the host already has at its canonical location but that
+  AgentLinux has not yet recorded — it reads `present` with its detected
+  version (and a "run install to manage" hint), never `not-installed`,
+  so a brownfield host's existing Claude Code or GSD is never mislabelled
+  as absent. Hides `test_only` entries unless `--include-test` is passed.
 - `agentlinux install <name>` — load the catalog, find the entry,
   inject `AGENTLINUX_PINNED_VERSION` and the agent-user environment,
   and dispatch the entry's `install_recipe_path` (typically
@@ -54,6 +58,16 @@ The CLI exposes five verbs:
   `pinned=<semver>`). `--version <semver>` overrides the catalog
   pin; `--force` re-runs the recipe even when the sentinel says it is
   already installed.
+- `agentlinux adopt [<name>] [--all]` — record a tool the host already
+  has into a managed sentinel *without installing anything*. When a
+  pre-existing install is healthy, at its canonical path, and within the
+  catalog's compatibility window, adopt writes a `reused` sentinel so
+  the agent comes under `upgrade`/`remove` management; it never
+  downloads, reinstalls, or repairs. The installer runs `adopt --all`
+  automatically after a successful apply, which is what turns a
+  brownfield host's `present` tools into managed `reused` entries. "No
+  agent installed by default" still holds — adopt only records what
+  detection already found.
 - `agentlinux remove <name>` — the symmetric inverse: dispatch the
   entry's `uninstall_recipe_path` and delete the sentinel. `--force`
   succeeds even when nothing is installed (idempotent).
@@ -82,21 +96,25 @@ plain bash, easy to read and easy for the catalog auditor to review.
 ## Worked example
 
 ```
+# Brownfield host that already had Claude Code + GSD before AgentLinux.
+# The installer's adopt-on-install step already ran; both read as managed.
 $ agentlinux list
 NAME           STATUS         CURATED   INSTALLED  DESCRIPTION
-claude-code    not installed  2.1.98    -          Anthropic's agentic CLI ...
-gsd            not installed  1.37.1    -          GSD workflow CLI for Claude Code ...
-playwright-cli not installed  0.1.11    -          Microsoft's token-efficient ...
+claude-code    synced         2.1.98    2.1.98 (reused — managed by agentlinux ...
+gsd            synced         1.37.1    1.37.1 (reused — managed by agentlinux ...
+playwright-cli not-installed  0.1.11    -          Microsoft's token-efficient ...
 
-$ agentlinux install gsd
-gsd: installing get-shit-done-cc@1.37.1
-gsd: install complete (resolves at /home/agent/.npm-global/bin/get-shit-done-cc;
-     banner matches pin; skill set wired into /home/agent/.claude/skills/gsd-*)
+# A tool the host has but that AgentLinux has not recorded yet reads `present`,
+# not `not-installed` — and adopt records it (no download, no reinstall):
+$ agentlinux list
+claude-code    present        2.1.98    2.1.98 (detected — run: agentlinux install claude-code ...
+$ agentlinux adopt claude-code
+[ADOPT] claude-code: adopted pre-existing install 2.1.98 (status=reused — managed by agentlinux upgrade/remove)
 
 $ agentlinux upgrade
-  claude-code     not installed
+  claude-code     installed=2.1.98  curated=2.1.98  state=synced
   gsd             installed=1.37.1  curated=1.37.1  state=synced
-  playwright-cli  not installed
+  playwright-cli  not-installed
 ```
 
 One stable verb surface (`list`, `install`, `upgrade`) regardless of
