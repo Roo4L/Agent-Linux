@@ -466,6 +466,24 @@ __source_lib_chain_with_reuse() {
     || __fail "REUSE-03" "reuse::agent_decision == 'remediate' on healthy + path-mismatch" "$output" "$LOG"
 }
 
+@test "REUSE-03 / DET-04: reuse::agent_decision returns 'reuse' for gsd at the deployed-system VERSION path (npx form)" {
+  # REQ: REUSE-03 / DET-04. GSD's `get-shit-done-cc` is a bootstrapper; the
+  # upstream `npx get-shit-done-cc` install deploys the GSD system (VERSION file
+  # + gsd-* skills) but leaves NO persistent global binary, so detect/agents.sh
+  # reports gsd at the deployed-system VERSION file. That path is a SECOND valid
+  # canonical presence → reuse, NOT a wrong-path remediate. Regression guard for
+  # "dry-run says gsd absent on a host where GSD is installed via npx".
+  __source_lib_chain_with_reuse
+  export DETECT_AGENT_GSD_STATUS=healthy
+  export DETECT_AGENT_GSD_PATH=/home/agent/.claude/get-shit-done/VERSION
+  export DETECT_AGENT_GSD_VERSION=1.37.1
+  run reuse::agent_decision gsd
+  unset DETECT_AGENT_GSD_STATUS DETECT_AGENT_GSD_PATH DETECT_AGENT_GSD_VERSION
+  assert_exit_zero "REUSE-03"
+  [[ "$output" == "reuse" ]] \
+    || __fail "REUSE-03" "gsd at deployed-system VERSION path == 'reuse' (npx form, not remediate)" "$output" "$LOG"
+}
+
 @test "REUSE-03: reuse::agent_decision returns 'remediate' when status=broken" {
   # REQ: REUSE-03 (broken catalog agent always → Phase 14 REMEDIATE-04 territory:
   # uninstall + reinstall via the recipe).

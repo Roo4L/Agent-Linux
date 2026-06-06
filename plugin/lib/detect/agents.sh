@@ -16,6 +16,10 @@
 #   healthy — binary present + version parses + `--help` exit 0.
 #   broken  — binary present but version empty OR `--help` non-zero.
 #
+# GSD is the exception: its binary is a bootstrapper, so when it's absent gsd is
+# also classified from the deployed-system VERSION file (see the fallback branch
+# in detect::agents_probe for the full rationale + the symlink-ownership gate).
+#
 # PATH-resolving probes go through as_user_login (login shell) rather than bare
 # as_user: bare as_user uses sudo's secure_path, which omits the agent-owned
 # PATH entries (~/.local/bin, ~/.npm-global/bin), so an installed agent would
@@ -81,6 +85,10 @@ detect::agents_probe() {
   local user=$1 fragment_path=$2
   local entries=()
 
+  # Install user's home — used for GSD's deployed-system fallback below.
+  local home
+  home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)
+
   # Explicit ordered list (not the associative array's hash-bucket order) for
   # deterministic renderer output.
   local ids=(claude-code gsd playwright-cli)
@@ -93,7 +101,38 @@ detect::agents_probe() {
     # entries are present; see the header for why bare as_user misclassifies.
     bin_path=$(as_user_login "$user" command -v "$binary" 2>/dev/null || true)
 
-    if [[ -z "$bin_path" ]]; then
+    # GSD's `get-shit-done-cc` is a BOOTSTRAPPER, not a long-lived CLI: the
+    # functional install is the deployed system at ~user/.claude/get-shit-done
+    # (a VERSION file + the gsd-* skill set it copies into ~/.claude/skills).
+    # The upstream `npx get-shit-done-cc` install path deploys that system but
+    # leaves NO persistent global binary, so a binary-only probe misclassifies a
+    # working GSD as absent. When the binary is missing, fall back to the
+    # deployed-system VERSION file as a second valid presence signal. The path
+    # is reported so reuse/agents.sh + install.ts can treat it as canonical.
+    if [[ -z "$bin_path" && "$id" == "gsd" && -n "$home" && -f "$home/.claude/get-shit-done/VERSION" ]]; then
+      local gsd_ver_file="$home/.claude/get-shit-done/VERSION"
+      # Security: stat/read follow symlinks, so trust the VERSION file ONLY when
+      # it's owned by the install user. An agent-planted symlink to a root-only
+      # file (e.g. /etc/shadow) reports root here → refuse to read it as root and
+      # treat gsd as absent rather than surfacing foreign bytes into the report.
+      local gsd_owner
+      gsd_owner=$(stat -c '%U' "$gsd_ver_file" 2>/dev/null || echo "")
+      if [[ "$gsd_owner" == "$user" ]]; then
+        ver=$(tr -d '[:space:]' <"$gsd_ver_file" 2>/dev/null || true)
+        owner=$(stat -c '%U:%G' "$gsd_ver_file" 2>/dev/null || echo "unknown")
+        bin_path="$gsd_ver_file"
+        # The CLI re-checks the version against the compatibility_window before reusing.
+        if [[ -n "$ver" ]]; then
+          status=healthy
+        else
+          status=broken
+        fi
+      else
+        status=absent
+        ver=""
+        owner=""
+      fi
+    elif [[ -z "$bin_path" ]]; then
       status=absent
       ver=""
       owner=""
