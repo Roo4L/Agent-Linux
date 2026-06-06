@@ -132,6 +132,97 @@ setup() {
     || __fail "CLI-02" "JSON array with >=3 entries" "${output:-<empty>}" "$LOG"
 }
 
+# ---------- AL-61: adopt-on-install + honest list ----------
+
+# AL-61: `agentlinux adopt` with neither a name nor --all is a usage error
+# (exit 64). Proves the subcommand is registered through the symlink + the
+# arg-shape guard fires.
+@test "AL-61: agentlinux adopt with no name and no --all exits 64" {
+  run sudo -u agent -H bash --login -c 'agentlinux adopt'
+  [[ "$status" -eq 64 ]] \
+    || __fail "AL-61" "adopt no-args exit 64" "status=$status out=${output:-<empty>}" "$LOG"
+  echo "$output" | grep -q 'specify an agent name or --all' \
+    || __fail "AL-61" "usage hint" "${output:-<empty>}" "$LOG"
+}
+
+# AL-61: on greenfield (no real agent present) `adopt --all` is a clean no-op —
+# it never installs/downloads, so it exits 0 with nothing adopted.
+@test "AL-61: agentlinux adopt --all on greenfield exits 0 (adopts nothing, installs nothing)" {
+  run sudo -u agent -H bash --login -c 'agentlinux adopt --all'
+  assert_exit_zero "AL-61"
+  echo "$output" | grep -q 'nothing to adopt' \
+    || __fail "AL-61" "greenfield adopt is a no-op" "${output:-<empty>}" "$LOG"
+}
+
+# AL-61 (honest list): a tool the host already has but that has no sentinel must
+# read `present` (with its detected version + a manage hint), not not-installed.
+# The detect-cache override drives this deterministically — `list`'s presence
+# overlay is a pure cache read, so no real binary is needed.
+@test "AL-61: agentlinux list reports a cached-healthy unadopted agent as present (not not-installed)" {
+  rm -f /opt/agentlinux/state/installed.d/gsd.json
+  local cache=/tmp/al61-list-detect.json
+  cat >"$cache" <<'JSON'
+{"components":{"agents":[{"id":"gsd","status":"healthy","path":"/home/agent/.claude/get-shit-done/VERSION","version":"1.37.1"}]}}
+JSON
+  chmod 0644 "$cache"
+  run sudo -u agent -H bash --login -c "AGENTLINUX_DETECT_CACHE=${cache} agentlinux list"
+  assert_exit_zero "AL-61"
+  echo "$output" | grep -Eq 'gsd[[:space:]]+present' \
+    || __fail "AL-61" "gsd reads present" "${output:-<empty>}" "$LOG"
+  echo "$output" | grep -q 'to manage' \
+    || __fail "AL-61" "present manage-hint" "${output:-<empty>}" "$LOG"
+  rm -f "$cache"
+}
+
+# AL-61 (adopt-on-install core): a present, in-window agent at its canonical path
+# gets adopted into a status=reused sentinel WITHOUT a recipe dispatch. Stages a
+# stand-in binary at the canonical claude path + a matching detect cache, then
+# cleans both up so siblings (50/51-*.bats install the real claude) see a clean
+# slate.
+@test "AL-61: agentlinux adopt records a present in-window agent as a reused sentinel" {
+  local canonical=/home/agent/.local/bin/claude
+  local cache=/tmp/al61-adopt-detect.json
+  # Version inside claude-code's compatibility_window — read the pin from the
+  # catalog so a future bump doesn't require editing this test.
+  local pin
+  pin=$(jq -r '.agents[] | select(.id=="claude-code") | .pinned_version' \
+    "/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json")
+  install -D -m 0755 -o agent -g agent /dev/stdin "$canonical" <<SH
+#!/usr/bin/env bash
+echo "${pin} (Claude Code)"
+SH
+  cat >"$cache" <<JSON
+{"components":{"agents":[{"id":"claude-code","status":"healthy","path":"${canonical}","version":"${pin}"}]}}
+JSON
+  chmod 0644 "$cache"
+  rm -f /opt/agentlinux/state/installed.d/claude-code.json
+
+  run sudo -u agent -H bash --login -c "AGENTLINUX_DETECT_CACHE=${cache} agentlinux adopt claude-code"
+  assert_exit_zero "AL-61"
+
+  local sentinel=/opt/agentlinux/state/installed.d/claude-code.json
+  [[ -f "$sentinel" ]] \
+    || __fail "AL-61" "reused sentinel written" "absent" "$LOG"
+  local st ver
+  st=$(jq -r '.status' "$sentinel")
+  ver=$(jq -r '.version' "$sentinel")
+  [[ "$st" == "reused" ]] \
+    || __fail "AL-61" "sentinel status=reused" "$st" "$LOG"
+  [[ "$ver" == "$pin" ]] \
+    || __fail "AL-61" "sentinel records detected version ${pin}" "$ver" "$LOG"
+
+  # Restore greenfield for sibling test files.
+  rm -f "$canonical" "$cache" "$sentinel"
+}
+
+# AL-61 (wiring): the installer runs adopt-on-install after provisioning. The
+# real install performed by tests/docker/run.sh exercised run_agent_adoption, so
+# its log line is present in the transcript.
+@test "AL-61: agentlinux-install runs adopt-on-install after provisioning" {
+  grep -q 'agentlinux adopt --all' "$LOG" \
+    || __fail "AL-61" "adopt-on-install hook fired during install" "$(tail -n 5 "$LOG" 2>/dev/null)" "$LOG"
+}
+
 # ---------- CLI-03: install dispatches recipe + writes sentinel; idempotent ----------
 
 # CLI-03 + CAT-04: install test-dummy writes the marker AND the sentinel;
