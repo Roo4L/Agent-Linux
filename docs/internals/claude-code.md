@@ -61,6 +61,23 @@ operator stays in control of when to move ahead, and
 `agentlinux upgrade` surfaces any divergence between curated, installed,
 and upstream-latest.
 
+### Migrating an npm install to native
+
+Claude Code is also distributed via npm (`@anthropic-ai/claude-code`),
+which lands the same binary under the npm global prefix at
+`~/.npm-global/bin/claude` instead of the native `~/.local/bin/claude`.
+npm delivery is the older method; the native installer is the default
+today. On a brownfield host with the npm install, AgentLinux **detects it
+and acknowledges it** — `agentlinux list` shows it as `present` (never
+`not-installed`) — but does not bless the off-path install. Instead it
+points the operator at `agentlinux install claude-code`, which **migrates**
+to native: it uninstalls the npm package, then runs the native installer at
+the **version you already had** (not the curated pin), so the migration
+never downgrades you. Two competing installs never coexist — the npm one is
+removed before the native one lands, which is exactly the PATH-conflict
+AgentLinux exists to prevent. If you later want the curated version,
+`agentlinux upgrade --reset-all-curated` reconciles it.
+
 ## Worked example
 
 ```

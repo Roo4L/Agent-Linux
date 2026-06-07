@@ -69,7 +69,7 @@ teardown() {
   rm -f /home/agent/.local/bin/claude 2>/dev/null || true
   rm -f /opt/agentlinux/state/installed.d/claude-code.json \
     /opt/agentlinux/state/installed.d/gsd.json 2>/dev/null || true
-  rm -f /tmp/al61-* 2>/dev/null || true
+  rm -f /tmp/al61-* /tmp/al62-* 2>/dev/null || true
 }
 
 # ---------- CLI-01: agentlinux on agent's PATH ----------
@@ -245,6 +245,47 @@ JSON
 @test "AL-61: agentlinux-install runs adopt-on-install after provisioning" {
   grep -q 'agentlinux adopt --all' "$LOG" \
     || __fail "AL-61" "adopt-on-install hook fired during install" "$(tail -n 5 "$LOG" 2>/dev/null)" "$LOG"
+}
+
+# AL-62 (honest list, npm path): a healthy agent at a NON-canonical path (e.g.
+# claude installed via npm) reads `present` with a "migrate" hint + the detected
+# path, NOT not-installed and NOT the "manage" (adopt) hint.
+@test "AL-62: agentlinux list reports a non-canonical (npm-path) agent as present with a migrate hint" {
+  rm -f /opt/agentlinux/state/installed.d/claude-code.json
+  local cache
+  cache=$(mktemp -t al62-list.XXXXXX)
+  cat >"$cache" <<'JSON'
+{"components":{"agents":[{"id":"claude-code","status":"healthy","path":"/home/agent/.npm-global/bin/claude","version":"2.1.168"}]}}
+JSON
+  chmod 0644 "$cache"
+  run sudo -u agent -H bash --login -c "AGENTLINUX_DETECT_CACHE=${cache} agentlinux list"
+  assert_exit_zero "AL-62"
+  echo "$output" | grep -Eq 'claude-code[[:space:]]+present' \
+    || __fail "AL-62" "npm-path claude reads present" "${output:-<empty>}" "$LOG"
+  echo "$output" | grep -qF 'to migrate' \
+    || __fail "AL-62" "present migrate-hint" "${output:-<empty>}" "$LOG"
+  echo "$output" | grep -qF '/home/agent/.npm-global/bin/claude' \
+    || __fail "AL-62" "migrate hint names the detected path" "${output:-<empty>}" "$LOG"
+  rm -f "$cache"
+}
+
+# AL-62 (adopt surfaces migration): `agentlinux adopt` on a non-canonical agent
+# emits a [MIGRATE] notice and writes NO sentinel (adopt records, never migrates).
+@test "AL-62: agentlinux adopt reports a non-canonical agent as a migration candidate (no sentinel)" {
+  rm -f /opt/agentlinux/state/installed.d/claude-code.json
+  local cache
+  cache=$(mktemp -t al62-adopt.XXXXXX)
+  cat >"$cache" <<'JSON'
+{"components":{"agents":[{"id":"claude-code","status":"healthy","path":"/home/agent/.npm-global/bin/claude","version":"2.1.168"}]}}
+JSON
+  chmod 0644 "$cache"
+  run sudo -u agent -H bash --login -c "AGENTLINUX_DETECT_CACHE=${cache} agentlinux adopt claude-code"
+  assert_exit_zero "AL-62"
+  echo "$output" | grep -qF '[MIGRATE] claude-code' \
+    || __fail "AL-62" "adopt emits [MIGRATE] notice" "${output:-<empty>}" "$LOG"
+  [[ ! -f /opt/agentlinux/state/installed.d/claude-code.json ]] \
+    || __fail "AL-62" "adopt wrote NO sentinel for a migration candidate" "sentinel present" "$LOG"
+  rm -f "$cache"
 }
 
 # ---------- CLI-03: install dispatches recipe + writes sentinel; idempotent ----------

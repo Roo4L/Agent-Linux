@@ -49,11 +49,16 @@ export interface ReuseHit {
 //   - "broken"        — detect cache reports status=broken
 //   - "path-mismatch" — status=healthy but resolved path != CANONICAL_PATHS[id]
 //                       (e.g. `npm install -g` landed claude at the npm-global
-//                       path instead of the canonical native one)
+//                       path instead of the canonical native one). This is the
+//                       npm→native migration case for claude-code (AL-62).
+// `detected_version` carries the user's currently-installed version for a healthy
+// path-mismatch so the migration can preserve it (install native at the detected
+// version, not the catalog pin); null for a broken install (no version to keep).
 export interface RemediateHit {
   reason: "broken" | "path-mismatch";
   detected_path: string;
   canonical_path: string;
+  detected_version: string | null;
 }
 
 export interface DetectCacheAgent {
@@ -106,8 +111,11 @@ export function tryReuse(entry: CatalogEntry): ReuseHit | null {
   const { detected, canonical } = hit;
   if (detected.status !== "healthy") return null;
   if (!isCanonicalAgentPath(entry, detected.path, canonical)) return null;
-  if (!semver.valid(detected.version)) return null;
-  if (!semver.satisfies(detected.version, entry.compatibility_window)) return null;
+  // Forward the semver-NORMALIZED version (drops a leading `v`/whitespace the
+  // cache may carry) so the sentinel + any downstream install use a clean value.
+  const version = semver.valid(detected.version);
+  if (!version) return null;
+  if (!semver.satisfies(version, entry.compatibility_window)) return null;
 
   // Re-validate the binary actually exists at install time — the cache may be
   // stale (binary removed by an unrelated process since detect::run_once).
@@ -119,7 +127,7 @@ export function tryReuse(entry: CatalogEntry): ReuseHit | null {
   }
   return {
     binary_path: detected.path,
-    version: detected.version,
+    version,
     detected_source: "pre-existing",
   };
 }
@@ -127,33 +135,49 @@ export function tryReuse(entry: CatalogEntry): ReuseHit | null {
 // REMEDIATE-04 pre-runner check. Shares readDetectedAgent with tryReuse but
 // applies the inverse discriminator: returns a RemediateHit when status=broken
 // OR status=healthy with a non-canonical path (PATH-MISMATCH); null otherwise
-// (cache absent, parse fails, greenfield, or REUSE territory). No
-// compatibility_window check — REMEDIATE-04 reinstalls at pinned_version
-// regardless of detected version, since the bad install is being replaced.
+// (cache absent, parse fails, greenfield, or REUSE territory). A broken install
+// has no version to preserve → reinstall at the pin; a healthy path-mismatch
+// (the npm→native migration) carries detected_version so install can keep it.
 export function tryRemediate(entry: CatalogEntry): RemediateHit | null {
   const hit = readDetectedAgent(entry);
   if (!hit) return null;
   const { detected, canonical } = hit;
   if (detected.status === "broken") {
-    return { reason: "broken", detected_path: detected.path, canonical_path: canonical };
+    return {
+      reason: "broken",
+      detected_path: detected.path,
+      canonical_path: canonical,
+      detected_version: null,
+    };
   }
   if (detected.status === "healthy" && !isCanonicalAgentPath(entry, detected.path, canonical)) {
-    return { reason: "path-mismatch", detected_path: detected.path, canonical_path: canonical };
+    return {
+      reason: "path-mismatch",
+      detected_path: detected.path,
+      canonical_path: canonical,
+      // Normalized (semver.valid returns the clean version or null).
+      detected_version: semver.valid(detected.version),
+    };
   }
   return null;
 }
 
-// Presence overlay for `agentlinux list` (honest-status, AL-61). Reuses the same
-// detect cache: an agent with no sentinel but reported healthy at its canonical
-// presence is physically PRESENT (and adoptable), not "not-installed". Pure
-// cache read — no host stat — so the status is host-independent in unit tests
-// and matches exactly what `agentlinux adopt` / `install` would reuse. After a
-// successful `--yes` install the installer adopts these into sentinels, so this
-// overlay covers the window before adoption (and manual post-provision installs)
-// while the detect cache is fresh.
+// Presence overlay for `agentlinux list` (honest-status, AL-61 + AL-62). Reuses
+// the detect cache: an agent with no sentinel but reported healthy is physically
+// PRESENT, not "not-installed". `canonical` distinguishes the two cases list
+// renders differently:
+//   - canonical=true  → at the managed path; adoptable ("run install to manage").
+//                       In practice adopt-on-install already adopts these into a
+//                       sentinel, so this covers the pre-adoption window.
+//   - canonical=false → present at a non-canonical path (e.g. claude installed via
+//                       npm at ~/.npm-global/bin/claude); a MIGRATION candidate,
+//                       not blessed — list points at `agentlinux install` to
+//                       migrate to the native build (AL-62).
+// Pure cache read — no host stat — so the status is host-independent in tests.
 export interface PresenceHit {
   version: string | null;
   path: string;
+  canonical: boolean;
 }
 
 export function detectPresence(entry: CatalogEntry): PresenceHit | null {
@@ -161,9 +185,10 @@ export function detectPresence(entry: CatalogEntry): PresenceHit | null {
   if (!hit) return null;
   const { detected, canonical } = hit;
   if (detected.status !== "healthy") return null;
-  if (!isCanonicalAgentPath(entry, detected.path, canonical)) return null;
   return {
-    version: semver.valid(detected.version) ? detected.version : null,
+    // Normalized (semver.valid returns the clean version or null).
+    version: semver.valid(detected.version),
     path: detected.path,
+    canonical: isCanonicalAgentPath(entry, detected.path, canonical),
   };
 }

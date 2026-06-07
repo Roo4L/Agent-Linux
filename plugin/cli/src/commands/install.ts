@@ -135,6 +135,24 @@ export async function installCmd(
   // a recorded install that's now broken/mispathed still needs remediating.
   const remediateHit = !opts.force && !opts.version ? tryRemediate(entry) : null;
   if (remediateHit) {
+    // AL-62: a healthy path-mismatch is the npm→native migration (e.g. claude
+    // installed via npm at ~/.npm-global/bin/claude → relocate to the native
+    // ~/.local/bin/claude). Preserve the user's detected version when it's in the
+    // compatibility window; a broken install or an out-of-window version falls
+    // back to the catalog pin. A preserved version is recorded source="override"
+    // so `agentlinux upgrade --reset-all-curated` can later reconcile it to the
+    // curated pin only if the operator opts in.
+    const isMigration = remediateHit.reason === "path-mismatch";
+    const dv = remediateHit.detected_version;
+    const dvInWindow =
+      !!dv && !!entry.compatibility_window && semver.satisfies(dv, entry.compatibility_window);
+    const preserveVersion = isMigration && dvInWindow ? dv : null;
+    const installVersion = preserveVersion ?? entry.pinned_version;
+    const installSource: "curated" | "override" = preserveVersion ? "override" : "curated";
+    const actionWord = isMigration
+      ? "migrate npm→native (uninstall + reinstall)"
+      : "uninstall + reinstall";
+
     // --yes is the sole consent surface (no env-var equivalent). In TTY mode
     // the gate auto-passes.
     const isTTY = process.stdin.isTTY === true;
@@ -143,7 +161,7 @@ export async function installCmd(
         "Refusing to proceed — 1 component needs Remediate (run with --yes to apply, or --dry-run to preview):\n",
       );
       console.error(
-        `[BAIL] component=${entry.id} reason=${remediateHit.reason} hint=run with --yes to reinstall`,
+        `[BAIL] component=${entry.id} reason=${remediateHit.reason} hint=run with --yes to ${isMigration ? "migrate" : "reinstall"}`,
       );
       console.error(
         "\nExit code 65 (EX_DATAERR — incompatible host state). See agentlinux install --help.",
@@ -152,7 +170,7 @@ export async function installCmd(
     }
 
     console.log(
-      `[REMEDIATE-04] ${entry.id} component=${entry.id} reason=${remediateHit.reason} detected_path=${remediateHit.detected_path} canonical_path=${remediateHit.canonical_path} — uninstall + reinstall`,
+      `[REMEDIATE-04] ${entry.id} component=${entry.id} reason=${remediateHit.reason} detected_path=${remediateHit.detected_path} canonical_path=${remediateHit.canonical_path} install_version=${installVersion}${preserveVersion ? " (preserving your version)" : ""} — ${actionWord}`,
     );
 
     // Step 1: uninstall.sh. Version env carries the existing-sentinel version
@@ -185,14 +203,15 @@ export async function installCmd(
       process.exit(1); // runtime
     }
 
-    // Step 2: install.sh at pinned_version. On failure we're half-uninstalled —
-    // write a broken-after-remediate sentinel as a forensic trail + exit 1.
+    // Step 2: install.sh at installVersion (detected version for a migration,
+    // else the pin). On failure we're half-uninstalled — write a
+    // broken-after-remediate sentinel as a forensic trail + exit 1.
     const installPath = join(catalog.catalogDir, "agents", entry.id, entry.install_recipe_path);
     const installResult = await dispatchRecipe(
       {
         entry,
         recipePath: installPath,
-        version: entry.pinned_version,
+        version: installVersion,
         catalogDir: catalog.catalogDir,
       },
       dispatcher,
@@ -201,8 +220,8 @@ export async function installCmd(
       const now = new Date().toISOString();
       await writeSentinel({
         id: entry.id,
-        version: entry.pinned_version,
-        source: "curated",
+        version: installVersion,
+        source: installSource,
         sticky: false,
         installed_at: now,
         status: "broken-after-remediate",
@@ -217,18 +236,21 @@ export async function installCmd(
     }
     if (installResult.stdout) console.log(installResult.stdout.trimEnd());
 
-    // Step 3: success — status=installed sentinel + remediated_at trail.
+    // Step 3: success — status=installed sentinel + remediated_at trail. A
+    // migration that preserved the user's version records source="override".
     const now = new Date().toISOString();
     await writeSentinel({
       id: entry.id,
-      version: entry.pinned_version,
-      source: "curated",
+      version: installVersion,
+      source: installSource,
       sticky: false,
       installed_at: now,
       status: "installed",
       remediated_at: now,
     });
-    console.log(`[REMEDIATE-04] ${entry.id}: reinstalled at ${entry.pinned_version}`);
+    console.log(
+      `[REMEDIATE-04] ${entry.id}: ${isMigration ? "migrated to native" : "reinstalled"} at ${installVersion} (${installSource})`,
+    );
     return;
   }
 

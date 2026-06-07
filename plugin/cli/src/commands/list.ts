@@ -26,10 +26,13 @@ interface Row {
   // (upgrade/remove act on it). The text renderer discloses this via a suffix
   // on the INSTALLED column.
   reused: boolean;
-  // AL-61: no sentinel, but the detect cache reports the agent healthy at its
-  // canonical presence — physically present, just not adopted. The text renderer
-  // appends a "run install to manage" hint; JSON carries the flag verbatim.
+  // AL-61/AL-62: no sentinel, but the detect cache reports the agent healthy —
+  // physically present, just not adopted. present_canonical distinguishes the
+  // hint: at the managed path → "run install to manage" (adopt); at a
+  // non-canonical path (e.g. claude via npm) → "run install to migrate" (AL-62).
   present: boolean;
+  present_canonical: boolean;
+  present_path: string | null;
   // Text renderer appends a distinct suffix per status; JSON carries it verbatim.
   sentinel_status?: "installed" | "reused" | "broken-after-remediate" | "reused-with-warning";
   // Carried to JSON verbatim; set only when sentinel_status === "reused-with-warning".
@@ -47,11 +50,15 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
     // detect cache so a present-but-unadopted agent reads "present" with its
     // detected version instead of being reported absent.
     let present = false;
+    let presentCanonical = false;
+    let presentPath: string | null = null;
     if (status === "not-installed") {
       const hit = detectPresence(entry);
       if (hit) {
         status = "present";
         present = true;
+        presentCanonical = hit.canonical;
+        presentPath = hit.path;
         installed = hit.version; // may be null → renders "-"
       }
     }
@@ -66,6 +73,8 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
       source: sentinel?.source ?? "-",
       reused,
       present,
+      present_canonical: presentCanonical,
+      present_path: presentPath,
       sentinel_status: sentinel?.status,
       decline_reason: sentinel?.decline_reason,
     };
@@ -94,7 +103,12 @@ export async function listCmd(opts: ListOpts): Promise<void> {
   const BROKEN_AFTER_REMEDIATE_SUFFIX = " (broken — half-uninstalled, manual recovery needed)";
   const reusedWithWarningSuffix = (reason: string) =>
     ` (reused — declined remediation: ${reason}; manual fix needed)`;
-  const presentSuffix = (id: string) => ` (detected — run: agentlinux install ${id} to manage)`;
+  // Canonical present → adoptable; non-canonical present → migration candidate
+  // (e.g. claude installed via npm; AL-62). Both are "present", never not-installed.
+  const presentManageSuffix = (id: string) =>
+    ` (detected — run: agentlinux install ${id} to manage)`;
+  const presentMigrateSuffix = (id: string, path: string) =>
+    ` (detected at ${path}, not the managed path — run: agentlinux install ${id} to migrate)`;
   const header = ["NAME", "STATUS", "CURATED", "INSTALLED", "DESCRIPTION"];
   const data = rows.map((r) => {
     let installed = r.installed;
@@ -105,7 +119,9 @@ export async function listCmd(opts: ListOpts): Promise<void> {
     } else if (r.reused) {
       installed = `${r.installed}${REUSED_SUFFIX}`;
     } else if (r.present) {
-      installed = `${r.installed}${presentSuffix(r.id)}`;
+      installed = r.present_canonical
+        ? `${r.installed}${presentManageSuffix(r.id)}`
+        : `${r.installed}${presentMigrateSuffix(r.id, r.present_path ?? "a non-canonical path")}`;
     }
     return [r.id, r.status, r.curated, installed, r.description];
   });

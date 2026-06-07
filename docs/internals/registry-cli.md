@@ -44,11 +44,15 @@ The CLI exposes six verbs:
 - `agentlinux list` — render the catalog as a table (or JSON), with
   per-agent status: `not-installed`, `present`, `synced`,
   `override-ahead`, `override-behind`. `present` is the honest-status
-  case: a tool the host already has at its canonical location but that
-  AgentLinux has not yet recorded — it reads `present` with its detected
-  version (and a "run install to manage" hint), never `not-installed`,
-  so a brownfield host's existing Claude Code or GSD is never mislabelled
-  as absent. Hides `test_only` entries unless `--include-test` is passed.
+  case: a tool the host already has but that AgentLinux has not recorded —
+  it reads `present` with its detected version, never `not-installed`, so a
+  brownfield host's existing tools are never mislabelled as absent. The
+  hint depends on *where* the tool lives: at the managed (canonical) path
+  it says "run install to manage" (adoptable); at a non-canonical path —
+  e.g. Claude Code installed via npm at `~/.npm-global/bin/claude` instead
+  of the native `~/.local/bin/claude` — it names the detected path and says
+  "run install to migrate", because that install is a migration candidate,
+  not blessed as-is. Hides `test_only` entries unless `--include-test`.
 - `agentlinux install <name>` — load the catalog, find the entry,
   inject `AGENTLINUX_PINNED_VERSION` and the agent-user environment,
   and dispatch the entry's `install_recipe_path` (typically
@@ -57,7 +61,13 @@ The CLI exposes six verbs:
   installed version and source (`curated`, `latest`, or
   `pinned=<semver>`). `--version <semver>` overrides the catalog
   pin; `--force` re-runs the recipe even when the sentinel says it is
-  already installed.
+  already installed. When the detect cache reports a healthy install at a
+  *non-canonical* path (the npm→native migration case for Claude Code),
+  install treats it as a relocation: it uninstalls the off-path install and
+  reinstalls at the canonical path — **keeping the user's current version**
+  (recorded `source=override`), not forcing the catalog pin. A later
+  `agentlinux upgrade --reset-all-curated` reconciles to the curated
+  version only if the operator opts in.
 - `agentlinux adopt [<name>] [--all]` — record a tool the host already
   has into a managed sentinel *without installing anything*. When a
   pre-existing install is healthy, at its canonical path, and within the

@@ -12,7 +12,7 @@
 // fetches nothing — it only adopts what detection already found.
 
 import { loadCatalog } from "../catalog/loader.js";
-import { tryReuse } from "../detect.js";
+import { tryRemediate, tryReuse } from "../detect.js";
 import { readSentinel, writeSentinel } from "../state/sentinel.js";
 import type { CatalogEntry } from "../types.js";
 
@@ -22,7 +22,7 @@ export interface AdoptOpts {
   includeTest?: boolean;
 }
 
-type AdoptAction = "adopted" | "already-managed" | "skipped";
+type AdoptAction = "adopted" | "already-managed" | "skipped" | "migrate-available";
 
 interface AdoptResult {
   id: string;
@@ -40,6 +40,19 @@ async function adoptOne(entry: CatalogEntry): Promise<AdoptResult> {
   }
   const hit = tryReuse(entry);
   if (!hit) {
+    // Not reuse-eligible. AL-62: distinguish a migration candidate (healthy but
+    // at a non-canonical path — e.g. claude installed via npm) from a plain skip,
+    // so adopt-on-install surfaces it in the transcript. adopt never migrates
+    // (that uninstall+reinstall needs consent via `agentlinux install`).
+    const rem = tryRemediate(entry);
+    if (rem?.reason === "path-mismatch") {
+      return {
+        id: entry.id,
+        action: "migrate-available",
+        version: rem.detected_version ?? undefined,
+        reason: `present at ${rem.detected_path} (non-canonical) — run \`agentlinux install ${entry.id}\` to migrate to the native install`,
+      };
+    }
     return {
       id: entry.id,
       action: "skipped",
@@ -108,6 +121,8 @@ export async function adoptCmd(name: string | undefined, opts: AdoptOpts): Promi
       );
     } else if (r.action === "already-managed") {
       console.log(`${r.id}: already managed at ${r.version}; no-op`);
+    } else if (r.action === "migrate-available") {
+      console.log(`[MIGRATE] ${r.id}: ${r.reason}`);
     } else {
       console.log(`${r.id}: nothing to adopt — ${r.reason}`);
     }
