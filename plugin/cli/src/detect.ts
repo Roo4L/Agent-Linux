@@ -111,8 +111,11 @@ export function tryReuse(entry: CatalogEntry): ReuseHit | null {
   const { detected, canonical } = hit;
   if (detected.status !== "healthy") return null;
   if (!isCanonicalAgentPath(entry, detected.path, canonical)) return null;
-  if (!semver.valid(detected.version)) return null;
-  if (!semver.satisfies(detected.version, entry.compatibility_window)) return null;
+  // Forward the semver-NORMALIZED version (drops a leading `v`/whitespace the
+  // cache may carry) so the sentinel + any downstream install use a clean value.
+  const version = semver.valid(detected.version);
+  if (!version) return null;
+  if (!semver.satisfies(version, entry.compatibility_window)) return null;
 
   // Re-validate the binary actually exists at install time — the cache may be
   // stale (binary removed by an unrelated process since detect::run_once).
@@ -124,7 +127,7 @@ export function tryReuse(entry: CatalogEntry): ReuseHit | null {
   }
   return {
     binary_path: detected.path,
-    version: detected.version,
+    version,
     detected_source: "pre-existing",
   };
 }
@@ -152,7 +155,8 @@ export function tryRemediate(entry: CatalogEntry): RemediateHit | null {
       reason: "path-mismatch",
       detected_path: detected.path,
       canonical_path: canonical,
-      detected_version: semver.valid(detected.version) ? detected.version : null,
+      // Normalized (semver.valid returns the clean version or null).
+      detected_version: semver.valid(detected.version),
     };
   }
   return null;
@@ -182,7 +186,8 @@ export function detectPresence(entry: CatalogEntry): PresenceHit | null {
   const { detected, canonical } = hit;
   if (detected.status !== "healthy") return null;
   return {
-    version: semver.valid(detected.version) ? detected.version : null,
+    // Normalized (semver.valid returns the clean version or null).
+    version: semver.valid(detected.version),
     path: detected.path,
     canonical: isCanonicalAgentPath(entry, detected.path, canonical),
   };

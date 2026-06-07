@@ -486,6 +486,11 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
     // window >=2.0.0 <3.0.0, ≠ pin 2.1.98). REMEDIATE must reinstall native at
     // the DETECTED version (keep the user's version), recording source=override
     // so a later `upgrade --reset-all-curated` can reconcile to the pin.
+    // Host-independence: the detected path is a fresh-tmp absent file so the
+    // post-uninstall check passes; the canonical path (/home/agent/.local/bin/
+    // claude) must also be absent — true on CI greenfield and on a host whose
+    // claude is at the npm path, but a dev host with a real NATIVE claude there
+    // would trip the post-uninstall verification (mocked uninstall is a no-op).
     const cachePath = join(TMP, "detect-migrate-inwindow.json");
     const nonexistentPath = join(TMP, "fake-npm-claude-absent");
     writeFileSync(
@@ -519,6 +524,7 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
   test("AL-62: out-of-window detected version falls back to the catalog pin (source=curated)", async () => {
     // A path-mismatch with a version OUTSIDE the window can't be preserved —
     // reinstall native at the pin (curated), like a broken remediate.
+    // (Same canonical-path host-independence caveat as the in-window test above.)
     const cachePath = join(TMP, "detect-migrate-outofwindow.json");
     const nonexistentPath = join(TMP, "fake-npm-claude-absent-oow");
     writeFileSync(
