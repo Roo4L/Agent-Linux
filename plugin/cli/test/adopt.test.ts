@@ -190,9 +190,10 @@ describe("adoptCmd — AL-61 adopt-on-install / honest reuse recording", () => {
     assert.equal(await readSentinel("gsd"), null, "out-of-window must not be adopted");
   });
 
-  test("path-mismatch cache → skipped, no sentinel — adopt never remediates", async () => {
-    // A healthy claude at a NON-canonical path is REMEDIATE territory for
-    // `install`, but `adopt` must leave it entirely alone (write nothing).
+  test("path-mismatch cache → migrate-available notice, no sentinel — adopt never migrates (AL-62)", async () => {
+    // A healthy claude at a NON-canonical path (npm install) is a MIGRATION
+    // candidate: adopt surfaces it ([MIGRATE] … run install to migrate) but must
+    // NOT adopt or migrate it (no sentinel; migration needs consent via install).
     stageCache([
       {
         id: "claude-code",
@@ -207,11 +208,14 @@ describe("adoptCmd — AL-61 adopt-on-install / honest reuse recording", () => {
     } finally {
       sil.restore();
     }
-    assert.match(sil.out.join("\n"), /nothing to adopt/);
+    const out = sil.out.join("\n");
+    assert.match(out, /\[MIGRATE\] claude-code/);
+    assert.match(out, /migrate to the native install/);
+    assert.doesNotMatch(out, /nothing to adopt/);
     assert.equal(
       await readSentinel("claude-code"),
       null,
-      "adopt must not touch a mispathed install",
+      "adopt must not write a sentinel for a migration candidate",
     );
   });
 
@@ -249,7 +253,7 @@ describe("adoptCmd — AL-61 adopt-on-install / honest reuse recording", () => {
     assert.ok(parsed.length >= 1, "--all result array must be non-empty (catalog has agents)");
     for (const r of parsed) {
       assert.ok(typeof r.id === "string");
-      assert.ok(["adopted", "already-managed", "skipped"].includes(r.action));
+      assert.ok(["adopted", "already-managed", "skipped", "migrate-available"].includes(r.action));
     }
   });
 

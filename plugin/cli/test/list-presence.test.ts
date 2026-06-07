@@ -132,7 +132,7 @@ describe("listCmd — AL-61 presence overlay", () => {
     assert.doesNotMatch(joined, /to manage/);
   });
 
-  test("cache healthy at NON-canonical path → NOT present (stays not-installed)", async () => {
+  test("cache healthy at NON-canonical path → present (migration candidate, not not-installed) (AL-62)", async () => {
     stageCache([
       { id: "gsd", status: "healthy", path: "/home/agent/.npm-global/bin/gsd", version: "1.37.1" },
     ]);
@@ -142,7 +142,12 @@ describe("listCmd — AL-61 presence overlay", () => {
     } finally {
       cap.restore();
     }
-    assert.match(cap.lines.join("\n"), /gsd\s+not-installed/);
+    const joined = cap.lines.join("\n");
+    assert.match(joined, /gsd\s+present/);
+    // Non-canonical → migrate hint with the detected path, NOT the "manage" hint.
+    assert.match(joined, /\/home\/agent\/\.npm-global\/bin\/gsd, not the managed path/);
+    assert.match(joined, /to migrate/);
+    assert.doesNotMatch(joined, /not-installed/);
   });
 
   test("no detect cache → not-installed (overlay no-op)", async () => {

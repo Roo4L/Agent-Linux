@@ -481,6 +481,72 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
     assert.equal(s?.status, "installed");
   });
 
+  test("AL-62: npm→native migration preserves the detected in-window version (source=override)", async () => {
+    // claude installed via npm at a non-canonical path, version 2.1.150 (in
+    // window >=2.0.0 <3.0.0, ≠ pin 2.1.98). REMEDIATE must reinstall native at
+    // the DETECTED version (keep the user's version), recording source=override
+    // so a later `upgrade --reset-all-curated` can reconcile to the pin.
+    const cachePath = join(TMP, "detect-migrate-inwindow.json");
+    const nonexistentPath = join(TMP, "fake-npm-claude-absent");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        components: {
+          agents: [
+            { id: "claude-code", status: "healthy", path: nonexistentPath, version: "2.1.150" },
+          ],
+        },
+      }),
+    );
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 2, "migration = uninstall + install");
+    // The install dispatch (2nd call) carries the preserved version, not the pin.
+    assert.equal(cap.calls[1].env.AGENTLINUX_PINNED_VERSION, "2.1.150");
+    const s = await readSentinel("claude-code");
+    assert.equal(s?.status, "installed");
+    assert.equal(s?.version, "2.1.150", "sentinel keeps the user's version");
+    assert.equal(s?.source, "override", "preserved version recorded as override");
+  });
+
+  test("AL-62: out-of-window detected version falls back to the catalog pin (source=curated)", async () => {
+    // A path-mismatch with a version OUTSIDE the window can't be preserved —
+    // reinstall native at the pin (curated), like a broken remediate.
+    const cachePath = join(TMP, "detect-migrate-outofwindow.json");
+    const nonexistentPath = join(TMP, "fake-npm-claude-absent-oow");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        components: {
+          agents: [
+            { id: "claude-code", status: "healthy", path: nonexistentPath, version: "1.9.0" },
+          ],
+        },
+      }),
+    );
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+    Object.defineProperty(process.stdin, "isTTY", { value: false, configurable: true });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await installCmd("claude-code", { yes: true }, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 2, "migration = uninstall + install");
+    assert.equal(cap.calls[1].env.AGENTLINUX_PINNED_VERSION, "2.1.98", "falls back to the pin");
+    const s = await readSentinel("claude-code");
+    assert.equal(s?.version, "2.1.98");
+    assert.equal(s?.source, "curated");
+  });
+
   test("REUSE-03 / DET-04: gsd at the deployed-system VERSION path is NOT a path-mismatch (npx form, no binary)", async () => {
     // GSD's `get-shit-done-cc` is a bootstrapper; `npx get-shit-done-cc` deploys
     // the system (VERSION + gsd-* skills) but leaves no global binary, so
