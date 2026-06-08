@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3.4
 milestone_name: milestone
-status: shipping
-stopped_at: "Phase 17 rc3 IN PROGRESS — rc2 validated by maintainer (gsd: reuse confirmed; AL-60 done). Checkpoint-2 surfaced a NEW issue (AL-61): `agentlinux list` showed present-but-unadopted brownfield agents (Claude/GSD) as 'not-installed' because list reads only sentinels, and the base installer never adopted them — deceptive. Maintainer chose BOTH fixes. IMPLEMENTED on branch fix/adopt-on-install-honest-list: (1) new plugin/cli/src/detect.ts shared detect-cache/reuse helpers (extracted from install.ts); (2) new `agentlinux adopt [<name>] [--all]` command — records reuse-eligible present agents into status=reused sentinels, never installs/downloads; (3) installer run_agent_adoption hook runs `agentlinux adopt --all` after a successful apply; (4) list presence overlay + new Status 'present' (detected version + manage hint instead of not-installed). +15 CLI unit tests (182/182), +5 bats integration in 40-registry-cli.bats, 13-reuse brownfield E2E updated to assert adopt-on-install, docs/internals updated. Docker bats 213/213 green (ubuntu-24.04); 6-reviewer loop applied (comments, bats teardown hygiene, positive no-install proof). NEXT: push -> PR -> CI green -> merge -> tag v0.3.4-rc3 -> publish (prerelease) -> maintainer re-validates `agentlinux list` shows reused, not not-installed. Deferred: alt-user hollow-install (AL-59); release.yml auto-prerelease for -rc tags; Docker-build-cache CI speedup."
-last_updated: "2026-06-06T18:00:00.000Z"
-last_activity: 2026-06-06 -- Phase 17: implemented AL-61 (adopt-on-install + honest 'present' list); Docker bats 213/213 green; opening PR -> rc3
+status: complete
+stopped_at: "v0.3.4 'Aware Installation Process' SHIPPED — final release v0.3.4 published + marked Latest (https://github.com/Roo4L/Agent-Linux/releases/tag/v0.3.4; SHA256-verified tarball + sibling .sha256 + .deb; full gate chain green — pre-commit + docker x3 + qemu x3 + pinned-combo + build + publish; /releases/latest -> v0.3.4 so unpinned curl|sudo bash installs it). Phase 17 (Changes Delivery + Release Candidate) COMPLETE. Maintainer-validated on a real brownfield VM across 4 checkpoints, each surfacing + fixing a real bug: rc1->AL-60 (npx-GSD detection); rc2->AL-61 (deceptive list: present-but-unadopted shown not-installed -> adopt-on-install + honest 'present' status); rc3->AL-62 (npm Claude Code shown not-installed -> npm->native migration preserving the user's version); rc4->LGTM->promoted to final v0.3.4. Jira: AL-38 anchor Done; AL-58/AL-60/AL-61/AL-62 Done; phases 12-16 Done. Carried forward (NOT v0.3.4 scope): AL-59 (alt-user hollow-install bug, under epic AL-48); release.yml auto-prerelease for -rc tags; Docker-build-cache CI speedup (the recurring ubuntu:26.04 image-pull flake). NEXT: /gsd-new-milestone to scope the next milestone (e.g. AlmaLinux support AL-47)."
+last_updated: "2026-06-08T00:00:00.000Z"
+last_activity: 2026-06-08 -- v0.3.4 SHIPPED (final release Latest); Phase 17 complete; AL-38 milestone anchor closed
 progress:
   total_phases: 1
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 3
-  completed_plans: 0
-  percent: 0
+  completed_plans: 3
+  percent: 100
 ---
 
 # Project State
