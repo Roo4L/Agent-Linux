@@ -2,23 +2,21 @@
 phase: 5
 slug: agent-installability
 verified_date: 2026-04-19
-status: human_needed
+status: passed
+resolved_date: 2026-06-09
 must_haves_verified: 26/26
 phase_requirements_covered: 6/6
 tst07_gate: GREEN
-bats_tests_ubuntu_22_04: unverified-in-verifier-env
-bats_tests_ubuntu_24_04: unverified-in-verifier-env
+bats_tests_ubuntu_22_04: GREEN (CI release gate)
+bats_tests_ubuntu_24_04: GREEN (CI release gate)
 bats_test_count_on_disk: 66/66
-human_verification:
-  - test: "Run full Docker matrix on Ubuntu 22.04"
-    expected: "./tests/docker/run.sh ubuntu-22.04 → 66/66 bats green including AGT-02 live claude update"
-    why_human: "Docker build + ~8 min bats run (incl. ~281 MB chromium download + live claude.ai CDN fetch) exceeds verifier wall-time budget; SUMMARY claims 66/66 but re-run is a release-gate obligation per plan and ADR-011"
-  - test: "Run full Docker matrix on Ubuntu 24.04"
-    expected: "./tests/docker/run.sh ubuntu-24.04 → 66/66 bats green"
-    why_human: "Same as above; matrix parity check against 22.04; Plan 05-02 SUMMARY documents a prior AGT-02 flake on 24.04 (exit 124 timeout-SIGTERM against live Anthropic CDN) that cleared on retry — reproduces environmental sensitivity of AGT-02"
-  - test: "Confirm AGT-02 release-gate transcript has zero EACCES against live Anthropic CDN"
-    expected: "transcript at /tmp/agt02-claude-update.*.log (kept only on failure) shows post-update version >= 2.1.98; assert_no_eacces passes"
-    why_human: "Requires real network + real Anthropic CDN; destructive (mutates claude binary in container); verifier cannot spin up live-network container"
+human_verification_resolved:
+  resolved_date: 2026-06-09
+  by: "Accumulated CI evidence through the v0.3.4 release (2026-06-08). The three network-dependent re-runs flagged 2026-04-19 (Docker matrix on 22.04/24.04 incl. live AGT-02 `claude update`; zero-EACCES transcript) have since run on every PR via test.yml and were re-confirmed by the v0.3.4 final release gate (run 27100163604): gate-2-docker GREEN on Ubuntu 22.04 + 24.04 + 26.04 (incl. 51-agt02-release-gate.bats live `claude update`), gate-3-qemu GREEN ×3. The greenfield 51-agt02-release-gate.bats invariant stayed green v0.3.1→v0.3.4. Human-verification obligation satisfied; status human_needed → passed."
+  original_human_verification:
+    - test: "Run full Docker matrix on Ubuntu 22.04 (66/66 incl. AGT-02 live claude update)"
+    - test: "Run full Docker matrix on Ubuntu 24.04 (66/66)"
+    - test: "AGT-02 release-gate transcript zero EACCES, post-update version >= 2.1.98"
 ---
 
 # Phase 5: Agent Installability — Verification Report

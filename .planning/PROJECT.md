@@ -12,18 +12,18 @@ An agent can be dropped into any supported Linux system and *just work* — a de
 
 ## Current State
 
-**Shipped:** v0.3.4 Aware Installation Process — feature-complete 2026-05-27 (GATE: GREEN, release-ready, awaiting `v0.3.4-rc1` tag push).
+**Shipped:** v0.3.4 Aware Installation Process — **SHIPPED 2026-06-08** (final release `v0.3.4`, marked Latest; maintainer-validated on a real brownfield VM across 4 rc checkpoints — rc1→rc4 each fixed a found bug: AL-60 npx-GSD detection, AL-61 adopt-on-install + honest `list`, AL-62 npm→native Claude Code migration). Full release gate green (Docker ×3 + QEMU ×3 + pinned-combo + publish); `/releases/latest` → v0.3.4.
 
 **What v0.3.4 delivers:** AgentLinux installation is now aware of pre-existing AI/agent setups on the host. The installer detects pre-existing `agent` user, Node.js, npm-global prefix, Claude Code, GSD, and Playwright, then either reuses (compatible state), creates (absent), remediates (fixable drift), or bails (incompatible) on a per-component basis. `agentlinux install --dry-run` provides a non-mutating preview; TTY mode prompts per state-overwriting action with skip-and-continue semantics; non-TTY mode uses the single `--yes` consent flag (Unix convention). Structured exit codes (64 EX_USAGE, 65 EX_DATAERR, 1 runtime, 0 success) gate downstream automation. The brownfield-AGT-02 milestone-close gate verified `claude update` succeeds with zero EACCES on a pre-populated host against the live Anthropic CDN.
 
-**Test surface:** 204/204 bats green on Ubuntu 22.04 + 24.04 (Phase 14 baseline +18 from Phase 15 +2 from Phase 16); 165/165 TS unit tests green; greenfield invariant preserved (v0.3.0 baseline @tests untouched).
+**Test surface at ship:** 215/215 bats green on Ubuntu 24.04 (204 feature-complete baseline + 11 rc-fix additions for AL-61/AL-62); Docker ×3 + QEMU ×3 green in the v0.3.4 release gate; 184/184 TS unit tests green (165 baseline + 19 rc-fix); greenfield invariant preserved (v0.3.0 baseline @tests untouched); live AGT-02 zero-EACCES re-confirmed in production.
 
 **Documentation:** README has a new `## Brownfield install` section linked from main Install; `docs/MIGRATION.md` walks 4 worked scenarios (manual `useradd`, NodeSource Node, root-Claude reinstall, broken Playwright); per-phase AUDITs at `.planning/phases/{12..16}-*/`-AUDIT.md`; milestone audit at `.planning/v0.3.4-MILESTONE-AUDIT.md`.
 
 ## Next Milestone Goals
 
 - **v0.3.5 AlmaLinux support** (AL-47 / Epic AL-48): port the aware-install pipeline to AlmaLinux 9. Phase 12-15 detection layer is mostly distro-portable; brownfield-AGT-02 gate runs against a different baseline (DNF + EL8/EL9 idiom).
-- **`v0.3.4-rc1` tag push**: shipping event for the v0.3.4 milestone (release.yml pipeline already wired).
+- **AL-59 alt-user hollow-install** (carried forward from v0.3.4, under Epic AL-48): the installer's alt-user path needs end-to-end wiring (20-sudoers.sh / 30-nodejs.sh / 40-path-wiring.sh still hardcode `agent`).
 
 <details>
 <summary>v0.3.4 Aware Installation Process — original goal (archived 2026-05-27)</summary>
