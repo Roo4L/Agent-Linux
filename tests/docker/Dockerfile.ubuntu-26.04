@@ -44,13 +44,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=C.UTF-8
 
 # Same package set as the 24.04 sibling — see Dockerfile.ubuntu-24.04 for the
-# per-package rationale (dbus, jq, curl, python3, file, shellcheck).
+# per-package rationale (dbus, expect, jq, curl, python3, file, shellcheck).
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       systemd systemd-sysv \
       cron openssh-server \
       bats locales sudo \
       dbus \
+      expect \
       jq \
       curl \
       python3 \

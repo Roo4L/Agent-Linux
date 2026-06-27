@@ -1,0 +1,46 @@
+#!/usr/bin/env expect
+# tests/bats/helpers/expect/claude-idle.exp
+# Hold an interactive `claude` session open for N seconds (argv 1) doing
+# nothing, then exit cleanly via Ctrl-D. This is the AGT-02d background-
+# updater scenario: give the in-tool auto-updater enough wall-clock time
+# to fire + download + swap the binary on its natural cadence.
+#
+# Invariants:
+#   - `log_user 0`: hides CLI banner/output from bats $output (kept clean).
+#   - IDLE_SECONDS in argv 1; default 90.
+#   - Clean exit via Ctrl-D (send "\004"). `:quit` is REPL-specific and
+#     not guaranteed across CLI versions.
+#   - Wait inside expect (not bash) so the pty stays attached for the full
+#     idle window. A premature eof during the wait (claude crashed
+#     mid-idle) returns exit 1 immediately rather than burning the
+#     remaining budget on a bash-side sleep.
+#   - Spawn via `bash --login -c 'exec claude'`: the agent user's
+#     `~/.local/bin` (where the Claude Code native installer drops the
+#     binary) is added to PATH by /etc/profile.d/agentlinux-path.sh, which
+#     only fires under a login shell. `exec` replaces the shell so the pty
+#     pair flows directly to claude (no extra bash hop owning the TTY).
+
+log_user 0
+set idle_seconds 90
+if {[llength $argv] > 0} {
+    set idle_seconds [lindex $argv 0]
+}
+
+spawn bash --login -c {exec claude}
+
+set timeout $idle_seconds
+expect {
+    eof {
+        puts stderr "claude-idle.exp: claude process exited before idle window completed"
+        exit 1
+    }
+    timeout {
+        # Expected path — idle window completed without an early exit.
+    }
+}
+
+send "\004"
+
+set timeout 10
+expect eof
+exit 0
