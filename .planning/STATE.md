@@ -347,12 +347,19 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 
 ### Quick Tasks Completed
 
-| # | Description | Date | Commit | Directory |
-|---|-------------|------|--------|-----------|
-| 260502-i4p | Add stop hook reminding Claude to run review loop (AL-23) and amend ADR-010 | 2026-05-02 | af9bd74 | [260502-i4p-add-stop-hook-reminding-claude-to-run-re](./quick/260502-i4p-add-stop-hook-reminding-claude-to-run-re/) |
-| 260503-8z4 | Add session-tracker Stop hook (AL-24) — second instance of ADR-010 reminder-hook pattern | 2026-05-03 | _pending_ | [260503-8z4-al-24-add-stop-hook-for-session-tracking](./quick/260503-8z4-al-24-add-stop-hook-for-session-tracking/) |
-| 260525-nv0 | Test secrets infrastructure — `.env.local` + GH repo secrets + bats `require_secret` helper; SECRET_ALLOWLIST in `tests/docker/run.sh`; step-level workflow env on nightly-qemu; four-section internals doc; convention smoke test (AL-53) | 2026-05-25 | 181996b | [260525-nv0-al-53-test-secrets-infrastructure](./quick/260525-nv0-al-53-test-secrets-infrastructure/) |
-| 260526-84p | Interactive-CLI driving bats helpers (`expect`-based) + AGT-02d behavioral test for AL-51 (red-green: idle-then-version-drift control + DISABLE_AUTOUPDATER stamp acceptance); QEMU SendEnv/AcceptEnv last-hop forwarding; `docs/internals/test-interactive.md` (AL-54) | 2026-05-26 | d7bf9ee | [260526-84p-al-54-interactive-bats-helpers-al-51-beh](./quick/260526-84p-al-54-interactive-bats-helpers-al-51-beh/) |
+| Quick ID | Description | Date | Jira | Commit |
+|---|---|---|---|---|
+| 1-debug | Debug + fix Claude Code post-hook failures (node/fnm PATH not resolved in hooks) | 2026-03-09 | — | — |
+| 260502-i4p | Add Stop hook reminding Claude to run the review loop; amend ADR-010 | 2026-05-02 | AL-23 | af9bd74 |
+| 260503-8z4 | Add session-tracker Stop hook — second ADR-010 reminder-hook instance | 2026-05-03 | AL-24 | — |
+| 260509-kn2 | Add ai-deslop review agent + remove existing AI slop | 2026-05-09 | AL-35 | — |
+| 260509-kuv | provisioner 10-agent-user.sh: apt install of locales fails on empty cache — add apt update first | 2026-05-09 | AL-37 | — |
+| 260510-n7e | Remove GSD artifacts from help + project documentation | 2026-05-10 | AL-33 | — |
+| 260524-ch1 | Disable Claude Code background auto-updater (version pinning; AGT-02c) | 2026-05-24 | AL-51 | — |
+| 260525-nv0 | Test-secrets infrastructure — `.env.local` + GH repo secrets + bats `require_secret`; SECRET_ALLOWLIST in `tests/docker/run.sh`; step-level nightly-qemu env; internals doc; smoke test | 2026-05-25 | AL-53 | 181996b |
+| 260526-84p | Interactive-CLI bats helpers (`expect`-based) + AGT-02d behavioral test; QEMU SendEnv/AcceptEnv forwarding; `docs/internals/test-interactive.md` | 2026-05-26 | AL-54 | d7bf9ee |
+
+_Quick-task working directories are not retained on `master` (AL-63 — see the `planning-workflow` skill); this table is the durable record. Full PLAN/SUMMARY detail for each task lives in git history and the linked Jira issue._
 
 ## Deferred Items
 
