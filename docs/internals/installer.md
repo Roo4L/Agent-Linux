@@ -38,6 +38,14 @@ the staged `agentlinux-install` entrypoint which runs the ordered
 provisioner steps: agent user, sudo drop-in, Node.js runtime, PATH wiring,
 registry CLI.
 
+After provisioning, on an apply (not a `--dry-run`), the installer runs an
+adopt-on-install pass: any agent tool the host already had — a healthy
+Claude Code or GSD at its canonical location, within the catalog's
+compatibility window — is recorded into a managed sentinel so `agentlinux
+list` reflects it as `reused` rather than `not-installed`. This installs
+nothing; it only records what the read-only detection pass already found
+(see [Registry CLI](registry-cli.md) for the `adopt` verb).
+
 The version is either pinned explicitly via the `AGENTLINUX_VERSION`
 environment variable or resolved automatically to the latest GitHub
 Release. Either way the resulting URL is a permanent, versioned artifact
@@ -61,6 +69,7 @@ agentlinux-install: 20-sudoers: done
 agentlinux-install: 30-nodejs: done
 agentlinux-install: 40-path-wiring: done
 agentlinux-install: 50-registry-cli: done
+agentlinux-install: adopting pre-existing reuse-eligible agents (agentlinux adopt --all)
 agentlinux-install: agentlinux-install complete
 
 $ agentlinux list

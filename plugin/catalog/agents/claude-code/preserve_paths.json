@@ -1,0 +1,7 @@
+{
+  "preserve_paths": [
+    "~/.claude/",
+    "~/.config/claude/"
+  ],
+  "comment": "User credentials, session state, and per-user configuration. Survives REMEDIATE-04 uninstall+reinstall per CAT-04. Preserving ~/.claude/ also preserves ~/.claude/downloads as a descendant."
+}

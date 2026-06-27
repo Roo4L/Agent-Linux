@@ -1,5 +1,5 @@
 {
-  "version": "0.3.2",
+  "version": "0.3.4",
   "agents": [
     {
       "id": "claude-code",
@@ -10,9 +10,11 @@
       "source_kind": "script",
       "pinned_version": "2.1.98",
       "version_constraint": "^2.1",
+      "compatibility_window": ">=2.0.0 <3.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v claude && claude --version",
+      "preserve_paths_file": "preserve_paths.json",
       "tags": ["agent", "anthropic"]
     },
     {
@@ -24,9 +26,11 @@
       "source_kind": "npm",
       "npm_package_name": "get-shit-done-cc",
       "pinned_version": "1.37.1",
+      "compatibility_window": ">=1.37.0 <2.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v get-shit-done-cc",
+      "preserve_paths_file": "preserve_paths.json",
       "tags": ["workflow", "productivity"]
     },
     {
@@ -38,9 +42,11 @@
       "source_kind": "npm",
       "npm_package_name": "@playwright/cli",
       "pinned_version": "0.1.11",
+      "compatibility_window": ">=0.1.0 <1.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v playwright-cli && playwright-cli --version",
+      "preserve_paths_file": "preserve_paths.json",
       "tags": ["browser", "automation", "agent-skill"]
     },
     {

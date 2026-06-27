@@ -1,5 +1,29 @@
 # Milestones
 
+## v0.3.4 Aware Installation Process (Shipped: 2026-06-08)
+
+**Phases completed:** 6 phases (12 Detection → 13 Reuse → 14 Remediate + Consent + Exit Codes → 15 Pre-flight UX → 16 Docs + Brownfield Gate → 17 Changes Delivery + Release Candidate)
+
+**Release:** `v0.3.4` — published + marked Latest (https://github.com/Roo4L/Agent-Linux/releases/tag/v0.3.4). SHA256-verified tarball + sibling `.sha256` + `.deb`; full release gate green (pre-commit + Docker ×3 + QEMU ×3 + pinned-combo + build + publish). `/releases/latest` → v0.3.4, so unpinned `curl | sudo bash` installs it.
+
+**Key accomplishments:**
+
+- **Brownfield-aware installer (DECIDE-THEN-ACT):** a pre-flight detection pass classifies the existing host (install user, Node.js, npm prefix, sudoers, catalog agents), then per component decides reuse / create / remediate / bail — never mutating without consent. `--dry-run` previews non-destructively; TTY prompts per state-overwriting action with skip-and-continue; non-TTY uses a single `--yes`; structured exit codes (64/65/1/0) gate automation. 20/20 behavior requirements satisfied (DET/REUSE/REMEDIATE/UX/DOC).
+- **Adopt-on-install + honest `list` (AL-61):** the installer adopts pre-existing reuse-eligible agents into managed sentinels after a successful apply, and `agentlinux list` shows present-but-unadopted tools as `present` (with their detected version) instead of the deceptive `not-installed`. New `agentlinux adopt` verb.
+- **npm→native Claude Code migration (AL-62):** a Claude Code installed via npm (non-canonical path) is acknowledged as `present` with a migrate hint, and `agentlinux install claude-code` relocates it to the native install **preserving the user's version** — no second competing install, no PATH race.
+- **npx-deployed GSD detection (AL-60):** GSD deployed by `npx get-shit-done-cc` (skills + a VERSION file, no global binary) is now classified healthy at its deployed-system canonical presence rather than misreported absent.
+- **Maintainer-validated on a real brownfield VM across 4 rc checkpoints** — rc1→AL-60, rc2→AL-61, rc3→AL-62, rc4→LGTM→final. Each rc round surfaced a genuine bug that Docker/QEMU fixtures missed; the live install was the true acceptance gate.
+
+**Test surface at ship:** Bats 215/215 (Ubuntu 24.04; Docker ×3 + QEMU ×3 green in the release gate); TypeScript 184/184; live AGT-02 zero-EACCES re-confirmed in production.
+
+**Jira:** anchor [AL-38](https://copiedwonder.atlassian.net/browse/AL-38) Done; AL-58/AL-60/AL-61/AL-62 Done. **Carried forward:** AL-59 (alt-user hollow-install) under epic AL-48; release.yml `-rc` auto-prerelease; Docker-build-cache CI speedup.
+
+**Known deferred items at close:** 1 (website PR-preview-deployments idea — out of installer scope, a genuine someday-idea kept in `.planning/todos/pending/`; not a v0.3.4 blocker). The 8 other open-artifact-audit hits at close were stale debris — resolved: 7 completed quick-tasks archived to `.planning/quick-archive/`, and the v0.3.0 Phase 05 verification flipped `human_needed → passed` (its network-dependent Docker/AGT-02 re-runs were re-confirmed by the v0.3.4 release gate).
+
+**Archived phases:** `.planning/milestones/v0.3.4-ROADMAP.md` · `.planning/milestones/v0.3.4-REQUIREMENTS.md` (20/20 complete)
+
+---
+
 ## v0.3.3 Agenda Redefinition (Shipped: 2026-05-24)
 
 **Phases completed:** 5 phases, 7 plans, 20 tasks
@@ -121,5 +145,33 @@
 **Why now:** A single-pillar framing is too narrow to position AgentLinux against agent-environment competitors and to attract the right contributors. The strategy doc becomes a single source of truth that downstream surfaces (website, CONTRIBUTING, future milestone roadmaps) reference; pillar 2 + pillar 3 implementation lands in v0.6+ milestones with the framing locked.
 
 See: `.planning/PROJECT.md` and `.planning/ROADMAP.md` for active scope and phases.
+
+---
+
+## v0.3.4 Aware Installation Process — Feature-complete: 2026-05-27 (GATE: GREEN, release-ready)
+
+**Phases completed:** 5 (Phase 12 Detection Layer → 13 Reuse Wiring → 14 Remediate + Consent Flag + Exit Codes → 15 Pre-flight UX → 16 Documentation + Brownfield Acceptance Gate)
+**Plans completed:** 12
+**Timeline:** 2026-05-10 → 2026-05-27 (~17 days)
+**Git range:** `2031151..3d2e8db` (81 commits; 105 files changed, +26,831 / −341)
+**Triggered by:** [AL-38](https://copiedwonder.atlassian.net/browse/AL-38) "Introduce proper migration pass for users with some AI setup already"
+
+**Key accomplishments:**
+- **Aware install pipeline (DECIDE-THEN-ACT):** the installer detects pre-existing `agent` user, Node.js (8 sources: NodeSource/distro-APT/nvm/fnm/volta/mise/asdf/manual), npm-global prefix + ownership, sudoers drop-in drift, and each catalog agent (claude-code/gsd/playwright — version + path + ownership + health), then dispatches per-component to Reuse / Create / Remediate / Bail. All decisions collected *before* any mutation.
+- **Reuse short-circuit (REUSE-01..03):** compatible pre-existing state skips the corresponding provisioner/recipe instead of clobbering; AGGRESSIVE ownership — adopted binaries are managed by `agentlinux upgrade/remove` identically to AgentLinux-installed ones.
+- **Remediate paths (REMEDIATE-01..04):** chown npm prefix, refresh PATH wiring, install missing/drifted sudoers, reinstall broken catalog agent — each gated by the single `--yes` consent flag in non-TTY mode; preserve_paths catalog data keeps user config across reinstalls.
+- **Pre-flight UX (UX-01..05):** `--dry-run` non-mutating preview (exits 0); TTY per-action `Proceed? [Y/n]` prompts with skip-and-continue (declined → `reused-with-warning` sentinel); alt-user numeric-suffix flow for incompatible existing user; structured exit codes 64 EX_USAGE / 65 EX_DATAERR / 1 runtime / 0 success.
+- **Documentation (DOC-01..02):** README "Brownfield install" section linked from main Install; `docs/MIGRATION.md` with 4 worked scenarios (manual `useradd`, NodeSource Node, root-Claude reinstall, broken Playwright cache).
+- **Milestone-close gate (brownfield-AGT-02):** on a host pre-populated with a manual `agent` user + NodeSource Node 22 + claude-code/gsd/playwright globals, `agentlinux install --yes` completes and `claude update` against the live Anthropic CDN exits 0 with zero EACCES, version monotonicity holds (2.1.98 → 2.1.150). Transcript at `docs/audits/v0.3.4/AGT-02-brownfield-acceptance.md`.
+
+**Test surface:** 204/204 bats green on Ubuntu 22.04 + 24.04; 165/165 TS unit tests green; greenfield invariant preserved (v0.3.0 baseline + `51-agt02-release-gate.bats` untouched). All 20 requirements satisfied (3-source cross-reference); 0 orphaned.
+
+**v0.3.4 ships when:** First `v0.3.4-rc1` tag push exercises `release.yml` end-to-end. Static gates all green; the tag push is the runtime-shipping event (not yet pushed — held per maintainer).
+
+**Known deferred items at close:** 5 (pre-existing, all predate v0.3.4 — Phase 05 v0.3.0 verification gap [human_needed], 3 legacy quick-task stubs, 1 tooling todo for website PR-preview deploys). See `.planning/STATE.md` § Deferred Items.
+
+**Numbering note:** v0.3.4 was scoped and executed after v0.4.0's feature-complete work (a milestone-rename pass placed the brownfield milestone at v0.3.4); phase directories land under `.planning/phases/12-*..16-*` alongside the v0.3.0/v0.4.0 phases (1-11). The formal `MILESTONES.md` ordering reconciliation rides with v0.4.0's pending closeout.
+
+**Archived planning:** `.planning/milestones/v0.3.4-ROADMAP.md` + `.planning/milestones/v0.3.4-REQUIREMENTS.md`; milestone audit at `.planning/v0.3.4-MILESTONE-AUDIT.md`; per-phase AUDITs under `.planning/phases/{12..16}-*/`.
 
 ---

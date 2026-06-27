@@ -1,20 +1,11 @@
 // plugin/cli/src/commands/remove.ts — `agentlinux remove <name>` (CLI-04).
-// Pattern ref: 04-RESEARCH §Pattern 4 lines 631-668.
 //
-// Flow:
-//   1. loadCatalog(validate:true) — reject malformed catalogs
-//   2. Resolve entry by id; process.exit(64) on miss
-//   3. readSentinel → if null: exit 1 unless --force (idempotent no-op)
-//   4. dispatchRecipe(uninstall.sh) via runner.ts
-//   5. deleteSentinel — idempotent (ENOENT-safe)
-//
-// T-04-09 mitigation: sentinel MUST exist unless --force — prevents
-// "remove any catalog entry" drive-by on a never-installed agent.
-//
-// Testability: accepts optional `dispatcher` DI seam (same shape as
-// installCmd). Default routes through the real runner; tests inject a
-// capturing mock.
+// Flow: loadCatalog → resolve entry (exit 64 on miss) → readSentinel (exit 1
+// unless --force) → dispatchRecipe(uninstall.sh) → deleteSentinel. Requiring a
+// sentinel (unless --force) prevents a drive-by remove on a never-installed
+// agent. The optional `dispatcher` param is a DI seam for unit tests.
 
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadCatalog } from "../catalog/loader.js";
 import { type Dispatcher, dispatchRecipe } from "../runner.js";
@@ -44,6 +35,17 @@ export async function removeCmd(
       process.exit(1);
     }
     return; // --force + not-installed = idempotent exit 0
+  }
+
+  // For a "reused" (adopted) sentinel whose binary has since vanished, running
+  // uninstall.sh against a missing binary is wasteful and may fail noisily.
+  // Just delete the sentinel — the user's intent (stop tracking) is met.
+  if (sentinel.status === "reused" && sentinel.binary_path && !existsSync(sentinel.binary_path)) {
+    await deleteSentinel(entry.id);
+    console.log(
+      `${entry.id}: sentinel removed (binary at ${sentinel.binary_path} was already gone — adopted binary no longer present)`,
+    );
+    return;
   }
 
   const recipePath = join(catalog.catalogDir, "agents", entry.id, entry.uninstall_recipe_path);

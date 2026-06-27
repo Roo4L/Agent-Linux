@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# plugin/bin/agentlinux-install — AgentLinux installer entrypoint
-# Phase 2 (v0.3.0): provisions the agent user + PATH wiring across six
-# invocation modes.
-#
-# Refs: docs/HARNESS.md §1.1; .claude/skills/agentlinux-installer/SKILL.md;
-#       .planning/phases/02-installer-foundation-agent-user/02-RESEARCH.md
-#       §Pattern 1, §Pitfall 6, §Example 1; 02-CONTEXT.md "Installer UX & Logging".
+# plugin/bin/agentlinux-install — installer entrypoint: provisions the agent
+# user + PATH wiring across six invocation modes.
 set -euo pipefail
 
 readonly LOG_FILE="${AGENTLINUX_LOG:-/var/log/agentlinux-install.log}"
-# Resolve script-relative directories. Split `declare`/`assign` per SC2155 so
-# a cmdsub failure surfaces as a non-zero return instead of being masked by
-# the `readonly` wrapper.
+
+# Exit-code contract: 64=usage (bad CLI flags); 65=data (incompatible host
+# state — bail without --yes). EX_DATAERR's literal `exit 65` is mirrored in
+# remediate.sh; shellcheck can't follow that cross-file use, hence SC2034.
+# shellcheck disable=SC2034
+readonly EX_USAGE=64
+# shellcheck disable=SC2034
+readonly EX_DATAERR=65
+# Split declare/assign per SC2155 so a cmdsub failure surfaces as non-zero
+# rather than being masked by the readonly wrapper.
 BIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly BIN_DIR
 LIB_DIR="$(cd "$BIN_DIR/../lib" && pwd)"
@@ -20,28 +22,25 @@ readonly LIB_DIR
 PROV_DIR="$(cd "$BIN_DIR/../provisioner" && pwd)"
 readonly PROV_DIR
 
-# AL-29: derive AGENTLINUX_VERSION from the co-shipped plugin/cli/package.json
-# rather than a hardcoded constant. Single source-of-truth: bumping
-# package.json now propagates to the bash installer, the registry CLI, the
-# bats test suite, and the release pipeline's three-way version lock. The
-# previous hardcoded constant drifted in v0.3.2-rc1 (silently broke CAT-05
-# because the staged catalog landed at /opt/agentlinux/catalog/0.3.0/ while
-# package.json said 0.3.2).
-#
-# Why sed-not-jq: the entrypoint runs BEFORE 30-nodejs.sh which (transitively
-# via apt-get) brings jq onto bare Ubuntu. Coreutils-only extraction is
-# sufficient because we control the package.json shape — it is checked into
-# this repo with a fixed format. The version-regex check below catches any
-# format drift loudly.
+# Derive AGENTLINUX_VERSION from the co-shipped package.json so a single bump
+# propagates to the installer, registry CLI, tests, and release pipeline.
+# sed (not jq) because the entrypoint runs before 30-nodejs.sh brings jq onto
+# bare Ubuntu; the shape is fixed and the regex check below catches drift.
 PKG_JSON="$BIN_DIR/../cli/package.json"
 readonly PKG_JSON
 [[ -r "$PKG_JSON" ]] \
-  || { printf 'agentlinux-install: package.json not readable at %s\n' "$PKG_JSON" >&2; exit 1; }
+  || {
+    printf 'agentlinux-install: package.json not readable at %s\n' "$PKG_JSON" >&2
+    exit 1
+  }
 AGENTLINUX_VERSION=$(sed -nE 's/^[[:space:]]*"version":[[:space:]]*"([^"]+)".*/\1/p' \
   "$PKG_JSON" | head -n 1)
 [[ "$AGENTLINUX_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][A-Za-z0-9.-]+)?$ ]] \
-  || { printf 'agentlinux-install: bad or missing version in %s: %q\n' \
-       "$PKG_JSON" "$AGENTLINUX_VERSION" >&2; exit 1; }
+  || {
+    printf 'agentlinux-install: bad or missing version in %s: %q\n' \
+      "$PKG_JSON" "$AGENTLINUX_VERSION" >&2
+    exit 1
+  }
 readonly AGENTLINUX_VERSION
 
 usage() {
@@ -59,23 +58,45 @@ Options:
       --remove-nodejs   Used WITH --purge: also apt-get purge nodejs. Other
                         users may depend on Node.js, so this is NOT the
                         default purge behavior.
+      --report-only     Run detection pass + emit report; exit 0 without
+                        running provisioners. Read-only.
+      --report-format=FMT  text (default) or json. Honored with --report-only.
+      --user=NAME       Install-user name to probe (default: agent).
+      --yes             Non-TTY consent for state-overwriting remediations
+                        (chown/rebase the npm prefix, overwrite drifted
+                        sudoers, reinstall a broken agent). Additive fixes
+                        run unconditionally. Consent is via --yes only — no
+                        environment-variable equivalent (avoids spoofable
+                        consent surfaces).
+      --no-yes          Explicit opposite of --yes (default). Provided so
+                        CI wrappers can toggle consent from a variable
+                        without rebuilding argv. Contradicts --yes (the
+                        installer exits with usage error in that case).
+      --dry-run         Run detection + decisions, print the pre-flight
+                        report, exit 0 WITHOUT mutating host state. Bails
+                        surface IN the report, NOT as exit code. Useful
+                        before a real install to preview what will happen.
+                        Contradicts --yes (rejected as usage error) — dry-run
+                        never mutates, --yes is a mutation gate.
 
 The installer must run as root. Supported hosts: Ubuntu 22.04, 24.04 and 26.04.
 Transcript: ${LOG_FILE}
+
+Exit codes:
+  0   success — install completed, report printed, or dry-run finished
+  1   runtime — execution failure during Create or Remediate (apt, chown, useradd, install.sh)
+  64  usage   — bad command-line flags or contradictory options
+  65  data    — incompatible host state surfaced by detection (run --dry-run to preview)
+
+  Most actionable in non-TTY contexts (cron, CI, curl|bash): exit 65 means
+  state-overwriting Remediate would be required — re-run with --yes to apply.
 EOF
 }
 
 # pre_parse_args — handle the two print-and-exit flags (--help, --version)
-# BEFORE the log-file / tee / require_root machinery kicks in. These flags
-# mutate no state, so running them without root is part of the UX contract
-# (CONTEXT.md "Installer UX & Logging", PLAN acceptance criterion "parse_args
-# runs BEFORE require_root so --help / --version work without sudo").
-#
-# --purge was handled here in Phase 2 as a print-and-exit stub. Phase 4 Plan
-# 04-06 moves --purge to parse_args + main() so it runs AFTER require_root
-# (--purge is destructive and requires EUID=0). --verbose and unknown flags
-# fall through to parse_args (run after log-init) so their diagnostics are
-# captured by the tee transcript.
+# BEFORE the log/tee/require_root machinery. They mutate no state, so they work
+# without root. Everything else falls through to parse_args (run after log-init)
+# so diagnostics are captured by the tee transcript.
 pre_parse_args() {
   local arg
   for arg in "$@"; do
@@ -94,33 +115,27 @@ pre_parse_args() {
 
 pre_parse_args "$@"
 
-# Initialize the log file BEFORE redirecting stdio into it so tee does not
-# race on a missing target and a root-owned 0644 file is created atomically.
-# Note (A7 in 02-RESEARCH.md): `install -m 0644` follows symlinks. Acceptable
-# for a root installer on a clean Ubuntu host; paranoid multi-tenant hosts
-# revisit in v0.4+.
-# Fallback to stderr (not the log!) on failure so the operator sees why
-# bootstrap aborted even before tee is active.
+# Create the log file BEFORE redirecting stdio into it so tee does not race on
+# a missing target. On failure report to stderr (not the log) so the operator
+# sees why bootstrap aborted before tee is active.
 if ! install -m 0644 /dev/null "$LOG_FILE" 2>/dev/null; then
   printf 'agentlinux-install: cannot create %s (are you root?)\n' "$LOG_FILE" >&2
-  exit 64
+  exit "$EX_USAGE"
 fi
 
-# Tee everything to the log. Merge stderr into stdout AFTER the tee redirect
-# so both streams land in the single greppable transcript that INST-05 scans.
-# Pitfall 6 mitigation: the async `tee` child needs EOF on its stdin before it
-# will flush and exit. Closing FD 1 (+ FD 2, which was dup'd from FD 1) before
-# `wait` is what delivers EOF; a bare `trap wait EXIT` deadlocks because the
-# EXIT trap runs *before* bash drops the caller's FDs, so tee never sees the
-# pipe close. We also save the tee PID via `$!` so `wait` targets just tee
-# rather than any unrelated backgrounded children.
+# Tee everything to the log; merge stderr into stdout so both land in one
+# greppable transcript. The async tee child needs EOF on its stdin before it
+# flushes and exits: closing FD 1 (+ FD 2, dup'd from FD 1) via `exec >&-`
+# before `wait` is what delivers that EOF — a bare `trap wait EXIT` deadlocks
+# because the EXIT trap runs before bash drops the caller's FDs. Save tee's PID
+# via `$!` so `wait` targets only tee, not unrelated background children.
 exec > >(tee -a "$LOG_FILE") 2>&1
 TEE_PID=$!
 readonly TEE_PID
 trap 'exec >&- 2>&-; wait "$TEE_PID" 2>/dev/null || true' EXIT
 
-# log.sh FIRST — every downstream lib (distro_detect, idempotency, as_user)
-# checks `command -v log_error` at top and hard-fails if log.sh is missing.
+# log.sh FIRST — every downstream lib checks `command -v log_error` and
+# hard-fails if log.sh is missing.
 # shellcheck source=../lib/log.sh
 . "$LIB_DIR/log.sh"
 
@@ -143,19 +158,28 @@ trap on_error ERR
 # shellcheck source=../lib/as_user.sh
 . "$LIB_DIR/as_user.sh"
 
-# Global flag state set by parse_args; main() consults these AFTER require_root
-# to branch into run_purge vs the normal provisioner flow.
+# Global flag state set by parse_args; main() consults these after require_root.
 PURGE_REQUESTED=false
 REMOVE_NODEJS_REQUESTED=false
+# Detection-layer flags: REPORT_ONLY gates run_provisioners; REPORT_FORMAT picks
+# the renderer (text/json); INSTALL_USER is the user passed to detect::run_once.
+REPORT_ONLY=false
+REPORT_FORMAT=text
+INSTALL_USER=agent
+# --yes authorizes state-overwriting Remediate actions in non-TTY mode.
+# YES_FLAG_EXPLICIT_NO records --no-yes so a later --yes is rejected as
+# contradictory — argv must be unambiguous, no "last flag wins".
+YES_FLAG=false
+YES_FLAG_EXPLICIT_NO=false
+# --dry-run: main() runs detection + decisions + report, then exits 0 BEFORE
+# flush_bails_or_continue and run_provisioners — observably non-mutating.
+# Contradictory with --yes in both orders (see symmetric guards in parse_args).
+DRY_RUN_REQUESTED=false
 
-# parse_args — handle flags that either mutate installer state (--verbose,
-# --purge, --remove-nodejs) or need the log transcript for diagnostics
-# (unknown-flag rejection). Runs after log-init so every message routes
-# through the tee.
-#
-# --help / --version are handled by pre_parse_args above and never reach
-# this function; they are kept in this case-match only as a defensive
-# fallthrough (should pre_parse_args be refactored).
+# parse_args — handle flags that mutate installer state or need the log
+# transcript for diagnostics. Runs after log-init so every message routes
+# through the tee. --help / --version are handled by pre_parse_args above; the
+# arms here are a defensive fallthrough.
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -177,38 +201,111 @@ parse_args() {
       --remove-nodejs)
         REMOVE_NODEJS_REQUESTED=true
         ;;
+      --report-only)
+        REPORT_ONLY=true
+        ;;
+      --report-format=*)
+        REPORT_FORMAT="${1#*=}"
+        ;;
+      --report-format)
+        shift
+        [[ $# -gt 0 ]] || {
+          log_error "--report-format requires a value (text|json)"
+          exit "$EX_USAGE"
+        }
+        REPORT_FORMAT="$1"
+        ;;
+      --user=*)
+        INSTALL_USER="${1#*=}"
+        ;;
+      --user)
+        shift
+        [[ $# -gt 0 ]] || {
+          log_error "--user requires a value"
+          exit "$EX_USAGE"
+        }
+        INSTALL_USER="$1"
+        ;;
+      --yes)
+        # --no-yes-then-yes is contradictory: exit rather than last-flag-wins.
+        if [[ "$YES_FLAG_EXPLICIT_NO" == true ]]; then
+          log_error "agentlinux-install: contradictory flags — --no-yes preceded --yes"
+          exit "$EX_USAGE"
+        fi
+        # --dry-run never mutates; --yes is a mutation gate. Mutually exclusive.
+        if [[ "$DRY_RUN_REQUESTED" == true ]]; then
+          log_error "agentlinux-install: contradictory flags — --dry-run forbids --yes (dry-run never mutates; --yes is a mutation gate)"
+          exit "$EX_USAGE"
+        fi
+        YES_FLAG=true
+        ;;
+      --dry-run)
+        # Symmetric to the --yes arm: reject if --yes was already passed.
+        if [[ "$YES_FLAG" == true ]]; then
+          log_error "agentlinux-install: contradictory flags — --dry-run forbids --yes (dry-run never mutates; --yes is a mutation gate)"
+          exit "$EX_USAGE"
+        fi
+        DRY_RUN_REQUESTED=true
+        ;;
+      --no-yes)
+        # Symmetric: --yes-then-no-yes also rejected.
+        if [[ "$YES_FLAG" == true ]]; then
+          log_error "agentlinux-install: contradictory flags — --yes preceded --no-yes"
+          exit "$EX_USAGE"
+        fi
+        YES_FLAG_EXPLICIT_NO=true
+        ;;
       *)
         log_error "unknown argument: $1"
         usage >&2
-        exit 64
+        exit "$EX_USAGE"
         ;;
     esac
     shift
   done
+
+  # Only `text` or `json` allowed; anything else is a usage error.
+  case "$REPORT_FORMAT" in
+    text | json) ;;
+    *)
+      log_error "--report-format must be 'text' or 'json' (got: ${REPORT_FORMAT})"
+      exit "$EX_USAGE"
+      ;;
+  esac
+}
+
+# ensure_jq — install jq if absent (required by the detection layer). Minimal
+# cloud images and bare base containers can ship without it; apt-get install is
+# idempotent (no-op when present).
+ensure_jq() {
+  if ! command -v jq >/dev/null 2>&1; then
+    log_warn "jq not found; installing 'jq' package (required by detection layer)"
+    # apt-get update first — this runs before any provisioner, and the cache
+    # may be empty on fresh containers / long-idle hosts (else apt-get install
+    # reports "no installation candidate").
+    DEBIAN_FRONTEND=noninteractive apt-get update
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
+  fi
 }
 
 require_root() {
   if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
     log_error "agentlinux-install must run as root (EUID != 0). Re-run under sudo."
-    exit 64
+    exit "$EX_USAGE"
   fi
 }
 
+# run_provisioners — source each NN-*.sh provisioner in numeric order.
 run_provisioners() {
   local step
   local -a steps
-  # `compgen -G` expands the glob via bash's builtin and returns matches on
-  # stdout in directory-entry order (NOT guaranteed lexical — on ext4/overlayfs
-  # the order depends on inode allocation, so a later-created `30-nodejs.sh`
-  # can precede `10-agent-user.sh`). Pipe through `sort` to enforce the
-  # numeric-dispatch contract (10 → 30 → 40 → ...). The compgen trailing
-  # `|| true` keeps the empty-match case (no provisioner files yet) from
-  # tripping `set -e` — caller's length-check below then short-circuits with
-  # a warn. Using compgen sidesteps shfmt 3.8.0's lexer misreading
-  # `[0-9][0-9]` in an array assignment as an array subscript.
+  # `compgen -G` returns matches in directory-entry order (NOT lexical — inode
+  # allocation can put 30 before 10), so sort to enforce numeric dispatch. The
+  # trailing `|| true` keeps the empty-match case from tripping `set -e`.
+  # compgen also sidesteps shfmt 3.8.0 misreading `[0-9][0-9]` as a subscript.
   mapfile -t steps < <(compgen -G "$PROV_DIR/[0-9][0-9]-*.sh" | sort || true)
   if [[ ${#steps[@]} -eq 0 ]]; then
-    log_warn "no provisioner scripts found under ${PROV_DIR} (Phase 2 provisioners land in sibling plans)"
+    log_warn "no provisioner scripts found under ${PROV_DIR}"
     return 0
   fi
   for step in "${steps[@]}"; do
@@ -218,41 +315,40 @@ run_provisioners() {
   done
 }
 
-# run_purge [remove_nodejs_flag]
-#
-# INST-04 wire-up — replaces the Phase 2 stub. Ordered 7-step teardown; every
-# step is idempotent (rm -f no-op on missing, userdel guarded by id check,
-# pkill -u guarded by true).
-#
-# Ordering contract (Pitfall 7 + security-engineer rubric):
-#   1. per-agent uninstall.sh (REQUIRES /opt/agentlinux/catalog/ still present)
-#   2. rm /opt/agentlinux                          (literal absolute path)
-#   3. PATH artefacts (profile.d, agentlinux.env, cron.d)
-#   4. NodeSource apt repo files
+# run_agent_adoption — AL-61. After provisioning, record any pre-existing
+# reuse-eligible catalog agents (healthy, at the canonical path, in the
+# compatibility window) into managed sentinels via `agentlinux adopt --all`, so
+# `agentlinux list` reflects what the host already has instead of reporting it
+# not-installed. Adoption installs NOTHING — it only adopts what detect::run_once
+# already found (via /run/agentlinux-detect.json), so the "no agent installed by
+# default" contract holds. Invoked through a login shell so AGENTLINUX_* env +
+# PATH match a normal agent `agentlinux` invocation. Best-effort: a failure here
+# must not fail an otherwise-successful install.
+run_agent_adoption() {
+  log_info "adopting pre-existing reuse-eligible agents (agentlinux adopt --all)"
+  as_user_login agent agentlinux adopt --all \
+    || log_warn "agentlinux adopt --all reported a problem (continuing; run it manually to retry)"
+}
+
+# run_purge [remove_nodejs_flag] — ordered 7-step teardown; every step is
+# idempotent. Ordering matters:
+#   1. per-agent uninstall.sh (needs /opt/agentlinux/catalog/ still present)
+#   2-4. rm /opt/agentlinux, PATH artefacts, NodeSource apt files
 #   5. (optional) apt-get purge nodejs when $1 == true
-#   6. userdel -r agent (pkill first to avoid "user is logged in" refusal)
-#   7. LAST — rm /var/log/agentlinux-install.log (the tee is still writing
-#      to this file during our run; the EXIT trap at the top of this script
-#      closes FD 1+2, delivering EOF to tee. We do the rm LAST so any
-#      post-unlink writes land in the unlinked inode that is GC'd after exit.
-#      Per Pitfall 7, sequencing log removal LAST avoids mid-invocation FD
-#      write-into-/dev/null footguns.)
-#
-# Security invariants (T-04-16):
-#   - Every rm target is a LITERAL absolute path (no $VAR in rm -rf).
-#   - Recipe paths derive from $AGENTLINUX_VERSION (controlled by entrypoint,
-#     not user input) and the sentinel filename (basename -- NO file-contents
-#     grep/eval on agent-writable sentinel JSON).
-#   - --remove-nodejs is opt-in (T-04-17); default leaves Node installed.
+#   6. userdel -r agent (pkill first to avoid "user is logged in")
+#   7. LAST — rm the install log, so the tee still has its file until the EXIT
+#      trap closes FDs and delivers EOF.
+# Security: every rm target is a LITERAL absolute path (no $VAR in rm -rf);
+# recipe paths derive from $AGENTLINUX_VERSION + sentinel basename (no eval on
+# agent-writable JSON); --remove-nodejs is opt-in.
 run_purge() {
   local remove_nodejs=${1:-false}
 
   log_info "running --purge (destructive)"
 
-  # Step 1: per-agent uninstall.sh for every sentinel.
-  # Look up recipe paths from the catalog snapshot keyed by sentinel id —
-  # DO NOT trust paths from sentinel JSON contents (a tampered sentinel
-  # shouldn't pick arbitrary scripts to execute as agent).
+  # Step 1: per-agent uninstall.sh for every sentinel. Look up recipe paths
+  # from the catalog snapshot keyed by sentinel id — do NOT trust paths from
+  # sentinel JSON (a tampered sentinel must not pick scripts to run as agent).
   local state_dir=/opt/agentlinux/state/installed.d
   if [[ -d $state_dir ]]; then
     local f
@@ -263,13 +359,9 @@ run_purge() {
       local recipe=/opt/agentlinux/catalog/${AGENTLINUX_VERSION}/agents/${id}/uninstall.sh
       if [[ -x $recipe ]]; then
         log_info "running uninstall.sh for ${id}"
-        # as_user's sudo line already appends `--`; passing a second `--`
-        # would resolve to `sudo -u agent -H -E -- -- bash <recipe>` and sudo
-        # would try to exec `--` ("command not found"). Pass the command
-        # verbatim without our own terminator.
-        # Recipes guard on `${AGENTLINUX_AGENT_HOME:?}` (set by runner.ts on
-        # normal install/remove). On --purge runner.ts is gone; provide it
-        # explicitly so the guard does not trip.
+        # as_user already appends `--`; don't pass a second one (sudo would try
+        # to exec `--`). Recipes guard on ${AGENTLINUX_AGENT_HOME:?}; runner.ts
+        # is gone during --purge, so provide it explicitly.
         AGENTLINUX_AGENT_HOME=/home/agent \
           as_user agent bash "$recipe" || log_warn "uninstall.sh for ${id} failed (continuing)"
       else
@@ -280,7 +372,6 @@ run_purge() {
   fi
 
   # Step 2: remove /opt/agentlinux (CLI dist, catalog snapshot, state).
-  # Literal absolute path — security-engineer rubric flags any $VAR in rm -rf.
   rm -rf /opt/agentlinux/
 
   # Step 3: PATH artefacts placed by 40-path-wiring.sh.
@@ -288,30 +379,26 @@ run_purge() {
   rm -f /etc/agentlinux.env
   rm -f /etc/cron.d/agentlinux
 
-  # Step 3.5: sudoers drop-in placed by 20-sudoers.sh (Phase 5.1 / ADR-012).
-  # Symmetric uninstall must remove the NOPASSWD grant — leaving it behind
-  # orphans the privilege after the agent user is gone.
+  # Step 3.5: sudoers drop-in (ADR-012). Symmetric uninstall must remove the
+  # NOPASSWD grant — leaving it behind orphans the privilege.
   rm -f /etc/sudoers.d/agentlinux
 
-  # Step 4: NodeSource apt repo files placed by 30-nodejs.sh.
-  # Both filenames (deb822 + legacy) handled — setup_22.x may have created
-  # either depending on Ubuntu version / prior partial migrations.
+  # Step 4: NodeSource apt repo files. Both filenames (deb822 + legacy) handled.
   rm -f /etc/apt/sources.list.d/nodesource.sources
   rm -f /etc/apt/sources.list.d/nodesource.list
   rm -f /etc/apt/preferences.d/nodejs
 
-  # Step 5: optionally apt-remove nodejs. Explicit opt-in (T-04-17) — other
-  # users on this host may depend on Node installed by this installer.
+  # Step 5: optionally apt-remove nodejs. Opt-in — other users on this host may
+  # depend on Node installed by this installer.
   if [[ $remove_nodejs == true ]]; then
     log_info "removing nodejs (apt-get purge -y nodejs)"
     DEBIAN_FRONTEND=noninteractive apt-get purge -y nodejs || log_warn "apt purge nodejs failed"
     DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true
   fi
 
-  # Step 6: remove agent user + /home/agent.
-  # pkill -u agent first to avoid "user is logged in" from userdel when an
-  # SSH session or systemd-run scope is live. pkill returns non-zero if no
-  # matches; that is fine — ignore.
+  # Step 6: remove agent user + /home/agent. pkill -u first to avoid "user is
+  # logged in" from userdel when an SSH/systemd-run scope is live (non-zero on
+  # no matches — ignore).
   if id agent >/dev/null 2>&1; then
     pkill -u agent 2>/dev/null || true
     sleep 1
@@ -321,9 +408,7 @@ run_purge() {
     fi
   fi
 
-  # Step 7: LAST — remove the install log. See ordering contract above.
-  # Pitfall 7 mitigation: sequence LAST so the tee child sees EOF naturally
-  # on script exit (EXIT trap closes FDs; unlinked inode is GC'd).
+  # Step 7: LAST — remove the install log (see ordering note above).
   log_info "--purge complete"
   rm -f /var/log/agentlinux-install.log
 }
@@ -335,9 +420,107 @@ main() {
     run_purge "$REMOVE_NODEJS_REQUESTED"
     exit 0
   fi
-  log_info "agentlinux-install v${AGENTLINUX_VERSION} starting"
-  detect_distro
+  # In --report-format=json mode the JSON object must be the only thing
+  # downstream consumers see, so suppress the banner log_info calls and route
+  # detection's logging to /dev/null (still tee'd to /var/log via the parent
+  # redirect). All other paths are unchanged.
+  local json_quiet=false
+  if [[ $REPORT_ONLY == true && $REPORT_FORMAT == json ]]; then
+    json_quiet=true
+  fi
+  [[ $json_quiet == true ]] || log_info "agentlinux-install v${AGENTLINUX_VERSION} starting"
+  if [[ $json_quiet == true ]]; then
+    detect_distro >/dev/null 2>&1
+  else
+    detect_distro
+  fi
+  # ensure jq, source detect.sh, run the read-only detection pass. Both
+  # --report-only and the install path populate /run/agentlinux-detect.json for
+  # the REUSE provisioners; --report-only short-circuits before run_provisioners.
+  if [[ $json_quiet == true ]]; then
+    ensure_jq >/dev/null 2>&1
+  else
+    ensure_jq
+  fi
+  # shellcheck source=../lib/detect.sh
+  . "$LIB_DIR/detect.sh"
+  if [[ $json_quiet == true ]]; then
+    detect::run_once "$INSTALL_USER" >/dev/null 2>&1
+  else
+    detect::run_once "$INSTALL_USER"
+  fi
+  # Source the reuse-decision orchestrator after detect::run_once has populated
+  # DETECT_* exports. reuse.sh emits no output itself; provisioners consult
+  # reuse::*_decision via case dispatchers near their top.
+  # shellcheck source=../lib/reuse.sh
+  . "$LIB_DIR/reuse.sh"
+  if [[ $REPORT_ONLY == true ]]; then
+    detect::emit_report "$REPORT_FORMAT"
+    exit 0
+  fi
+  # Alt-user gate. Runs before collect_all_decisions because user identity is
+  # upstream of every downstream decision (npm prefix, sudoers target, sudo -u
+  # target). If reuse::user_decision bails on an incompatible existing user and
+  # we are NOT in --dry-run, prompt::alt_user_or_bail offers an alternate name
+  # (TTY) or emits the hint and exits 65 (non-TTY).
+  if [[ $DRY_RUN_REQUESTED != true ]]; then
+    # Capture the decision token via a tmp file, NOT $(...): cmd-sub runs in a
+    # subshell, so the DETECT_USER_BAIL_REASON export set inside
+    # reuse::user_decision would never reach this parent shell.
+    local _user_decision_token _user_decision_tmp
+    _user_decision_tmp=$(mktemp)
+    reuse::user_decision "$INSTALL_USER" >"$_user_decision_tmp"
+    _user_decision_token=$(cat "$_user_decision_tmp")
+    rm -f "$_user_decision_tmp"
+    if [[ "$_user_decision_token" == "bail" && -n "${DETECT_USER_BAIL_REASON:-}" ]]; then
+      # shellcheck source=../lib/remediate.sh
+      . "$LIB_DIR/remediate.sh" # provides find_alt_user_name + validate_user_name
+      # shellcheck source=../lib/prompt.sh
+      . "$LIB_DIR/prompt.sh" # provides prompt::alt_user_or_bail
+      # TTY: returns 0 with INSTALL_USER updated; Non-TTY: exits 65; 3-invalid TTY: exits 64.
+      prompt::alt_user_or_bail
+      # Re-run detection against the new user. detect::run_once is memoized via
+      # DETECT_RAN — clear it so the probes actually re-run; otherwise
+      # DETECT_USER_* stays pinned to the original user and re-bails.
+      log_info "alt-user accepted: re-running detection against ${INSTALL_USER}"
+      unset DETECT_RAN
+      detect::run_once "$INSTALL_USER"
+      remediate::user::log_alt_user_accepted
+    fi
+  fi
+  # DECIDE-THEN-ACT: collect_all_decisions populates RESOLUTIONS +
+  # BAILED_COMPONENTS without mutating; flush_bails_or_continue exits 65 if any
+  # bail accumulated. Both run BEFORE run_provisioners so a host that bails
+  # never sees partial mutation.
+  # shellcheck source=../lib/remediate.sh
+  . "$LIB_DIR/remediate.sh"
+  remediate::collect_all_decisions
+  # --dry-run early-return. After collect_all_decisions so the report reflects
+  # every decision the real install would make, and before
+  # flush_bails_or_continue so bails surface IN the report rather than as exit
+  # 65. Always exits 0 — preview semantic. Exiting here performs ZERO mutation.
+  if [[ "$DRY_RUN_REQUESTED" == true ]]; then
+    log_info "[DRY-RUN] pre-flight report (no host mutation):"
+    detect::emit_report "$REPORT_FORMAT"
+    log_info "[DRY-RUN] on apply, reuse-eligible agents are adopted into managed sentinels (agentlinux adopt --all)"
+    log_info "[DRY-RUN] exit 0 (no mutation; re-run without --dry-run to apply)"
+    exit 0
+  fi
+  remediate::flush_bails_or_continue
+
+  # TTY per-action prompt loop. Ask the operator to confirm each
+  # state-overwriting Remediate; declines convert RESOLUTIONS[<component>] to
+  # reuse-with-warning so the provisioner skips the mutation. Additive actions
+  # never prompt, and --yes auto-approves (skip the loop). TTY detection is via
+  # [[ -t 0 ]] on entrypoint stdin — the single source of truth.
+  if [[ -t 0 ]] && [[ "$YES_FLAG" != "true" ]]; then
+    # shellcheck source=../lib/prompt.sh
+    . "$LIB_DIR/prompt.sh"
+    prompt::run_all
+  fi
+
   run_provisioners
+  run_agent_adoption
   log_info "agentlinux-install complete (transcript: ${LOG_FILE})"
 }
 

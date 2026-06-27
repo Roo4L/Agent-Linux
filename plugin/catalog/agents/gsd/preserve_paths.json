@@ -1,0 +1,7 @@
+{
+  "preserve_paths": [
+    "~/.gsd/",
+    "~/.config/get-shit-done/"
+  ],
+  "comment": "GSD workflow state and per-user configuration. Survives REMEDIATE-04 uninstall+reinstall per CAT-04."
+}

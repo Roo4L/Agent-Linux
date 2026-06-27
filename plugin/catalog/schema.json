@@ -49,6 +49,11 @@
           "type": "string",
           "description": "Optional semver range (e.g. '^2.1') that --all-latest upper-bounds against"
         },
+        "compatibility_window": {
+          "type": "string",
+          "description": "Semver range (e.g., '>=2.0.0 <3.0.0'); REUSE-03 adopts a detected install whose version satisfies it. Optional.",
+          "minLength": 1
+        },
         "install_recipe_path": {
           "type": "string",
           "pattern": "^[a-z0-9_./-]+\\.sh$"
@@ -60,6 +65,11 @@
         "post_install_verify": {
           "type": "string",
           "description": "Optional shell one-liner for smoke-test"
+        },
+        "preserve_paths_file": {
+          "type": "string",
+          "pattern": "^[a-z0-9_./-]+\\.json$",
+          "description": "Optional path (relative to the agent's catalog dir) to a sibling preserve_paths.json. The loader injects the listed paths into AGENTLINUX_PRESERVE_PATHS for uninstall.sh (CAT-04). Absent → nothing preserved across REMEDIATE-04 reinstall."
         },
         "tags": { "type": "array", "items": { "type": "string" } },
         "test_only": {

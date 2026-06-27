@@ -197,4 +197,63 @@ describe("removeCmd — happy + missing sentinel + --force + unknown", () => {
       process.exit = origExit;
     }
   });
+
+  // Plan 13-02: REUSE-03 remove behavior — reused entries are treated
+  // IDENTICALLY to installed entries (binary still on disk -> run uninstall.sh
+  // + delete sentinel). T-13-07: stale-reused (binary_path gone) skips
+  // uninstall.sh and only deletes the sentinel.
+
+  test("REUSE-03: reused entry with EXISTING binary_path runs uninstall.sh identically to installed", async () => {
+    // Use the CATALOG_DIR catalog.json (known-existing file in this test tree)
+    // as a binary that DOES exist on disk; the sentinel.binary_path existsSync
+    // check passes -> proceeds to dispatch. Avoid __filename which is not
+    // defined in ESM modules.
+    const realFile = join(CATALOG_DIR, "catalog.json");
+    await writeSentinel({
+      id: "fake-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "reused",
+      binary_path: realFile,
+      detected_source: "pre-existing",
+      reused_at: "2026-05-16T00:00:00.000Z",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await removeCmd("fake-agent", {}, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    assert.equal(cap.calls.length, 1, "uninstall.sh dispatched identically for reused entries");
+    assert.equal(await readSentinel("fake-agent"), null, "sentinel deleted");
+    assert.match(sil.out.join("\n"), /removed/);
+  });
+
+  test("REUSE-03 / T-13-07: stale reused sentinel (binary_path gone) skips uninstall.sh", async () => {
+    await writeSentinel({
+      id: "fake-agent",
+      version: "1.0.0",
+      source: "curated",
+      sticky: false,
+      installed_at: "2026-05-16T00:00:00.000Z",
+      status: "reused",
+      binary_path: "/no/such/file/anywhere",
+      detected_source: "pre-existing",
+      reused_at: "2026-05-16T00:00:00.000Z",
+    });
+    const cap = makeCap();
+    const sil = silenceConsole();
+    try {
+      await removeCmd("fake-agent", {}, cap.impl);
+    } finally {
+      sil.restore();
+    }
+    // No dispatch — the binary is already gone, so we just delete the sentinel.
+    assert.equal(cap.calls.length, 0, "stale reused: uninstall.sh NOT dispatched");
+    assert.equal(await readSentinel("fake-agent"), null, "sentinel deleted (silent cleanup)");
+    assert.match(sil.out.join("\n"), /already gone/);
+  });
 });
