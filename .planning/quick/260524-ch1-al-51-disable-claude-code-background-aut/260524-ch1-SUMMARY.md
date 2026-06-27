@@ -77,6 +77,31 @@ CLAUDE.md feedback note "Avoid Ceremony" (memory `feedback_avoid_ceremony.md`): 
 
 A future quick task could add a destructive uninstall @test in `tests/bats/51-agt02-release-gate.bats` (which already exercises an install→action→re-install cycle).
 
+## Behavioral pair landed in AL-54: AGT-02d
+
+AGT-02c asserts the `DISABLE_AUTOUPDATER` stamp is WRITTEN by the install
+recipe. AGT-02d (landed under AL-54 in
+`tests/bats/51-cc-no-autoupdate.bats`) asserts the stamp's RUNTIME EFFECT:
+the binary does not drift forward over a 90s idle interactive Claude Code
+session.
+
+AGT-02d uses a red-green pair: PHASE 1 strips the stamp and observes drift
+(control — proves the updater would otherwise fire), PHASE 2 re-stamps and
+observes zero drift (fix-acceptance). Without the PHASE 1 control, PHASE 2
+would pass vacuously.
+
+AGT-02d skips yellow on per-PR Docker CI (no `ANTHROPIC_API_KEY` in
+environment) and runs green on the release-gate nightly QEMU job (key
+forwarded host → workflow `env:` → ssh `SendEnv` → guest sshd `AcceptEnv`
+→ bats process). The interactive driving uses `expect` via the new
+`tests/bats/helpers/interactive.bash` thin wrapper around standalone
+`.exp` scripts; details in `docs/internals/test-interactive.md`.
+
+AGT-02c and AGT-02d get promoted into `.planning/REQUIREMENTS.md`
+together on the next v0.3.x revision roll (REQUIREMENTS.md at HEAD is
+v0.4.0-scoped; the `@test` docstring + this SUMMARY are the
+behavior-coverage-auditor's trace until promotion lands).
+
 ## Verification
 
 ```

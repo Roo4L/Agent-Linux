@@ -4,8 +4,8 @@ milestone: next
 milestone_name: TBD (run /gsd-new-milestone)
 status: between_milestones
 stopped_at: v0.3.3 milestone shipped 2026-05-24; ready to scope next milestone
-last_updated: "2026-05-25T17:30:00.000Z"
-last_activity: 2026-05-25 — Completed quick task 260525-nv0 (AL-53): test secrets infrastructure
+last_updated: "2026-05-26T06:05:00.000Z"
+last_activity: 2026-05-26 — Completed quick task 260526-84p (AL-54): interactive bats helpers + AGT-02d behavioral test
 progress:
   total_phases: 5
   completed_phases: 5
@@ -320,6 +320,7 @@ None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
 | 260510-n7e | Strip internal-vocabulary leaks (requirement IDs, Jira keys, Phase numbering, ADR cross-refs) from user-facing surfaces (README/CONTRIBUTING/docs/internals/STABILITY-MODEL/CLI help) and wire external-audience-auditor into CLAUDE.md review-loop dispatch (AL-33) | 2026-05-10 | bb8f02f | [260510-n7e-remove-gsd-artifacts-from-help-and-proje](./quick/260510-n7e-remove-gsd-artifacts-from-help-and-proje/) |
 | 260524-ch1 | Disable Claude Code background auto-updater so pinned_version is honored — stamp `DISABLE_AUTOUPDATER=1` in `~agent/.claude/settings.json` from claude-code install recipe, symmetric uninstall, AGT-02c bats coverage (AL-51) | 2026-05-24 | c3e6ae6 | [260524-ch1-al-51-disable-claude-code-background-aut](./quick/260524-ch1-al-51-disable-claude-code-background-aut/) |
 | 260525-nv0 | Test secrets infrastructure — `.env.local` + GH repo secrets + bats `require_secret` helper; SECRET_ALLOWLIST in `tests/docker/run.sh`; step-level workflow env on nightly-qemu; four-section internals doc; convention smoke test (AL-53) | 2026-05-25 | 181996b | [260525-nv0-al-53-test-secrets-infrastructure](./quick/260525-nv0-al-53-test-secrets-infrastructure/) |
+| 260526-84p | Interactive-CLI driving bats helpers (`expect`-based) + AGT-02d behavioral test for AL-51 (red-green: idle-then-version-drift control + DISABLE_AUTOUPDATER stamp acceptance); QEMU SendEnv/AcceptEnv last-hop forwarding; `docs/internals/test-interactive.md` (AL-54) | 2026-05-26 | 13c5811 | [260526-84p-al-54-interactive-bats-helpers-al-51-beh](./quick/260526-84p-al-54-interactive-bats-helpers-al-51-beh/) |
 
 ## Deferred Items
 
