@@ -20,10 +20,22 @@ An agent can be dropped into any supported Linux system and *just work* — a de
 
 **Documentation:** README has a new `## Brownfield install` section linked from main Install; `docs/MIGRATION.md` walks 4 worked scenarios (manual `useradd`, NodeSource Node, root-Claude reinstall, broken Playwright); per-phase AUDITs at `.planning/phases/{12..16}-*/`-AUDIT.md`; milestone audit at `.planning/v0.3.4-MILESTONE-AUDIT.md`.
 
-## Next Milestone Goals
+## Current Milestone: v0.3.5 AlmaLinux 9 Support
 
-- **v0.3.5 AlmaLinux support** (AL-47 / Epic AL-48): port the aware-install pipeline to AlmaLinux 9. Phase 12-15 detection layer is mostly distro-portable; brownfield-AGT-02 gate runs against a different baseline (DNF + EL8/EL9 idiom).
-- **AL-59 alt-user hollow-install** (carried forward from v0.3.4, under Epic AL-48): the installer's alt-user path needs end-to-end wiring (20-sudoers.sh / 30-nodejs.sh / 40-path-wiring.sh still hardcode `agent`).
+**Goal:** Port the AgentLinux plugin to AlmaLinux 9 so `curl … | bash` installs it with the same six-mode invocation contract and zero-EACCES self-update gate that Ubuntu has — implementation may diverge per distro (apt→dnf, dpkg→rpm), the behavior contract (BHV/RT/AGT/CLI/CAT/INST) must not.
+
+**Anchor:** [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) under Epic AL-48 (maintainer-VM daily-driver readiness). Blocker [AL-38](https://copiedwonder.atlassian.net/browse/AL-38) is **Done**. File phase work as Sub-tasks under AL-47.
+
+**Scope:** AlmaLinux 9 ONLY. The maintainer runs AlmaLinux 9 on their VMs and nothing else from the EL family; scoping to one version keeps the test matrix small (the same first-person-friction rule that scoped Ubuntu in v0.3.0).
+
+**Target features:**
+- Distro detection + branching in `plugin/lib/` — apt→dnf, dpkg→rpm, sudoers drop-in path differences, locale provisioning (glibc-langpack vs locale-gen)
+- AlmaLinux 9 harness extension — Docker matrix row + QEMU cloud-image row (ADR-007)
+- Behavior-test suite green on AlmaLinux 9 for the full BHV/RT/AGT/CLI/CAT/INST contract (implementation may diverge per distro, contract must not)
+- Catalog recipes verified for dnf-based package availability — Node.js system path differences; Claude Code / GSD / Playwright on EL9
+- Release-pipeline gate update — AlmaLinux 9 must be green before tag
+
+**Deferred (not v0.3.5 scope):** AL-59 alt-user hollow-install wiring (separate item under Epic AL-48, planned on its own — touches the same provisioner files `20-sudoers.sh` / `30-nodejs.sh` / `40-path-wiring.sh` but is distro-independent); AlmaLinux 10, RHEL, Rocky, Fedora, and any other dnf-based distro (deferred until AlmaLinux 9 is the daily driver for a release cycle).
 
 <details>
 <summary>v0.3.4 Aware Installation Process — original goal (archived 2026-05-27)</summary>
@@ -96,9 +108,13 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 - ✓ Bats behavior-test suite + Docker matrix + QEMU release-gate suite + 4-gate `release.yml` — v0.3.0
 - ✓ Pinned-combo release gate (TST-08) + catalog snapshot publication (CAT-05) per ADR-011 — v0.3.0
 
-### Active (v0.3.4 — Aware Installation Process)
+### Active (v0.3.5 — AlmaLinux 9 Support)
 
-See `.planning/REQUIREMENTS.md` for the full v0.3.4 requirement list (categories: DET, REUSE, REMEDIATE, UX, DOC). Headline outcomes:
+See `.planning/REQUIREMENTS.md` for the full v0.3.5 requirement list (populated by the milestone roadmap — categories TBD at requirements time: e.g. DETECT, HARNESS, BEHAVE, CAT, REL). Headline outcome: `curl … | bash` installs the plugin on AlmaLinux 9 with the same six-mode contract and zero-EACCES self-update gate Ubuntu has.
+
+### Validated (v0.3.4 — Aware Installation Process; SHIPPED 2026-06-08)
+
+v0.3.4's DET / REUSE / REMEDIATE / UX / DOC requirements shipped end-to-end (maintainer-validated across rc1→rc4). Detail archived at `.planning/milestones/v0.3.4-REQUIREMENTS.md`. Headline outcomes (all delivered):
 
 - [ ] Pre-flight detection pass identifies pre-existing agent user, Node.js, npm-global prefix, sudoers drop-in, and each catalog agent — surfaced as a Reuse / Create / Remediate / Bail report
 - [ ] `agentlinux install --dry-run` prints the report and exits 0 without mutation
@@ -112,6 +128,13 @@ See `.planning/REQUIREMENTS.md` for the full v0.3.4 requirement list (categories
 The v0.4.0 requirement set (LIC / SEC / CLEAN / CIPUB / PUB) shipped end-to-end with audit evidence under `docs/audits/v0.4.0/`. Formal status reconciliation (move to Validated, fold into MILESTONES.md) is scheduled for the next maintenance pass alongside the milestone-rename. Detail preserved in `.planning/milestones/v0.4.0-REQUIREMENTS.md`.
 
 ### Out of Scope
+
+**v0.3.5 out of scope:**
+- AlmaLinux 10 — deferred until the maintainer hits first-person friction on it; filed as a follow-up ticket then, not pre-emptively
+- RHEL, Rocky, Fedora, or any other dnf-based distro — until AlmaLinux 9 is the maintainer's daily driver and stable for one release cycle (first-person friction first; family-wide claims later)
+- AL-59 alt-user hollow-install wiring — distro-independent; planned separately under Epic AL-48 (kept out to preserve the milestone boundary and matrix size)
+- Snap, flatpak, or any alternative packaging path
+- New catalog agents beyond the existing three (claude-code, gsd, playwright) — port-only milestone
 
 **v0.3.4 out of scope:**
 - New distro targets (Fedora / CentOS / Alma / Arch / openSUSE) — still deferred; brownfield-aware install is Ubuntu-only for v0.3.4
@@ -193,6 +216,9 @@ Known minor issue: OG image (SVG format) doesn't render on all social platforms 
 | Reuse-or-bail as the non-interactive default | Non-interactive contexts (cron, CI, ssh-non-interactive, `curl \| sudo bash`) cannot safely make policy decisions about pre-existing user state; default to the conservative path; require an explicit flag for any overwrite | — Active (drives v0.3.4 UX-03..05) |
 | Detection layer is read-only | Discovery never mutates host state; mutation is the Reuse / Remediate path's responsibility, gated by the pre-flight report. This keeps `--dry-run` trivially correct | — Active (drives v0.3.4 DET-XX) |
 | Brownfield acceptance test: AGT-02 still green after install on a pre-populated host | Same canonical bug class as v0.3.0; the brownfield path must not regress the green-field path | — Active (locks v0.3.4 phase-close gate) |
+| **AlmaLinux 9 support milestone (v0.3.5)** (2026-06-27) | AL-47: AlmaLinux 9 is the maintainer's daily work environment and the next first-person-friction priority after the v0.3.4 brownfield installer. Extends the plugin past Ubuntu without changing the behavior contract — the implementation branches (apt→dnf, dpkg→rpm), the BHV/RT/AGT/CLI/CAT/INST contract does not | — Active |
+| AlmaLinux 9 ONLY (no Alma 10 / RHEL / Rocky / Fedora) for v0.3.5 | Maintainer runs AlmaLinux 9 and nothing else from the EL family; single-version scope keeps the test matrix small and shortens the path to a working release. Same first-person-friction rule that scoped Ubuntu in v0.3.0. Family expansion waits until AlmaLinux 9 is the daily driver for a release cycle | — Active |
+| AL-59 alt-user wiring kept OUT of v0.3.5 | AL-59 (hardcoded `agent` in 20-sudoers/30-nodejs/40-path-wiring) is distro-independent; bundling it would widen the v0.3.5 test matrix and blur the milestone boundary. Planned separately under Epic AL-48 | — Active |
 
 ## Evolution
 
@@ -212,4 +238,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-05-09 — v0.3.4 (Aware Installation Process) milestone planned via /gsd-new-milestone (AL-38). v0.4.0 (Open-Source Release) feature-complete; formal closeout reconciliation pending.*
+*Last updated: 2026-06-27 — v0.3.5 (AlmaLinux 9 Support) milestone started via /gsd-new-milestone (AL-47, Epic AL-48; blocker AL-38 Done). Previous milestone v0.3.4 (Aware Installation Process) SHIPPED 2026-06-08. v0.4.0 (Open-Source Release) feature-complete; formal closeout reconciliation pending.*
