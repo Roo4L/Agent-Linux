@@ -66,27 +66,44 @@ check_root() {
 }
 
 # ------------------------------------------------------------------------------
-# Parse /etc/os-release; die unless it declares Ubuntu 22.04, 24.04 or 26.04.
+# Parse /etc/os-release; die unless it declares a supported distro: Ubuntu
+# 22.04 / 24.04 / 26.04 or AlmaLinux 9.x.
 # Source: 06-RESEARCH.md lines 920-936 (Example: Ubuntu version detection).
-# Keep this allowlist in lockstep with plugin/lib/distro_detect.sh — both gate
-# the same support matrix and the curl-installer test fixture exercises this
-# path before handing off to the staged installer.
+# Keep this allowlist in LOCKSTEP with plugin/lib/distro_detect.sh — both gate
+# the same ubuntu|almalinux support matrix (ID-exact, never the looser
+# similarity field) and the curl-installer test fixture exercises this path
+# before handing off to the staged installer.
 # ------------------------------------------------------------------------------
-detect_ubuntu_version() {
+detect_supported_distro() {
   local id version
   if [[ ! -r /etc/os-release ]]; then
-    die 'cannot detect Ubuntu version: /etc/os-release missing or unreadable'
+    die 'cannot detect distro: /etc/os-release missing or unreadable'
   fi
   # shellcheck disable=SC1091
   . /etc/os-release
   id=${ID:-unknown}
   version=${VERSION_ID:-unknown}
-  [[ "$id" == "ubuntu" ]] \
-    || die "unsupported distro: ${id} (AgentLinux v0.3.0 supports Ubuntu only)"
-  case "$version" in
-    22.04 | 24.04 | 26.04) ;;
+  # Match ID exactly so Rocky/RHEL/CentOS/Fedora and AlmaLinux 8/10 stay refused
+  # — mirrors the two-arm case in plugin/lib/distro_detect.sh.
+  case "$id" in
+    ubuntu)
+      case "$version" in
+        22.04 | 24.04 | 26.04) ;;
+        *)
+          die "unsupported Ubuntu version: ${version} (AgentLinux supports 22.04, 24.04 and 26.04 only)"
+          ;;
+      esac
+      ;;
+    almalinux)
+      case "$version" in
+        9 | 9.*) ;;
+        *)
+          die "unsupported AlmaLinux version: ${version} (AgentLinux supports 9.x only)"
+          ;;
+      esac
+      ;;
     *)
-      die "unsupported Ubuntu version: ${version} (AgentLinux v0.3.0 supports 22.04, 24.04 and 26.04 only)"
+      die "unsupported distro: ${id} (AgentLinux supports: ubuntu | almalinux 9)"
       ;;
   esac
 }
@@ -126,7 +143,7 @@ resolve_version() {
 
 main() {
   check_root
-  detect_ubuntu_version
+  detect_supported_distro
 
   # Org sanity — even though the default is hardcoded, AGENTLINUX_ORG env may
   # override it (e.g. for test forks). Refuse arbitrary path injection.
