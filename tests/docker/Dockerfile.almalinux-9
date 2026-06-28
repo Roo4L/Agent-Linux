@@ -18,6 +18,18 @@
 #                                  the full coreutils package triggers the same
 #                                  minimal-vs-full file conflict as curl)
 #   - + procps-ng (optional `ps` for `docker exec` debugging)
+#   - + diffutils (provides `diff` — the base image ships none; absent it,
+#                  `diff: command not found` fails every NO-MUTATION snapshot +
+#                  idempotency assertion: INST-02, DET-read-only, UX-01/UX-03,
+#                  REMEDIATE-02, 40-registry-cli. Ubuntu ships `diff` in the base.)
+#   - + openssh-clients (provides the `ssh` CLIENT — the image installs only
+#                  `openssh-server` (the daemon); absent the client, `ssh:
+#                  command not found` fails BHV-02 and every six-mode SSH
+#                  assertion in 30-runtime/40/50/51. Ubuntu's openssh-client is
+#                  pulled in transitively on the Debian rows.)
+#   - + iproute (provides `ss` for the sshd readiness poll in test setup;
+#                  non-fatal — the image already `enable`s sshd so it auto-starts
+#                  — but its absence turns the poll into a blind sleep.)
 #
 # Invariants (same as the Ubuntu rows):
 #   - PID 1 = systemd (CMD ["/sbin/init"]) so BHV-04 (systemd User=agent) is real,
@@ -84,7 +96,12 @@ ENV LANG=C.UTF-8 \
 # minimal-vs-full conflict. No separate
 # sysv-init package (EL9 systemd IS init). No apt locales package (C.UTF-8 is a
 # glibc builtin: `locale -a` lists C.utf8). shellcheck + procps-ng are debug
-# conveniences for interactive `docker exec`.
+# conveniences for interactive `docker exec`. diffutils (`diff`), openssh-clients
+# (the `ssh` CLIENT, distinct from the openssh-server daemon above), and iproute
+# (`ss`) are substrate the BHV contract exercises directly: `diff` drives every
+# NO-MUTATION/idempotency snapshot, the `ssh` client drives the six-mode SSH
+# assertions, and `ss` drives the sshd readiness poll. On the Ubuntu rows these
+# come from the base image; on minimal EL9 they must be installed explicitly.
 RUN dnf install -y --setopt=install_weak_deps=False epel-release && \
     dnf install -y --setopt=install_weak_deps=False \
       systemd \
@@ -95,6 +112,7 @@ RUN dnf install -y --setopt=install_weak_deps=False epel-release && \
       python3 \
       file \
       ca-certificates bash util-linux \
+      diffutils openssh-clients iproute \
       procps-ng shellcheck && \
     dnf clean all && rm -rf /var/cache/dnf
 
