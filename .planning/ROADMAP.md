@@ -72,7 +72,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
   4. `agentlinux install --dry-run` is observably non-mutating on EL9 (exits 0, host snapshot byte-identical), and the single `--yes` consent flag plus structured exit codes 64/65/1/0 behave as on Ubuntu.
 **Plans**: 5 plans
 Plans:
-- [ ] 20-01-PLAN.md — Wave 1 substrate: Dockerfile.almalinux-9 +diffutils/openssh-clients/iproute + run.sh `--tmpfs /tmp:exec` (flips ~40 false-RED green, stubs untouched) [Wave 1]
+- [x] 20-01-PLAN.md — Wave 1 substrate: Dockerfile.almalinux-9 +diffutils/openssh-clients/iproute + run.sh `--tmpfs /tmp:exec` (flips ~40 false-RED green, stubs untouched) [Wave 1]
 - [ ] 20-02-PLAN.md — Wave 2 helper foundation: NEW tests/bats/helpers/distro.bash (9-verb family dispatch) + brownfield.bash routed through it (the biggest item) [Wave 2]
 - [ ] 20-03-PLAN.md — EL-06: BHV-01 locale via distro_assert_locale + distro_ssh_unit + guarded restorecon at both SSH-seed sites; six modes green (20-agent-user.bats, 50-agents.bats) [Wave 3]
 - [ ] 20-04-PLAN.md — INST-02 snapshot via family-correct NodeSource repo path + REUSE-01 family-token seed (10-installer.bats, 13-reuse.bats) [Wave 3]
@@ -107,7 +107,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 18. Detection + Branching Foundation | 6/6 | Complete   | 2026-06-28 |
 | 19. Docker AlmaLinux 9 Row | 2/2 | Complete    | 2026-06-28 |
-| 20. Behavior-Test-Green on AlmaLinux 9 | 0/TBD | Not started | - |
+| 20. Behavior-Test-Green on AlmaLinux 9 | 1/5 | In Progress|  |
 | 21. Catalog Verify on AlmaLinux 9 | 0/TBD | Not started | - |
 | 22. QEMU Release-Gate + Pipeline | 0/TBD | Not started | - |
 
