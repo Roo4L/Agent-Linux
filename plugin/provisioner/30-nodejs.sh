@@ -24,7 +24,7 @@ log_info "30-nodejs: starting"
 case "${RESOLUTIONS[node]:-create}" in
   reuse)
     reuse::log_nodejs_reuse
-    log_info "30-nodejs: REUSE branch — skipping apt-get install nodejs + .npmrc bootstrap"
+    log_info "30-nodejs: REUSE branch — skipping the NodeSource nodejs install + .npmrc bootstrap"
     # The active npm prefix may still diverge from the reused Node's prefix;
     # the npm-prefix dispatch below (REMEDIATE-01) handles it — warn for
     # transcript visibility.
@@ -49,33 +49,49 @@ if [[ "${NODE_REUSED:-false}" == "true" ]]; then
   : "skipping CREATE path (Node REUSE) — npm-prefix dispatch at end of file still runs"
 else
 
-# Step 1: pre-reqs for NodeSource's setup_22.x. The setup script installs these
-# itself, but we pre-install for installer-log visibility. apt-get update first
-# — /var/lib/apt/lists may be empty (Docker base images strip it; cloud images
-# ship stale lists). Idempotent.
-DEBIAN_FRONTEND=noninteractive apt-get update
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-  curl gnupg ca-certificates apt-transport-https
+# Step 1: pre-reqs for NodeSource's setup_22.x, via the distro-neutral
+# nodesource_prereqs verb (plugin/lib/pkg.sh). The setup script installs these
+# itself, but we pre-install for installer-log visibility. The verb owns the
+# family branch: debian installs the existing four-package prereq set (curl,
+# gnupg, ca-certificates, and the apt HTTPS transport) with a cache-refresh
+# first — Docker base images strip /var/lib/apt/lists, cloud images ship stale
+# lists; rhel installs ONLY ca-certificates — never curl (curl-minimal conflict,
+# Pitfall 6) and never the apt-only names, which would fail under dnf. Idempotent.
+nodesource_prereqs
 
-# Step 2: idempotent NodeSource repo add. Dual-gate on both the deb822
-# (nodesource.sources) and legacy (nodesource.list) filenames so a re-run on a
-# partially-migrated host short-circuits.
+# Defuse a pre-existing AppStream `nodejs` module so the older distro module
+# cannot win over the NodeSource repo (Pitfall 4). nodesource_module_reset is
+# rhel-only (`dnf -y module reset nodejs || true`) and a no-op on debian, so the
+# family branch stays inside the verb — no inline `if` at this call site.
+nodesource_module_reset
+
+# Step 2: idempotent NodeSource repo add. Gate on the family's repo file paths
+# (nodesource_repo_paths — the single source of truth shared with the detect
+# gate and the purge cleanup, so they cannot drift): if ANY family repo file is
+# present, a re-run short-circuits; otherwise run the setup script.
 # Security: curl-pipe-bash from the pinned ADR-005 upstream; HTTPS + curl -f
 # cert-verify is the integrity control, with ongoing integrity from the
-# GPG-signed apt repo. Script-body SHA-256 is not verified (NodeSource publishes
-# none) — accepted per ADR-005. The setup script rm -fs both filenames before
+# GPG-signed repo. Script-body SHA-256 is not verified (NodeSource publishes
+# none) — accepted per ADR-005. The setup script rm -fs the repo files before
 # recreating them, so even a missed gate self-heals without byte drift.
-if [[ -f /etc/apt/sources.list.d/nodesource.sources ]] \
-  || [[ -f /etc/apt/sources.list.d/nodesource.list ]]; then
-  log_info "NodeSource apt repo already configured (gate: nodesource.sources/list)"
+_ns_repo_present=false
+while IFS= read -r _ns_repo_path; do
+  if [[ -f "$_ns_repo_path" ]]; then
+    _ns_repo_present=true
+    break
+  fi
+done < <(nodesource_repo_paths)
+if [[ "$_ns_repo_present" == true ]]; then
+  log_info "NodeSource repo already configured (gate: nodesource_repo_paths)"
 else
-  log_info "NodeSource apt repo absent — running setup_22.x"
-  curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+  log_info "NodeSource repo absent — running setup_22.x"
+  nodesource_setup
 fi
 
-# Step 3: install nodejs. Idempotent — no-op if the installed version satisfies
-# the apt-pinning policy set by setup_22.x.
-DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends nodejs
+# Step 3: install nodejs via the distro-neutral pkg_install verb (debian uses
+# apt, rhel uses dnf). Idempotent — no-op if the installed version satisfies the
+# repo-pinning policy set by setup_22.x.
+pkg_install nodejs
 
 # Step 4: post-install verify (RT-01). Hard-fail if major < 22 (pinning broke
 # or Ubuntu's built-in nodejs was installed first). `return 1` not `exit 1` —
