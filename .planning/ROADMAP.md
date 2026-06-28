@@ -40,7 +40,13 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
   3. `locale -a` reports `C.UTF-8` on EL9 with the system locale written directly to `/etc/locale.conf` (no `locale-gen`, no `locales` package, no `localectl`).
   4. `sudo -u agent sudo -n true` succeeds — the `/etc/sudoers.d/agentlinux` drop-in installs at `0440 root:root` with exactly `agent ALL=(ALL) NOPASSWD: ALL` via the visudo-gated path (ADR-012), unbroken by any EL9 `Defaults`.
   5. On a brownfield EL9 host, the detection layer classifies a pre-existing Node.js by its real source (NodeSource-RPM via `rpm -q` + `/etc/yum.repos.d/nodesource-nodejs.repo`, vs the AppStream `nodejs` module, vs absent) using rpm/file probes — not a `dpkg-query` that would mis-report.
-**Plans**: TBD
+**Plans**: 6 plans (2 waves)
+- [ ] 18-01-PLAN.md — distro_detect.sh almalinux arm + AGENTLINUX_DISTRO_FAMILY export + escape-hatch seed + curl-installer lockstep gate (EL-01)
+- [ ] 18-02-PLAN.md — new lib/pkg.sh package-manager-neutral verb dispatch layer + EL-02 unit tests (EL-02)
+- [ ] 18-03-PLAN.md — provisioner 10/20/30 conversions: locale_ensure, pkg_install sudo, NodeSource RPM + AppStream module defuse (EL-03, EL-04, EL-05)
+- [ ] 18-04-PLAN.md — entrypoint wiring: source pkg.sh + ensure_jq + run_purge routed through verbs (EL-02)
+- [ ] 18-05-PLAN.md — brownfield detection EL9 arm: detect/nodejs.sh rpm classification + detect/user.sh probe (preserve can_sudo_apt) (EL-07)
+- [ ] 18-06-PLAN.md — ADR-017 distro-family-bucket decision record (EL-01, EL-02)
 
 ### Phase 19: Docker AlmaLinux 9 Row
 **Goal**: A fast-feedback `almalinux:9` Docker substrate that runs the bats suite, so the Phase 18 branch can be validated on a real EL9 environment in the ~90s Docker loop (not the ~5min QEMU loop). Phase 19 is Phase 18's acceptance gate.
@@ -90,7 +96,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 18. Detection + Branching Foundation | 0/TBD | Not started | - |
+| 18. Detection + Branching Foundation | 0/6 | Not started | - |
 | 19. Docker AlmaLinux 9 Row | 0/TBD | Not started | - |
 | 20. Behavior-Test-Green on AlmaLinux 9 | 0/TBD | Not started | - |
 | 21. Catalog Verify on AlmaLinux 9 | 0/TBD | Not started | - |
