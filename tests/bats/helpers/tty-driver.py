@@ -29,7 +29,9 @@ from __future__ import annotations
 import os
 import pty
 import select
+import signal
 import sys
+import time
 
 
 def main() -> int:
@@ -83,7 +85,53 @@ def main() -> int:
     output: list[bytes] = []
     quiet_cycles = 0
     eof_sent = False
+
+    # Bounded overall timeout — DEFENSIVE (Plan 20-05 Task 2).
+    #
+    # This driver waits on a `select` loop with no upper bound; an unexpected or
+    # stuck prompt (e.g. the EL9 15-preflight-ux brownfield-fixture mis-state)
+    # therefore blocked ~13 min on a single test before. A wall-clock deadline
+    # converts that hang into a fast, diagnosable non-zero exit. The select loop
+    # is the pexpect analog for this raw-pty driver, so the bound lives here as
+    # a deadline rather than a pexpect `timeout=` kwarg. The underlying cause is
+    # fixed upstream (brownfield.bash EL9 generalization, Plan 20-02); this bound
+    # ensures an unbounded wait can never hang the suite again.
+    #
+    # Generous enough for a real installer prompt cycle (detection probes run
+    # `sudo -i` npm reads), far under the suite's prior 13-min tolerance.
+    # Overridable via TTY_DRIVER_TIMEOUT (seconds) for unusually slow hosts.
+    try:
+        overall_timeout = float(os.environ.get("TTY_DRIVER_TIMEOUT", "120"))
+    except ValueError:
+        overall_timeout = 120.0
+    deadline = time.monotonic() + overall_timeout
+
     while True:
+        if time.monotonic() > deadline:
+            # Stuck/unexpected prompt: the child neither consumed our input nor
+            # produced an expected prompt within the bound. Surface the awaited
+            # state — remaining unsent input plus the TAIL of captured output,
+            # which IS the prompt we were blocked on — then fail fast (exit 124,
+            # the GNU `timeout` convention) instead of hanging the bats suite.
+            awaited = b"".join(output)[-512:]
+            sys.stderr.write(
+                f"tty-driver: TIMEOUT after {overall_timeout:.0f}s waiting on "
+                f"child {cmd[0]!r} "
+                f"(unsent_input={len(write_buf)} bytes, eof_sent={eof_sent}); "
+                "awaited prompt (last output) follows:\n"
+            )
+            sys.stderr.flush()
+            sys.stderr.buffer.write(awaited)
+            sys.stderr.buffer.write(b"\n")
+            sys.stderr.buffer.flush()
+            sys.stdout.buffer.write(b"".join(output))
+            sys.stdout.flush()
+            try:
+                os.kill(pid, signal.SIGKILL)
+                os.waitpid(pid, 0)
+            except (ProcessLookupError, ChildProcessError, OSError):
+                pass
+            return 124
         rlist = [fd]
         try:
             r, _, _ = select.select(rlist, [], [], 0.5)
