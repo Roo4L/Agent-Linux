@@ -70,7 +70,13 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
   2. The complete existing bats contract is green on the Alma Docker row; Ubuntu-specific path assertions (locale-conf path, NodeSource repo path, `dpkg-query`→`rpm -q`, sudoers fixtures) resolve through a `tests/bats/helpers/distro.bash` helper so the same `@test` passes on both families.
   3. On EL9, the v0.3.4 four-state brownfield flow (Reuse / Create / Remediate / Bail) produces the same per-component decisions as Ubuntu — verified by AppStream-Node, NodeSource-RPM, and nvm-managed fixtures each classifying correctly, with the read-only detection snapshot invariant intact.
   4. `agentlinux install --dry-run` is observably non-mutating on EL9 (exits 0, host snapshot byte-identical), and the single `--yes` consent flag plus structured exit codes 64/65/1/0 behave as on Ubuntu.
-**Plans**: TBD
+**Plans**: 5 plans
+Plans:
+- [ ] 20-01-PLAN.md — Wave 1 substrate: Dockerfile.almalinux-9 +diffutils/openssh-clients/iproute + run.sh `--tmpfs /tmp:exec` (flips ~40 false-RED green, stubs untouched) [Wave 1]
+- [ ] 20-02-PLAN.md — Wave 2 helper foundation: NEW tests/bats/helpers/distro.bash (9-verb family dispatch) + brownfield.bash routed through it (the biggest item) [Wave 2]
+- [ ] 20-03-PLAN.md — EL-06: BHV-01 locale via distro_assert_locale + distro_ssh_unit + guarded restorecon at both SSH-seed sites; six modes green (20-agent-user.bats, 50-agents.bats) [Wave 3]
+- [ ] 20-04-PLAN.md — INST-02 snapshot via family-correct NodeSource repo path + REUSE-01 family-token seed (10-installer.bats, 13-reuse.bats) [Wave 3]
+- [ ] 20-05-PLAN.md — Spikes: DET-03 npm-prefix root-cause (test-fix or product escalation) + tty-driver.py bounded pexpect timeout (15-detection.bats, tty-driver.py) [Wave 3]
 
 ### Phase 21: Catalog Verify on AlmaLinux 9
 **Goal**: The three catalog agents install and pass their health checks on AlmaLinux 9, resolving the one open EL9 question — whether any Playwright code path launches Chromium and thus needs an explicit `dnf` runtime-deps block — by on-box smoke rather than pre-scoped guesswork.
