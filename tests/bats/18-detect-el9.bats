@@ -166,6 +166,23 @@ run_user_probe() {
     || __el07_fail "AppStream Node classified as the distinct distro_rpm class" "distro_rpm_count=$appstream; $(cat "$FRAGMENT")"
 }
 
+@test "EL-07: rhel dual-gate — release has nodesource substring but NO repo file classifies distro_rpm (not nodesource)" {
+  # The repo-presence HALF of the dual gate. rpm RELEASE carries the `nodesource`
+  # substring (substring=yes) but no NodeSource yum-repo file is present (repo=no)
+  # → the source is the AppStream/distro `distro_rpm` class, NOT `nodesource`.
+  # Without isolating the repo-presence gate, a single-substring mutation (drop
+  # the `&& ns_repo_present` conjunct) survives — the v0.3.4-class misclassification.
+  run_nodejs_probe rhel "22.14.0-1nodesource.el9" 0
+  [[ "$status" -eq 0 ]] || __el07_fail "nodejs_probe rc 0" "status=$status; $output"
+  local ns distro
+  ns=$(jq -r '.nodejs | map(select(.source == "nodesource")) | length' "$FRAGMENT")
+  distro=$(jq -r '.nodejs | map(select(.source == "distro_rpm")) | length' "$FRAGMENT")
+  [[ "$ns" == "0" ]] \
+    || __el07_fail "substring-but-no-repo is NOT classified nodesource" "nodesource_count=$ns; $(cat "$FRAGMENT")"
+  [[ "$distro" == "1" ]] \
+    || __el07_fail "substring-but-no-repo falls back to the distro_rpm class" "distro_rpm_count=$distro; $(cat "$FRAGMENT")"
+}
+
 @test "EL-07: rhel + rpm -q nodejs fails (absent) emits no rpm-sourced nodejs entry" {
   run_nodejs_probe rhel "" 0
   [[ "$status" -eq 0 ]] || __el07_fail "nodejs_probe rc 0" "status=$status; $output"

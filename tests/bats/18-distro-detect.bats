@@ -73,6 +73,21 @@ run_detect() {
   [[ "$output" == *"FAMILY=debian"* ]] || __el01_fail "FAMILY=debian" "$output"
 }
 
+@test "EL-01: ubuntu 26.04 → rc0 FAMILY=debian VERSION=26.04 (preserved)" {
+  write_osrelease 'ID=ubuntu' 'VERSION_ID=26.04'
+  run_detect
+  [[ "$status" -eq 0 ]] || __el01_fail "exit 0 for ubuntu 26.04" "status=$status; $output"
+  [[ "$output" == *"FAMILY=debian"* ]] || __el01_fail "FAMILY=debian" "$output"
+  [[ "$output" == *"VERSION=26.04"* ]] || __el01_fail "VERSION=26.04" "$output"
+}
+
+@test "EL-01: ubuntu 20.04 → rejected (unsupported version, exercises ubuntu reject arm)" {
+  write_osrelease 'ID=ubuntu' 'VERSION_ID=20.04'
+  run_detect
+  [[ "$status" -ne 0 ]] || __el01_fail "non-zero exit for ubuntu 20.04" "status=$status; $output"
+  [[ "$output" == *"ubuntu"* ]] || __el01_fail "message names ubuntu" "$output"
+}
+
 @test "EL-01: almalinux 9 → rc0 FAMILY=rhel VERSION=9" {
   write_osrelease 'ID=almalinux' 'VERSION_ID=9'
   run_detect
