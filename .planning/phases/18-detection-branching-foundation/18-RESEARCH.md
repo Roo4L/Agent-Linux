@@ -403,14 +403,16 @@ fi
 | A4 | NodeSource setup_22.x runs its own distro detection cleanly on `almalinux:9` (AlmaLinux officially supported; `/etc/redhat-release` present as fallback) | Open Q2 | If it trips, `node` never installs — spot-check on the real image (Phase 19); documented workaround is touching `/etc/redhat-release` (already shipped) |
 | A5 | `dnf install -y --setopt=install_weak_deps=False` is the correct `--no-install-recommends` analogue and does not break NodeSource install | Pattern 2 | If weak-deps exclusion drops a runtime dep, Node install incomplete — low risk; verify on Docker arm |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Exact NodeSource RPM `%{VERSION}-%{RELEASE}` string on `almalinux:9` (the STATE.md flagged concern).**
+   - **RESOLVED: deferred to Phase 19 Docker arm — run `rpm -q --qf '%{VERSION}-%{RELEASE}\n' nodejs` on `almalinux:9` before locking the DET-02 classifier; substring `nodesource` is the expected key.**
    - What we know: the setup script writes the repo with `module_hotfixes=1` and a `pub_22/nodistro` baseurl (fetched verbatim 2026-06-28); the deb path carries `-1nodesource`; the rpm release historically carries `nodesource` (e.g. `1nodesource.el9`).
    - What's unclear: the precise release string under the newer `nodistro` repo layout — could be `…nodesource.el9` or a `nodistro`-flavored variant.
    - Recommendation: in Phase 18 (validated on the Phase 19 Docker arm), run `dnf install -y nodejs` then `rpm -q --qf '%{VERSION}-%{RELEASE}\n' nodejs` on `almalinux:9` and pin the classifier to the `nodesource` substring confirmed there. Do NOT ship the deb-specific `-1nodesource` match as the sole gate. This is a planning task, not a blocker.
 
 2. **NodeSource setup_22.x distro-detection on AlmaLinux 9.**
+   - **RESOLVED: nothing blocking — AlmaLinux 9 officially supported by NodeSource; spot-check on Phase 19 Docker arm.**
    - What we know: AlmaLinux is officially supported by NodeSource; `/etc/redhat-release` is present.
    - What's unclear: nothing blocking — historical issues (#1653/#1717) were older script versions.
    - Recommendation: spot-check on the real `almalinux:9` image early in Phase 19; treat as a verification item.
