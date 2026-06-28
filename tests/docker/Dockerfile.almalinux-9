@@ -118,6 +118,21 @@ RUN rm -f /lib/systemd/system/multi-user.target.wants/* && \
 # SSH: generate host keys at build time (daemon is started later by systemd).
 RUN mkdir -p /run/sshd && ssh-keygen -A
 
+# systemd-in-Docker accommodation: relax /etc/shadow to 0640 (owner-readable),
+# matching the mode the Ubuntu test rows already ship. EL9 ships /etc/shadow as
+# mode 0000, so reading it requires CAP_DAC_OVERRIDE. Under systemd-as-PID-1 in
+# the --privileged container, `sudo` drops that capability before its PAM
+# `account` stage, so pam_unix cannot read the 0000 shadow file and fails with
+# "PAM account management error: Authentication service cannot retrieve
+# authentication info" — breaking every `sudo -u agent` the suite (and the
+# installer's CLI-01 check) performs. On a real EL9 host/VM sudo retains the
+# capability and 0000 works; this is purely a minimal-systemd-in-Docker quirk,
+# so we bring the throwaway test image's shadow mode to parity with the Ubuntu
+# rows (0640 root:root — owner-readable, no capability needed). The Phase 22
+# QEMU row exercises real EL9 with the stock 0000 shadow. Surfaced live on the
+# first EL9 composed-install smoke, 19-01.
+RUN chmod 0640 /etc/shadow
+
 # Locale: C.UTF-8 is a glibc builtin on EL9 (the apt-era locale-building
 # binaries do not exist here). The ENV LANG/LC_ALL above plus the installer's own
 # locale_ensure rhel arm (writes /etc/locale.conf at install time) suffice — no
