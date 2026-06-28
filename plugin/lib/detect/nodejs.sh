@@ -93,9 +93,8 @@ detect::nodejs_probe() {
       #   NodeSource-RPM: the rpm RELEASE carries the `nodesource` substring AND a
       #     NodeSource yum-repo file is present. We key on the `nodesource`
       #     substring (not the deb-specific `-1nodesource`) for robustness across
-      #     the nodistro repo layout; the EXACT `%{RELEASE}` string (e.g.
-      #     `…nodesource.el9`) is live-verified on almalinux:9 in Phase 19 (Open
-      #     Q1). Repo-file presence is probed through nodesource_repo_paths
+      #     the nodistro repo layout, since the exact `%{RELEASE}` string (e.g.
+      #     `…nodesource.el9`) is not pinned. Repo-file presence is probed through nodesource_repo_paths
       #     (pkg.sh) — NOT a hardcoded yum.repos.d path — so this detect gate, the
       #     30-nodejs idempotency gate, and the agentlinux-install purge cleanup
       #     all read the SAME source of truth.

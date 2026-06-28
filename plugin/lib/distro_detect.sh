@@ -70,8 +70,10 @@ detect_distro() {
     return 1
   fi
 
-  # `.` inside a function body keeps ID / VERSION_ID scoped to this invocation —
-  # no global pollution of the caller's shell.
+  # Declare the keys we read as local BEFORE sourcing so os-release's ID /
+  # VERSION_ID assignments stay scoped to this invocation — sourcing alone does
+  # not scope them, it would leak into the caller's shell.
+  local ID VERSION_ID
   # shellcheck disable=SC1090,SC1091
   . "$os_release"
 

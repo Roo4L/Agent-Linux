@@ -25,7 +25,7 @@ if ! command -v log_error >/dev/null 2>&1; then
 fi
 
 # pkg_install <pkg...> — install one or more packages.
-#   debian: lifted from provisioner/30-nodejs.sh / ensure_jq / 20-sudoers.sh.
+#   debian: apt-get install --no-install-recommends.
 #   rhel:   `--setopt=install_weak_deps=False` ≈ apt's `--no-install-recommends`.
 pkg_install() {
   case "$AGENTLINUX_DISTRO_FAMILY" in
@@ -44,7 +44,7 @@ pkg_install() {
 }
 
 # pkg_is_installed <pkg> — true (rc 0) iff <pkg> is installed.
-#   debian: the dpkg-query idiom lifted from detect/nodejs.sh.
+#   debian: dpkg-query Status check.
 #   rhel:   rpm presence query.
 pkg_is_installed() {
   case "$AGENTLINUX_DISTRO_FAMILY" in
@@ -62,7 +62,7 @@ pkg_is_installed() {
 }
 
 # pkg_remove <pkg...> — remove packages (purge config on debian).
-#   debian: lifted from bin/agentlinux-install run_purge.
+#   debian: apt-get purge (also removes config files).
 pkg_remove() {
   case "$AGENTLINUX_DISTRO_FAMILY" in
     debian)
@@ -79,7 +79,7 @@ pkg_remove() {
 }
 
 # pkg_autoremove — drop orphaned dependencies.
-#   debian: lifted from bin/agentlinux-install run_purge.
+#   debian: apt-get autoremove.
 pkg_autoremove() {
   case "$AGENTLINUX_DISTRO_FAMILY" in
     debian)
@@ -96,8 +96,7 @@ pkg_autoremove() {
 }
 
 # nodesource_prereqs — install the prerequisites NodeSource's setup_22.x expects.
-#   debian: the current 30-nodejs.sh prereq set, BYTE-FOR-BYTE
-#           (curl gnupg ca-certificates apt-transport-https).
+#   debian: curl gnupg ca-certificates apt-transport-https (the apt prereq set).
 #   rhel:   ONLY ca-certificates. NEVER curl (curl-minimal conflict, Pitfall 6),
 #           and gnupg / apt-transport-https do not exist on EL9. This is a verb,
 #           not an inline pkg_install list, so an apt-only package name can never
@@ -165,8 +164,8 @@ nodesource_repo_paths() {
 
 # nodesource_module_reset — defuse the AppStream `nodejs` module so the older
 # distro module cannot win over the NodeSource repo (Pitfall 4). setup_22.x does
-# NOT do this itself. rhel-only and non-fatal; a no-op on debian so plan 03 never
-# inlines an `if` at the call site.
+# NOT do this itself. rhel-only and non-fatal; a no-op on debian so the family
+# branch stays inside the verb — no inline `if` at the call site.
 nodesource_module_reset() {
   case "$AGENTLINUX_DISTRO_FAMILY" in
     rhel)
@@ -180,14 +179,22 @@ nodesource_module_reset() {
 
 # locale_ensure <locale> — enforce <locale> as the system LANG/LC_ALL, then
 # verify it is actually available via the portable `locale -a` gate (BHV-01).
-#   debian: lifted VERBATIM from 10-agent-user.sh (locales install + locale-gen
-#           + update-locale; /etc/default/locale is the write target).
+#   debian: the standard locales install + locale-gen + update-locale, with
+#           /etc/default/locale as the write target.
 #   rhel:   write /etc/locale.conf atomically (write_file_atomic, stdin body) —
 #           NEVER cat>/tee. No locale-gen on EL9; glibc-langpack provides C.UTF-8.
 # Both arms end with the same `locale -a … grep -Eiq '^c\.utf-?8$'` correctness
 # gate (accepts `C.UTF-8` and the `C.utf8` form 24.04 reports).
 locale_ensure() {
   local loc=$1
+  # C.UTF-8-only contract: the debian arm is the byte-for-byte Ubuntu path
+  # (hardcoded C.UTF-8 + a C.UTF-8 `locale -a` gate) and ignores $loc, while the
+  # rhel arm honors it. Reject any other locale rather than silently enforcing
+  # C.UTF-8 on debian — fail closed so a future mismatched call site is caught.
+  if [[ "$loc" != "C.UTF-8" ]]; then
+    log_error "locale_ensure supports only C.UTF-8 (got: ${loc:-unset})"
+    return 1
+  fi
   case "$AGENTLINUX_DISTRO_FAMILY" in
     debian)
       if ! command -v locale-gen >/dev/null 2>&1; then

@@ -155,7 +155,8 @@ trap on_error ERR
 . "$LIB_DIR/distro_detect.sh"
 # pkg.sh defines the apt↔dnf verbs but only DECLARES functions at source time
 # (no calls), so sourcing it here — before idempotency.sh — is safe; verbs are
-# resolved at call time, after detect_distro (:435) sets AGENTLINUX_DISTRO_FAMILY.
+# resolved at call time, by which point detect_distro has exported
+# AGENTLINUX_DISTRO_FAMILY (the install path in main(); run_purge seeds it itself).
 # shellcheck source=../lib/pkg.sh
 . "$LIB_DIR/pkg.sh"
 # shellcheck source=../lib/idempotency.sh
@@ -349,6 +350,15 @@ run_purge() {
   local remove_nodejs=${1:-false}
 
   log_info "running --purge (destructive)"
+
+  # --purge runs before main()'s detect_distro, but Steps 4/5 below dispatch on
+  # AGENTLINUX_DISTRO_FAMILY (nodesource_repo_paths / pkg_remove / pkg_autoremove).
+  # Seed it here — detect_distro is read-only and idempotent. If detection refuses
+  # (unsupported/unreadable os-release), fall back to debian so `set -u` never
+  # aborts teardown mid-way (which would orphan the agent user and install log).
+  detect_distro >/dev/null 2>&1 || true
+  : "${AGENTLINUX_DISTRO_FAMILY:=debian}"
+  export AGENTLINUX_DISTRO_FAMILY
 
   # Step 1: per-agent uninstall.sh for every sentinel. Look up recipe paths
   # from the catalog snapshot keyed by sentinel id — do NOT trust paths from
