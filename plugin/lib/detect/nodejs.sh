@@ -8,10 +8,13 @@
 # Enumerates Node.js installations across several sources WITHOUT sourcing any
 # manager's shell init. Read-only: no package mutation, no writes.
 #
-# Sources covered:
-#   1. NodeSource APT  — dpkg-query Version contains `-1nodesource` AND
+# Sources covered (the distro-package arm branches on AGENTLINUX_DISTRO_FAMILY):
+#   1. NodeSource APT  — (debian) dpkg-query Version contains `-1nodesource` AND
 #                        nodesource.{sources,list} present (dual-gate)
-#   2. Distro APT      — dpkg-query Version present but lacks `-1nodesource`
+#   1r. NodeSource RPM — (rhel) rpm RELEASE contains `nodesource` AND a
+#                        nodesource_repo_paths file present (dual-gate)
+#   2. Distro APT      — (debian) dpkg-query Version present but lacks `-1nodesource`
+#   2r. AppStream mod  — (rhel) rpm has nodejs but RELEASE lacks `nodesource`
 #   3. Manual          — /usr/local/bin/node real file (readlink -f self)
 #   4. nvm             — $HOME/.nvm/versions/node                      (depth 3)
 #   5. fnm             — $HOME/.local/share/fnm/node-versions          (depth 4)
@@ -78,21 +81,55 @@ detect::nodejs_probe() {
   local user=$1 home=$2 fragment_path=$3
   local entries=()
 
-  # ---- 1. NodeSource APT (dual-gate) ----
-  # `|| true` because dpkg-query exits 1 when nodejs is absent — expected.
-  local ns_version
-  ns_version=$(dpkg-query -W -f='${Version}\n' nodejs 2>/dev/null || true)
-  if [[ "$ns_version" == *"-1nodesource"* ]]; then
-    if [[ -f /etc/apt/sources.list.d/nodesource.sources ]] \
-      || [[ -f /etc/apt/sources.list.d/nodesource.list ]]; then
-      entries+=("$(__det_nodejs_entry nodesource /usr/bin/node "$ns_version" "$user" /usr)")
-    fi
-  fi
+  # ---- 1-2. Distro-package Node (NodeSource vs distro module) — family-branched ----
+  # The package-manager probe differs by family; classify the real source so a
+  # brownfield NodeSource Node is never reported "absent" (the v0.3.4-class
+  # misclassification bug). READ-ONLY on both arms: `dpkg-query`/`rpm -q` + file
+  # tests only, never a write-path package command (which would touch the package
+  # cache and break the 15-detection read-only invariant — Pitfall 5).
+  case "${AGENTLINUX_DISTRO_FAMILY:-debian}" in
+    rhel)
+      # EL9: classify a pre-existing rpm-installed Node by its REAL source.
+      #   NodeSource-RPM: the rpm RELEASE carries the `nodesource` substring AND a
+      #     NodeSource yum-repo file is present. We key on the `nodesource`
+      #     substring (not the deb-specific `-1nodesource`) for robustness across
+      #     the nodistro repo layout; the EXACT `%{RELEASE}` string (e.g.
+      #     `…nodesource.el9`) is live-verified on almalinux:9 in Phase 19 (Open
+      #     Q1). Repo-file presence is probed through nodesource_repo_paths
+      #     (pkg.sh) — NOT a hardcoded yum.repos.d path — so this detect gate, the
+      #     30-nodejs idempotency gate, and the agentlinux-install purge cleanup
+      #     all read the SAME source of truth.
+      #   AppStream-module: rpm has nodejs but the RELEASE lacks `nodesource` — a
+      #     DISTINCT source class so it is never miscounted as NodeSource.
+      local ns_version ns_repo_present=0 repo_file
+      ns_version=$(rpm -q --qf '%{VERSION}-%{RELEASE}\n' nodejs 2>/dev/null || true)
+      while IFS= read -r repo_file; do
+        [[ -f "$repo_file" ]] && ns_repo_present=1
+      done < <(nodesource_repo_paths)
+      if [[ "$ns_version" == *nodesource* ]] && [[ "$ns_repo_present" -eq 1 ]]; then
+        entries+=("$(__det_nodejs_entry nodesource /usr/bin/node "$ns_version" "$user" /usr)")
+      elif [[ -n "$ns_version" ]]; then
+        entries+=("$(__det_nodejs_entry distro_rpm /usr/bin/node "$ns_version" "$user" /usr)")
+      fi
+      ;;
+    *)
+      # ---- 1. NodeSource APT (dual-gate) ----
+      # `|| true` because dpkg-query exits 1 when nodejs is absent — expected.
+      local ns_version
+      ns_version=$(dpkg-query -W -f='${Version}\n' nodejs 2>/dev/null || true)
+      if [[ "$ns_version" == *"-1nodesource"* ]]; then
+        if [[ -f /etc/apt/sources.list.d/nodesource.sources ]] \
+          || [[ -f /etc/apt/sources.list.d/nodesource.list ]]; then
+          entries+=("$(__det_nodejs_entry nodesource /usr/bin/node "$ns_version" "$user" /usr)")
+        fi
+      fi
 
-  # ---- 2. Distro APT (dpkg has nodejs but version lacks NodeSource suffix) ----
-  if [[ -n "$ns_version" && "$ns_version" != *"-1nodesource"* ]]; then
-    entries+=("$(__det_nodejs_entry distro_apt /usr/bin/node "$ns_version" "$user" /usr)")
-  fi
+      # ---- 2. Distro APT (dpkg has nodejs but version lacks NodeSource suffix) ----
+      if [[ -n "$ns_version" && "$ns_version" != *"-1nodesource"* ]]; then
+        entries+=("$(__det_nodejs_entry distro_apt /usr/bin/node "$ns_version" "$user" /usr)")
+      fi
+      ;;
+  esac
 
   # ---- 3. Manual /usr/local/bin/node ----
   # readlink -f resolves the chain; if it equals self the file is real (a

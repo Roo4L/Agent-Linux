@@ -159,20 +159,20 @@ run_user_probe() {
   [[ "$status" -eq 0 ]] || __el07_fail "nodejs_probe rc 0" "status=$status; $output"
   local ns appstream
   ns=$(jq -r '.nodejs | map(select(.source == "nodesource")) | length' "$FRAGMENT")
-  appstream=$(jq -r '.nodejs | map(select(.source == "distro_dnf")) | length' "$FRAGMENT")
+  appstream=$(jq -r '.nodejs | map(select(.source == "distro_rpm")) | length' "$FRAGMENT")
   [[ "$ns" == "0" ]] \
     || __el07_fail "AppStream Node is NOT classified nodesource" "nodesource_count=$ns; $(cat "$FRAGMENT")"
   [[ "$appstream" == "1" ]] \
-    || __el07_fail "AppStream Node classified as the distinct distro_dnf class" "distro_dnf_count=$appstream; $(cat "$FRAGMENT")"
+    || __el07_fail "AppStream Node classified as the distinct distro_rpm class" "distro_rpm_count=$appstream; $(cat "$FRAGMENT")"
 }
 
 @test "EL-07: rhel + rpm -q nodejs fails (absent) emits no rpm-sourced nodejs entry" {
   run_nodejs_probe rhel "" 0
   [[ "$status" -eq 0 ]] || __el07_fail "nodejs_probe rc 0" "status=$status; $output"
   local rpm_sourced
-  rpm_sourced=$(jq -r '.nodejs | map(select(.source == "nodesource" or .source == "distro_dnf")) | length' "$FRAGMENT")
+  rpm_sourced=$(jq -r '.nodejs | map(select(.source == "nodesource" or .source == "distro_rpm")) | length' "$FRAGMENT")
   [[ "$rpm_sourced" == "0" ]] \
-    || __el07_fail "no nodesource/distro_dnf entry when rpm reports absent" "count=$rpm_sourced; $(cat "$FRAGMENT")"
+    || __el07_fail "no nodesource/distro_rpm entry when rpm reports absent" "count=$rpm_sourced; $(cat "$FRAGMENT")"
 }
 
 @test "EL-07: rhel detection is READ-ONLY — no write-path dnf subcommand invoked" {
