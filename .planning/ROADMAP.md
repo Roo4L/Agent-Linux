@@ -22,7 +22,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
 - Integer phases (18, 19, 20…): planned milestone work, continuing from v0.3.4's last phase (17).
 - Decimal phases (e.g. 18.1): urgent insertions (marked INSERTED), appearing between their surrounding integers.
 
-- [ ] **Phase 18: Detection + Branching Foundation** — Recognize AlmaLinux 9 and route every apt/dpkg/locale/NodeSource/sudoers/brownfield call through one distro-family abstraction so a fresh install runs end-to-end on EL9.
+- [x] **Phase 18: Detection + Branching Foundation** — Recognize AlmaLinux 9 and route every apt/dpkg/locale/NodeSource/sudoers/brownfield call through one distro-family abstraction so a fresh install runs end-to-end on EL9. ✅ 2026-06-28
 - [ ] **Phase 19: Docker AlmaLinux 9 Row** — Stand up the fast `almalinux:9` Docker substrate (+ CI matrix arm) that validates the Phase 18 branch in the ~90s loop.
 - [ ] **Phase 20: Behavior-Test-Green on AlmaLinux 9** — Drive the full existing bats contract green on the Alma Docker row under enforcing SELinux, with Ubuntu-path assertions generalized to distro-aware helpers.
 - [ ] **Phase 21: Catalog Verify on AlmaLinux 9** — Verify the three catalog agents install and pass health checks on EL9; resolve the open Playwright-chromium dnf-deps question by on-box smoke.
