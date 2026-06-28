@@ -97,7 +97,7 @@ Phase 19's gate is an **invokable** bats suite, not a green one. The suite execu
 |-----------|--------|------|------|------------------------|
 | `18-distro-detect.bats` | **GREEN** | 15 | 0 | Phase 18 distro abstraction works on real EL9 |
 | `18-detect-el9.bats` | RED | 4 | 3 | EL-07 NodeSource-RPM classifier / sudo-capability probe fixtures |
-| `18-pkg-dispatch.bats` | RED | 6 | 14 | EL-02/03/04/05 pkg verb dispatch — fails on BOTH rhel and debian arms → test-harness mocking assumption, not a product regression |
+| `18-pkg-dispatch.bats` | RED | 6 | 14 | EL-02/03/04/05 pkg verb dispatch — fails on BOTH rhel and debian arms → points to a harness-hermeticity issue (Phase 20 must root-cause), NOT a one-arm dispatch regression. See note below — do NOT assume "real dnf/rpm shadows the PATH stubs" (the stubs are PATH-prepended and DO shadow). |
 | `10-installer.bats` | RED | 2 | 9 | INST-01 log banner, INST-02 idempotency, DOC-02 CLAUDE.md, CAT-05 catalog snapshot |
 | `13-reuse.bats` | RED | 27 | 5 | REUSE-01 `user_can_sudo_apt` (apt-specific detector needs dnf parity) |
 | `14-remediate.bats` | RED | 37 | 19 | REMEDIATE-01..04 + NO-MUTATION snapshots (apt/npm-prefix/sudoers brownfield paths) |
@@ -105,7 +105,9 @@ Phase 19's gate is an **invokable** bats suite, not a green one. The suite execu
 
 **Not individually enumerated this session** (the full per-file sweep re-runs the installer per test and is slow; deferred to Phase 20): `15-preflight-ux`, `20-agent-user`, `22-agent-sudo`, `30-runtime`, `40-registry-cli`, `50-agents`, `51-agt02-release-gate`, `52-agt02-brownfield-gate`, `60-curl-installer`. The whole-suite invocation (`bats tests/bats/`, exactly as run.sh drives it) was observed executing well past test #130 in a 10-minute run, confirming the suite is invokable end-to-end across these files. Phase 20 (PAR-01) completes the full red/green sweep and drives the contract green.
 
-**Dominant Phase 20 theme:** the RED failures are overwhelmingly Ubuntu-path assertions — apt/dpkg detectors (`user_can_sudo_apt`), `locale-gen` vs `/etc/locale.conf`, and bats test-harness mocking that assumes apt-shaped stubs. These are the distro-aware-helper generalizations PAR-01 is scoped to do, not product regressions. The GREEN `18-distro-detect` row is the positive anchor: the core Phase 18 detection layer is correct on EL9.
+**Dominant Phase 20 theme:** the RED failures are overwhelmingly Ubuntu-path assertions — apt/dpkg detectors (`user_can_sudo_apt`), `locale-gen` vs `/etc/locale.conf` — which are the distro-aware-helper generalizations PAR-01 is scoped to do, not product regressions. The GREEN `18-distro-detect` row is the positive anchor: the core Phase 18 detection layer is correct on EL9.
+
+**⚠ Phase 20 root-cause caveat (per code review):** do NOT take "the PATH stubs break when real dnf/rpm is present" as the cause of the `18-pkg-dispatch` / `18-detect-el9` redness — that mechanism is wrong (both files PATH-prepend `$STUBDIR`, so the stubs DO shadow the real binaries; mere presence of real dnf/rpm cannot flip a stub test). The real, undiagnosed non-hermeticity is different and Phase 20 MUST root-cause each RED file before touching stubs, or it risks masking a genuine EL9 regression (a future false-green). Known leaks to check first: (1) `18-detect-el9.bats` keys the user probe on `$(id -un)` — the *ambient* invoking user, which is the dev user on the host but **root** inside `docker exec`, and `detect/user.sh` branches on root; (2) `detect/nodejs.sh` + the version-manager scans resolve the container's real system Node via PATH (the installer just placed it) — the fixtures isolate `HOME` but not the PATH-resolved system Node. Record the ACTUAL cause per file in the Phase 20 worklist, not "real dnf/rpm present".
 
 ## Decisions Made
 

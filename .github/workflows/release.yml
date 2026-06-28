@@ -132,10 +132,20 @@ jobs:
     # caps a genuine hang without flaky re-timeouts; matches test.yml's bats-docker
     # budget. (gate-3-qemu stays 45 — that QEMU budget is proven by nightly-qemu.)
     timeout-minutes: 60
+    # almalinux-9 is EXPERIMENTAL until Phase 20 (PAR-01) — the EL9 suite is
+    # invokable (HARN-01) but red-by-design until then. continue-on-error lets its
+    # expected redness report WITHOUT failing this gating job, which would
+    # otherwise skip gate-3-qemu / gate-4-pinned-combo (`needs: gate-2-docker`)
+    # and block the whole release. Phase 22 (REL-01) removes the flag and makes
+    # almalinux-9 a hard release gate alongside the QEMU row.
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
         target: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, almalinux-9]
+        include:
+          - target: almalinux-9
+            experimental: true
     steps:
       - uses: actions/checkout@v5
       - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)

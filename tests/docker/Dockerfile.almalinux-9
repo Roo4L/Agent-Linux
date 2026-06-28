@@ -16,8 +16,7 @@
 #   - the coreutils package is DROPPED (the base image ships coreutils-single,
 #                                  which provides every coreutils binary; pulling
 #                                  the full coreutils package triggers the same
-#                                  minimal-vs-full file conflict as curl —
-#                                  surfaced live on the first EL9 build, 19-01)
+#                                  minimal-vs-full file conflict as curl)
 #   - + procps-ng (optional `ps` for `docker exec` debugging)
 #
 # Invariants (same as the Ubuntu rows):
@@ -40,8 +39,7 @@
 # touchpoint at Docker-build time (Docker-build hermeticity). Copies ONLY
 # plugin/cli/ into the builder so the build cache keys on CLI sources, not
 # the full repo. Build context for this Dockerfile is the repo root (set by
-# tests/docker/run.sh). BYTE-IDENTICAL to the Ubuntu rows so the CLI artifact
-# cannot diverge per distro.
+# tests/docker/run.sh).
 # ---------------------------------------------------------------
 FROM node:22-slim AS cli-builder
 WORKDIR /build/cli
@@ -83,7 +81,7 @@ ENV LANG=C.UTF-8 \
 # curl/curl-minimal file conflict (19-RESEARCH Pitfall 1). The full coreutils
 # package is likewise ABSENT — the base image ships coreutils-single, which
 # provides every coreutils binary, and pulling full coreutils hits the same
-# minimal-vs-full conflict (surfaced on the first live EL9 build). No separate
+# minimal-vs-full conflict. No separate
 # sysv-init package (EL9 systemd IS init). No apt locales package (C.UTF-8 is a
 # glibc builtin: `locale -a` lists C.utf8). shellcheck + procps-ng are debug
 # conveniences for interactive `docker exec`.
@@ -102,10 +100,10 @@ RUN dnf install -y --setopt=install_weak_deps=False epel-release && \
 
 # Systemd inside Docker: mask units that fight with containerized PID 1
 # (logind needs real seats; resolved/networkd assume real netns ownership;
-# tmpfiles-clean clobbers the bind-mounted cgroup tree). resolved/networkd are
-# not installed on minimal EL9 — `systemctl mask` still no-ops cleanly on an
-# absent unit (creates the /dev/null symlink); the trailing `|| true` is
-# belt-and-suspenders.
+# tmpfiles-clean clobbers the bind-mounted cgroup tree). No `|| true`: masking an
+# absent unit (resolved/networkd are not installed on minimal EL9) already
+# succeeds by creating the /dev/null symlink, so a non-zero exit here is a real
+# failure that should fail the build — matching the Ubuntu rows.
 RUN rm -f /lib/systemd/system/multi-user.target.wants/* && \
     systemctl mask \
       systemd-logind.service \
@@ -113,30 +111,22 @@ RUN rm -f /lib/systemd/system/multi-user.target.wants/* && \
       systemd-networkd.service \
       systemd-tmpfiles-setup.service \
       systemd-tmpfiles-clean.service \
-      systemd-tmpfiles-clean.timer || true
+      systemd-tmpfiles-clean.timer
 
 # SSH: generate host keys at build time (daemon is started later by systemd).
 RUN mkdir -p /run/sshd && ssh-keygen -A
 
-# systemd-in-Docker accommodation: relax /etc/shadow to 0640 (owner-readable),
-# matching the mode the Ubuntu test rows already ship. EL9 ships /etc/shadow as
-# mode 0000, so reading it requires CAP_DAC_OVERRIDE. Under systemd-as-PID-1 in
-# the --privileged container, `sudo` drops that capability before its PAM
-# `account` stage, so pam_unix cannot read the 0000 shadow file and fails with
-# "PAM account management error: Authentication service cannot retrieve
-# authentication info" — breaking every `sudo -u agent` the suite (and the
-# installer's CLI-01 check) performs. On a real EL9 host/VM sudo retains the
-# capability and 0000 works; this is purely a minimal-systemd-in-Docker quirk,
-# so we bring the throwaway test image's shadow mode to parity with the Ubuntu
-# rows (0640 root:root — owner-readable, no capability needed). The Phase 22
-# QEMU row exercises real EL9 with the stock 0000 shadow. Surfaced live on the
-# first EL9 composed-install smoke, 19-01.
+# systemd-in-Docker accommodation: relax /etc/shadow to owner-readable 0640.
+# EL9 ships it 0000 (read needs CAP_DAC_OVERRIDE), but under systemd-as-PID-1 in
+# the --privileged container `sudo` drops that capability before its PAM `account`
+# stage, so pam_unix cannot read a 0000 shadow and every `sudo -u agent` the suite
+# runs fails. 0640 makes it owner-readable without the capability. This is a
+# throwaway-test-image quirk only — a real EL9 host/VM keeps stock 0000 (the
+# Phase 22 QEMU row exercises that). (Ubuntu base images already ship 0640, just
+# root:shadow rather than root:root — the group is irrelevant for a disposable image.)
 RUN chmod 0640 /etc/shadow
 
-# Locale: C.UTF-8 is a glibc builtin on EL9 (the apt-era locale-building
-# binaries do not exist here). The ENV LANG/LC_ALL above plus the installer's own
-# locale_ensure rhel arm (writes /etc/locale.conf at install time) suffice — no
-# build-time step required.
+# (No locale build step: C.UTF-8 is a glibc builtin on EL9 — see invariants above.)
 
 # Copy the pre-built CLI dist/ + production-pruned node_modules/ + package.json
 # from the builder stage. tests/docker/run.sh splices the TRIO into
