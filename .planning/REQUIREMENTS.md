@@ -81,30 +81,32 @@ Explicitly excluded for v0.3.5. Documented to prevent scope creep.
 
 ## Traceability
 
-Which phases cover which requirements. Populated during roadmap creation.
+Which phases cover which requirements. Mapped during roadmap creation (v0.3.5 ROADMAP, Phases 18–22).
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| EL-01 | Phase TBD | Pending |
-| EL-02 | Phase TBD | Pending |
-| EL-03 | Phase TBD | Pending |
-| EL-04 | Phase TBD | Pending |
-| EL-05 | Phase TBD | Pending |
-| EL-06 | Phase TBD | Pending |
-| EL-07 | Phase TBD | Pending |
-| EL-08 | Phase TBD | Pending |
-| HARN-01 | Phase TBD | Pending |
-| HARN-02 | Phase TBD | Pending |
-| PAR-01 | Phase TBD | Pending |
-| PAR-02 | Phase TBD | Pending |
-| REC-01 | Phase TBD | Pending |
-| REL-01 | Phase TBD | Pending |
+| EL-01 | Phase 18 | Pending |
+| EL-02 | Phase 18 | Pending |
+| EL-03 | Phase 18 | Pending |
+| EL-04 | Phase 18 | Pending |
+| EL-05 | Phase 18 | Pending |
+| EL-06 | Phase 20 | Pending |
+| EL-07 | Phase 18 | Pending |
+| EL-08 | Phase 20 | Pending |
+| HARN-01 | Phase 19 | Pending |
+| HARN-02 | Phase 22 | Pending |
+| PAR-01 | Phase 20 | Pending |
+| PAR-02 | Phase 22 | Pending |
+| REC-01 | Phase 21 | Pending |
+| REL-01 | Phase 22 | Pending |
 
 **Coverage:**
 - v0.3.5 requirements: 14 total
-- Mapped to phases: 0 (roadmapper fills this)
-- Unmapped: 14 ⚠️ (resolved at roadmap creation)
+- Mapped to phases: 14 ✓ (Phase 18 ×6, Phase 19 ×1, Phase 20 ×3, Phase 21 ×1, Phase 22 ×3)
+- Unmapped: 0 ✓
+
+**Note on EL-06 (SELinux):** the `restorecon` *implementation* lands across Phases 18/20, but its primary acceptance — the six invocation modes green under enforcing SELinux on the Docker row — is owned by **Phase 20**; the **Phase 22** QEMU row re-confirms it under real enforcement on the cloud image (no double-counting — EL-06 maps to Phase 20).
 
 ---
 *Requirements defined: 2026-06-28 — v0.3.5 AlmaLinux 9 Support, full brownfield parity (AL-47).*
-*Last updated: 2026-06-28 after initial definition.*
+*Last updated: 2026-06-28 — traceability mapped to Phases 18–22 (roadmap creation; 14/14 covered, 0 orphaned).*
