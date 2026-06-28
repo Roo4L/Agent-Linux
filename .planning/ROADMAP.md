@@ -76,7 +76,7 @@ Plans:
 - [x] 20-02-PLAN.md — Wave 2 helper foundation: NEW tests/bats/helpers/distro.bash (9-verb family dispatch) + brownfield.bash routed through it (the biggest item) [Wave 2]
 - [x] 20-03-PLAN.md — EL-06: BHV-01 locale via distro_assert_locale + distro_ssh_unit + guarded restorecon at both SSH-seed sites; six modes green (20-agent-user.bats, 50-agents.bats) [Wave 3]
 - [x] 20-04-PLAN.md — INST-02 snapshot via family-correct NodeSource repo path + REUSE-01 family-token seed (10-installer.bats, 13-reuse.bats) [Wave 3]
-- [ ] 20-05-PLAN.md — Spikes: DET-03 npm-prefix root-cause (test-fix or product escalation) + tty-driver.py bounded pexpect timeout (15-detection.bats, tty-driver.py) [Wave 3]
+- [x] 20-05-PLAN.md — Spikes: DET-03 npm-prefix root-cause (test-fix or product escalation) + tty-driver.py bounded pexpect timeout (15-detection.bats, tty-driver.py) [Wave 3]
 
 ### Phase 21: Catalog Verify on AlmaLinux 9
 **Goal**: The three catalog agents install and pass their health checks on AlmaLinux 9, resolving the one open EL9 question — whether any Playwright code path launches Chromium and thus needs an explicit `dnf` runtime-deps block — by on-box smoke rather than pre-scoped guesswork.
@@ -107,7 +107,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 18. Detection + Branching Foundation | 6/6 | Complete   | 2026-06-28 |
 | 19. Docker AlmaLinux 9 Row | 2/2 | Complete    | 2026-06-28 |
-| 20. Behavior-Test-Green on AlmaLinux 9 | 4/5 | In Progress|  |
+| 20. Behavior-Test-Green on AlmaLinux 9 | 5/5 | Complete   | 2026-06-28 |
 | 21. Catalog Verify on AlmaLinux 9 | 0/TBD | Not started | - |
 | 22. QEMU Release-Gate + Pipeline | 0/TBD | Not started | - |
 
