@@ -135,11 +135,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ubuntu: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04]
+        target: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, almalinux-9]
     steps:
       - uses: actions/checkout@v5
       - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)
-        run: bash tests/docker/run.sh ${{ matrix.ubuntu }}
+        run: bash tests/docker/run.sh ${{ matrix.target }}
 
   # Gate 3 — QEMU matrix. Release-gate-only (ADR-007 — Docker alone is
   # disqualified). Mirrors nightly-qemu.yml's KVM udev + image-cache pattern.
