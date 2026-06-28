@@ -43,10 +43,10 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
 **Plans**: 6 plans (2 waves)
 - [x] 18-01-PLAN.md — distro_detect.sh almalinux arm + AGENTLINUX_DISTRO_FAMILY export + escape-hatch seed + curl-installer lockstep gate (EL-01)
 - [x] 18-02-PLAN.md — new lib/pkg.sh package-manager-neutral verb dispatch layer + EL-02 unit tests (EL-02)
-- [ ] 18-03-PLAN.md — provisioner 10/20/30 conversions: locale_ensure, pkg_install sudo, NodeSource RPM + AppStream module defuse (EL-03, EL-04, EL-05)
-- [ ] 18-04-PLAN.md — entrypoint wiring: source pkg.sh + ensure_jq + run_purge routed through verbs (EL-02)
-- [ ] 18-05-PLAN.md — brownfield detection EL9 arm: detect/nodejs.sh rpm classification + detect/user.sh probe (preserve can_sudo_apt) (EL-07)
-- [ ] 18-06-PLAN.md — ADR-017 distro-family-bucket decision record (EL-01, EL-02)
+- [x] 18-03-PLAN.md — provisioner 10/20/30 conversions: locale_ensure, pkg_install sudo, NodeSource RPM + AppStream module defuse (EL-03, EL-04, EL-05)
+- [x] 18-04-PLAN.md — entrypoint wiring: source pkg.sh + ensure_jq + run_purge routed through verbs (EL-02)
+- [x] 18-05-PLAN.md — brownfield detection EL9 arm: detect/nodejs.sh rpm classification + detect/user.sh probe (preserve can_sudo_apt) (EL-07)
+- [x] 18-06-PLAN.md — ADR-017 distro-family-bucket decision record (EL-01, EL-02)
 
 ### Phase 19: Docker AlmaLinux 9 Row
 **Goal**: A fast-feedback `almalinux:9` Docker substrate that runs the bats suite, so the Phase 18 branch can be validated on a real EL9 environment in the ~90s Docker loop (not the ~5min QEMU loop). Phase 19 is Phase 18's acceptance gate.
@@ -96,7 +96,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 18. Detection + Branching Foundation | 2/6 | In Progress|  |
+| 18. Detection + Branching Foundation | 6/6 | Complete   | 2026-06-28 |
 | 19. Docker AlmaLinux 9 Row | 0/TBD | Not started | - |
 | 20. Behavior-Test-Green on AlmaLinux 9 | 0/TBD | Not started | - |
 | 21. Catalog Verify on AlmaLinux 9 | 0/TBD | Not started | - |
