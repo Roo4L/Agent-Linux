@@ -58,7 +58,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
   3. `.github/workflows/test.yml` and `release.yml` gate-2 carry an `almalinux-9` matrix arm beside the three Ubuntu arms (dimension generalized `ubuntu`→`target`), with `fail-fast: false` so a red Alma arm still reports the Ubuntu arms.
 **Plans**: 2 plans (2 waves)
 - [x] 19-01-PLAN.md — EL9 Docker substrate: Dockerfile.almalinux-9 + run.sh almalinux-9 case + local smoke (green install, runnable bats, nodesource transcript) [Wave 1]
-- [ ] 19-02-PLAN.md — CI Docker matrix arm: test.yml bats-docker + release.yml gate-2 ubuntu→target + almalinux-9 (gate-3/4 untouched) [Wave 2]
+- [x] 19-02-PLAN.md — CI Docker matrix arm: test.yml bats-docker + release.yml gate-2 ubuntu→target + almalinux-9 (gate-3/4 untouched) [Wave 2]
 
 
 ### Phase 20: Behavior-Test-Green on AlmaLinux 9
@@ -100,7 +100,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 18. Detection + Branching Foundation | 6/6 | Complete   | 2026-06-28 |
-| 19. Docker AlmaLinux 9 Row | 1/2 | In Progress|  |
+| 19. Docker AlmaLinux 9 Row | 2/2 | Complete   | 2026-06-28 |
 | 20. Behavior-Test-Green on AlmaLinux 9 | 0/TBD | Not started | - |
 | 21. Catalog Verify on AlmaLinux 9 | 0/TBD | Not started | - |
 | 22. QEMU Release-Gate + Pipeline | 0/TBD | Not started | - |
