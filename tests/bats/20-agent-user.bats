@@ -6,8 +6,8 @@
 #
 # Preconditions (set up by tests/docker/run.sh before bats runs):
 #   - agentlinux-install has already been invoked once. Agent user, PATH
-#     wiring artefacts, DOC-02 CLAUDE.md, and /etc/default/locale are all
-#     in place.
+#     wiring artefacts, DOC-02 CLAUDE.md, and the system locale file (at the
+#     family-correct path, dispatched by distro_locale_file) are all in place.
 #   - Installer sources staged at /opt/agentlinux-src (used only by
 #     10-installer.bats's INST-02 re-run test).
 #
@@ -18,6 +18,7 @@
 
 load 'helpers/invoke_modes'
 load 'helpers/assertions'
+load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
 
@@ -31,10 +32,11 @@ setup() {
     install -d -m 0700 -o agent -g agent /home/agent/.ssh
     install -m 0600 -o agent -g agent \
       /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
-    # Best-effort sshd start. On a systemd container this brings the ssh
-    # unit up; on a non-systemd container it silently fails — individual
-    # BHV-02 tests will then observe ssh connection errors and diagnose.
-    systemctl start ssh >/dev/null 2>&1 || true
+    # Best-effort sshd start. On a systemd container this brings the family
+    # ssh unit (sshd on EL9, ssh on Debian) up; on a non-systemd container it
+    # silently fails — individual BHV-02 tests will then observe ssh connection
+    # errors and diagnose.
+    systemctl start "$(distro_ssh_unit)" >/dev/null 2>&1 || true
     # Wait up to 5s for sshd to accept connections.
     for _ in $(seq 1 5); do
       if ss -lnt 2>/dev/null | grep -q ':22 '; then break; fi
@@ -56,13 +58,16 @@ setup() {
       "$LOG"
 }
 
-@test "BHV-01: /etc/default/locale has LANG=C.UTF-8" {
-  run grep -E '^LANG=C\.UTF-8$' /etc/default/locale
+@test "BHV-01: system locale file has LANG=C.UTF-8" {
+  # Same observable at the family-correct path (distro_assert_locale dispatches
+  # via distro_locale_file). Never skipped, never weakened to a locale-a-only
+  # check — the locked decision forbids weakening.
+  run distro_assert_locale LANG
   assert_exit_zero "BHV-01"
 }
 
-@test "BHV-01: /etc/default/locale has LC_ALL=C.UTF-8" {
-  run grep -E '^LC_ALL=C\.UTF-8$' /etc/default/locale
+@test "BHV-01: system locale file has LC_ALL=C.UTF-8" {
+  run distro_assert_locale LC_ALL
   assert_exit_zero "BHV-01"
 }
 
