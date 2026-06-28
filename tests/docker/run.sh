@@ -104,6 +104,15 @@ echo "== run systemd container from ${IMG} =="
 #      slice/scope cgroups under the bind-mounted tree. A read-only mount
 #      causes systemd to fail before emitting any journal output (container
 #      exits 255 with zero log output — the exact symptom observed locally).
+#   3. `--tmpfs /tmp:exec` (not the default `--tmpfs /tmp`): Docker mounts a
+#      bare tmpfs `noexec`, but the PATH-stub bats harnesses (18-pkg-dispatch,
+#      18-detect-el9) write executable stubs under BATS_TEST_TMPDIR
+#      (= /tmp/bats-run-*). On a noexec /tmp those stubs cannot execve: bash
+#      falls through to the REAL dnf/rpm/curl (exit 0, empty capture -> grep
+#      fails) or dies 126 (apt-get on EL9) -> false RED. `:exec` restores the
+#      normal-outside-Docker default. SHARED across all rows (the same noexec
+#      /tmp silently broke the Debian arm of those files too); do NOT branch
+#      it per-target. exec-on-/tmp does not perturb the systemd-in-Docker boot.
 #
 # Repo is bind-mounted read-only at /workspace; the installer needs to write
 # under /etc and /home so it runs against a writable copy under /opt.
@@ -113,7 +122,7 @@ CID=$(docker run --rm -d \
   --cgroupns=host \
   -e container=docker \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-  --tmpfs /run --tmpfs /tmp \
+  --tmpfs /run --tmpfs /tmp:exec \
   -v "$REPO_ROOT":/workspace:ro \
   -w /workspace \
   "$IMG")
