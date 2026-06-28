@@ -129,10 +129,11 @@ jobs:
       # 26.04 ("Resolute Raccoon") on 2026-04-26.
       fail-fast: false
       matrix:
-        ubuntu:
+        target:
           - ubuntu-22.04
           - ubuntu-24.04
           - ubuntu-26.04
+          - almalinux-9
     steps:
       - uses: actions/checkout@v5
       # Empty-plugin guard from Phase 1: still useful. After Phase 2 lands the
@@ -150,4 +151,4 @@ jobs:
           fi
       - name: Run Docker bats matrix
         if: steps.guard.outputs.has_bats == 'true'
-        run: bash tests/docker/run.sh ${{ matrix.ubuntu }}
+        run: bash tests/docker/run.sh ${{ matrix.target }}
