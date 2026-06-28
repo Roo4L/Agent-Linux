@@ -36,13 +36,15 @@ Progress: [░░░░░░░░░░] 0% (0 of TBD plans)
 
 ### Phase list (v0.3.5)
 
-| Phase | Name | Requirements | Depends on | Status |
-|-------|------|--------------|------------|--------|
-| 18 | Detection + Branching Foundation | EL-01, EL-02, EL-03, EL-04, EL-05, EL-07 | v0.3.4 baseline (Phase 17); co-dev 19 | Not started |
-| 19 | Docker AlmaLinux 9 Row | HARN-01 | Phase 18 | Not started |
-| 20 | Behavior-Test-Green on AlmaLinux 9 | EL-06, EL-08, PAR-01 | Phase 19 | Not started |
-| 21 | Catalog Verify on AlmaLinux 9 | REC-01 | Phase 20 (may overlap) | Not started |
-| 22 | QEMU Release-Gate + Pipeline | HARN-02, PAR-02, REL-01 | Phases 20 + 21 (exit gate) | Not started |
+| Phase | Name | Requirements | Depends on | Jira | Status |
+|-------|------|--------------|------------|------|--------|
+| 18 | Detection + Branching Foundation | EL-01, EL-02, EL-03, EL-04, EL-05, EL-07 | v0.3.4 baseline (Phase 17); co-dev 19 | [AL-64](https://copiedwonder.atlassian.net/browse/AL-64) | Not started |
+| 19 | Docker AlmaLinux 9 Row | HARN-01 | Phase 18 | [AL-65](https://copiedwonder.atlassian.net/browse/AL-65) | Not started |
+| 20 | Behavior-Test-Green on AlmaLinux 9 | EL-06, EL-08, PAR-01 | Phase 19 | [AL-66](https://copiedwonder.atlassian.net/browse/AL-66) | Not started |
+| 21 | Catalog Verify on AlmaLinux 9 | REC-01 | Phase 20 (may overlap) | [AL-67](https://copiedwonder.atlassian.net/browse/AL-67) | Not started |
+| 22 | QEMU Release-Gate + Pipeline | HARN-02, PAR-02, REL-01 | Phases 20 + 21 (exit gate) | [AL-68](https://copiedwonder.atlassian.net/browse/AL-68) | Not started |
+
+Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress (Epic AL-48). Phase sub-tasks AL-64..68 filed 2026-06-28; transition each to In Progress / In Review / Done as its phase is planned, reviewed, and merged.
 
 ## Performance Metrics
 
