@@ -134,6 +134,42 @@ distro_sudoers_pkg_line() {
   esac
 }
 
+# distro_wrong_shell
+# Prints a login shell that is GENUINELY non-bash on the family — i.e. one that
+# reuse::user_decision (plugin/lib/reuse/user.sh) rejects as `wrong-shell` after
+# its `readlink -f` symlink resolution against {/bin/bash, /usr/bin/bash} — AND
+# is a FUNCTIONAL login shell, so the detection probes that run via as_user_login
+# (`sudo -u agent -i -- …`, e.g. the npm-prefix probe) still complete BEFORE the
+# alt-user gate is reached. The shell must satisfy BOTH constraints.
+#
+# WHY THIS IS FAMILY-DISPATCHED: the Debian fixture assumption `/bin/sh` is a
+# wrong shell ONLY on Debian, where /bin/sh → dash (non-bash, but a real working
+# login shell). On RHEL/EL9 /bin/sh → bash, so an `agent` user with login shell
+# /bin/sh resolves to /usr/bin/bash and is (correctly) deemed bash-compatible —
+# the wrong-shell bail never fires and the UX-04 alt-user gate never triggers.
+#
+# The EL9 base image ships ONLY bash as a usable shell (the other /etc/shells
+# entries are bash symlinks). /sbin/nologin is non-bash but is NOT a functional
+# login shell: `sudo -u agent -i` against a nologin user refuses to exec, so the
+# detection probes die with exit 1 before the wrong-shell gate is even reached.
+# So the rhel arm installs tcsh (AppStream — a real, non-bash login shell) and
+# returns /usr/bin/tcsh. The dnf install is idempotent (guarded by `command -v`)
+# and only fires the first time. Same observable (reuse::user_decision → bail
+# wrong-shell, detection completes first), two family-correct shell paths.
+#
+# GENERALIZE, NEVER WEAKEN: the debian arm is the verbatim /bin/sh the fixture
+# used to hardcode, so the Ubuntu rows are byte-identical (no install, no change).
+# Consumer: setup_brownfield_host_user_wrong_shell (UX-04).
+distro_wrong_shell() {
+  case "$(distro_family)" in
+    rhel)
+      command -v tcsh >/dev/null 2>&1 || dnf install -y tcsh >/dev/null 2>&1
+      printf '%s' /usr/bin/tcsh
+      ;;
+    debian) printf '%s' /bin/sh ;;
+  esac
+}
+
 # distro_ssh_unit
 # Prints the family's sshd systemd unit name. Consumer: setup `systemctl start
 # "$(distro_ssh_unit)"` (20-agent-user, 50-agents).

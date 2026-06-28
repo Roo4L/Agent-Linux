@@ -431,19 +431,30 @@ teardown_brownfield_remediate04_catalog() {
 # -----------------------------------------------------------------------------
 
 # setup_brownfield_host_user_wrong_shell
-# Targets UX-04 wrong-shell branch. Creates `agent` with login shell /bin/sh
-# (DET-01 requires bash, REUSE-01 predicate 2 fails → bail wrong-shell).
+# Targets UX-04 wrong-shell branch. Creates `agent` with a family-correct
+# genuinely-non-bash BUT FUNCTIONAL login shell (DET-01 requires bash, REUSE-01
+# predicate 2 fails → bail wrong-shell). The shell is family-dispatched via
+# distro_wrong_shell: /bin/sh on Debian (→ dash) but /usr/bin/tcsh on RHEL/EL9
+# (because /bin/sh → bash on RHEL, so a /bin/sh agent would be (correctly) deemed
+# bash-compatible and the wrong-shell bail — and thus the UX-04 alt-user gate —
+# would never fire; and /sbin/nologin is non-bash but breaks the as_user_login
+# detection probes, which must complete before the gate). distro_wrong_shell
+# provisions tcsh on EL9 idempotently.
 setup_brownfield_host_user_wrong_shell() {
+  local wrong_shell
+  wrong_shell=$(distro_wrong_shell)
   log_brownfield "purging any existing AgentLinux state (idempotent)"
   bash /opt/agentlinux-src/plugin/bin/agentlinux-install --purge >/dev/null 2>&1 || true
-  log_brownfield "creating agent user with shell=/bin/sh (DET-01 incompatible)"
+  log_brownfield "creating agent user with shell=${wrong_shell} (DET-01 incompatible, family-correct non-bash, functional login shell)"
   if ! id -u agent >/dev/null 2>&1; then
-    useradd -m -s /bin/sh agent
+    useradd -m -s "$wrong_shell" agent
   else
-    usermod -s /bin/sh agent
+    usermod -s "$wrong_shell" agent
   fi
-  # Belt-and-braces: confirm shell stuck (some images symlink /bin/sh → /bin/dash;
-  # /bin/sh is rejected by REUSE-01 regardless).
+  # Belt-and-braces: the family-correct wrong shell resolves to a non-bash
+  # binary on BOTH families (dash on Debian /bin/sh; tcsh on RHEL), so
+  # reuse::user_decision's `readlink -f` shell check bails wrong-shell on both,
+  # while still being a real login shell so detection's as_user_login probes run.
 }
 
 # setup_brownfield_host_with_agent2_taken

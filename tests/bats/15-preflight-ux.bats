@@ -335,9 +335,12 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # Confirm the new user actually exists post-install.
   id -u agent2 >/dev/null 2>&1 \
     || __fail "UX-04" "agent2 user created" "id -u agent2 failed" "$LOG"
-  # Original incompatible agent is untouched (still /bin/sh shell).
-  getent passwd agent | grep -qE ':/bin/sh$' \
-    || __fail "UX-04" "original agent user untouched (still /bin/sh)" "$(getent passwd agent)" "$LOG"
+  # Original incompatible agent is untouched (still its family-correct wrong
+  # shell — /bin/sh on Debian, /sbin/nologin on RHEL/EL9 per distro_wrong_shell).
+  local orig_shell
+  orig_shell=$(distro_wrong_shell)
+  [[ "$(getent passwd agent | cut -d: -f7)" == "$orig_shell" ]] \
+    || __fail "UX-04" "original agent user untouched (still ${orig_shell})" "$(getent passwd agent)" "$LOG"
   # Teardown: remove agent2 so subsequent tests' find_alt_user_name still
   # suggests "agent2" (the deterministic first-suggestion contract).
   userdel -rf agent2 2>/dev/null || true
