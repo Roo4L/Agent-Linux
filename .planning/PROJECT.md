@@ -20,9 +20,25 @@ An agent can be dropped into any supported Linux system and *just work* — a de
 
 **Documentation:** README has a new `## Brownfield install` section linked from main Install; `docs/MIGRATION.md` walks 4 worked scenarios (manual `useradd`, NodeSource Node, root-Claude reinstall, broken Playwright); per-phase AUDITs at `.planning/phases/{12..16}-*/`-AUDIT.md`; milestone audit at `.planning/v0.3.4-MILESTONE-AUDIT.md`.
 
+## Current Milestone: v0.3.6 Catalog Expansion — community agent tooling for first release
+
+**Goal:** Grow the catalog from 3 entries to 26 of the most trusted/popular AI-agent-community tools (availability only — CAT-02 holds; nothing installed by default), so first-release users don't hit "I miss tool X."
+
+**Target features:**
+- Coding-agent CLIs (4): opencode, gemini-cli, codex, qwen-code
+- MCP servers (10): chrome-devtools, context7, github, sentry, gitlab, brave-search, firecrawl, slack, linear, jira-atlassian
+- DevOps/git CLIs (5): gh, glab, sentry-cli, trivy, gitleaks
+- Token/workflow tools (5): ccusage, rtk, spec-kit, claude-flow, BMAD
+- AI assistants (2, new daemon-class category): openclaw, hermes-agent
+- 4 machinery enablers — prebuilt-binary installer, MCP recipe pattern (npx + remote-http + secret convention), Python+uv bootstrap, AI-assistant daemon lifecycle — folded into first-consumer phases; plus self-updater coexistence, `list` category UX, and a contributor recipe template + selection-rubric doc.
+
+**Structure:** one tool per phase (**27 phases, 23–49**; each phase ships one working, tested tool — enablers ride with their first consumer). Tools selected via a documented gates+scoring funnel (agent-relevance · clean per-user install + symmetric uninstall · free license · liveness ≤6mo release & ≤3mo commits · maturity).
+
+**Parallel-milestone note:** v0.3.5 (AlmaLinux 9, phases 18–22, AL-64..68, Epic AL-48) is in flight on the `worktree-almalinux-support` branch. Catalog Expansion was deliberately numbered **v0.3.6 / phases 23–49** to avoid version + phase collision; PROJECT.md / MILESTONES.md / ROADMAP.md will need merge reconciliation between the two branches.
+
 ## Next Milestone Goals
 
-- **v0.3.5 AlmaLinux support** (AL-47 / Epic AL-48): port the aware-install pipeline to AlmaLinux 9. Phase 12-15 detection layer is mostly distro-portable; brownfield-AGT-02 gate runs against a different baseline (DNF + EL8/EL9 idiom).
+- **v0.3.5 AlmaLinux support** (AL-47 / Epic AL-48): port the aware-install pipeline to AlmaLinux 9. Phase 12-15 detection layer is mostly distro-portable; brownfield-AGT-02 gate runs against a different baseline (DNF + EL8/EL9 idiom). *(Now in flight on a separate worktree as v0.3.5 / phases 18–22.)*
 - **AL-59 alt-user hollow-install** (carried forward from v0.3.4, under Epic AL-48): the installer's alt-user path needs end-to-end wiring (20-sudoers.sh / 30-nodejs.sh / 40-path-wiring.sh still hardcode `agent`).
 
 <details>

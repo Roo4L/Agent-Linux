@@ -1,17 +1,17 @@
 ---
 gsd_state_version: 1.0
-milestone: v0.3.4
-milestone_name: milestone
-status: complete
+milestone: v0.3.6
+milestone_name: Catalog Expansion
+status: defining-requirements
 stopped_at: "v0.3.4 'Aware Installation Process' SHIPPED — final release v0.3.4 published + marked Latest (https://github.com/Roo4L/Agent-Linux/releases/tag/v0.3.4; SHA256-verified tarball + sibling .sha256 + .deb; full gate chain green — pre-commit + docker x3 + qemu x3 + pinned-combo + build + publish; /releases/latest -> v0.3.4 so unpinned curl|sudo bash installs it). Phase 17 (Changes Delivery + Release Candidate) COMPLETE. Maintainer-validated on a real brownfield VM across 4 checkpoints, each surfacing + fixing a real bug: rc1->AL-60 (npx-GSD detection); rc2->AL-61 (deceptive list: present-but-unadopted shown not-installed -> adopt-on-install + honest 'present' status); rc3->AL-62 (npm Claude Code shown not-installed -> npm->native migration preserving the user's version); rc4->LGTM->promoted to final v0.3.4. Jira: AL-38 anchor Done; AL-58/AL-60/AL-61/AL-62 Done; phases 12-16 Done. Carried forward (NOT v0.3.4 scope): AL-59 (alt-user hollow-install bug, under epic AL-48); release.yml auto-prerelease for -rc tags; Docker-build-cache CI speedup (the recurring ubuntu:26.04 image-pull flake). NEXT: /gsd-new-milestone to scope the next milestone (e.g. AlmaLinux support AL-47)."
-last_updated: "2026-06-08T00:00:00.000Z"
-last_activity: 2026-06-08 -- v0.3.4 SHIPPED (final release Latest); Phase 17 complete; AL-38 milestone anchor closed
+last_updated: "2026-06-28T00:00:00.000Z"
+last_activity: 2026-06-28 -- Milestone v0.3.6 Catalog Expansion started (defining requirements); phases 23-49 reserved to avoid collision with in-flight v0.3.5 AlmaLinux (18-22)
 progress:
-  total_phases: 1
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
-  percent: 100
+  total_phases: 27
+  completed_phases: 0
+  total_plans: 0
+  completed_plans: 0
+  percent: 0
 ---
 
 # Project State
@@ -21,9 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights.
-**Current focus:** Phase 14 — Remediate + Consent Flag + Exit Codes
+**Current focus:** v0.3.6 Catalog Expansion — defining requirements (roadmapper will populate the phase position)
 
 ## Current Position
+
+Milestone: v0.3.6 Catalog Expansion — defining requirements. Phases 23–49 (27, one tool per phase) reserved to avoid collision with the in-flight v0.3.5 AlmaLinux milestone (phases 18–22, branch `worktree-almalinux-support`). Requirements being authored; roadmapper not yet run.
+
+<details>
+<summary>Prior position (v0.3.4, archived — SHIPPED 2026-06-08)</summary>
+
+## Current Position (v0.3.4 — historical)
 
 Milestone: v0.3.4 Aware Installation Process — feature-complete 2026-05-27 (GATE: GREEN), now **SHIPPING via Phase 17** — all 5 feature phases (12 Detection → 13 Reuse → 14 Remediate → 15 Pre-flight UX → 16 Docs + Brownfield Gate) COMPLETE; 20/20 requirements complete; brownfield-AGT-02 milestone-close gate GREEN against the live Anthropic CDN (claude 2.1.98 → 2.1.150, zero EACCES); greenfield invariant `tests/bats/51-agt02-release-gate.bats` UNCHANGED + GREEN; 16-AUDIT.md emits `GATE: GREEN`. Transcript at `docs/audits/v0.3.4/AGT-02-brownfield-acceptance.md`. **Phase 17 (Changes Delivery + Release Candidate)** is the active shipping/maintainer-validation gate — polish + merge the worktree branch, cut `v0.3.4-rc1` (tarball + `.sha256`, push rc tag → release.yml), hand the maintainer a live brownfield-VM test runbook (verified non-mutating `--dry-run` + fail-safe no-`--yes` bail, then real `--yes` install + AGT-02 `claude update`), await feedback, then promote rc→final v0.3.4 or iterate on bugfixes. (AL-52 host-clone harness parked in Backlog — the existing `--dry-run` preview was judged sufficient for maintainer go/no-go.)
 
@@ -39,6 +46,8 @@ Status: Phase 6 ✓ COMPLETE (5/5 plans; TST-07 phase-close gate: GREEN for all 
 Last activity: 2026-05-30 -- Phase 17 planning complete
 
 Progress: [░░░░░░░░░░] 0% (0 of ~12 v0.3.4 plans done; v0.3.4 milestone roadmap-ready 2026-05-09; Phase 12 — Detection Layer — Not started). Earlier 100% — Phase 6 (Distribution + Release Pipeline) CLOSED 2026-04-20 — all 5 plans complete, TST-07 gate: GREEN for all 6 Phase 6 req IDs, v0.3.0 READY for rc1 tag push; runtime verification deferred to first tag push per 06-VALIDATION Manual-Only Verifications — the shipping event exercises release.yml end-to-end)
+
+</details>
 
 ## Performance Metrics
 
