@@ -4,14 +4,14 @@ milestone: v0.3.5
 milestone_name: AlmaLinux 9 Support
 status: executing
 stopped_at: v0.3.5 roadmap written (ROADMAP.md + REQUIREMENTS.md traceability + this STATE.md); 5 phases 18-22, 14 requirements mapped, 100% coverage.
-last_updated: "2026-06-28T16:27:59.323Z"
-last_activity: 2026-06-28 -- Phase 19 execution started
+last_updated: "2026-06-28T17:21:42.090Z"
+last_activity: 2026-06-28
 progress:
   total_phases: 5
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 8
-  completed_plans: 6
-  percent: 75
+  completed_plans: 8
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights. v0.3.5 extends "any supported Linux system" past Ubuntu to AlmaLinux 9.
-**Current focus:** Phase 19 — Docker AlmaLinux 9 Row
+**Current focus:** Phase 20 — Behavior-Test-Green on AlmaLinux 9
 
 ## Current Position
 
 Milestone: v0.3.5 AlmaLinux 9 Support (Phases 18–22). Anchor AL-47 (Epic AL-48); blocker AL-38 Done. Scope: AlmaLinux 9 ONLY. Goal: port the plugin to AlmaLinux 9 with the same six-mode invocation contract + zero-EACCES self-update gate Ubuntu has (apt→dnf, dpkg→rpm; behavior contract unchanged). Milestone-close gate: AGT-02 (PAR-02) green on a real enforcing-SELinux EL9 QEMU guest.
 
-Phase: 19 (Docker AlmaLinux 9 Row) — EXECUTING
-Plan: 1 of 2
-Status: Executing Phase 19
-Last activity: 2026-06-28 -- Phase 19 execution started
+Phase: 20
+Plan: Not started
+Status: Phase 19 complete (2/2 plans, verification 8/8); advancing to Phase 20
+Last activity: 2026-06-28
 
 Progress: [██░░░░░░░░] 20% (1 of 5 phases complete)
 
@@ -59,6 +59,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 |-------|-------|-------|----------|
 | 18 | 6 | 6 | - |
 | 19-22 | 0 | - | - |
+| 19 | 2 | - | - |
 
 *Updated after each plan completion.*
 
