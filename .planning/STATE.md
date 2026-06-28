@@ -4,14 +4,14 @@ milestone: v0.3.5
 milestone_name: AlmaLinux 9 Support
 status: executing
 stopped_at: v0.3.5 roadmap written (ROADMAP.md + REQUIREMENTS.md traceability + this STATE.md); 5 phases 18-22, 14 requirements mapped, 100% coverage.
-last_updated: "2026-06-28T18:24:05.749Z"
-last_activity: 2026-06-28 -- Phase 20 execution started
+last_updated: "2026-06-28T23:23:15.954Z"
+last_activity: 2026-06-28
 progress:
   total_phases: 5
-  completed_phases: 2
+  completed_phases: 3
   total_plans: 13
-  completed_plans: 8
-  percent: 62
+  completed_plans: 15
+  percent: 100
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights. v0.3.5 extends "any supported Linux system" past Ubuntu to AlmaLinux 9.
-**Current focus:** Phase 20 — Behavior-Test-Green on AlmaLinux 9
+**Current focus:** Phase 21 — Catalog Verify on AlmaLinux 9
 
 ## Current Position
 
 Milestone: v0.3.5 AlmaLinux 9 Support (Phases 18–22). Anchor AL-47 (Epic AL-48); blocker AL-38 Done. Scope: AlmaLinux 9 ONLY. Goal: port the plugin to AlmaLinux 9 with the same six-mode invocation contract + zero-EACCES self-update gate Ubuntu has (apt→dnf, dpkg→rpm; behavior contract unchanged). Milestone-close gate: AGT-02 (PAR-02) green on a real enforcing-SELinux EL9 QEMU guest.
 
-Phase: 20 (Behavior-Test-Green on AlmaLinux 9) — EXECUTING
-Plan: 1 of 5
-Status: Executing Phase 20
-Last activity: 2026-06-28 -- Phase 20 execution started
+Phase: 21
+Plan: Not started
+Status: Phase 20 complete (7 plans, 257/257 EL9+Ubuntu, verification 4/4); advancing to Phase 21
+Last activity: 2026-06-28
 
 Progress: [██░░░░░░░░] 20% (1 of 5 phases complete)
 
@@ -40,7 +40,7 @@ Progress: [██░░░░░░░░] 20% (1 of 5 phases complete)
 |-------|------|--------------|------------|------|--------|
 | 18 | Detection + Branching Foundation | EL-01, EL-02, EL-03, EL-04, EL-05, EL-07 | v0.3.4 baseline (Phase 17); co-dev 19 | [AL-64](https://copiedwonder.atlassian.net/browse/AL-64) | ✅ Complete |
 | 19 | Docker AlmaLinux 9 Row | HARN-01 | Phase 18 | [AL-65](https://copiedwonder.atlassian.net/browse/AL-65) | Not started |
-| 20 | Behavior-Test-Green on AlmaLinux 9 | EL-06, EL-08, PAR-01 | Phase 19 | [AL-66](https://copiedwonder.atlassian.net/browse/AL-66) | Not started |
+| 20 | Behavior-Test-Green on AlmaLinux 9 | EL-06, EL-08, PAR-01 | Phase 19 | [AL-66](https://copiedwonder.atlassian.net/browse/AL-66) | ✅ Complete |
 | 21 | Catalog Verify on AlmaLinux 9 | REC-01 | Phase 20 (may overlap) | [AL-67](https://copiedwonder.atlassian.net/browse/AL-67) | Not started |
 | 22 | QEMU Release-Gate + Pipeline | HARN-02, PAR-02, REL-01 | Phases 20 + 21 (exit gate) | [AL-68](https://copiedwonder.atlassian.net/browse/AL-68) | Not started |
 
@@ -60,6 +60,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | 18 | 6 | 6 | - |
 | 19-22 | 0 | - | - |
 | 19 | 2 | - | - |
+| 20 | 7 | - | - |
 
 *Updated after each plan completion.*
 

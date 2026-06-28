@@ -24,7 +24,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
 
 - [x] **Phase 18: Detection + Branching Foundation** — Recognize AlmaLinux 9 and route every apt/dpkg/locale/NodeSource/sudoers/brownfield call through one distro-family abstraction so a fresh install runs end-to-end on EL9. ✅ 2026-06-28
 - [x] **Phase 19: Docker AlmaLinux 9 Row** — Stand up the fast `almalinux:9` Docker substrate (+ CI matrix arm) that validates the Phase 18 branch in the ~90s loop. (completed 2026-06-28)
-- [ ] **Phase 20: Behavior-Test-Green on AlmaLinux 9** — Drive the full existing bats contract green on the Alma Docker row under enforcing SELinux, with Ubuntu-path assertions generalized to distro-aware helpers.
+- [x] **Phase 20: Behavior-Test-Green on AlmaLinux 9** — Drive the full existing bats contract green on the Alma Docker row under enforcing SELinux, with Ubuntu-path assertions generalized to distro-aware helpers. (completed 2026-06-28)
 - [ ] **Phase 21: Catalog Verify on AlmaLinux 9** — Verify the three catalog agents install and pass health checks on EL9; resolve the open Playwright-chromium dnf-deps question by on-box smoke.
 - [ ] **Phase 22: QEMU Release-Gate + Pipeline** — Prove the port once on a real AlmaLinux 9 cloud-image VM, wire the release pipeline, and gate the v0.3.5 tag on EL9 Docker + QEMU green (AGT-02 milestone-close gate).
 
@@ -107,7 +107,7 @@ Plans:
 |-------|----------------|--------|-----------|
 | 18. Detection + Branching Foundation | 6/6 | Complete   | 2026-06-28 |
 | 19. Docker AlmaLinux 9 Row | 2/2 | Complete    | 2026-06-28 |
-| 20. Behavior-Test-Green on AlmaLinux 9 | 5/5 | Complete   | 2026-06-28 |
+| 20. Behavior-Test-Green on AlmaLinux 9 | 7/5 | Complete    | 2026-06-28 |
 | 21. Catalog Verify on AlmaLinux 9 | 0/TBD | Not started | - |
 | 22. QEMU Release-Gate + Pipeline | 0/TBD | Not started | - |
 
@@ -123,7 +123,7 @@ Plans:
 **Outcome:** 4 rc iterations (rc1→rc4) each fixing a maintainer-found bug (AL-60 npx-GSD detection / AL-61 adopt-on-install + honest `list` / AL-62 npm→native migration), then LGTM → promoted to final v0.3.4 (marked Latest). AL-38 Done.
 
 **Plans:**
-2/2 plans complete
+7/5 plans complete
 - [x] 17-02-PLAN.md — DEL-01b/DEL-02b/DEL-03/DEL-04: push branch + PR → merge → rc tag + release watch → brownfield-VM runbook → VM validation
 - [x] 17-03-PLAN.md — DEL-05: promote-or-iterate decision gate (rc1→rc4 → final v0.3.4)
 

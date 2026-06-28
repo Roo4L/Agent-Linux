@@ -90,12 +90,12 @@ Which phases cover which requirements. Mapped during roadmap creation (v0.3.5 RO
 | EL-03 | Phase 18 | Done |
 | EL-04 | Phase 18 | Done |
 | EL-05 | Phase 18 | Done |
-| EL-06 | Phase 20 | Pending |
+| EL-06 | Phase 20 | Done |
 | EL-07 | Phase 18 | Done |
-| EL-08 | Phase 20 | Pending |
+| EL-08 | Phase 20 | Done |
 | HARN-01 | Phase 19 | Done |
 | HARN-02 | Phase 22 | Pending |
-| PAR-01 | Phase 20 | Pending |
+| PAR-01 | Phase 20 | Done |
 | PAR-02 | Phase 22 | Pending |
 | REC-01 | Phase 21 | Pending |
 | REL-01 | Phase 22 | Pending |
