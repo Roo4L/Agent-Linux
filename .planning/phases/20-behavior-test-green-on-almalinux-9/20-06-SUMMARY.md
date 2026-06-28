@@ -126,6 +126,14 @@ None — no stubs introduced; both reds closed by real fixes, no `skip`, no plac
 - **PAR-01 is met** (EL9 257/257). The full brownfield bats contract is family-green on AlmaLinux 9 and Ubuntu.
 - Phase 22 (QEMU enforcing SELinux) inherits a fully-green Docker EL9 baseline; the `distro_restore_ssh_context` / `distro_ssh_unit` verbs from Wave 2 remain ready for the SSH-under-enforcement work.
 
+## Self-Check: PASSED
+
+- `scripts/check-distro-leak.sh` — FOUND (committed `3f8f65c`); runs clean (exit 0) and proven to fire on a deliberate `dpkg-query`/`apt-get install` leak with correct line numbers.
+- `tests/bats/helpers/distro.bash` (`distro_wrong_shell`), `tests/bats/52-agt02-brownfield-gate.bats`, `tests/bats/helpers/brownfield.bash`, `tests/bats/15-preflight-ux.bats` — all FOUND, committed (`3f8f65c` / `68775e6`).
+- Commits `3f8f65c`, `68775e6`, `08f8708` present in `git log`; working tree clean.
+- EL9 `== PASS ==` 257/257 (exit 0) and Ubuntu-24.04 `== PASS ==` 257/257 (exit 0) in the run logs.
+- Container safety: no `agentlinux-test` containers left running (harness `--rm` self-cleaned); only containers I started this task were touched.
+
 ---
 *Phase: 20-behavior-test-green-on-almalinux-9*
 *Completed: 2026-06-28*
