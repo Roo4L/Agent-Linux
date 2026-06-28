@@ -451,19 +451,22 @@ docker exec "$CID" bash -c 'useradd -m t; systemd-run --uid=t --wait /bin/true' 
 **This table is intentionally empty:** every load-bearing claim is `[VERIFIED]`.
 Residual *uncertainty* is behavioral, not factual — see Open Questions.
 
-## Open Questions
+## Open Questions (ACKNOWLEDGED)
 
 1. **Does the *full* `agentlinux-install` complete 0 end-to-end on EL9 in-container?**
+   - **ADDRESSED BY TASK 19-01-03 — captured at execution time, not a planning-blocking unknown.**
    - What we know: each Phase 18 rhel arm (distro_detect, pkg.sh verbs, nodesource_setup, locale.conf, module_reset) is unit-green; NodeSource + node 22 + systemd + dbus all verified in isolation this session.
    - What's unclear: the *composed* installer run (sudoers drop-in via visudo, 50-registry-cli provisioner, any provisioner that still has a latent apt assumption) has never executed on real EL9 — Phase 19 is the first time. Expect to surface 1–N real EL9 install bugs and feed them back into Phase 18 code (the CONTEXT explicitly anticipates this).
    - Recommendation: plan a "first green install" task with headroom for small Phase-18 follow-up fixes; keep `AGENTLINUX_DOCKER_KEEP_CONTAINER=1` debugging in the toolkit.
 
 2. **Which individual bats files are red on EL9 (Phase 20 inventory)?**
+   - **ADDRESSED BY TASK 19-01-03 — captured at execution time, not a planning-blocking unknown.**
    - What we know: Phase 19's gate is a *runnable* invocation, not full green.
    - What's unclear: the exact red set (locale assertion paths, detection fixtures, agent installs) — that inventory *is* Phase 20's input.
    - Recommendation: capture the alma `bats` run output at Phase 19 close as the Phase 20 worklist; do not fix them in Phase 19.
 
 3. **SELinux-in-Docker:** EL9 containers do not load an enforcing SELinux policy (no
+   - **SCOPED OUT — EL9 containers load no enforcing SELinux policy; real enforcement is the Phase 22 QEMU concern.**
    per-container kernel policy), so SELinux nuances (`restorecon` on `~agent/.ssh`)
    are **not** exercised by Phase 19 — they are a **Phase 22 QEMU** concern (the
    milestone-close gate is enforcing-SELinux EL9). Do not scope SELinux work into Phase 19.
