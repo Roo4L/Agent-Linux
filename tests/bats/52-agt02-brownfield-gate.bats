@@ -118,8 +118,10 @@ teardown_file() {
   [[ -f /etc/sudoers.d/agentlinux ]]
   grep -Fx 'agent ALL=(ALL) NOPASSWD: ALL' /etc/sudoers.d/agentlinux
 
-  # Artifact 3: NodeSource Node 22 (apt-installed).
-  dpkg-query -W -f='${Status}' nodejs | grep -q "install ok installed"
+  # Artifact 3: NodeSource Node 22 (family package DB: dpkg-query on debian,
+  # rpm -q on rhel — routed through distro.bash so EL9 does not hit a bare
+  # dpkg-query). brownfield.bash (loaded above) self-sources distro.bash.
+  distro_pkg_is_installed nodejs
   sudo -u agent -H bash --login -c 'node --version' | grep -Eq '^v22\.'
 
   # Artifact 4: claude-code at PATH-MISMATCH location (npm-global, not native).
