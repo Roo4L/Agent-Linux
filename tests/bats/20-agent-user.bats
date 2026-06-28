@@ -32,6 +32,13 @@ setup() {
     install -d -m 0700 -o agent -g agent /home/agent/.ssh
     install -m 0600 -o agent -g agent \
       /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
+    # Relabel the freshly-seeded keys so a confined sshd_t can read them under
+    # real SELinux (EL-06). Guarded no-op where restorecon is absent (the Docker
+    # image, where enforcing SELinux is structurally unavailable — AppArmor host
+    # kernel; the genuine enforcing six-modes proof is the Phase 22 QEMU row).
+    # `:` on Debian. SELinux enforcement is never disabled — the guarded
+    # restorecon is the only sanctioned fix.
+    distro_restore_ssh_context /home/agent/.ssh
     # Best-effort sshd start. On a systemd container this brings the family
     # ssh unit (sshd on EL9, ssh on Debian) up; on a non-systemd container it
     # silently fails — individual BHV-02 tests will then observe ssh connection

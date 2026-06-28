@@ -26,6 +26,7 @@
 
 load 'helpers/invoke_modes'
 load 'helpers/assertions'
+load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
 # AL-29: derive the catalog version from package.json — single SoT.
@@ -55,7 +56,13 @@ setup_file() {
     install -d -m 0700 -o agent -g agent /home/agent/.ssh
     install -m 0600 -o agent -g agent \
       /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
-    systemctl start ssh >/dev/null 2>&1 || true
+    # Relabel the re-seeded keys so a confined sshd_t can read them under real
+    # SELinux (EL-06). Guarded no-op where restorecon is absent (the Docker row,
+    # where enforcing SELinux is structurally unavailable — the genuine proof is
+    # the Phase 22 QEMU row); `:` on Debian. SELinux enforcement is never
+    # disabled — the guarded restorecon is the only sanctioned fix.
+    distro_restore_ssh_context /home/agent/.ssh
+    systemctl start "$(distro_ssh_unit)" >/dev/null 2>&1 || true
     # Wait up to 5s for sshd to accept connections (mirrors 20-*.bats setup).
     for _ in $(seq 1 5); do
       if ss -lnt 2>/dev/null | grep -q ':22 '; then break; fi

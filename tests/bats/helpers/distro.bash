@@ -150,7 +150,8 @@ distro_ssh_unit() {
 # The rhel arm is GUARDED (`command -v restorecon`) because policycoreutils is
 # absent from the Docker image — an unguarded call would abort the harness; on
 # the Docker row the call is a deliberate no-op. The debian arm is `:` (no
-# SELinux). NEVER `setenforce 0`. Consumer: the two SSH-seeding sites (EL-06).
+# SELinux). SELinux enforcement is never disabled — this guarded relabel is the
+# only sanctioned fix. Consumer: the two SSH-seeding sites (EL-06).
 distro_restore_ssh_context() {
   local dir=$1
   case "$(distro_family)" in
