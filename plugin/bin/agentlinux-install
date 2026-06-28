@@ -153,6 +153,11 @@ trap on_error ERR
 
 # shellcheck source=../lib/distro_detect.sh
 . "$LIB_DIR/distro_detect.sh"
+# pkg.sh defines the apt↔dnf verbs but only DECLARES functions at source time
+# (no calls), so sourcing it here — before idempotency.sh — is safe; verbs are
+# resolved at call time, after detect_distro (:435) sets AGENTLINUX_DISTRO_FAMILY.
+# shellcheck source=../lib/pkg.sh
+. "$LIB_DIR/pkg.sh"
 # shellcheck source=../lib/idempotency.sh
 . "$LIB_DIR/idempotency.sh"
 # shellcheck source=../lib/as_user.sh
