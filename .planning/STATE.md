@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.3.6
 milestone_name: Catalog Expansion
-status: defining-requirements
+status: roadmap-ready
 stopped_at: "v0.3.4 'Aware Installation Process' SHIPPED — final release v0.3.4 published + marked Latest (https://github.com/Roo4L/Agent-Linux/releases/tag/v0.3.4; SHA256-verified tarball + sibling .sha256 + .deb; full gate chain green — pre-commit + docker x3 + qemu x3 + pinned-combo + build + publish; /releases/latest -> v0.3.4 so unpinned curl|sudo bash installs it). Phase 17 (Changes Delivery + Release Candidate) COMPLETE. Maintainer-validated on a real brownfield VM across 4 checkpoints, each surfacing + fixing a real bug: rc1->AL-60 (npx-GSD detection); rc2->AL-61 (deceptive list: present-but-unadopted shown not-installed -> adopt-on-install + honest 'present' status); rc3->AL-62 (npm Claude Code shown not-installed -> npm->native migration preserving the user's version); rc4->LGTM->promoted to final v0.3.4. Jira: AL-38 anchor Done; AL-58/AL-60/AL-61/AL-62 Done; phases 12-16 Done. Carried forward (NOT v0.3.4 scope): AL-59 (alt-user hollow-install bug, under epic AL-48); release.yml auto-prerelease for -rc tags; Docker-build-cache CI speedup (the recurring ubuntu:26.04 image-pull flake). NEXT: /gsd-new-milestone to scope the next milestone (e.g. AlmaLinux support AL-47)."
 last_updated: "2026-06-28T00:00:00.000Z"
-last_activity: 2026-06-28 -- Milestone v0.3.6 Catalog Expansion started (defining requirements); phases 23-49 reserved to avoid collision with in-flight v0.3.5 AlmaLinux (18-22)
+last_activity: 2026-06-28 -- v0.3.6 Catalog Expansion ROADMAP created; 27 phases 23-49 (one tool per phase, 4 machinery enablers folded into first-consumer phases); 33/33 requirements mapped; Phase 23 (codex 🔧) Not started. Phases 18-22 RESERVED for in-flight v0.3.5 AlmaLinux (worktree-almalinux-support).
 progress:
   total_phases: 27
   completed_phases: 0
@@ -21,11 +21,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights.
-**Current focus:** v0.3.6 Catalog Expansion — defining requirements (roadmapper will populate the phase position)
+**Current focus:** v0.3.6 Catalog Expansion — roadmap created; Phase 23 (codex 🔧, AGT-07 + ENABLE-05) is next, Not started. Run `/gsd-plan-phase 23` to begin.
 
 ## Current Position
 
-Milestone: v0.3.6 Catalog Expansion — defining requirements. Phases 23–49 (27, one tool per phase) reserved to avoid collision with the in-flight v0.3.5 AlmaLinux milestone (phases 18–22, branch `worktree-almalinux-support`). Requirements being authored; roadmapper not yet run.
+Milestone: v0.3.6 Catalog Expansion — **roadmap-ready** (2026-06-28). 27 phases (23–49), one tool per phase per the owner's always-shippable preference; the 4 machinery enablers (ENABLE-01 prebuilt-binary · ENABLE-02 MCP recipe pattern · ENABLE-03 Python+uv bootstrap · ENABLE-04 daemon lifecycle) are folded into their first-consumer phase (🔧: 28 rtk, 34 chrome-devtools-mcp, 44 spec-kit, 47 openclaw; plus 23 codex carries ENABLE-05 self-updater coexistence and 42 linear-mcp carries remote-http/OAuth handling). 33/33 requirements mapped to exactly one phase (see REQUIREMENTS.md Traceability); 0 orphans. Phases 23–49 were chosen to avoid collision with the in-flight v0.3.5 AlmaLinux milestone (phases 18–22, branch `worktree-almalinux-support`).
+
+Phase: 23 (codex 🔧 — AGT-07 + ENABLE-05) — ACTIVE/NEXT, not yet planned (run `/gsd-plan-phase 23`).
+Plan: 0 of TBD — Phase 23 awaiting plan breakdown.
+Status: Not started — ready to plan.
 
 <details>
 <summary>Prior position (v0.3.4, archived — SHIPPED 2026-06-08)</summary>
@@ -112,6 +116,7 @@ Progress: [░░░░░░░░░░] 0% (0 of ~12 v0.3.4 plans done; v0.3.
 
 ### Roadmap Evolution
 
+- v0.3.6 Catalog Expansion roadmap created (2026-06-28): 27 phases 23–49, one tool per phase (owner's explicit always-shippable preference — each phase ends with one working, tested, installable+removable catalog entry). 4 machinery enablers folded into first-consumer phases (🔧): ENABLE-01 prebuilt-binary→Phase 28 (rtk), ENABLE-02 MCP recipe pattern→Phase 34 (chrome-devtools-mcp), ENABLE-03 Python+uv→Phase 44 (spec-kit), ENABLE-04 daemon lifecycle→Phase 47 (openclaw); plus ENABLE-05 self-updater coexistence→Phase 23 (codex) and remote-http/OAuth handling→Phase 42 (linear-mcp). 33/33 requirements mapped, 0 orphans. Phase numbering starts at 23 (NOT 18) because phases 18–22 are reserved for the parallel in-flight v0.3.5 AlmaLinux milestone on `worktree-almalinux-support` — chosen up front to avoid version + phase collision at merge.
 - Phase 17 added (2026-05-30): Changes Delivery and Release Candidate — v0.3.4 shipping/maintainer-validation gate (MR polish + merge → `v0.3.4-rc1` cut + tag → maintainer brownfield-VM runbook → feedback checkpoint → promote rc→final or iterate). Supersedes the premature "milestone CLOSED" label; v0.3.4 is feature-complete but not shipped until rc1 is validated. Decision: AL-52 (host-clone Docker harness) parked in Backlog — the existing `agentlinux-install --dry-run` non-mutating preview was judged sufficient for the maintainer go/no-go, making a full brownfield-clone harness overkill.
 
 ### Decisions
@@ -352,7 +357,7 @@ OpenNebula API and target VM details from v0.2.0 are no longer load-bearing. Tes
 
 ### Blockers/Concerns
 
-None. Roadmap created; all 46 requirements mapped; Phase 1 is ready to plan.
+None. v0.3.6 roadmap created; all 33 requirements mapped (33/33, 0 orphans); Phase 23 (codex 🔧) is ready to plan. Numbering note: phases 18–22 are RESERVED for the parallel in-flight v0.3.5 AlmaLinux milestone (worktree-almalinux-support) — do not reuse.
 
 ### Quick Tasks Completed
 

@@ -98,4 +98,42 @@ FSL-1.1 (source-available, not OSI; converts to MIT/Apache after 2 yrs), passes 
 
 ## Traceability
 
-(Filled by the roadmapper — each requirement → exactly one phase, phases 23–49.)
+Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabler folded into its first-consumer phase. **Coverage: 33/33 mapped, 0 orphans.**
+
+| Requirement | Phase | Tool / Deliverable | Status |
+|-------------|-------|--------------------|--------|
+| AGT-07 | Phase 23 | codex 🔧 | Pending |
+| ENABLE-05 | Phase 23 | self-updater coexistence 🔧 | Pending |
+| AGT-06 | Phase 24 | gemini-cli | Pending |
+| AGT-05 | Phase 25 | opencode | Pending |
+| AGT-08 | Phase 26 | qwen-code | Pending |
+| WORK-01 | Phase 27 | ccusage | Pending |
+| WORK-02 | Phase 28 | rtk 🔧 | Pending |
+| ENABLE-01 | Phase 28 | prebuilt-binary installer 🔧 | Pending |
+| DEVT-01 | Phase 29 | gh | Pending |
+| DEVT-02 | Phase 30 | glab | Pending |
+| DEVT-04 | Phase 31 | trivy | Pending |
+| DEVT-05 | Phase 32 | gitleaks | Pending |
+| DEVT-03 | Phase 33 | sentry-cli | Pending |
+| MCP-01 | Phase 34 | chrome-devtools-mcp 🔧 | Pending |
+| ENABLE-02 | Phase 34 | MCP recipe pattern 🔧 | Pending |
+| MCP-02 | Phase 35 | context7 | Pending |
+| MCP-03 | Phase 36 | github-mcp | Pending |
+| MCP-04 | Phase 37 | sentry-mcp | Pending |
+| MCP-05 | Phase 38 | gitlab-mcp | Pending |
+| MCP-06 | Phase 39 | brave-search-mcp | Pending |
+| MCP-07 | Phase 40 | firecrawl-mcp | Pending |
+| MCP-08 | Phase 41 | slack-mcp | Pending |
+| MCP-09 | Phase 42 | linear-mcp 🔧 (remote-http/OAuth) | Pending |
+| MCP-10 | Phase 43 | jira-atlassian-mcp | Pending |
+| WORK-03 | Phase 44 | spec-kit 🔧 | Pending |
+| ENABLE-03 | Phase 44 | Python+uv bootstrap 🔧 | Pending |
+| WORK-04 | Phase 45 | claude-flow | Pending |
+| WORK-05 | Phase 46 | bmad | Pending |
+| ASST-01 | Phase 47 | openclaw 🔧 | Pending |
+| ENABLE-04 | Phase 47 | AI-assistant daemon lifecycle 🔧 | Pending |
+| ASST-02 | Phase 48 | hermes-agent | Pending |
+| ENABLE-06 | Phase 49 | `list` category/tags UX | Pending |
+| ENABLE-07 | Phase 49 | catalog growth kit (template + rubric) | Pending |
+
+**Coverage validation:** 7 ENABLE + 4 AGT (05-08) + 10 MCP (01-10) + 5 DEVT (01-05) + 5 WORK (01-05) + 2 ASST (01-02) = **33/33 requirements mapped to exactly one phase across phases 23–49**. No orphans, no duplicates.
