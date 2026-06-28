@@ -336,7 +336,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   id -u agent2 >/dev/null 2>&1 \
     || __fail "UX-04" "agent2 user created" "id -u agent2 failed" "$LOG"
   # Original incompatible agent is untouched (still its family-correct wrong
-  # shell — /bin/sh on Debian, /sbin/nologin on RHEL/EL9 per distro_wrong_shell).
+  # shell — /bin/sh on Debian, /usr/bin/tcsh on RHEL/EL9 per distro_wrong_shell).
   local orig_shell
   orig_shell=$(distro_wrong_shell)
   [[ "$(getent passwd agent | cut -d: -f7)" == "$orig_shell" ]] \

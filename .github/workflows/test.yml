@@ -113,13 +113,10 @@ jobs:
 
   bats-docker:
     runs-on: ubuntu-24.04
-    # The almalinux-9 arm is EXPERIMENTAL until Phase 20 (PAR-01) drives the full
-    # bats contract green on EL9. Phase 19 (HARN-01) only guarantees the suite is
-    # INVOKABLE on the substrate, so the arm is red-by-design for now. Mark it
-    # continue-on-error so its expected redness reports without failing this
-    # gating job or blocking PRs / the release `needs:` chain. Phase 20 removes
-    # the `experimental` flag once EL9 is green; Phase 22 (REL-01) makes it a hard
-    # gate alongside the QEMU row.
+    # Phase 20 made almalinux-9 a hard PR gate (EL9 257/257 green); Phase 22
+    # (REL-01) makes the release gate hard. No arm is experimental here anymore,
+    # so this continue-on-error resolves to a harmless no-op (kept valid YAML so
+    # re-introducing an experimental arm needs no plumbing change).
     continue-on-error: ${{ matrix.experimental || false }}
     # The full Phase 2–6 acceptance suite (200+ bats tests) does real apt/npm
     # installs, agent installs (Claude Code / GSD / Playwright), `claude update`,
@@ -142,11 +139,6 @@ jobs:
           - ubuntu-24.04
           - ubuntu-26.04
           - almalinux-9
-        include:
-          # almalinux-9 is red-by-design until Phase 20 — flag it experimental so
-          # the job-level continue-on-error above lets it fail without blocking.
-          - target: almalinux-9
-            experimental: true
     steps:
       - uses: actions/checkout@v5
       # Empty-plugin guard from Phase 1: still useful. After Phase 2 lands the

@@ -86,7 +86,7 @@ def main() -> int:
     quiet_cycles = 0
     eof_sent = False
 
-    # Bounded overall timeout — DEFENSIVE (Plan 20-05 Task 2).
+    # Bounded overall timeout — DEFENSIVE.
     #
     # This driver waits on a `select` loop with no upper bound; an unexpected or
     # stuck prompt (e.g. the EL9 15-preflight-ux brownfield-fixture mis-state)
@@ -94,7 +94,7 @@ def main() -> int:
     # converts that hang into a fast, diagnosable non-zero exit. The select loop
     # is the pexpect analog for this raw-pty driver, so the bound lives here as
     # a deadline rather than a pexpect `timeout=` kwarg. The underlying cause is
-    # fixed upstream (brownfield.bash EL9 generalization, Plan 20-02); this bound
+    # fixed upstream (brownfield.bash EL9 generalization); this bound
     # ensures an unbounded wait can never hang the suite again.
     #
     # Generous enough for a real installer prompt cycle (detection probes run

@@ -26,7 +26,7 @@
 #     override it (export `_AGENTLINUX_TEST_FAMILY=rhel|debian`) for unit
 #     coverage of the non-host arm.
 #
-# Refs: 20-RESEARCH.md §Distro-Aware Helper Design; 20-PATTERNS.md Wave 2.
+# Refs: 20-RESEARCH.md §Distro-Aware Helper Design; 20-PATTERNS.md.
 
 # distro_family
 # Prints `rhel` (AlmaLinux/EL9) or `debian` (Ubuntu) by reading the in-image
@@ -43,6 +43,9 @@ distro_family() {
     . /etc/os-release
     printf '%s' "${ID:-}"
   )
+  # NOTE: the `*)→debian` catch-all means a future non-ubuntu/non-almalinux ID
+  # silently routes to debian. Alma9-only scope today; a 3rd EL distro must add
+  # an explicit rhel match here (e.g. `rocky|centos`) rather than rely on this.
   case "$id" in almalinux) _AGENTLINUX_TEST_FAMILY=rhel ;; *) _AGENTLINUX_TEST_FAMILY=debian ;; esac
   printf '%s' "$_AGENTLINUX_TEST_FAMILY"
 }
@@ -73,7 +76,9 @@ distro_assert_locale() {
 # nodesource_repo_paths verb (plugin/lib/pkg.sh) — the single source of truth.
 distro_nodesource_repo_paths() {
   case "$(distro_family)" in
-    rhel) printf '%s\n' /etc/yum.repos.d/nodesource-nodejs.repo ;;
+    rhel) printf '%s\n' \
+      /etc/yum.repos.d/nodesource-nodejs.repo \
+      /etc/yum.repos.d/nodesource-nsolid.repo ;;
     debian) printf '%s\n' /etc/apt/sources.list.d/nodesource.sources ;;
   esac
 }
@@ -91,8 +96,8 @@ distro_pkg_is_installed() {
 
 # distro_install_node22
 # Ensures NodeSource Node 22 is present (no-op if already installed). The debian
-# arm is exactly the current brownfield.bash NodeSource block (lines 86-89 /
-# 139-141 / 503-507) byte-for-byte; the rhel arm is the EL9 equivalent (rpm
+# arm is exactly the current brownfield.bash NodeSource block byte-for-byte; the
+# rhel arm is the EL9 equivalent (rpm
 # NodeSource repo + dnf module reset + dnf install). Consumers:
 # setup_brownfield_host, _brownfield_baseline, _setup_brownfield_apt_layer.
 distro_install_node22() {
@@ -164,6 +169,10 @@ distro_wrong_shell() {
   case "$(distro_family)" in
     rhel)
       command -v tcsh >/dev/null 2>&1 || dnf install -y tcsh >/dev/null 2>&1
+      if ! command -v tcsh >/dev/null 2>&1; then
+        printf 'distro_wrong_shell: tcsh install failed; cannot build EL9 wrong-shell fixture\n' >&2
+        return 1
+      fi
       printf '%s' /usr/bin/tcsh
       ;;
     debian) printf '%s' /bin/sh ;;
@@ -191,7 +200,7 @@ distro_ssh_unit() {
 distro_restore_ssh_context() {
   local dir=$1
   case "$(distro_family)" in
-    rhel) command -v restorecon >/dev/null && restorecon -R -F "$dir" || true ;;
+    rhel) if command -v restorecon >/dev/null 2>&1; then restorecon -R -F "$dir"; fi ;;
     debian) : ;;
   esac
 }

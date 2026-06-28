@@ -6,21 +6,21 @@
 # (tests/bats/helpers/*.bash) inlines an EXECUTED Debian-hardcoded package
 # operation instead of routing it through the family-dispatch fork point
 # tests/bats/helpers/distro.bash. This is the regression guard for the
-# 52-agt02-brownfield-gate.bats:122 class — a bare `dpkg-query` that ran fine on
-# Ubuntu but died with `dpkg-query: command not found` on AlmaLinux 9 because
-# the EL9 row has no dpkg.
+# brownfield-gate class — a bare `dpkg-query` that ran fine on Ubuntu but died
+# with `dpkg-query: command not found` on AlmaLinux 9 because the EL9 row has no
+# dpkg.
 #
-# Plan 20-02 shipped this guard as a MANUAL grep scoped to
-# tests/bats/helpers/brownfield.bash only. The 52-agt02 red proved a manual,
-# single-file grep is insufficient: it never saw the leak in a sibling .bats
-# file. This script broadens the guard to the whole bats tree AND wires it into
-# pre-commit (and thus CI via .github/workflows/test.yml), so the class cannot
-# regress silently.
+# Coverage: the guard scans the whole bats tree (every tests/bats/*.bats plus
+# tests/bats/helpers/*.bash) and is wired into pre-commit (and thus CI), so the
+# class cannot regress silently in a sibling file.
 #
 # SCOPE — what is flagged (an EXECUTED, EL9-breaking package operation):
-#   - dpkg-query            (Debian package-DB query tool; absent on EL9)
+#   - dpkg-query / dpkg     (Debian package-DB tools; absent on EL9)
 #   - deb.nodesource        (Debian NodeSource setup URL; wrong repo on EL9)
-#   - apt-get <subcommand>  (apt-get install/update/purge/autoremove/...; absent on EL9)
+#   - apt-get …             (any apt-get invocation incl. flag-first
+#                            `apt-get -y install`; absent on EL9)
+#   - apt install/update/cache (the apt front-end; absent on EL9)
+#   - add-apt-repository     (Debian PPA tool; absent on EL9)
 #
 # NOT flagged (different class — does not break on EL9, out of this guard's scope):
 #   - Full-line comments (stripped before matching).
@@ -58,8 +58,9 @@ is_allowlisted() {
 }
 
 # Executed, EL9-breaking Debian package operations (NOT bare literals/comments).
-#   dpkg-query | deb.nodesource | apt-get <subcommand>
-leak_re='dpkg-query|deb\.nodesource|apt-get[[:space:]]+[a-z]'
+# Catches flag-first forms (`apt-get -y install`), bare `dpkg`/`dpkg -l`, the
+# `apt` front-end, and add-apt-repository — none of which exist on EL9.
+leak_re='dpkg-query|deb\.nodesource|apt-get[[:space:]]|[[:space:]]dpkg([[:space:]]|$)|[[:space:]]apt[[:space:]]+(install|update|cache)|add-apt-repository'
 
 violations=0
 while IFS= read -r file; do
