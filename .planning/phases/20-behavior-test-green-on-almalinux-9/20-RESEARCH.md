@@ -244,18 +244,21 @@ distro_install_node22() {
 | A4 | `policycoreutils` need not be installed if the restorecon call is guarded (Docker no-op) | SELinux Verdict, Pitfall 3 | LOW — installing it additionally is cheap and exercises the real binary path |
 | A5 | `--tmpfs /tmp:exec` does not perturb the systemd-in-Docker recipe (PID-1 systemd still boots) | Wave 1 | LOW — exec on /tmp is the normal default outside Docker; verify the boot still reaches `running`/`degraded` |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **DET-03 #111 — does `as_user_login` export `NPM_CONFIG_PREFIX` on EL9?**
    - Known: login-shell PATH + LANG propagate correctly on EL9 (proven via SSH and the passing 22-agent-sudo modes).
    - Unclear: whether the specific `effective_prefix` value the test reads reflects the user-shell export on EL9, or whether the test fixture assumed a Debian login-shell file.
    - Recommendation: early Wave-2 spike — run the DET-03 probe under `sudo -u agent -i` on EL9; if `NPM_CONFIG_PREFIX` is correct, it's an assertion/fixture fix; if not, it's an `as_user.sh` product fix (escalate).
+   - RESOLVED: Plan 20-05 Task 1 spikes it first — Branch A = test/assertion fix, Branch B = escalate to a `plugin/lib/as_user.sh` product defect WITH evidence (do not edit product code silently).
 
 2. **15-preflight-ux TTY hang — fixture-only or tty-driver?**
    - Known: a `tty-driver.py`/pexpect test blocked ~13 min on EL9 at test ~138.
    - Recommendation: add a bounded pexpect timeout to `tty-driver.py` (converts hang→fast failure), then fix the underlying brownfield fixture; re-run `15-preflight-ux` in isolation on a clean container.
+   - RESOLVED: Plan 20-05 Task 2 adds a bounded pexpect timeout to `tty-driver.py` (defensive); the underlying brownfield fixture is fixed by the Plan 20-02 `brownfield.bash` refactor.
 
 3. **`40-registry-cli` snapshot diffs** — confirm they use `diff` (substrate) vs a Debian path; re-run after Wave 1.
+   - RESOLVED: Plan 20-01 Task 1 adds `diffutils` (substrate); the file is substrate-only, confirmed after Wave 1.
 
 ## Environment Availability (EL9 Docker image — substrate audit)
 
