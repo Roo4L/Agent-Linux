@@ -56,7 +56,10 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
   1. `./tests/docker/run.sh almalinux-9` builds `tests/docker/Dockerfile.almalinux-9` (`FROM almalinux:9`, EL9 package set — `systemd cronie openssh-server sudo jq curl python3 file util-linux ca-certificates`, plus `bats` via EPEL or vendored) and boots it under the systemd-in-Docker recipe.
   2. The hermetic CLI build stage is preserved and spliced into the Alma image exactly as in the Ubuntu rows, and `agentlinux-install` runs to completion inside the container.
   3. `.github/workflows/test.yml` and `release.yml` gate-2 carry an `almalinux-9` matrix arm beside the three Ubuntu arms (dimension generalized `ubuntu`→`target`), with `fail-fast: false` so a red Alma arm still reports the Ubuntu arms.
-**Plans**: TBD
+**Plans**: 2 plans (2 waves)
+- [ ] 19-01-PLAN.md — EL9 Docker substrate: Dockerfile.almalinux-9 + run.sh almalinux-9 case + local smoke (green install, runnable bats, nodesource transcript) [Wave 1]
+- [ ] 19-02-PLAN.md — CI Docker matrix arm: test.yml bats-docker + release.yml gate-2 ubuntu→target + almalinux-9 (gate-3/4 untouched) [Wave 2]
+
 
 ### Phase 20: Behavior-Test-Green on AlmaLinux 9
 **Goal**: The full existing behavior contract — `BHV` / `RT` / `AGT` / `CLI` / `CAT` / `INST` (v0.3.0) and `DET` / `REUSE` / `REMEDIATE` / `UX` (v0.3.4) — is green on the AlmaLinux 9 Docker row **under enforcing SELinux**, with Ubuntu-path assertions generalized to distro-aware helpers rather than weakened or skipped.
