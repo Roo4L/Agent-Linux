@@ -12,6 +12,7 @@
 #     re-run the installer from inside the bats test.
 
 load 'helpers/assertions'
+load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
 INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
@@ -47,7 +48,9 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   # monotonically as each phase adds provisioner artefacts —
   #   Phase 2 (5): profile.d/agentlinux.sh, agentlinux.env, cron.d/agentlinux,
   #                /home/agent/.bashrc, /home/agent/CLAUDE.md.
-  #   Phase 3 (+2): /home/agent/.npmrc, /etc/apt/sources.list.d/nodesource.sources.
+  #   Phase 3 (+2): /home/agent/.npmrc, the family-correct NodeSource repo path
+  #                 (distro_nodesource_repo_paths: apt sources on Ubuntu /
+  #                 /etc/yum.repos.d/nodesource-nodejs.repo on EL9).
   #   Phase 4 (+2): /opt/agentlinux/catalog/${AGENTLINUX_VERSION}/catalog.json,
   #                 /opt/agentlinux/catalog/${AGENTLINUX_VERSION}/agents/test-dummy/install.sh.
   #   Phase 4 (+2 SEPARATE byte-stability checks with their own __fail paths):
@@ -75,7 +78,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     /home/agent/.bashrc \
     /home/agent/CLAUDE.md \
     /home/agent/.npmrc \
-    /etc/apt/sources.list.d/nodesource.sources \
+    "$(distro_nodesource_repo_paths)" \
     "/opt/agentlinux/catalog/${version}/catalog.json" \
     "/opt/agentlinux/catalog/${version}/agents/test-dummy/install.sh" \
     -type f -exec sha256sum {} + >"$pre" 2>/dev/null
@@ -103,7 +106,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     /home/agent/.bashrc \
     /home/agent/CLAUDE.md \
     /home/agent/.npmrc \
-    /etc/apt/sources.list.d/nodesource.sources \
+    "$(distro_nodesource_repo_paths)" \
     "/opt/agentlinux/catalog/${version}/catalog.json" \
     "/opt/agentlinux/catalog/${version}/agents/test-dummy/install.sh" \
     -type f -exec sha256sum {} + >"$post" 2>/dev/null
