@@ -16,16 +16,16 @@
 - [ ] **ENABLE-02**: Catalog supports **MCP-server** entries — `install` registers via `claude mcp add --scope user` (npx-stdio and remote-http shapes); `remove` deregisters via `claude mcp remove` (+ `claude mcp logout` for OAuth). Secrets are never baked into the recipe/image: entries declare `requires_secret`/`secret_env`, and `install` prints a post-install token/login instruction.
 - [ ] **ENABLE-03**: Catalog supports **Python+uv** entries via a per-user `uv` bootstrap (`~/.local/bin`, no root); install via `uv tool`/`uvx`, with symmetric uninstall.
 - [ ] **ENABLE-04**: Catalog supports **AI-assistant daemon** entries — `install` sets up a per-user background service; `remove` tears it down symmetrically (no stray daemon, unit, or state).
-- [ ] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern.
+- [x] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern. *(Phase 23 — codex `check_for_update_on_startup=false`)*
 - [ ] **ENABLE-06**: `agentlinux list` groups catalog entries by **category/tags** (coding-agent · mcp · devops · token/workflow · assistant).
 - [ ] **ENABLE-07**: **Catalog growth kit** — a contributor recipe template + the selection-rubric doc are published so a new entry can be added without touching CLI source (extends CAT-03).
 
 ### Coding-agent CLIs (npm)
 
-- [ ] **AGT-05**: `agentlinux install opencode` installs opencode (npm `opencode-ai`); CLI resolves on PATH; `remove` is symmetric.
-- [ ] **AGT-06**: `agentlinux install gemini-cli` installs Gemini CLI (npm `@google/gemini-cli`, bin `gemini`); symmetric remove.
-- [ ] **AGT-07**: `agentlinux install codex` installs OpenAI Codex (npm `@openai/codex`); self-updater coexistence (ENABLE-05) verified — pin survives; symmetric remove.
-- [ ] **AGT-08**: `agentlinux install qwen-code` installs Qwen Code (npm `@qwen-code/qwen-code`, bin `qwen`); symmetric remove.
+- [x] **AGT-05**: `agentlinux install opencode` installs opencode (npm `opencode-ai`); CLI resolves on PATH; `remove` is symmetric.
+- [x] **AGT-06**: `agentlinux install gemini-cli` installs Gemini CLI (npm `@google/gemini-cli`, bin `gemini`); symmetric remove.
+- [x] **AGT-07**: `agentlinux install codex` installs OpenAI Codex (npm `@openai/codex`); self-updater coexistence (ENABLE-05) verified — pin survives; symmetric remove.
+- [x] **AGT-08**: `agentlinux install qwen-code` installs Qwen Code (npm `@qwen-code/qwen-code`, bin `qwen`); symmetric remove.
 
 ### MCP servers
 
@@ -50,7 +50,7 @@
 
 ### Token / context / workflow tools
 
-- [ ] **WORK-01**: `agentlinux install ccusage` installs ccusage (npm; read-only cost reporter); symmetric remove.
+- [x] **WORK-01**: `agentlinux install ccusage` installs ccusage (npm; read-only cost reporter); symmetric remove.
 - [ ] **WORK-02**: `agentlinux install rtk` installs RTK / Rust Token Killer (**prebuilt binary, source-pinned to `rtk-ai/rtk` — never `cargo install rtk`** = the crates.io "Rust Type Kit" collision); optional `rtk init` hook into `~/.claude` is opt-in with symmetric `--uninstall`; `remove` reverts binary + hook.
 - [ ] **WORK-03**: `agentlinux install spec-kit` installs GitHub Spec Kit (`specify-cli` via uv, ENABLE-03); symmetric remove (+ project `.specify/` documented as user-owned).
 - [ ] **WORK-04**: `agentlinux install claude-flow` installs Claude-Flow (npm); `remove` cleans its full footprint (`.claude`/`.swarm`/`.hive-mind`, MCP regs, hooks) symmetrically.
@@ -102,12 +102,12 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 
 | Requirement | Phase | Tool / Deliverable | Status |
 |-------------|-------|--------------------|--------|
-| AGT-07 | Phase 23 | codex 🔧 | Pending |
-| ENABLE-05 | Phase 23 | self-updater coexistence 🔧 | Pending |
-| AGT-06 | Phase 24 | gemini-cli | Pending |
-| AGT-05 | Phase 25 | opencode | Pending |
-| AGT-08 | Phase 26 | qwen-code | Pending |
-| WORK-01 | Phase 27 | ccusage | Pending |
+| AGT-07 | Phase 23 | codex 🔧 | Done |
+| ENABLE-05 | Phase 23 | self-updater coexistence 🔧 | Done |
+| AGT-06 | Phase 24 | gemini-cli | Done |
+| AGT-05 | Phase 25 | opencode | Done |
+| AGT-08 | Phase 26 | qwen-code | Done |
+| WORK-01 | Phase 27 | ccusage | Done |
 | WORK-02 | Phase 28 | rtk 🔧 | Pending |
 | ENABLE-01 | Phase 28 | prebuilt-binary installer 🔧 | Pending |
 | DEVT-01 | Phase 29 | gh | Pending |

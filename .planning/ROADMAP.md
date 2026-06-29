@@ -16,11 +16,11 @@
 
 Execution is strictly sequential (23 → 49); each phase ships independently. 🔧 = also delivers a folded machinery enabler.
 
-- [ ] **Phase 23: codex** 🔧 `[npm]` - OpenAI Codex CLI + self-updater-coexistence enabler (ENABLE-05)
-- [ ] **Phase 24: gemini-cli** `[npm]` - Google Gemini CLI installable + removable
-- [ ] **Phase 25: opencode** `[npm]` - opencode CLI installable + removable
-- [ ] **Phase 26: qwen-code** `[npm]` - Qwen Code CLI installable + removable
-- [ ] **Phase 27: ccusage** `[npm]` - read-only Claude cost reporter installable + removable
+- [x] **Phase 23: codex** 🔧 `[npm]` - OpenAI Codex CLI + self-updater-coexistence enabler (ENABLE-05) ✓ COMPLETE
+- [x] **Phase 24: gemini-cli** `[npm]` - Google Gemini CLI installable + removable ✓ COMPLETE
+- [x] **Phase 25: opencode** `[npm]` - opencode CLI installable + removable ✓ COMPLETE
+- [x] **Phase 26: qwen-code** `[npm]` - Qwen Code CLI installable + removable ✓ COMPLETE
+- [x] **Phase 27: ccusage** `[npm]` - read-only Claude cost reporter installable + removable ✓ COMPLETE
 - [ ] **Phase 28: rtk** 🔧 `[bin]` - Rust Token Killer + prebuilt-binary installer enabler (ENABLE-01)
 - [ ] **Phase 29: gh** `[bin]` - GitHub CLI installable + removable
 - [ ] **Phase 30: glab** `[bin]` - GitLab CLI (gitlab-org/cli) installable + removable

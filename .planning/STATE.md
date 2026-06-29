@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3.6
 milestone_name: Catalog Expansion
-status: roadmap-ready
+status: in-progress
 stopped_at: "v0.3.4 'Aware Installation Process' SHIPPED — final release v0.3.4 published + marked Latest (https://github.com/Roo4L/Agent-Linux/releases/tag/v0.3.4; SHA256-verified tarball + sibling .sha256 + .deb; full gate chain green — pre-commit + docker x3 + qemu x3 + pinned-combo + build + publish; /releases/latest -> v0.3.4 so unpinned curl|sudo bash installs it). Phase 17 (Changes Delivery + Release Candidate) COMPLETE. Maintainer-validated on a real brownfield VM across 4 checkpoints, each surfacing + fixing a real bug: rc1->AL-60 (npx-GSD detection); rc2->AL-61 (deceptive list: present-but-unadopted shown not-installed -> adopt-on-install + honest 'present' status); rc3->AL-62 (npm Claude Code shown not-installed -> npm->native migration preserving the user's version); rc4->LGTM->promoted to final v0.3.4. Jira: AL-38 anchor Done; AL-58/AL-60/AL-61/AL-62 Done; phases 12-16 Done. Carried forward (NOT v0.3.4 scope): AL-59 (alt-user hollow-install bug, under epic AL-48); release.yml auto-prerelease for -rc tags; Docker-build-cache CI speedup (the recurring ubuntu:26.04 image-pull flake). NEXT: /gsd-new-milestone to scope the next milestone (e.g. AlmaLinux support AL-47)."
-last_updated: "2026-06-28T00:00:00.000Z"
-last_activity: 2026-06-28 -- v0.3.6 Catalog Expansion ROADMAP created; 27 phases 23-49 (one tool per phase, 4 machinery enablers folded into first-consumer phases); 33/33 requirements mapped; Phase 23 (codex 🔧) Not started. Phases 18-22 RESERVED for in-flight v0.3.5 AlmaLinux (worktree-almalinux-support).
+last_updated: "2026-06-29T00:00:00.000Z"
+last_activity: 2026-06-29 -- npm coding-agent cluster (Phases 23-27) COMPLETE: codex (AGT-07 + ENABLE-05 self-updater coexistence), gemini-cli (AGT-06), opencode (AGT-05), qwen-code (AGT-08), ccusage (WORK-01). 5 catalog entries + recipes + tests/bats/53-catalog-npm-cluster.bats (6 @tests) all green in Docker (Ubuntu 24.04, 38/38 incl. edited REUSE-03 invariant). Review loop (catalog/security/bash/ai-deslop/qa/coverage) run + findings fixed. Autonomous run paused at the batch+checkpoint before Phase 28 (rtk 🔧 / ENABLE-01 prebuilt-binary — architectural). Node-stub env blocker fixed + filed AL-97. Phases 18-22 RESERVED for v0.3.5 AlmaLinux.
 progress:
   total_phases: 27
-  completed_phases: 0
+  completed_phases: 5
   total_plans: 0
   completed_plans: 0
-  percent: 0
+  percent: 19
 ---
 
 # Project State
@@ -21,15 +21,19 @@ progress:
 See: .planning/PROJECT.md (updated 2026-05-09)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights.
-**Current focus:** v0.3.6 Catalog Expansion — roadmap created; Phase 23 (codex 🔧, AGT-07 + ENABLE-05) is next, Not started. Run `/gsd-plan-phase 23` to begin.
+**Current focus:** v0.3.6 Catalog Expansion — npm cluster (Phases 23-27) COMPLETE (5/27). Autonomous run paused at the batch+checkpoint before Phase 28 (rtk 🔧 / ENABLE-01 prebuilt-binary — the first architectural machinery phase). Resume with `/gsd-autonomous --from 28` (or plan Phase 28 directly).
 
 ## Current Position
 
-Milestone: v0.3.6 Catalog Expansion — **roadmap-ready** (2026-06-28). 27 phases (23–49), one tool per phase per the owner's always-shippable preference; the 4 machinery enablers (ENABLE-01 prebuilt-binary · ENABLE-02 MCP recipe pattern · ENABLE-03 Python+uv bootstrap · ENABLE-04 daemon lifecycle) are folded into their first-consumer phase (🔧: 28 rtk, 34 chrome-devtools-mcp, 44 spec-kit, 47 openclaw; plus 23 codex carries ENABLE-05 self-updater coexistence and 42 linear-mcp carries remote-http/OAuth handling). 33/33 requirements mapped to exactly one phase (see REQUIREMENTS.md Traceability); 0 orphans. Phases 23–49 were chosen to avoid collision with the in-flight v0.3.5 AlmaLinux milestone (phases 18–22, branch `worktree-almalinux-support`).
+Milestone: v0.3.6 Catalog Expansion — **in progress** (5/27 phases, 2026-06-29). 27 phases (23–49), one tool per phase per the owner's always-shippable preference; the 4 machinery enablers (ENABLE-01 prebuilt-binary · ENABLE-02 MCP recipe pattern · ENABLE-03 Python+uv bootstrap · ENABLE-04 daemon lifecycle) are folded into their first-consumer phase (🔧: 28 rtk, 34 chrome-devtools-mcp, 44 spec-kit, 47 openclaw; plus 23 codex carries ENABLE-05 self-updater coexistence and 42 linear-mcp carries remote-http/OAuth handling). 33/33 requirements mapped to exactly one phase (see REQUIREMENTS.md Traceability); 0 orphans. Phases 23–49 were chosen to avoid collision with the in-flight v0.3.5 AlmaLinux milestone (phases 18–22, branch `worktree-almalinux-support`).
 
-Phase: 23 (codex 🔧 — AGT-07 + ENABLE-05) — ACTIVE/NEXT, not yet planned (run `/gsd-plan-phase 23`).
-Plan: 0 of TBD — Phase 23 awaiting plan breakdown.
-Status: Not started — ready to plan.
+**npm cluster (Phases 23-27) COMPLETE** — codex (AGT-07 + ENABLE-05), gemini-cli (AGT-06), opencode (AGT-05), qwen-code (AGT-08), ccusage (WORK-01). 5 catalog entries (`plugin/catalog/agents/{codex,gemini-cli,opencode,qwen-code,ccusage}/` + catalog.json) verified install→version-pin→symmetric-remove + ENABLE-05 self-updater coexistence via `tests/bats/53-catalog-npm-cluster.bats` (6 @tests, green in Docker Ubuntu 24.04 — 38/38 incl. the refactored REUSE-03 compatibility_window invariant). Review loop run across catalog/security/bash/ai-deslop/qa/behavior-coverage; all findings fixed; TST-07 GREEN.
+
+Phase: 28 (rtk 🔧 — WORK-02 + ENABLE-01 prebuilt-binary installer) — NEXT, not yet planned. This is the first **architectural** machinery phase (new prebuilt-binary `source_kind` + checksum verification + `~/.local/bin` install) — the batch+checkpoint pause point.
+Plan: 0 of TBD — Phase 28 awaiting plan breakdown.
+Status: npm cluster shipped; machinery phases (28+) await user steer.
+
+**Known issue (flagged for milestone audit):** v0.3.6 reassigned AGT-05/06/08 to new tools, but the archived Phase 5 suite `tests/bats/50-agents.bats` still cites AGT-05 for playwright-cli — a requirement-ID collision across milestones (consider namespacing IDs per milestone). Does not affect cluster coverage.
 
 <details>
 <summary>Prior position (v0.3.4, archived — SHIPPED 2026-06-08)</summary>
