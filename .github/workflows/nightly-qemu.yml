@@ -1,18 +1,19 @@
 name: nightly-qemu
 # Phase 6 Plan 06-03 Task 3. Nightly QEMU release-gate harness (TST-03).
 # Replaces the Phase 1 empty-guard scaffold with a real matrix run against
-# every supported Ubuntu LTS image. Docker (test.yml) runs every PR; this
-# workflow runs nightly + workflow_dispatch and is the release-gate-adjacent
-# "Docker-alone is disqualified" (ADR-007) signal. AGE-11 added 26.04
-# ("Resolute Raccoon") on 2026-04-26.
+# every supported cloud image. Docker (test.yml) runs every PR; this workflow
+# runs nightly + workflow_dispatch and is the release-gate-adjacent
+# "Docker-alone is disqualified" (ADR-007) signal. The matrix covers every
+# supported Ubuntu LTS plus almalinux-9 (AlmaLinux 9 GenericCloud) — the latter
+# is the EL9 release-gate proof (HARN-02).
 
 on:
   schedule:
     - cron: '0 3 * * *'  # 03:00 UTC daily
   workflow_dispatch:
     inputs:
-      ubuntu:
-        description: 'Ubuntu version(s) to run (22.04 / 24.04 / 26.04 / all)'
+      target:
+        description: 'Target(s) to run (22.04 / 24.04 / 26.04 / almalinux-9 / all)'
         required: false
         default: all
         type: choice
@@ -21,19 +22,20 @@ on:
           - '22.04'
           - '24.04'
           - '26.04'
+          - almalinux-9
 
 permissions:
   contents: read
 
 jobs:
   qemu:
-    name: qemu (${{ matrix.ubuntu }})
+    name: qemu (${{ matrix.target }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
-        ubuntu: ['22.04', '24.04', '26.04']
+        target: ['22.04', '24.04', '26.04', 'almalinux-9']
     steps:
       - uses: actions/checkout@v5
 
@@ -42,14 +44,14 @@ jobs:
       - name: Decide whether to run this matrix leg
         id: decide
         run: |
-          dispatched='${{ github.event.inputs.ubuntu }}'
-          if [[ -z "$dispatched" || "$dispatched" == 'all' || "$dispatched" == 'both' ]]; then
+          dispatched='${{ github.event.inputs.target }}'
+          if [[ -z "$dispatched" || "$dispatched" == 'all' ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-          elif [[ "$dispatched" == '${{ matrix.ubuntu }}' ]]; then
+          elif [[ "$dispatched" == '${{ matrix.target }}' ]]; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "workflow_dispatch skipped ${{ matrix.ubuntu }}"
+            echo "workflow_dispatch skipped ${{ matrix.target }}"
           fi
 
       # Node 22 ships corepack; scripts/build-release.sh activates pnpm via
@@ -101,18 +103,18 @@ jobs:
       # against the upstream SHA256SUMS on every run (Pitfall 10 belt-and-
       # suspenders — cache poisoning is rejected even if the cache key hash
       # collided).
-      - name: Cache Ubuntu cloud images
+      - name: Cache cloud images
         if: steps.decide.outputs.run == 'true'
         uses: actions/cache@v4
         with:
           path: ~/.cache/agentlinux/qemu
-          key: cloud-image-${{ matrix.ubuntu }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
+          key: cloud-image-${{ matrix.target }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
           restore-keys: |
-            cloud-image-${{ matrix.ubuntu }}-
+            cloud-image-${{ matrix.target }}-
 
       - name: QEMU boot + installer + bats
         if: steps.decide.outputs.run == 'true'
-        run: bash tests/qemu/boot.sh ${{ matrix.ubuntu }}
+        run: bash tests/qemu/boot.sh ${{ matrix.target }}
 
       # Artifacts on failure only (Pitfall: preserving green-run serial logs
       # wastes storage and hides signal). serial.log is the primary diagnostic
@@ -122,7 +124,7 @@ jobs:
         if: failure() && steps.decide.outputs.run == 'true'
         uses: actions/upload-artifact@v4
         with:
-          name: qemu-artifacts-${{ matrix.ubuntu }}
+          name: qemu-artifacts-${{ matrix.target }}
           path: tests/qemu/artifacts/
           if-no-files-found: ignore
           retention-days: 14

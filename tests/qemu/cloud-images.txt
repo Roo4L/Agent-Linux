@@ -1,17 +1,30 @@
-# Phase 6 Plan 06-03: Ubuntu cloud image manifest for tests/qemu/boot.sh.
-# Format: <ubuntu-version> <image-url> <sha256sums-url>
+# Phase 6 Plan 06-03 / Phase 22: cloud image manifest for tests/qemu/boot.sh.
+# Format: <target-key> <image-url> <checksums-url>
 #
 # boot.sh reads this file at startup and looks up the row for the requested
-# Ubuntu version. It downloads <image-url> into $AGENTLINUX_QEMU_CACHE, then
-# always re-downloads <sha256sums-url> and runs `sha256sum --ignore-missing
-# --check` (Pitfall 10 — verify on EVERY cache hit, not just on first fetch).
+# TARGET key (Ubuntu rows key on the bare version `22.04`; the AlmaLinux row
+# keys on `almalinux-9`). It downloads <image-url> into $AGENTLINUX_QEMU_CACHE,
+# then always re-downloads <checksums-url> and runs `sha256sum --check` on the
+# pinned image's line (Pitfall 10 — verify on EVERY cache hit, not just on
+# first fetch). Both manifests are GNU coreutils format, but Ubuntu's
+# SHA256SUMS emits BINARY-mode lines (`<hash> *name`) while AlmaLinux's CHECKSUM
+# emits TEXT-mode lines (`<hash>  name`); boot.sh's verifier matches the
+# filename field exactly (via awk, not a fixed-separator regex), so one
+# verification path handles both.
 #
 # The .github/workflows/nightly-qemu.yml `actions/cache` step keys on
 # hashFiles('tests/qemu/cloud-images.txt'). Rotating any URL here therefore
 # invalidates the CI cache automatically — no manual key bump needed.
 #
-# One row per supported Ubuntu LTS. Add a row (and a matrix entry in the
-# workflow + a Docker mirror) when a new LTS becomes a support target.
+# One row per supported target. Add a row (and a matrix entry in the workflow +
+# a Docker mirror) when a new distro becomes a support target.
+#
+# ALMALINUX PIN CAVEAT: AlmaLinux removes superseded dated builds from the
+# images dir (keeps only `-latest` + the newest dated build), so a pinned older
+# URL eventually 404s. Treat a download 404 on the almalinux-9 row as the bump
+# signal — refresh to the current `AlmaLinux-9-GenericCloud-<minor>-<YYYYMMDD>`
+# build (and its CHECKSUM is the same URL, regenerated in place).
 22.04 https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-amd64.img https://cloud-images.ubuntu.com/releases/jammy/release/SHA256SUMS
 24.04 https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img https://cloud-images.ubuntu.com/releases/noble/release/SHA256SUMS
 26.04 https://cloud-images.ubuntu.com/releases/resolute/release/ubuntu-26.04-server-cloudimg-amd64.img https://cloud-images.ubuntu.com/releases/resolute/release/SHA256SUMS
+almalinux-9 https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/AlmaLinux-9-GenericCloud-9.8-20260526.x86_64.qcow2 https://repo.almalinux.org/almalinux/9/cloud/x86_64/images/CHECKSUM

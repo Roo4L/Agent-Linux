@@ -1,0 +1,34 @@
+#cloud-config
+# Phase 22: AlmaLinux 9 cloud-init seed for the AgentLinux QEMU harness.
+# EL9 sibling of cloud-init/user-data (the Ubuntu seed). Injects a per-run SSH
+# pubkey into root; root key-SSH works out of the box on the GenericCloud image
+# (its kickstart drops `PermitRootLogin yes`; only the root PASSWORD is locked),
+# so the root model ports over from the Ubuntu arm unchanged and the in-guest
+# installer + bats run as root with no sudo wrapper.
+#
+# Deltas vs the Ubuntu seed (all confirmed in 22-RESEARCH.md):
+#   - sshd unit is `sshd` (not `ssh`) — and is already enabled by the image, so
+#     the `enable --now` below is belt-and-suspenders.
+#   - bats is EPEL-only on EL9 and CANNOT co-install with `epel-release` in a
+#     single dnf transaction, so it is NOT in `packages:` (which cloud-init runs
+#     as one transaction). It is installed in `runcmd` after enabling EPEL,
+#     mirroring the Docker EL9 row. `cloud-init status --wait` blocks until
+#     runcmd completes, so bats is present before boot.sh runs the suite.
+#   - jq, curl, ca-certificates are preinstalled on the GenericCloud image.
+#     python3 (needed by 60-curl-installer.bats' `python3 -m http.server`
+#     fixture) is likewise present — cloud-init itself runs on the system
+#     python3 — so, unlike the Docker EL9 row, the seed does not install it.
+#
+# Placeholder __AGENTLINUX_QEMU_PUBKEY__ is sed-replaced per-run by
+# tests/qemu/boot.sh; keep it committed with the placeholder intact.
+ssh_pwauth: false
+disable_root: false
+users:
+  - name: root
+    ssh_authorized_keys:
+      - __AGENTLINUX_QEMU_PUBKEY__
+package_update: true
+runcmd:
+  - dnf install -y epel-release
+  - dnf install -y bats
+  - systemctl enable --now sshd
