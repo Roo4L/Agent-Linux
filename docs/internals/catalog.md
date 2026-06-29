@@ -1,10 +1,11 @@
 # Catalog
 
 The catalog is the JSON-Schema-validated registry of agents AgentLinux
-can install. It ships claude-code, gsd, and playwright-cli — three
-opt-in entries; zero installed by default. New agents are added by
-submitting a catalog entry plus an install recipe — no CLI source
-changes required.
+can install. It ships a growing, curated set of opt-in entries —
+coding-agent CLIs and developer tooling — with zero installed by
+default; the live roster is `plugin/catalog/catalog.json`. New agents
+are added by submitting a catalog entry plus an install recipe — no CLI
+source changes required.
 
 ## The problem
 
@@ -54,9 +55,10 @@ to exact semver (no ranges, no partials), `id` is regex-bound to
 catalog auditor and the install path both read from.
 
 The second is `plugin/catalog/catalog.json` — the embedded agent list
-shipped in every release tarball. Today it holds three real entries
-(claude-code, gsd, playwright-cli) plus one `test_only` fixture
-exercised only by bats. Pre-commit and CI both run the catalog
+shipped in every release tarball. It holds the real entries (the
+originals claude-code, gsd, playwright-cli plus the v0.3.6 coding-agent
+cluster codex, gemini-cli, opencode, qwen-code, ccusage) plus one
+`test_only` fixture exercised only by bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
 
@@ -92,10 +94,12 @@ and is the source of truth `agentlinux install` reads.
 
 ```
 $ jq '.agents[] | {id, source_kind, pinned_version}' \
-    /opt/agentlinux/catalog/0.3.0/catalog.json
+    /opt/agentlinux/catalog/0.3.4/catalog.json
 { "id": "claude-code",    "source_kind": "script", "pinned_version": "2.1.98" }
 { "id": "gsd",            "source_kind": "npm",    "pinned_version": "1.37.1" }
 { "id": "playwright-cli", "source_kind": "npm",    "pinned_version": "0.1.11" }
+{ "id": "codex",          "source_kind": "npm",    "pinned_version": "0.142.3" }
+# … (abridged — see catalog.json for the full roster)
 ```
 
 Adding a new agent looks like:
