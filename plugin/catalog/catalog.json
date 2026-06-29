@@ -1,5 +1,5 @@
 {
-  "version": "0.3.4",
+  "version": "0.3.5",
   "agents": [
     {
       "id": "claude-code",
@@ -15,7 +15,10 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v claude && claude --version",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["agent", "anthropic"]
+      "tags": [
+        "agent",
+        "anthropic"
+      ]
     },
     {
       "id": "gsd",
@@ -31,7 +34,10 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v get-shit-done-cc",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["workflow", "productivity"]
+      "tags": [
+        "workflow",
+        "productivity"
+      ]
     },
     {
       "id": "playwright-cli",
@@ -47,7 +53,11 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v playwright-cli && playwright-cli --version",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["browser", "automation", "agent-skill"]
+      "tags": [
+        "browser",
+        "automation",
+        "agent-skill"
+      ]
     },
     {
       "id": "test-dummy",
@@ -58,7 +68,9 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "test_only": true,
-      "tags": ["test-only"]
+      "tags": [
+        "test-only"
+      ]
     }
   ]
 }

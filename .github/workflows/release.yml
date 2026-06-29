@@ -342,6 +342,13 @@ jobs:
           tag_name: ${{ needs.resolve.outputs.tag }}
           generate_release_notes: true
           fail_on_unmatched_files: false
+          # A pre-release tag (vX.Y.Z-rc1, -beta, …) is published as a GitHub
+          # pre-release and is NOT marked "latest", so the curl-installer's
+          # default latest-resolution never serves an RC to ordinary users —
+          # they must opt in with AGENTLINUX_VERSION=vX.Y.Z-rc1. A final
+          # vX.Y.Z tag (no suffix) publishes as a normal latest release.
+          prerelease: ${{ contains(needs.resolve.outputs.tag, '-') }}
+          make_latest: ${{ !contains(needs.resolve.outputs.tag, '-') }}
           files: |
             dist/agentlinux-*.tar.gz
             dist/agentlinux-*.tar.gz.sha256
