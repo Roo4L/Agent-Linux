@@ -26,7 +26,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
 - [x] **Phase 19: Docker AlmaLinux 9 Row** — Stand up the fast `almalinux:9` Docker substrate (+ CI matrix arm) that validates the Phase 18 branch in the ~90s loop. (completed 2026-06-28)
 - [x] **Phase 20: Behavior-Test-Green on AlmaLinux 9** — Drive the full existing bats contract green on the Alma Docker row under enforcing SELinux, with Ubuntu-path assertions generalized to distro-aware helpers. (completed 2026-06-28)
 - [x] **Phase 21: Catalog Verify on AlmaLinux 9** — Verified the three catalog agents install + pass health checks on EL9; resolved the Playwright-chromium question by on-box smoke (symmetric launch gap → recipe now installs browser-launch deps on both families, locked by AGT-06). ✅ 2026-06-29
-- [ ] **Phase 22: QEMU Release-Gate + Pipeline** — Prove the port once on a real AlmaLinux 9 cloud-image VM, wire the release pipeline, and gate the v0.3.5 tag on EL9 Docker + QEMU green (AGT-02 milestone-close gate).
+- [x] **Phase 22: QEMU Release-Gate + Pipeline** — Proved the port on a real AlmaLinux 9 GenericCloud VM (systemd + enforcing SELinux + cloud-init): nightly-qemu almalinux-9 GREEN in CI (run 28391444242), full bats suite in-guest incl. AGT-02 zero-EACCES `claude update`. REL-01 hard-flip done (gate-2 + gate-3 almalinux-9 hard). ✅ 2026-06-29 (milestone PR pending)
 
 ## Phase Details
 
@@ -109,7 +109,7 @@ Plans:
 | 19. Docker AlmaLinux 9 Row | 2/2 | Complete    | 2026-06-28 |
 | 20. Behavior-Test-Green on AlmaLinux 9 | 7/5 | Complete    | 2026-06-28 |
 | 21. Catalog Verify on AlmaLinux 9 | 1/1 | Complete    | 2026-06-29 |
-| 22. QEMU Release-Gate + Pipeline | 0/TBD | Not started | - |
+| 22. QEMU Release-Gate + Pipeline | 1/1 | Complete    | 2026-06-29 |
 
 ---
 

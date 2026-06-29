@@ -132,21 +132,19 @@ jobs:
     # caps a genuine hang without flaky re-timeouts; matches test.yml's bats-docker
     # budget. (gate-3-qemu stays 45 — that QEMU budget is proven by nightly-qemu.)
     timeout-minutes: 60
-    # almalinux-9 stays EXPERIMENTAL here for now. The EL9 Docker suite IS green
-    # (Phase 20: 258/258; test.yml already hard-gates it on every PR), so this
-    # arm is no longer red-by-design — but the REL-01 hard-flip is done as ONE
-    # coordinated step (this gate-2 arm + the gate-3-qemu arm below) once the EL9
-    # QEMU row is proven green in CI, so a release tag is never gated on a
-    # half-proven EL9 picture. continue-on-error keeps a transient EL9 red from
-    # skipping gate-3-qemu / gate-4-pinned-combo (`needs:`) until that flip.
+    # almalinux-9 is a HARD release gate (REL-01). The EL9 Docker suite is green
+    # (Phase 20: 258/258; test.yml hard-gates it on every PR) AND the EL9 QEMU row
+    # is proven green in CI (nightly-qemu almalinux-9 success, run 28391444242,
+    # 2026-06-29 — incl. AGT-02 zero-EACCES on the real enforcing-SELinux guest),
+    # so the experimental include was dropped here and on gate-3-qemu in one
+    # coordinated flip. continue-on-error stays a harmless no-op (no arm sets
+    # matrix.experimental) so re-introducing a future experimental arm needs no
+    # plumbing change — matches test.yml's bats-docker.
     continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
         target: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, almalinux-9]
-        include:
-          - target: almalinux-9
-            experimental: true
     steps:
       - uses: actions/checkout@v5
       - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)
@@ -160,21 +158,18 @@ jobs:
     needs: gate-2-docker
     runs-on: ubuntu-24.04
     timeout-minutes: 45
-    # almalinux-9 is EXPERIMENTAL here until the EL9 QEMU row is proven green in
-    # CI (Phase 22 lands the harness; nightly-qemu's almalinux-9 arm is the
-    # green signal). continue-on-error lets the EL9 leg report red without
-    # failing gate-3-qemu — which would otherwise skip gate-4-pinned-combo
-    # (`needs: gate-3-qemu`) and red every release. Flip to a HARD gate — drop
-    # the `experimental` include below — once that nightly arm is green (REL-01,
-    # alongside the gate-2-docker almalinux-9 hard-flip).
+    # almalinux-9 is a HARD release gate (REL-01). The EL9 QEMU row is proven
+    # green in CI (nightly-qemu almalinux-9 success, run 28391444242, 2026-06-29:
+    # boots under systemd + enforcing SELinux + cloud-init, full bats suite green
+    # in-guest incl. AGT-02 zero-EACCES `claude update` on the real guest — the
+    # PAR-02 milestone-close gate). The experimental include was dropped here in
+    # lockstep with gate-2-docker. continue-on-error stays a harmless no-op (no
+    # arm sets matrix.experimental) so a future experimental arm needs no plumbing.
     continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
         target: ['22.04', '24.04', '26.04', 'almalinux-9']
-        include:
-          - target: almalinux-9
-            experimental: true
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4

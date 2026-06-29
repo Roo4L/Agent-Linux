@@ -27,12 +27,12 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 Milestone: v0.3.5 AlmaLinux 9 Support (Phases 18–22). Anchor AL-47 (Epic AL-48); blocker AL-38 Done. Scope: AlmaLinux 9 ONLY. Goal: port the plugin to AlmaLinux 9 with the same six-mode invocation contract + zero-EACCES self-update gate Ubuntu has (apt→dnf, dpkg→rpm; behavior contract unchanged). Milestone-close gate: AGT-02 (PAR-02) green on a real enforcing-SELinux EL9 QEMU guest.
 
-Phase: 22
-Plan: 22-01 harness AUTHORED + reviewed + committed (cd7e868); CI validation pending
-Status: Phase 22 QEMU EL9 harness committed (boot.sh family dispatch + HARN-02 checksum guard + rhel getenforce assertion; cloud-images/cloud-init/nightly-qemu/release.yml gate-3 EXPERIMENTAL). NOT closeable yet — the real EL9 QEMU boot + AGT-02 milestone-close gate are CI-only (no local QEMU). Pending: (1) nightly-qemu almalinux-9 GREEN in CI; (2) REL-01 hard-flip of gate-2+gate-3; (3) milestone PR — all need branch push (user-gated).
+Phase: 22 (complete)
+Plan: 22-01 complete — harness + REL-01 hard-flip done; EL9 QEMU CI-green
+Status: Phase 22 COMPLETE. nightly-qemu almalinux-9 GREEN in CI (run 28391444242, 2026-06-29): real EL9 GenericCloud VM boots under systemd + enforcing SELinux + cloud-init ("SELinux: Enforcing confirmed"), installer runs, full bats suite green in-guest INCLUDING AGT-02 (claude update zero-EACCES, ok 252) + BHV-52a brownfield-AGT-02 (ok 253) + AGT-06 playwright launch (ok 251). REL-01 hard-flip done (gate-2-docker + gate-3-qemu almalinux-9 now hard, experimental dropped). All 14 v0.3.5 requirements Done. **Milestone functionally complete — pending the single milestone PR (user-gated) + merge + v0.3.5 tag.**
 Last activity: 2026-06-29
 
-Progress: [█████████░] ~95% (4 of 5 phases complete; Phase 22 harness done, CI proof pending)
+Progress: [██████████] 100% (5 of 5 phases complete; milestone PR + tag pending)
 
 ### Phase list (v0.3.5)
 
@@ -42,7 +42,7 @@ Progress: [█████████░] ~95% (4 of 5 phases complete; Phase 2
 | 19 | Docker AlmaLinux 9 Row | HARN-01 | Phase 18 | [AL-65](https://copiedwonder.atlassian.net/browse/AL-65) | ✅ Complete |
 | 20 | Behavior-Test-Green on AlmaLinux 9 | EL-06, EL-08, PAR-01 | Phase 19 | [AL-66](https://copiedwonder.atlassian.net/browse/AL-66) | ✅ Complete |
 | 21 | Catalog Verify on AlmaLinux 9 | REC-01 | Phase 20 (may overlap) | [AL-67](https://copiedwonder.atlassian.net/browse/AL-67) | ✅ Complete |
-| 22 | QEMU Release-Gate + Pipeline | HARN-02, PAR-02, REL-01 | Phases 20 + 21 (exit gate) | [AL-68](https://copiedwonder.atlassian.net/browse/AL-68) | Not started |
+| 22 | QEMU Release-Gate + Pipeline | HARN-02, PAR-02, REL-01 | Phases 20 + 21 (exit gate) | [AL-68](https://copiedwonder.atlassian.net/browse/AL-68) | ✅ Complete (EL9 QEMU CI-green; PR pending) |
 
 Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress (Epic AL-48). Phase sub-tasks AL-64..68 filed 2026-06-28; transition each to In Progress / In Review / Done as its phase is planned, reviewed, and merged.
 
