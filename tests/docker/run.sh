@@ -67,6 +67,33 @@ if [[ ! -f $DF ]]; then
   exit 64
 fi
 
+# Test-secret forwarding. Append rows here in lockstep with .env.local.example
+# and docs/internals/test-secrets.md.
+SECRET_ALLOWLIST=(
+  ANTHROPIC_API_KEY  # interactive Claude Code behavioral tests
+  FOO                # test-secrets convention smoke
+)
+
+# Source .env.local if present so the allowlist sees vars set there.
+# Missing file is silent — per-PR CI has none and require_secret skips yellow.
+if [[ -f "$REPO_ROOT/.env.local" ]]; then
+  echo "== source .env.local =="
+  set -a
+  # shellcheck disable=SC1091  # path is dynamic but verified to exist above
+  . "$REPO_ROOT/.env.local"
+  set +a
+fi
+
+# `-e VAR` (no `=value`): docker reads the value from the daemon's view of the
+# caller's env, keeping the secret out of every other process's argv.
+# `-e "VAR=$VAR"` would interpolate the secret into the docker CLI's argv.
+DOCKER_ENV_FLAGS=(-e container=docker)
+for var in "${SECRET_ALLOWLIST[@]}"; do
+  if [[ -n ${!var-} ]]; then
+    DOCKER_ENV_FLAGS+=(-e "$var")
+  fi
+done
+
 # Fail the final line with a prominent banner so CI log scrollback surfaces
 # pass/fail without hunting through docker output.
 FINAL_STATUS=1
@@ -120,7 +147,7 @@ echo "== run systemd container from ${IMG} =="
 CID=$(docker run --rm -d \
   --privileged \
   --cgroupns=host \
-  -e container=docker \
+  "${DOCKER_ENV_FLAGS[@]}" \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
   --tmpfs /run --tmpfs /tmp:exec \
   -v "$REPO_ROOT":/workspace:ro \

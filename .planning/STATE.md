@@ -83,9 +83,23 @@ None new for v0.3.5. See `.planning/todos/pending/` (carried-forward website PR-
 
 ### Blockers/Concerns
 
-- **Phase 21 (Playwright EL9 chromium) — RESOLVED 2026-06-29:** on-box `almalinux:9` smoke showed the Chromium launch gap is symmetric (EL9 20 / Ubuntu 24 missing libs), not an EL9 regression. Per user decision, the recipe now installs browser-launch deps on BOTH families (Playwright `install-deps` on debian; explicit verified `dnf` list on rhel); locked by AGT-06; 258/258 green both rows.
-- **Phase 18/19 (NodeSource rpm version string):** confirm the `nodesource` substring in `rpm -q --qf '%{VERSION}-%{RELEASE}' nodejs` output on `almalinux:9` early — DET-02 / REUSE-02 classification depend on it.
-- **Phase 22 (QEMU checksum guard):** the `≥1 file validated` assertion + a flipped-byte corruption test must land before the QEMU row is wired to the release gate.
+None — all v0.3.5 blockers resolved (the Playwright EL9 chromium question, the NodeSource rpm version string, and the QEMU checksum guard all landed; EL9 QEMU CI-green run 28391444242).
+
+### Quick Tasks Completed
+
+| Quick ID | Description | Date | Jira | Commit |
+|---|---|---|---|---|
+| 1-debug | Debug + fix Claude Code post-hook failures (node/fnm PATH not resolved in hooks) | 2026-03-09 | — | — |
+| 260502-i4p | Add Stop hook reminding Claude to run the review loop; amend ADR-010 | 2026-05-02 | AL-23 | af9bd74 |
+| 260503-8z4 | Add session-tracker Stop hook — second ADR-010 reminder-hook instance | 2026-05-03 | AL-24 | — |
+| 260509-kn2 | Add ai-deslop review agent + remove existing AI slop | 2026-05-09 | AL-35 | — |
+| 260509-kuv | provisioner 10-agent-user.sh: apt install of locales fails on empty cache — add apt update first | 2026-05-09 | AL-37 | — |
+| 260510-n7e | Remove GSD artifacts from help + project documentation | 2026-05-10 | AL-33 | — |
+| 260524-ch1 | Disable Claude Code background auto-updater (version pinning; AGT-02c) | 2026-05-24 | AL-51 | — |
+| 260525-nv0 | Test-secrets infrastructure — `.env.local` + GH repo secrets + bats `require_secret`; SECRET_ALLOWLIST in `tests/docker/run.sh`; step-level nightly-qemu env; internals doc; smoke test | 2026-05-25 | AL-53 | 181996b |
+| 260526-84p | Interactive-CLI bats helpers (`expect`-based) + AGT-02d behavioral test; QEMU SendEnv/AcceptEnv forwarding; `docs/internals/test-interactive.md` | 2026-05-26 | AL-54 | d7bf9ee |
+
+_Quick-task working directories are not retained on `master` (AL-63 — see the `planning-workflow` skill); this table is the durable record. Full PLAN/SUMMARY detail for each task lives in git history and the linked Jira issue._
 
 ## Deferred Items
 

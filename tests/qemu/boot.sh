@@ -509,10 +509,23 @@ REMOTE_INSTALL
 
 # ---------------------------------------------------------------------------
 # 12. Run bats in-guest (full suite — includes AGT-02 release gate 51-*.bats).
+#
+# Forward ANTHROPIC_API_KEY into the in-guest bats process so behavioral tests
+# that require_secret can run on the release-gate substrate. The host-side
+# value arrives via the workflow step-level `env:` block in
+# .github/workflows/nightly-qemu.yml; OpenSSH reads it at exec time, so the
+# value never appears in this script's body or in any process's argv. Paired
+# with the AcceptEnv ANTHROPIC_API_KEY drop-in dropped by
+# tests/qemu/cloud-init/user-data (sshd silently drops any SendEnv var not
+# named in AcceptEnv — both halves are required).
+#
+# SendEnv is scoped to this hop ONLY — not the cloud-init wait, not the
+# installer dispatch — minimizing the blast radius matches the secret
+# pipeline's step-level-env philosophy (see docs/internals/test-secrets.md).
 # ---------------------------------------------------------------------------
 printf 'running bats tests/bats/ inside the guest\n'
 BATS_STATUS=0
-ssh "${SSH_OPTS[@]}" root@localhost bash -s <<'REMOTE_BATS' || BATS_STATUS=$?
+ssh -o SendEnv=ANTHROPIC_API_KEY "${SSH_OPTS[@]}" root@localhost bash -s <<'REMOTE_BATS' || BATS_STATUS=$?
 set -euo pipefail
 cd /opt/agentlinux-src
 if [[ -x node_modules/bats/bin/bats ]]; then

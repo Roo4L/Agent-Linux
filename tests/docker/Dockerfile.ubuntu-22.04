@@ -84,12 +84,17 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # local fake tarball + .sha256 — no live network in CI. Plan 06-02 addition.
 # `file` is REQUIRED by packaging/curl-installer/install.sh Pitfall-2 gzip
 # magic sanity check (see install.sh line ~155). Plan 06-02 addition.
+# expect is REQUIRED by the interactive bats helpers under
+# tests/bats/helpers/expect/. Drives `claude /login` and idle-session paths
+# via a real pty pair (Bun/Ink raw-mode TTY requirement). Apt main pocket
+# on 22.04 + 24.04 + 26.04.
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       systemd systemd-sysv \
       cron openssh-server \
       bats locales sudo \
       dbus \
+      expect \
       jq \
       curl \
       python3 \

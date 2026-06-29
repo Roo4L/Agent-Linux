@@ -51,7 +51,9 @@ Classify each path into one of three buckets. Default rules — adjust per user 
 | Path pattern | Bucket | Notes |
 |---|---|---|
 | `plugin/`, `tests/`, `packaging/`, `docs/`, `scripts/`, `.github/`, top-level repo files | **feature** | Belongs in this PR. |
-| `.planning/` | **infra** unless the worktree's whole purpose is a GSD phase | GSD state changes are usually independent of the feature. Ask the user if this worktree's branch is a GSD phase branch. |
+| `.planning/` durable (`MILESTONES.md`, `PROJECT.md`, `ROADMAP.md`, `RETROSPECTIVE.md`, `STATE.md`, `config.json`, `milestones/`, `research/`, `todos/`) | **feature** — rides with the PR | The durable GSD record. Commit it on the branch with the rest of the work (after the `planning-workflow` close-out sets `STATE.md` `status: complete`). |
+| `.planning/` intermediate (loose `phases/`, `quick/`, `quick-archive/`, in-flight `REQUIREMENTS.md`) | **strip before merge** | Must NOT reach `master`. Run the `planning-workflow` close-out (`/gsd-complete-milestone`, or `git rm` the loose dirs) so the branch is gate-clean. Never route these to `master`. |
+| `.planning/` transient (`.continue-here.md`, `HANDOFF.json`, `tmp/`, `reports/`, `.active-skill`, `.phase-manifest.json`) | **ignore** | `.gitignore`d — never staged. |
 | `.claude/skills/**`, `.claude/agents/**`, `.claude/settings*.json`, `.claude/hooks/**` | **infra** | Tooling improvements made mid-session — should land on `master` separately so every worktree picks them up. |
 | `.claude/worktrees/**` | **ignore** | Other worktrees' state — never include. |
 | `~/.claude/projects/-home-agent-agent-linux/memory/**` | **local-only** | Lives in `$HOME`, not in the repo, already shared across worktrees. Mention it; do not commit it. |
@@ -64,7 +66,7 @@ Print a compact report. Example:
 
 ```
 Feature changes (10 files, 3 commits) — destined for PR #123
-Infra changes (.claude/skills/review/SKILL.md, .planning/STATE.md) — destination?
+Infra changes (.claude/skills/review/SKILL.md, .claude/agents/qa-engineer.md) — destination?
   a) bundle into the feature PR
   b) separate commit straight on master
   c) skip (leave for another session)
@@ -86,8 +88,11 @@ For each bucket:
   ```
 - **Infra straight to master.** Stash the worktree state, switch the **main worktree** to `master`, apply the infra changes there as a fresh commit, push:
   ```bash
-  # from the feature worktree, copy diffs into a patch
-  git diff master...HEAD -- .claude/skills .claude/agents .planning > /tmp/infra.patch
+  # from the feature worktree, copy diffs into a patch.
+  # NOTE: .planning/ is NOT routed to master here — see the planning-workflow
+  # skill. Durable .planning/ record changes ride with the feature PR;
+  # intermediate state is stripped before merge, never side-committed to master.
+  git diff master...HEAD -- .claude/skills .claude/agents > /tmp/infra.patch
   # then in the main worktree
   git -C /home/agent/agent-linux switch master
   git -C /home/agent/agent-linux pull --ff-only origin master
@@ -148,7 +153,7 @@ Print a short summary:
 - **No PR exists yet but commits are unpushed.** Push first, then `gh pr create --fill`.
 - **CI is red.** Stop. Report which check failed. Do not merge. Ask the user how to proceed.
 - **Conflicts when applying the infra patch on `master`.** Stop. Don't `--reject` or force. Show the conflict; let the user resolve in the main worktree.
-- **The whole worktree's purpose is a GSD phase** (e.g., `.planning/` IS the feature). Then `.planning/` is `feature`, not `infra`. Ask early to confirm.
+- **`.planning/` changes are present.** Follow the `planning-workflow` skill: durable record files ride with the PR; intermediate state (loose `phases/`, `quick/`, in-flight `REQUIREMENTS.md`) is stripped before merge so it never reaches `master`; transient session files are gitignored. Do not route intermediate `.planning/` state to `master` as "infra". Verify with `bash scripts/check-planning-clean.sh` before merging.
 - **`.claude/settings.local.json` shows up in changes.** This file is per-user and should be `.gitignore`d. If it's tracked by accident, flag it and ask before committing.
 
 ## Reference paths

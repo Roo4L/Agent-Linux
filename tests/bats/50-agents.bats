@@ -195,6 +195,11 @@ teardown_file() {
 # hence the new ID rather than a tweak to the existing @test. Not yet promoted
 # into .planning/REQUIREMENTS.md (that file is v0.4.0-scoped at HEAD); recorded
 # here + in the AL-51 SUMMARY, promote when the next v0.3.x revision rolls.
+#
+# Behavioral pair: AGT-02d in tests/bats/51-cc-no-autoupdate.bats observes
+# the stamp's runtime effect (no binary drift over a 90s idle interactive
+# session). AGT-02c + AGT-02d get promoted into REQUIREMENTS.md together
+# on the next v0.3.x revision.
 @test "AGT-02c: claude-code install stamps DISABLE_AUTOUPDATER=1 in ~agent/.claude/settings.json" {
   run sudo -u agent -H bash --login -c 'test -f ~/.claude/settings.json && cat ~/.claude/settings.json'
   assert_exit_zero "AGT-02c (settings.json exists)"

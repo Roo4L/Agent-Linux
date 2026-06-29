@@ -157,3 +157,19 @@ jobs:
       - name: Run Docker bats matrix
         if: steps.guard.outputs.has_bats == 'true'
         run: bash tests/docker/run.sh ${{ matrix.target }}
+
+  # AL-63: .planning/ hygiene gate — keeps intermediate GSD state (loose phases/,
+  # quick/, transient session files; a non-complete STATE.md) off master. Policy +
+  # allowlist live in .claude/skills/planning-workflow/SKILL.md; the gate itself is
+  # self-tested by tests/harness/70-planning-clean-gate.bats. Runs on every PR;
+  # passes trivially when .planning/ is untouched.
+  planning-hygiene:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install bats
+        run: sudo apt-get update -qq && sudo apt-get install -y bats
+      - name: Self-test the gate (tests/harness/70-planning-clean-gate.bats)
+        run: bats tests/harness/70-planning-clean-gate.bats
+      - name: Assert .planning/ is in the clean between-milestones state
+        run: bash scripts/check-planning-clean.sh

@@ -114,6 +114,13 @@ jobs:
 
       - name: QEMU boot + installer + bats
         if: steps.decide.outputs.run == 'true'
+        env:
+          # AL-53: release-gate (slow, network-bound) receives the sandbox key.
+          # Per-PR Docker CI (test.yml) does NOT — require_secret skips yellow
+          # there. The secret reaches bats inside the QEMU VM via boot.sh's
+          # ssh-forward path (see docs/internals/test-secrets.md). Step-level
+          # env (not job-level) keeps the blast radius to this one step.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: bash tests/qemu/boot.sh ${{ matrix.target }}
 
       # Artifacts on failure only (Pitfall: preserving green-run serial logs
