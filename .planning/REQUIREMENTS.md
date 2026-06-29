@@ -4,7 +4,7 @@
 
 **Selection method:** gates+scoring funnel (agent-relevance · clean per-user install + symmetric uninstall, no root, no `/usr/local` shim · free license · liveness ≤6mo release & ≤3mo commits · maturity), then owner curation. Research + audit trail: `.planning/research/v0.3.6/` (to be migrated from session scratchpad).
 
-**Contract:** every requirement below carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate. Each tool is pinned per ADR-011 (pins in Appendix A). One tool per phase (phases 23–49).
+**Contract:** every requirement below carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate, **plus an OPS-01 operational smoke that runs the tool in a real (minimal) scenario** — "installs cleanly" is necessary but not sufficient. Each tool is pinned per ADR-011 (pins in Appendix A). Credentials needed for operational smokes are catalogued in Appendix C. One tool per phase (phases 23–49).
 
 ---
 
@@ -19,6 +19,16 @@
 - [x] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern. *(Phase 23 — codex `check_for_update_on_startup=false`)*
 - [ ] **ENABLE-06**: `agentlinux list` groups catalog entries by **category/tags** (coding-agent · mcp · devops · token/workflow · assistant).
 - [ ] **ENABLE-07**: **Catalog growth kit** — a contributor recipe template + the selection-rubric doc are published so a new entry can be added without touching CLI source (extends CAT-03).
+
+### Operational verification (cross-cutting — applies to every catalog entry)
+
+- [ ] **OPS-01**: Beyond install / `post_install_verify` / symmetric remove, **every catalog entry ships a minimal real-operation smoke test** that exercises the tool's primary function under AgentLinux, as the agent user — proving the tool actually *operates correctly*, not merely that its binary resolves. Rules:
+  - **Real but minimal** — one small operation (cheapest model, smallest input, shortest run); cost and time kept negligible.
+  - **Auth at runtime only** — any required provider credential is supplied via the environment at test time, **never** baked into a recipe, the catalog, the image, or a commit (preserves CAT-02 + the secret-free contract; the recipe still bakes nothing). Credential matrix: Appendix C.
+  - **Credential-absent ⇒ skip** — the functional smoke `skip`s cleanly when its required credential env var is unset, so credential-free CI and contributors stay green; it must **run and pass** when the credential is present (locally, or in a secrets-enabled CI job).
+  - **No-auth tools run unconditionally** against seeded/local data (e.g. ccusage parses a seeded `~/.claude` usage record and prints a cost table; offline scanners scan a fixture).
+  - **Phase-close gate (extends TST-07):** a phase is *done* only once its OPS-01 smoke has been run + passed at least once with the relevant credential, recorded in the phase SUMMARY.
+  - Minimal real scenario by category: **coding-agent CLI** → one tiny non-interactive prompt, assert a sensible model reply; **MCP server** → register, confirm it appears live (`claude mcp list` / a trivial tool call), deregister; **DevOps CLI** → one real read-only/offline op (e.g. `trivy fs`/`gitleaks detect` on a fixture; `gh api` / `glab` a read with a token); **token/workflow** → one real local op (ccusage on seeded usage; spec-kit scaffolds a temp project; etc.); **AI-assistant daemon** → start → health/ping → stop.
 
 ### Coding-agent CLIs (npm)
 
@@ -93,6 +103,24 @@ opencode `opencode-ai@1.17.11` · gemini-cli `@google/gemini-cli@0.49.0` · code
 ## Appendix B — License flags
 
 FSL-1.1 (source-available, not OSI; converts to MIT/Apache after 2 yrs), passes the "free to use" gate but flag if an OSI-only catalog is ever required: **sentry-cli** (FSL-1.1-MIT), **sentry-mcp** (FSL-1.1-Apache). All others MIT/Apache-2.0 (verified LICENSE files; some show GitHub `NOASSERTION` but are MIT: openclaw, bmad, ccusage).
+
+## Appendix C — Operational-smoke credentials (OPS-01)
+
+Credential each tool's minimal real op needs. **Supplied at runtime via env only — never baked into a recipe, catalog, image, or commit.** Each smoke `skip`s when its var is unset.
+
+**Coding-agent CLIs (cluster, Phases 23–27):**
+
+| Tool | Env var(s) | Notes / minimal op |
+|------|-----------|--------------------|
+| codex | `OPENAI_API_KEY` | OpenAI's own CLI — OpenAI key required. Op: `codex exec` a one-line prompt with a cheap model. |
+| gemini-cli | `GEMINI_API_KEY` | Google AI Studio — **free tier**. Op: `gemini -p "…"`. |
+| qwen-code | `DASHSCOPE_API_KEY` *or* `OPENAI_API_KEY`+`OPENAI_BASE_URL`+`OPENAI_MODEL` | Native Qwen (DashScope free quota) or any OpenAI-compatible endpoint. Op: `qwen -p "…"`. |
+| opencode | any one of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / OpenRouter key | Provider-agnostic — reuse a key already supplied. Op: `opencode run "…"`. |
+| ccusage | **none** | Read-only; smoke seeds a synthetic `~/.claude` usage record and asserts a cost table. |
+
+**Minimal set to cover the cluster:** `OPENAI_API_KEY` (codex + opencode + qwen via OpenAI-compat) **+** `GEMINI_API_KEY` (free; gemini-cli). Add `DASHSCOPE_API_KEY` only to test qwen against native Qwen models.
+
+**Later phases (recorded so they aren't re-litigated):** github-mcp/gh → `GITHUB_TOKEN` (read PAT) · gitlab-mcp/glab → `GITLAB_PERSONAL_ACCESS_TOKEN` (`read_api`) · context7 → optional `CONTEXT7_API_KEY` (free tier) · brave-search-mcp → `BRAVE_API_KEY` (free) · firecrawl-mcp → `FIRECRAWL_API_KEY` · sentry-cli/sentry-mcp → `SENTRY_AUTH_TOKEN` · slack-mcp → Slack `xoxp` token · linear-mcp & jira-atlassian-mcp → interactive OAuth (`claude mcp login`), no static key · trivy/gitleaks/rtk/spec-kit/claude-flow/bmad → **no credential** (offline/local ops) · openclaw/hermes-agent → reuse a provider key (`OPENAI_API_KEY`/`ANTHROPIC_API_KEY`).
 
 ---
 
