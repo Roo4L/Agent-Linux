@@ -28,11 +28,11 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 Milestone: v0.3.5 AlmaLinux 9 Support (Phases 18–22). Anchor AL-47 (Epic AL-48); blocker AL-38 Done. Scope: AlmaLinux 9 ONLY. Goal: port the plugin to AlmaLinux 9 with the same six-mode invocation contract + zero-EACCES self-update gate Ubuntu has (apt→dnf, dpkg→rpm; behavior contract unchanged). Milestone-close gate: AGT-02 (PAR-02) green on a real enforcing-SELinux EL9 QEMU guest.
 
 Phase: 22
-Plan: Not started
-Status: Phase 21 complete (1 plan, REC-01 Done, 258/258 EL9+Ubuntu incl. new AGT-06, verification PASS); advancing to Phase 22
+Plan: 22-01 harness AUTHORED + reviewed + committed (cd7e868); CI validation pending
+Status: Phase 22 QEMU EL9 harness committed (boot.sh family dispatch + HARN-02 checksum guard + rhel getenforce assertion; cloud-images/cloud-init/nightly-qemu/release.yml gate-3 EXPERIMENTAL). NOT closeable yet — the real EL9 QEMU boot + AGT-02 milestone-close gate are CI-only (no local QEMU). Pending: (1) nightly-qemu almalinux-9 GREEN in CI; (2) REL-01 hard-flip of gate-2+gate-3; (3) milestone PR — all need branch push (user-gated).
 Last activity: 2026-06-29
 
-Progress: [████████░░] 80% (4 of 5 phases complete)
+Progress: [█████████░] ~95% (4 of 5 phases complete; Phase 22 harness done, CI proof pending)
 
 ### Phase list (v0.3.5)
 
