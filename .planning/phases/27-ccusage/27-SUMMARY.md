@@ -13,5 +13,10 @@
   exercises the runner's empty-AGENTLINUX_PRESERVE_PATHS path).
 - `tests/bats/53-catalog-npm-cluster.bats` WORK-01 lifecycle @test.
 
+## OPS-01 operational smoke
+`tests/bats/54-catalog-npm-smoke.bats` — **PASS** under AgentLinux (no
+credential): `ccusage daily --json` parsed a seeded `~/.claude` usage log and
+totalled the tokens (3000 input), as the agent user.
+
 ## Review
 Cluster review loop — clean. TST-07: GREEN.

@@ -13,6 +13,11 @@
 - `catalog.json` opencode entry.
 - `tests/bats/53-catalog-npm-cluster.bats` AGT-05 lifecycle @test.
 
+## OPS-01 operational smoke
+`tests/bats/54-catalog-npm-smoke.bats` — **PASS** under AgentLinux: `opencode
+run -m anthropic/claude-haiku-4-5` answered a real prompt → "paris" via
+ANTHROPIC_API_KEY, as the agent user.
+
 ## Review
 Cluster review loop — clean. TST-07: GREEN.
 

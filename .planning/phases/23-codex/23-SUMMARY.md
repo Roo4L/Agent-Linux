@@ -40,6 +40,15 @@ temp-file trap + mode preservation + atomic same-dir mktemp (codex helper),
 dead env guard removed from uninstall, empty-pin/exit-zero/EACCES test guards.
 TST-07 gate: GREEN.
 
+## OPS-01 operational smoke
+
+`tests/bats/54-catalog-npm-smoke.bats` — codex is **wired + authenticated**:
+`codex login --with-api-key` (key via stdin) succeeds and the request reaches
+OpenAI. The real model call is **blocked by an unfunded OpenAI key** (`Quota
+exceeded`), so the smoke skips with that explicit reason. Re-run with a
+billing-enabled OpenAI key to complete the end-to-end model call. (codex is
+OpenAI-only — no alternative provider.)
+
 ## Notes
 
 ENABLE-05 convention is reused by later self-updater tools (openclaw, Phase 47).

@@ -11,5 +11,10 @@
 - `catalog.json` qwen-code entry.
 - `tests/bats/53-catalog-npm-cluster.bats` AGT-08 lifecycle @test.
 
+## OPS-01 operational smoke
+`tests/bats/54-catalog-npm-smoke.bats` — **PASS** under AgentLinux: `qwen
+--auth-type anthropic` answered a real prompt → "paris" via ANTHROPIC_API_KEY
+(OpenAI-compatible + native DashScope also supported), as the agent user.
+
 ## Review
 Cluster review loop — clean. TST-07: GREEN.
