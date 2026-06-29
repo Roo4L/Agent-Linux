@@ -25,7 +25,7 @@ v0.3.5 ports the AgentLinux plugin from Ubuntu to **AlmaLinux 9** — the mainta
 - [x] **Phase 18: Detection + Branching Foundation** — Recognize AlmaLinux 9 and route every apt/dpkg/locale/NodeSource/sudoers/brownfield call through one distro-family abstraction so a fresh install runs end-to-end on EL9. ✅ 2026-06-28
 - [x] **Phase 19: Docker AlmaLinux 9 Row** — Stand up the fast `almalinux:9` Docker substrate (+ CI matrix arm) that validates the Phase 18 branch in the ~90s loop. (completed 2026-06-28)
 - [x] **Phase 20: Behavior-Test-Green on AlmaLinux 9** — Drive the full existing bats contract green on the Alma Docker row under enforcing SELinux, with Ubuntu-path assertions generalized to distro-aware helpers. (completed 2026-06-28)
-- [ ] **Phase 21: Catalog Verify on AlmaLinux 9** — Verify the three catalog agents install and pass health checks on EL9; resolve the open Playwright-chromium dnf-deps question by on-box smoke.
+- [x] **Phase 21: Catalog Verify on AlmaLinux 9** — Verified the three catalog agents install + pass health checks on EL9; resolved the Playwright-chromium question by on-box smoke (symmetric launch gap → recipe now installs browser-launch deps on both families, locked by AGT-06). ✅ 2026-06-29
 - [ ] **Phase 22: QEMU Release-Gate + Pipeline** — Prove the port once on a real AlmaLinux 9 cloud-image VM, wire the release pipeline, and gate the v0.3.5 tag on EL9 Docker + QEMU green (AGT-02 milestone-close gate).
 
 ## Phase Details
@@ -84,9 +84,9 @@ Plans:
 **Requirements**: REC-01
 **Success Criteria** (what must be TRUE):
   1. `agentlinux install claude-code` and `agentlinux install gsd` complete on EL9 and pass their health checks unchanged (claude-code's distro-agnostic native installer → `~agent/.local/bin/claude`; gsd's pure `npm install -g`).
-  2. `agentlinux install playwright-cli` runs a live install + health smoke on `almalinux:9` and the AGT-05 bats assertion passes; a `dnf install` chromium-runtime-deps block is added **only if** an EL9 code path actually launches Chromium (resolved by the smoke result, not pre-scoped).
-  3. The catalog AGT @tests (AGT-01..05) are green on the Alma Docker row; the authoritative AGT-02 self-update gate is re-confirmed on the real QEMU guest in Phase 22.
-**Plans**: TBD
+  2. `agentlinux install playwright-cli` runs a live install + health smoke on `almalinux:9` and the AGT-05 bats assertion passes; the smoke resolved the open question — the Chromium launch gap is **symmetric** across families, so per the 2026-06-29 user decision the recipe installs browser-launch deps on BOTH families (Playwright `install-deps` on debian; explicit verified `dnf` list on rhel), locked by new AGT-06. ✅
+  3. The catalog AGT @tests (AGT-01..06) are green on the Alma Docker row (258/258 EL9+Ubuntu); the authoritative AGT-02 self-update gate is re-confirmed on the real QEMU guest in Phase 22. ✅
+**Plans**: 21-01 (complete) — see `.planning/phases/21-catalog-verify-on-almalinux-9/`.
 
 ### Phase 22: QEMU Release-Gate + Pipeline
 **Goal**: Prove the EL9 port once on a real AlmaLinux 9 cloud-image VM (systemd + enforcing SELinux + cloud-init), wire the AlmaLinux QEMU + Docker arms into the release pipeline, and gate the v0.3.5 tag on both being green — with AGT-02 zero-EACCES on the real guest as the milestone-close gate (ADR-007: "Docker alone is disqualified"). This phase also re-confirms EL-06's `restorecon` fix under real enforcement.
@@ -108,7 +108,7 @@ Plans:
 | 18. Detection + Branching Foundation | 6/6 | Complete   | 2026-06-28 |
 | 19. Docker AlmaLinux 9 Row | 2/2 | Complete    | 2026-06-28 |
 | 20. Behavior-Test-Green on AlmaLinux 9 | 7/5 | Complete    | 2026-06-28 |
-| 21. Catalog Verify on AlmaLinux 9 | 0/TBD | Not started | - |
+| 21. Catalog Verify on AlmaLinux 9 | 1/1 | Complete    | 2026-06-29 |
 | 22. QEMU Release-Gate + Pipeline | 0/TBD | Not started | - |
 
 ---

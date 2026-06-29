@@ -21,27 +21,27 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights. v0.3.5 extends "any supported Linux system" past Ubuntu to AlmaLinux 9.
-**Current focus:** Phase 21 — Catalog Verify on AlmaLinux 9
+**Current focus:** Phase 22 — QEMU Release-Gate + Pipeline (milestone exit)
 
 ## Current Position
 
 Milestone: v0.3.5 AlmaLinux 9 Support (Phases 18–22). Anchor AL-47 (Epic AL-48); blocker AL-38 Done. Scope: AlmaLinux 9 ONLY. Goal: port the plugin to AlmaLinux 9 with the same six-mode invocation contract + zero-EACCES self-update gate Ubuntu has (apt→dnf, dpkg→rpm; behavior contract unchanged). Milestone-close gate: AGT-02 (PAR-02) green on a real enforcing-SELinux EL9 QEMU guest.
 
-Phase: 21
+Phase: 22
 Plan: Not started
-Status: Phase 20 complete (7 plans, 257/257 EL9+Ubuntu, verification 4/4); advancing to Phase 21
-Last activity: 2026-06-28
+Status: Phase 21 complete (1 plan, REC-01 Done, 258/258 EL9+Ubuntu incl. new AGT-06, verification PASS); advancing to Phase 22
+Last activity: 2026-06-29
 
-Progress: [██░░░░░░░░] 20% (1 of 5 phases complete)
+Progress: [████████░░] 80% (4 of 5 phases complete)
 
 ### Phase list (v0.3.5)
 
 | Phase | Name | Requirements | Depends on | Jira | Status |
 |-------|------|--------------|------------|------|--------|
 | 18 | Detection + Branching Foundation | EL-01, EL-02, EL-03, EL-04, EL-05, EL-07 | v0.3.4 baseline (Phase 17); co-dev 19 | [AL-64](https://copiedwonder.atlassian.net/browse/AL-64) | ✅ Complete |
-| 19 | Docker AlmaLinux 9 Row | HARN-01 | Phase 18 | [AL-65](https://copiedwonder.atlassian.net/browse/AL-65) | Not started |
+| 19 | Docker AlmaLinux 9 Row | HARN-01 | Phase 18 | [AL-65](https://copiedwonder.atlassian.net/browse/AL-65) | ✅ Complete |
 | 20 | Behavior-Test-Green on AlmaLinux 9 | EL-06, EL-08, PAR-01 | Phase 19 | [AL-66](https://copiedwonder.atlassian.net/browse/AL-66) | ✅ Complete |
-| 21 | Catalog Verify on AlmaLinux 9 | REC-01 | Phase 20 (may overlap) | [AL-67](https://copiedwonder.atlassian.net/browse/AL-67) | Not started |
+| 21 | Catalog Verify on AlmaLinux 9 | REC-01 | Phase 20 (may overlap) | [AL-67](https://copiedwonder.atlassian.net/browse/AL-67) | ✅ Complete |
 | 22 | QEMU Release-Gate + Pipeline | HARN-02, PAR-02, REL-01 | Phases 20 + 21 (exit gate) | [AL-68](https://copiedwonder.atlassian.net/browse/AL-68) | Not started |
 
 Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress (Epic AL-48). Phase sub-tasks AL-64..68 filed 2026-06-28; transition each to In Progress / In Review / Done as its phase is planned, reviewed, and merged.
@@ -83,7 +83,7 @@ None new for v0.3.5. See `.planning/todos/pending/` (carried-forward website PR-
 
 ### Blockers/Concerns
 
-- **Phase 21 (Playwright EL9 chromium) — OPEN:** whether any EL9 code path launches Chromium is unresolved; do NOT pre-scope a dnf-deps task until the live AGT-05 smoke on `almalinux:9` is in hand.
+- **Phase 21 (Playwright EL9 chromium) — RESOLVED 2026-06-29:** on-box `almalinux:9` smoke showed the Chromium launch gap is symmetric (EL9 20 / Ubuntu 24 missing libs), not an EL9 regression. Per user decision, the recipe now installs browser-launch deps on BOTH families (Playwright `install-deps` on debian; explicit verified `dnf` list on rhel); locked by AGT-06; 258/258 green both rows.
 - **Phase 18/19 (NodeSource rpm version string):** confirm the `nodesource` substring in `rpm -q --qf '%{VERSION}-%{RELEASE}' nodejs` output on `almalinux:9` early — DET-02 / REUSE-02 classification depend on it.
 - **Phase 22 (QEMU checksum guard):** the `≥1 file validated` assertion + a flipped-byte corruption test must land before the QEMU row is wired to the release gate.
 

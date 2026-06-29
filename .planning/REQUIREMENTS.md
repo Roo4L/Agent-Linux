@@ -46,7 +46,7 @@ Grouped by category. Each `XXX-NN` is a testable, verifiable outcome — auditab
 
 ### REC — catalog recipes verified on AlmaLinux 9
 
-- [ ] **REC-01**: The three catalog agents install and pass their health checks on AlmaLinux 9. `claude-code` (distro-agnostic native installer → `~agent/.local/bin/claude`) and `gsd` (pure npm) port unchanged. For `playwright-cli`, a live install + health smoke runs on `almalinux:9`; **only if** an EL9 code path launches Chromium (Playwright's `install-deps` has no `dnf` path and dies on `apt-get`) does the recipe gain an explicit `dnf install` chromium-runtime-deps list. No dnf-deps work is pre-scoped before that smoke result is in hand.
+- [x] **REC-01**: The three catalog agents install and pass their health checks on AlmaLinux 9. `claude-code` (distro-agnostic native installer → `~agent/.local/bin/claude`) and `gsd` (pure npm) port unchanged. The on-box `almalinux:9` smoke resolved the open Playwright-Chromium question: `playwright-cli install --skills` downloads a Chromium binary whose ~20-lib shared-object closure is unsatisfied on **both** EL9 (20 missing) and stock Ubuntu (24 missing) — a symmetric gap, not an EL9 regression. Per the v0.3.5 decision (2026-06-29) to make the browser actually launchable on both families, the recipe now installs Chromium's browser-launch deps, family-dispatched: Playwright's own `install-deps` on Debian/Ubuntu (knows the apt names incl. the 24.04 `t64` transition) and an explicit on-box-verified `dnf install` list on AlmaLinux 9 (Playwright's `install-deps` has no `dnf` path). Verified end-to-end on `almalinux:9` + `ubuntu:24.04`: post-deps `ldd chrome` reports zero missing libs and a headless `--dump-dom about:blank` launch exits 0. Covered by AGT-06 (tests/bats/50-agents.bats), green on both Docker rows.
 
 ### REL — release pipeline gate
 
@@ -97,7 +97,7 @@ Which phases cover which requirements. Mapped during roadmap creation (v0.3.5 RO
 | HARN-02 | Phase 22 | Pending |
 | PAR-01 | Phase 20 | Done |
 | PAR-02 | Phase 22 | Pending |
-| REC-01 | Phase 21 | Pending |
+| REC-01 | Phase 21 | Done |
 | REL-01 | Phase 22 | Pending |
 
 **Coverage:**
