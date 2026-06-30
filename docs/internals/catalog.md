@@ -68,7 +68,7 @@ recipes are plain bash. Each recipe receives
 `AGENTLINUX_PINNED_VERSION` in its environment (with a `:?` fail-fast
 guard at the top), runs as the agent user, and asserts a post-install
 invariant (binary on PATH, version banner matches pin, skill directory
-exists where Claude Code looks for it). Adding an agent requires a
+exists where the agent looks for it). Adding an agent requires a
 catalog entry plus a recipe pair — no TypeScript edits anywhere.
 
 Three invariants govern the catalog:
@@ -89,6 +89,16 @@ versions) exercised end-to-end before tag — the curated combo
 ([STABILITY-MODEL.md](../STABILITY-MODEL.md)). The catalog snapshot
 is staged on disk at `/opt/agentlinux/catalog/<version>/catalog.json`
 and is the source of truth `agentlinux install` reads.
+
+That curated pin only stays meaningful if the tool does not quietly
+update itself. Several modern coding agents auto-install a newer
+version in the background the next time they start — the same
+self-update reflex that, with a badly-owned install, produces the
+permission breakage AgentLinux exists to prevent. So recipes for those
+tools turn the background auto-update off (via each tool's own config)
+at install time, leaving the curated pin authoritative and routing all
+version changes through `agentlinux upgrade`. The explicit, operator-run
+update path is untouched — only the silent one is frozen.
 
 ## Worked example
 

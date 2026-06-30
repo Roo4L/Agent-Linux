@@ -60,6 +60,16 @@ the skill directory landed where Claude Code looks for it; a missing
 directory fails the install rather than silently writing a sentinel for
 a half-bootstrapped state.
 
+Playwright's own bootstrapper only knows about Claude Code, but the
+skill it drops is portable, so AgentLinux mirrors it into the cross-tool
+`~/.agents/skills/` directory that both Codex and opencode scan for
+user-level skills (opencode also reads `~/.claude/skills/` directly).
+That one extra copy is what surfaces Playwright inside Codex and
+opencode too, not just Claude Code. Gemini CLI and Qwen Code have no
+comparable skill host — only prompt-style commands — so Playwright is
+not wired into them. The mirror is a derived copy, refreshed on every
+(re)install and removed on uninstall.
+
 ## Worked example
 
 ```
@@ -68,8 +78,9 @@ playwright-cli: installing @playwright/cli@0.1.11
 playwright-cli: CLI at /home/agent/.npm-global/bin/playwright-cli, version 0.1.11
 playwright-cli: wiring Claude Code skill via 'playwright-cli install --skills'
 ... apt-installing browser deps via the host's sudoers drop-in ...
+playwright-cli: mirrored skill into /home/agent/.agents/skills/playwright-cli (codex/opencode ~/.agents/skills scan)
 playwright-cli: install complete (binary at /home/agent/.npm-global/bin/playwright-cli;
-     skill wired into /home/agent/.claude/skills/playwright-cli)
+     skill wired into /home/agent/.claude/skills/playwright-cli + /home/agent/.agents/skills)
 
 $ sudo -u agent playwright-cli --version
 0.1.11

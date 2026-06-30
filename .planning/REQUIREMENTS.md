@@ -19,6 +19,13 @@
 - [x] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern. *(Phase 23 — codex `check_for_update_on_startup=false`)*
 - [ ] **ENABLE-06**: `agentlinux list` groups catalog entries by **category/tags** (coding-agent · mcp · devops · token/workflow · assistant).
 - [ ] **ENABLE-07**: **Catalog growth kit** — a contributor recipe template + the selection-rubric doc are published so a new entry can be added without touching CLI source (extends CAT-03).
+- [x] **ENABLE-08**: **Passive autoupdate freeze** — for catalog tools that *auto-install* updates in the background (not merely notify), the install recipe disables that passive self-update via the tool's own **launch-mode-independent** config, so the catalog pin is never silently replaced out of band. The **explicit, user-initiated** update path (`agentlinux upgrade`, the tool's own `upgrade` command, or an npm reinstall) must stay functional — only the passive path is frozen. Strengthens ENABLE-05 by distinguishing three updater classes: **auto-install ⇒ must freeze** — opencode (`~/.config/opencode/opencode.json` → `autoupdate:false`), gemini-cli + qwen-code (`settings.json` → `general.enableAutoUpdate:false`); **notify-only ⇒ no freeze needed** — codex (`check_for_update_on_startup=false` applied anyway as belt-and-braces per ENABLE-05); **no updater** — ccusage. Why it matters: a passive auto-install re-introduces the canonical AGT-02 hazard (and on a non-agent-owned prefix qwen-code's auto-update silently migrates the tool off npm onto a curl|bash binary). Empirically verified under AgentLinux: an interactive session auto-bumped gemini-cli N-1→latest with **no** freeze, and stayed pinned **with** the freeze; the explicit npm update still bumped with the freeze in place. *(Phases 24–26; codex Phase 23 via ENABLE-05.)*
+
+### Cross-agent skill wiring (cross-cutting — applies to skill-provider entries)
+
+- [x] **WIRE-01**: A catalog entry that installs **skills/commands** for one coding agent must wire them into **every other shipped coding agent for which the concept applies** — so a tool installed via AgentLinux is lit up across the whole installed agent fleet, not just Claude Code. **Order-independent**: the wiring is applied unconditionally at the *provider's* install time (writing each target agent's own config dir), so an agent installed *later* still finds the skills present; `remove` tears the wiring down symmetrically across all targets. Applicability is classified per (provider, target): **DIRECT** (drop or convert into the target's extension dir) or **N/A** (target has no comparable extension host — documented, never silently skipped). Current providers:
+  - **GSD** (`get-shit-done-cc`, a natively multi-runtime bootstrapper): wired into Claude Code, opencode (`~/.config/opencode/command/gsd-*.md`), gemini-cli (`~/.gemini/commands/gsd/`), codex (`~/.codex/skills/gsd-*`), qwen-code (`~/.qwen/skills/gsd-*`) — GSD owns the per-tool format conversion.
+  - **playwright-cli**: skill mirrored into the cross-tool `~/.agents/skills/playwright-cli/` (the scan path **both** codex and opencode honor); opencode additionally reads `~/.claude/skills/` natively. gemini-cli + qwen-code: **N/A** (prompt-command host only — a multi-file skill with a `references/` tree does not round-trip to a single command prompt).
 
 ### Operational verification (cross-cutting — applies to every catalog entry)
 
@@ -32,10 +39,10 @@
 
 ### Coding-agent CLIs (npm)
 
-- [x] **AGT-05**: `agentlinux install opencode` installs opencode (npm `opencode-ai`); CLI resolves on PATH; `remove` is symmetric.
-- [x] **AGT-06**: `agentlinux install gemini-cli` installs Gemini CLI (npm `@google/gemini-cli`, bin `gemini`); symmetric remove.
+- [x] **AGT-05**: `agentlinux install opencode` installs opencode (npm `opencode-ai`); CLI resolves on PATH; passive autoupdate frozen (ENABLE-08); `remove` is symmetric.
+- [x] **AGT-06**: `agentlinux install gemini-cli` installs Gemini CLI (npm `@google/gemini-cli`, bin `gemini`); passive autoupdate frozen (ENABLE-08); symmetric remove.
 - [x] **AGT-07**: `agentlinux install codex` installs OpenAI Codex (npm `@openai/codex`); self-updater coexistence (ENABLE-05) verified — pin survives; symmetric remove.
-- [x] **AGT-08**: `agentlinux install qwen-code` installs Qwen Code (npm `@qwen-code/qwen-code`, bin `qwen`); symmetric remove.
+- [x] **AGT-08**: `agentlinux install qwen-code` installs Qwen Code (npm `@qwen-code/qwen-code`, bin `qwen`); passive autoupdate frozen (ENABLE-08); symmetric remove.
 
 ### MCP servers
 
@@ -136,6 +143,8 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | AGT-05 | Phase 25 | opencode | Done |
 | AGT-08 | Phase 26 | qwen-code | Done |
 | WORK-01 | Phase 27 | ccusage | Done |
+| ENABLE-08 | Phases 24–26 | passive autoupdate freeze (opencode/gemini-cli/qwen-code) 🔧 | Done |
+| WIRE-01 | Phases 24–27 (retrofit) | cross-agent skill wiring (GSD + playwright-cli → all shipped agents) 🔧 | Done |
 | WORK-02 | Phase 28 | rtk 🔧 | Pending |
 | ENABLE-01 | Phase 28 | prebuilt-binary installer 🔧 | Pending |
 | DEVT-01 | Phase 29 | gh | Pending |
