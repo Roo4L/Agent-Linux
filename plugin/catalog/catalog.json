@@ -129,6 +129,20 @@
       "tags": ["workflow", "cost", "token"]
     },
     {
+      "id": "rtk",
+      "display_name": "RTK (Rust Token Killer)",
+      "description": "Token-optimizing CLI proxy that filters/summarizes command output before it reaches the LLM context. Optional `rtk init` wires a Claude Code hook (opt-in).",
+      "homepage": "https://github.com/rtk-ai/rtk",
+      "license": "MIT",
+      "source_kind": "binary",
+      "pinned_version": "0.42.4",
+      "compatibility_window": ">=0.42.0 <0.43.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v rtk && rtk --version",
+      "tags": ["token", "workflow", "devops"]
+    },
+    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",
