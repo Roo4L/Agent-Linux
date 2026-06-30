@@ -21,7 +21,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 25: opencode** `[npm]` - opencode CLI installable + removable ✓ COMPLETE
 - [x] **Phase 26: qwen-code** `[npm]` - Qwen Code CLI installable + removable ✓ COMPLETE
 - [x] **Phase 27: ccusage** `[npm]` - read-only Claude cost reporter installable + removable ✓ COMPLETE
-- [ ] **Phase 28: rtk** 🔧 `[bin]` - Rust Token Killer + prebuilt-binary installer enabler (ENABLE-01)
+- [x] **Phase 28: rtk** 🔧 `[bin]` - Rust Token Killer + prebuilt-binary installer enabler (ENABLE-01)
 - [ ] **Phase 29: gh** `[bin]` - GitHub CLI installable + removable
 - [ ] **Phase 30: glab** `[bin]` - GitLab CLI (gitlab-org/cli) installable + removable
 - [ ] **Phase 31: trivy** `[bin]` - Trivy scanner (no-Docker fs/repo scans) installable + removable
