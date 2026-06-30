@@ -8,8 +8,39 @@
 // unit tests inject a capturing mock. DI over module-mocking because
 // `mock.module` is undefined on the Node 20 executor host.
 
+import { readFileSync } from "node:fs";
 import { asUser } from "./state/dispatcher.js";
 import type { CatalogEntry } from "./types.js";
+
+// POSIX-portable username charset — MUST mirror remediate::validate_user_name's
+// `^[a-z][a-z0-9_-]*$` (plugin/lib/remediate.sh). Used as belt-and-suspenders
+// re-validation when reading the configured install user (the file is
+// root-owned and the installer already validated the name, but a malformed
+// read must never flow into a `sudo -u` argument).
+const INSTALL_USER_RE = /^[a-z][a-z0-9_-]*$/;
+const DEFAULT_INSTALL_USER = "agent";
+const AGENTLINUX_ENV_FILE = "/etc/agentlinux.env";
+
+// resolveInstallUser — the install user catalog ops run as (AL-50 AC4). Source
+// precedence: process.env.AGENTLINUX_USER > the AGENTLINUX_USER= line in
+// /etc/agentlinux.env (root-owned, written by 40-path-wiring.sh) > `agent`. A
+// value that fails the POSIX charset (malformed env / tampered read) falls back
+// to `agent` — defense-in-depth for BOTH the guard check and the dispatch user
+// (T-AL50-06).
+export function resolveInstallUser(): string {
+  let raw = process.env.AGENTLINUX_USER;
+  if (raw === undefined || raw === "") {
+    try {
+      const txt = readFileSync(AGENTLINUX_ENV_FILE, "utf8");
+      const m = txt.match(/^AGENTLINUX_USER=(.*)$/m);
+      if (m) raw = m[1].trim();
+    } catch {
+      // Absent/unreadable env file (dev host, pre-AL-50 install) → default.
+    }
+  }
+  if (raw !== undefined && INSTALL_USER_RE.test(raw)) return raw;
+  return DEFAULT_INSTALL_USER;
+}
 
 export interface RecipeEnv {
   AGENTLINUX_PINNED_VERSION: string;
@@ -58,20 +89,30 @@ export async function dispatchRecipe(
   // Empty string when no preserve_paths_file is configured; always set so the
   // var is present in both install.sh and uninstall.sh.
   const preservePaths = (args.entry.preserve_paths ?? []).join(":");
+  // Resolve the configured install user + its home (AL-50 AC4 / AL-59). For the
+  // default user `agent`, `home` is /home/agent and the PATH built below is
+  // byte-identical to the AGENT_PATH constant (and /etc/agentlinux.env).
+  const user = resolveInstallUser();
+  const home = `/home/${user}`;
+  const path = `${home}/.npm-global/bin:${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`;
   const env: Record<string, string> = {
     AGENTLINUX_PINNED_VERSION: args.version,
     AGENTLINUX_CATALOG_DIR: args.catalogDir,
-    AGENTLINUX_AGENT_HOME: "/home/agent",
+    AGENTLINUX_AGENT_HOME: home,
     AGENTLINUX_SOURCE_KIND: args.entry.source_kind,
     AGENTLINUX_INSTALL_LOG: "/var/log/agentlinux-install.log",
     AGENTLINUX_PRESERVE_PATHS: preservePaths,
-    PATH: AGENT_PATH,
-    HOME: "/home/agent",
-    NPM_CONFIG_PREFIX: "/home/agent/.npm-global",
+    PATH: path,
+    HOME: home,
+    NPM_CONFIG_PREFIX: `${home}/.npm-global`,
     LANG: "C.UTF-8",
     LC_ALL: "C.UTF-8",
     ...(args.extraEnv ?? {}),
   };
 
-  return dispatcher("agent", ["bash", args.recipePath], { env });
+  // DISPATCH AS THE CONFIGURED USER (AL-59 catalog-side fix): on a
+  // `--user=claude` host this runs `sudo -u claude …`; on a default host it
+  // stays `sudo -u agent …`. Hardcoding "agent" here would break every catalog
+  // op on a host with no `agent` user (`sudo: unknown user: agent`).
+  return dispatcher(user, ["bash", args.recipePath], { env });
 }

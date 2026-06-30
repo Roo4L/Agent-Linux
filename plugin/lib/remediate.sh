@@ -69,15 +69,59 @@ remediate::find_alt_user_name() {
   return 1
 }
 
+# Reserved / system account denylist (D-AL50 AC5). Names that match the POSIX
+# charset but must NEVER be provisioned-or-adopted as the install user: granting
+# NOPASSWD: ALL sudo to root or a daemon account is an elevation hole, and
+# colliding with a system account corrupts the host. Matched case-insensitively;
+# any name beginning `systemd-` is also rejected (covers systemd-network,
+# systemd-resolve, systemd-timesync, … without enumerating every variant).
+readonly -a AGENTLINUX_RESERVED_USER_NAMES=(
+  root daemon bin sys sync games man lp mail news uucp proxy www-data backup
+  list irc gnats nobody _apt systemd-network systemd-resolve systemd-timesync
+  messagebus sshd
+)
+
 # remediate::validate_user_name <name>
 # Returns 0 for a POSIX-friendly name (first char lowercase a-z, remainder
-# [a-z0-9_-]), 1 otherwise (including empty). Rejecting all shell metachars is
-# the documented contract every downstream component depends on, even though
-# the name is later passed to useradd argv-literally (no shell eval).
+# [a-z0-9_-]) that is NOT a reserved/system account name, 1 otherwise (including
+# empty). Rejecting all shell metachars is the documented contract every
+# downstream component depends on, even though the name is later passed to
+# useradd argv-literally (no shell eval). PURE (no getent) so it stays usable
+# during the DECIDE phase — adoption of an EXISTING system account (UID < 1000)
+# is a separate runtime check (remediate::user_adoptable).
 remediate::validate_user_name() {
   local name=${1:-}
   [[ -n "$name" ]] || return 1
   [[ "$name" =~ ^[a-z][a-z0-9_-]*$ ]] || return 1
+  # Case-insensitive reserved-name rejection (AC5). Lowercase once for the
+  # compare; the charset regex already forbids uppercase, but normalize anyway
+  # so the denylist is robust if the charset ever loosens.
+  local lower=${name,,}
+  # Any `systemd-*` account is a system identity — reject the whole prefix.
+  [[ "$lower" == systemd-* ]] && return 1
+  local reserved
+  for reserved in "${AGENTLINUX_RESERVED_USER_NAMES[@]}"; do
+    [[ "$lower" == "$reserved" ]] && return 1
+  done
+  return 0
+}
+
+# remediate::user_adoptable <name>
+# Runtime adoption-safety gate (D-AL50 AC5, T-AL50-01). If the name does NOT
+# exist, returns 0 (it will be created fresh by 10-agent-user.sh). If it DOES
+# exist, returns 0 only when its UID >= 1000 (a regular login account); a system
+# account (UID < 1000) returns 1 so the caller refuses to grant it NOPASSWD sudo
+# + overwrite its home. Reads getent/id — NOT pure, so call it at runtime (after
+# require_root), never during the DECIDE phase.
+remediate::user_adoptable() {
+  local name=${1:-}
+  [[ -n "$name" ]] || return 1
+  # Non-existent → safe to create.
+  getent passwd "$name" >/dev/null 2>&1 || return 0
+  local uid
+  uid=$(id -u "$name" 2>/dev/null || echo "")
+  [[ "$uid" =~ ^[0-9]+$ ]] || return 1
+  [[ "$uid" -ge 1000 ]] || return 1
   return 0
 }
 

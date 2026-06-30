@@ -28,10 +28,16 @@
 
 log_info "50-registry-cli: starting"
 
+# Resolved install user + home (AL-50/AL-59). The CLI symlink, .npm-global/bin
+# dir, and state-dir ownership all derive from the resolved user so an alternate
+# install user (INSTALL_USER != agent) gets a working `agentlinux` on its PATH.
+_AL_USER="${INSTALL_USER:-agent}"
+_AL_HOME="/home/${_AL_USER}"
+
 readonly CLI_STAGE_DIR="/opt/agentlinux/cli/${AGENTLINUX_VERSION}"
 readonly CATALOG_STAGE_DIR="/opt/agentlinux/catalog/${AGENTLINUX_VERSION}"
 readonly STATE_DIR="/opt/agentlinux/state"
-readonly SYMLINK="/home/agent/.npm-global/bin/agentlinux"
+readonly SYMLINK="${_AL_HOME}/.npm-global/bin/agentlinux"
 
 # Source directories: the installer was unpacked to a sibling of BIN_DIR
 # (BIN_DIR=plugin/bin, so plugin/ is its parent; cli/ and catalog/ are
@@ -100,36 +106,36 @@ chmod -R u=rwX,go=rX "$CATALOG_STAGE_DIR"
 # install.sh / uninstall.sh must be executable for the CLI dispatcher.
 find "$CATALOG_STAGE_DIR/agents" -name '*.sh' -exec chmod 0755 {} +
 
-# State directory — agent-owned so the CLI (runs as agent) can write sentinels
-# to installed.d/<id>.json via atomic rename. CAT-02 invariant: installed.d/
-# is created EMPTY — no provisioner in this phase or prior calls
-# `agentlinux install`. A fresh install has zero agents.
-ensure_dir "$STATE_DIR" 0755 agent:agent
-ensure_dir "$STATE_DIR/installed.d" 0755 agent:agent
+# State directory — owned by the install user (the CLI runs as that user) so it
+# can write sentinels to installed.d/<id>.json via atomic rename. CAT-02
+# invariant: installed.d/ is created EMPTY — no provisioner in this phase or
+# prior calls `agentlinux install`. A fresh install has zero agents.
+ensure_dir "$STATE_DIR" 0755 "${_AL_USER}:${_AL_USER}"
+ensure_dir "$STATE_DIR/installed.d" 0755 "${_AL_USER}:${_AL_USER}"
 
 # Symlink `agentlinux` into the agent's PATH.
 # - ln -sfn = force + no-deref: atomic replacement of existing symlink;
 #   does NOT chase through an existing symlink to the target (important
 #   when upgrading over an old 0.2.x install where symlink may exist).
 # - chown -h = change the symlink itself, not its target.
-# The agent's .npm-global/bin dir was created by Phase 3's 30-nodejs.sh.
+# The install user's .npm-global/bin dir was created by Phase 3's 30-nodejs.sh.
 # Its presence on PATH was wired by Phase 3's 40-path-wiring.sh extension.
-ensure_dir /home/agent/.npm-global/bin 0755 agent:agent
+ensure_dir "${_AL_HOME}/.npm-global/bin" 0755 "${_AL_USER}:${_AL_USER}"
 ln -sfn "$CLI_STAGE_DIR/dist/index.js" "$SYMLINK"
-chown -h agent:agent "$SYMLINK"
+chown -h "${_AL_USER}:${_AL_USER}" "$SYMLINK"
 log_info "symlinked ${SYMLINK} -> ${CLI_STAGE_DIR}/dist/index.js"
 
-# Sanity: confirm the symlink resolves and is executable AS AGENT (T-04-15
-# mitigation: a broken symlink here would silently break CLI-01 and every
-# downstream AGT-XX test in Phase 5).
+# Sanity: confirm the symlink resolves and is executable AS THE INSTALL USER
+# (T-04-15 mitigation: a broken symlink here would silently break CLI-01 and
+# every downstream AGT-XX test in Phase 5).
 #
 # NOTE on as_user invocation shape: plugin/lib/as_user.sh builds the sudo line
 # `sudo -u "$user" -H -E -- "$@"` — the `--` terminator is built in. Callers
 # MUST pass the command + args verbatim without prepending their own `--`;
-# a double-dash (`as_user agent -- test …`) resolves to `sudo … -- -- test …`,
+# a double-dash (`as_user "$u" -- test …`) resolves to `sudo … -- -- test …`,
 # which sudo parses as "command = --" → "command not found" exit 1.
-if ! as_user agent test -x "$SYMLINK"; then
-  log_error "agentlinux symlink not executable as agent user (CLI-01 regression)"
+if ! as_user "$_AL_USER" test -x "$SYMLINK"; then
+  log_error "agentlinux symlink not executable as install user '${_AL_USER}' (CLI-01 regression)"
   return 1
 fi
 
