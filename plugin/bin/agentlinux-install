@@ -334,8 +334,9 @@ run_provisioners() {
 # PATH match a normal agent `agentlinux` invocation. Best-effort: a failure here
 # must not fail an otherwise-successful install.
 run_agent_adoption() {
-  log_info "adopting pre-existing reuse-eligible agents (agentlinux adopt --all)"
-  as_user_login agent agentlinux adopt --all \
+  local _al_user="${INSTALL_USER:-agent}"
+  log_info "adopting pre-existing reuse-eligible agents as ${_al_user} (agentlinux adopt --all)"
+  as_user_login "$_al_user" agentlinux adopt --all \
     || log_warn "agentlinux adopt --all reported a problem (continuing; run it manually to retry)"
 }
 
@@ -344,16 +345,22 @@ run_agent_adoption() {
 #   1. per-agent uninstall.sh (needs /opt/agentlinux/catalog/ still present)
 #   2-4. rm /opt/agentlinux, PATH artefacts, NodeSource apt files
 #   5. (optional) apt-get purge nodejs when $1 == true
-#   6. userdel -r agent (pkill first to avoid "user is logged in")
+#   6. userdel -r <install-user> (pkill first to avoid "user is logged in")
 #   7. LAST — rm the install log, so the tee still has its file until the EXIT
 #      trap closes FDs and delivers EOF.
-# Security: every rm target is a LITERAL absolute path (no $VAR in rm -rf);
-# recipe paths derive from $AGENTLINUX_VERSION + sentinel basename (no eval on
-# agent-writable JSON); --remove-nodejs is opt-in.
+# Security: every rm target is a LITERAL absolute path (no $VAR in rm -rf); the
+# only $VAR'd target is the install-user home, fed ONLY to `userdel -r` (never
+# `rm -rf $VAR`) and charset-validated upstream (validate_user_name). Recipe
+# paths derive from $AGENTLINUX_VERSION + sentinel basename (no eval on
+# agent-writable JSON); --remove-nodejs is opt-in. The install user resolves the
+# same way as install (--user > AGENTLINUX_USER > agent) so purging an alt-user
+# install does not orphan files or fail to remove the user.
 run_purge() {
   local remove_nodejs=${1:-false}
+  local _al_user="${INSTALL_USER:-agent}"
+  local _al_home="/home/${_al_user}"
 
-  log_info "running --purge (destructive)"
+  log_info "running --purge (destructive) — install user '${_al_user}'"
 
   # Step 1: per-agent uninstall.sh for every sentinel. Look up recipe paths
   # from the catalog snapshot keyed by sentinel id — do NOT trust paths from
@@ -371,8 +378,8 @@ run_purge() {
         # as_user already appends `--`; don't pass a second one (sudo would try
         # to exec `--`). Recipes guard on ${AGENTLINUX_AGENT_HOME:?}; runner.ts
         # is gone during --purge, so provide it explicitly.
-        AGENTLINUX_AGENT_HOME=/home/agent \
-          as_user agent bash "$recipe" || log_warn "uninstall.sh for ${id} failed (continuing)"
+        AGENTLINUX_AGENT_HOME="$_al_home" \
+          as_user "$_al_user" bash "$recipe" || log_warn "uninstall.sh for ${id} failed (continuing)"
       else
         log_warn "no uninstall.sh for ${id} at ${recipe}; skipping"
       fi
@@ -405,15 +412,16 @@ run_purge() {
     DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true
   fi
 
-  # Step 6: remove agent user + /home/agent. pkill -u first to avoid "user is
+  # Step 6: remove the install user + its home. pkill -u first to avoid "user is
   # logged in" from userdel when an SSH/systemd-run scope is live (non-zero on
-  # no matches — ignore).
-  if id agent >/dev/null 2>&1; then
-    pkill -u agent 2>/dev/null || true
+  # no matches — ignore). userdel -r removes the home (the name is
+  # charset-validated, so it is safe as a userdel argument).
+  if id "$_al_user" >/dev/null 2>&1; then
+    pkill -u "$_al_user" 2>/dev/null || true
     sleep 1
-    if ! userdel -r agent 2>/dev/null; then
-      log_warn "userdel -r agent failed; trying userdel -rf"
-      userdel -rf agent 2>/dev/null || log_error "could not remove agent user"
+    if ! userdel -r "$_al_user" 2>/dev/null; then
+      log_warn "userdel -r ${_al_user} failed; trying userdel -rf"
+      userdel -rf "$_al_user" 2>/dev/null || log_error "could not remove install user '${_al_user}'"
     fi
   fi
 
