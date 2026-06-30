@@ -459,6 +459,22 @@ main() {
     run_purge "$REMOVE_NODEJS_REQUESTED"
     exit 0
   fi
+  # Interactive install-time user prompt (AC3). Fires ONLY on a TTY AND when no
+  # explicit --user flag / AGENTLINUX_USER env was supplied — this preserves AC1
+  # (non-TTY curl|bash keeps `agent`) and the explicit-choice path (no prompt).
+  # Runs BEFORE detect::run_once so detection probes the chosen user. Captured
+  # via command substitution (the function returns the name on stdout, never via
+  # export — the call goes through a pipe subshell). A typed name re-runs the
+  # adoption-safety gate (a system account is refused even when typed).
+  if [[ -t 0 ]] && [[ "$USER_EXPLICITLY_SET" != true ]]; then
+    # shellcheck source=../lib/prompt.sh
+    . "$LIB_DIR/prompt.sh"
+    INSTALL_USER="$(prompt::choose_install_user)"
+    if ! remediate::user_adoptable "$INSTALL_USER"; then
+      log_error "agentlinux-install: refusing to adopt existing system account '${INSTALL_USER}' (UID < 1000). Choose a name that is free or a regular login (UID >= 1000)."
+      exit "$EX_USAGE"
+    fi
+  fi
   # In --report-format=json mode the JSON object must be the only thing
   # downstream consumers see, so suppress the banner log_info calls and route
   # detection's logging to /dev/null (still tee'd to /var/log via the parent
