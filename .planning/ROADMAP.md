@@ -124,7 +124,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 **Plans**: 4 plans
 
 Plans:
-- [ ] 28-01-PLAN.md — Add "binary" to the source_kind enum (schema.json + types.ts) + unit test
+- [x] 28-01-PLAN.md — Add "binary" to the source_kind enum (schema.json + types.ts) + unit test
 - [ ] 28-02-PLAN.md — Shared prebuilt-binary helper (arch-detect + verify-before-extract + install + version-lock)
 - [ ] 28-03-PLAN.md — rtk recipe pair (install/uninstall) + catalog.json entry (source_kind binary, pin 0.42.4)
 - [ ] 28-04-PLAN.md — ENABLE-01/WORK-02/OPS-01 bats lifecycle test + docs/internals/catalog.md note
@@ -397,7 +397,7 @@ Plans:
 | 25. opencode | 0/TBD | Not started | - |
 | 26. qwen-code | 0/TBD | Not started | - |
 | 27. ccusage | 0/TBD | Not started | - |
-| 28. rtk 🔧 | 0/TBD | Not started | - |
+| 28. rtk 🔧 | 1/4 | In Progress|  |
 | 29. gh | 0/TBD | Not started | - |
 | 30. glab | 0/TBD | Not started | - |
 | 31. trivy | 0/TBD | Not started | - |

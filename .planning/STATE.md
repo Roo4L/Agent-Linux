@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v0.3.6
 milestone_name: Catalog Expansion
 status: executing
-stopped_at: Completed 15-02-PLAN.md
-last_updated: "2026-06-30T18:24:51.098Z"
+stopped_at: Completed 28-01-PLAN.md
+last_updated: "2026-06-30T18:41:04.931Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 28
   completed_phases: 0
   total_plans: 7
-  completed_plans: 5
-  percent: 71
+  completed_plans: 6
+  percent: 86
 ---
 
 # Project State
@@ -37,9 +37,9 @@ Milestone: v0.3.6 Catalog Expansion — **in progress** (5/27 phases, 2026-06-29
 
 **Cross-agent skill wiring (WIRE-01) — 2026-06-30.** Second maintainer ask: GSD/Playwright should install their skills into *every* shipped coding agent, not just Claude Code, order-independently. Finding: **GSD's bootstrapper is natively multi-runtime** — the gsd recipe now calls `--claude --opencode --gemini --codex --qwen` (GSD owns per-tool conversion); lands gsd commands/skills under each agent's own dir (opencode `command/`, gemini `commands/gsd/`, codex+qwen `skills/`), unconditionally → install-order-independent, with symmetric multi-target uninstall (all 5 surfaces → 0 on remove, verified). **Playwright** has no multi-agent support, so AgentLinux mirrors its Claude skill into the cross-tool `~/.agents/skills/` scan path (honored by codex + opencode; opencode also reads `~/.claude/skills/` natively); gemini/qwen are **N/A** (no skill host — documented). New `tests/bats/56-catalog-skill-wiring.bats` (2 @tests, green) asserts both providers wire + tear down across all targets. Requirements widened: **ENABLE-08** + **WIRE-01** added to REQUIREMENTS.md (+ traceability rows; AGT-05/06/08 annotated). *Known follow-up:* installing GSD *after* a tool re-writes that tool's settings.json — needs a check that GSD's writer preserves our freeze key (or a reconcile pass); low-risk corner case, candidate Jira sub-task.
 
-Phase: 28 (rtk 🔧 — WORK-02 + ENABLE-01 prebuilt-binary installer) — NEXT, not yet planned. This is the first **architectural** machinery phase (new prebuilt-binary `source_kind` + checksum verification + `~/.local/bin` install) — the batch+checkpoint pause point.
-Plan: 0 of TBD — Phase 28 awaiting plan breakdown.
-Status: Ready to execute
+Phase: 28 (rtk 🔧 — WORK-02 + ENABLE-01 prebuilt-binary installer) — IN PROGRESS. The first **architectural** machinery phase (new prebuilt-binary `source_kind` + checksum verification + `~/.local/bin` install). Plan 28-01 (schema enum + types union + unit coverage) COMPLETE.
+Plan: 28-01 ✓ complete (1 of 4) — `source_kind` enum extended to `["npm","script","binary"]` in `plugin/catalog/schema.json` + `CatalogEntry.source_kind` union in `plugin/cli/src/types.ts`; new `catalog-binary.json` fixture + extended `schema.test.ts` prove a binary entry validates and the enum negative test advertises `"binary"` (schema suite 8/8 green). NO declarative release/asset/checksum schema fields — per RESEARCH §Alternatives Considered, binary fetch logic lives in the recipe + shared bash helper (28-02). No catalog/package version bump (version-lockstep intact). Two atomic commits (hooks on, pre-commit green): 141673b (feat enum+union), 800851f (test fixture+coverage). One Rule 3 auto-fix: the schema unit test was silently validating a stale staged `/opt/agentlinux/catalog/0.3.4/schema.json` (this host has a leftover real install at the same version as `package.json`); pinned `AGENTLINUX_CATALOG_DIR` to the repo schema in `schema.test.ts` so the suite is hermetic. Pre-existing out-of-scope `install.test.js` process-level failure logged to `deferred-items.md` (not caused by, nor in scope of, 28-01). Next: 28-02 shared `prebuilt-binary.sh` helper.
+Status: Ready to execute (28-02 next)
 
 **Known issue (flagged for milestone audit):** v0.3.6 reassigned AGT-05/06/08 to new tools, but the archived Phase 5 suite `tests/bats/50-agents.bats` still cites AGT-05 for playwright-cli — a requirement-ID collision across milestones (consider namespacing IDs per milestone). Does not affect cluster coverage.
 
