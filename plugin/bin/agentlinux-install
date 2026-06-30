@@ -165,7 +165,14 @@ REMOVE_NODEJS_REQUESTED=false
 # the renderer (text/json); INSTALL_USER is the user passed to detect::run_once.
 REPORT_ONLY=false
 REPORT_FORMAT=text
+# INSTALL_USER resolution precedence (AL-50): explicit --user flag >
+# AGENTLINUX_USER env > interactive prompt (Task 2) > default `agent`. The env
+# fallback is applied AFTER parse_args (so an explicit --user always wins);
+# USER_EXPLICITLY_SET records that a flag OR env supplied the value, which
+# suppresses the Task 2 interactive prompt. Both the flag and the env value are
+# validated at parse time — an invalid name exits 64 before any host mutation.
 INSTALL_USER=agent
+USER_EXPLICITLY_SET=false
 # --yes authorizes state-overwriting Remediate actions in non-TTY mode.
 # YES_FLAG_EXPLICIT_NO records --no-yes so a later --yes is rejected as
 # contradictory — argv must be unambiguous, no "last flag wins".
@@ -217,6 +224,7 @@ parse_args() {
         ;;
       --user=*)
         INSTALL_USER="${1#*=}"
+        USER_EXPLICITLY_SET=true
         ;;
       --user)
         shift
@@ -225,6 +233,7 @@ parse_args() {
           exit "$EX_USAGE"
         }
         INSTALL_USER="$1"
+        USER_EXPLICITLY_SET=true
         ;;
       --yes)
         # --no-yes-then-yes is contradictory: exit rather than last-flag-wins.
@@ -415,7 +424,37 @@ run_purge() {
 
 main() {
   parse_args "$@"
+  # Source the remediate lib up front for validate_user_name + user_adoptable.
+  # Idempotent (source-once guard) — the later `. remediate.sh` in the
+  # DECIDE-THEN-ACT block is a no-op, so this does not reset RESOLUTIONS.
+  # shellcheck source=../lib/remediate.sh
+  . "$LIB_DIR/remediate.sh"
+  # AGENTLINUX_USER env fallback (AL-50): honored only when no explicit --user
+  # flag was supplied, so the flag always wins. An env-supplied value sets
+  # USER_EXPLICITLY_SET too — it counts as an explicit choice, so the Task 2
+  # interactive prompt is skipped and AC1 (non-TTY default `agent`) is preserved.
+  if [[ "$USER_EXPLICITLY_SET" != true && -n "${AGENTLINUX_USER:-}" ]]; then
+    INSTALL_USER="$AGENTLINUX_USER"
+    USER_EXPLICITLY_SET=true
+  fi
+  # Parse-time validation (AC5) for BOTH the --user and AGENTLINUX_USER paths.
+  # Runs before require_root / any mutation; an invalid name exits 64 (EX_USAGE).
+  if [[ "$USER_EXPLICITLY_SET" == true ]]; then
+    if ! remediate::validate_user_name "$INSTALL_USER"; then
+      log_error "agentlinux-install: invalid install-user name '${INSTALL_USER}' — must match ^[a-z][a-z0-9_-]*\$ and must not be root or a reserved/system account"
+      exit "$EX_USAGE"
+    fi
+  fi
   require_root
+  # Adoption-safety gate (AC5, T-AL50-01): refuse to adopt an EXISTING system
+  # account (UID < 1000) — that would grant NOPASSWD sudo + overwrite a
+  # daemon/system home. A non-existent name (created fresh) and a regular login
+  # (UID >= 1000, adopted) both pass. Runs before detect::run_once so identity
+  # is settled before any decision. The Task 2 prompt re-checks a typed name.
+  if ! remediate::user_adoptable "$INSTALL_USER"; then
+    log_error "agentlinux-install: refusing to adopt existing system account '${INSTALL_USER}' (UID < 1000). Choose a name that is free or a regular login (UID >= 1000)."
+    exit "$EX_USAGE"
+  fi
   if [[ $PURGE_REQUESTED == true ]]; then
     run_purge "$REMOVE_NODEJS_REQUESTED"
     exit 0
