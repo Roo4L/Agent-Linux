@@ -39,28 +39,50 @@ _rm_path() {
 
 echo "gsd: removing get-shit-done-cc"
 
-# Step 1: ask the bootstrapper to undo what install.sh wired into ~/.claude/.
-# Mirrors the install path's `--global --claude` invocation. Failure is
-# non-fatal — the bootstrapper may be a future version that drops the flag
-# or the user may have already removed bits manually; the defensive cleanup
-# below catches whatever remains.
+# Step 1: ask the bootstrapper to undo what install.sh wired into every agent.
+# Mirrors the install path's `--global --claude --opencode --gemini --codex
+# --qwen` invocation (WIRE-01). Failure is non-fatal — the bootstrapper may be
+# a future version that drops a flag, or the user may have already removed bits
+# manually; the defensive cleanup below catches whatever remains.
 if command -v get-shit-done-cc >/dev/null 2>&1; then
-  get-shit-done-cc --global --claude --uninstall \
+  get-shit-done-cc --global --claude --opencode --gemini --codex --qwen --uninstall \
     || echo "gsd uninstall: bootstrapper --uninstall returned non-zero (continuing)" >&2
 fi
 
-# Step 2: defensive cleanup of GSD-installed Claude Code state. The
-# bootstrapper's `--uninstall` is best-effort, so sweep the gsd-* skill dirs
-# ourselves; leave settings.json + hooks alone (user-edited surface). Looping
-# (not find -exec) so each match runs through _should_remove. These dirs live
-# under ~/.claude/, not a preserved root, so the gate lets rm proceed.
-while IFS= read -r -d '' skill_dir; do
-  if _should_remove "$skill_dir"; then
-    rm -rf -- "$skill_dir" 2>/dev/null || true
-  else
-    echo "gsd uninstall: preserving ${skill_dir} (AGENTLINUX_PRESERVE_PATHS)"
-  fi
-done < <(find "${AGENTLINUX_AGENT_HOME}/.claude/skills" -maxdepth 1 -type d -name 'gsd-*' -print0 2>/dev/null)
+# Step 2: defensive cleanup of GSD-installed state across ALL shipped agents
+# (WIRE-01). The bootstrapper's `--uninstall` is best-effort, so sweep the GSD
+# surfaces ourselves: each agent's gsd-* command/skill entries plus the
+# per-tool `get-shit-done/` payload dir. Looping (not find -exec) so every match
+# runs through _should_remove; none of these live under a preserved root, so the
+# gate lets rm proceed. Anchored on `gsd-*`/`get-shit-done` so unrelated
+# user-authored commands/skills are never collateral damage. Each sweep root is
+# a (dir, find-args) pair.
+_sweep() {
+  local root=$1
+  shift
+  [[ -d $root ]] || return 0
+  local match
+  while IFS= read -r -d '' match; do
+    if _should_remove "$match"; then
+      rm -rf -- "$match" 2>/dev/null || true
+    else
+      echo "gsd uninstall: preserving ${match} (AGENTLINUX_PRESERVE_PATHS)"
+    fi
+  done < <(find "$root" "$@" -print0 2>/dev/null)
+}
+
+H="${AGENTLINUX_AGENT_HOME}"
+_sweep "${H}/.claude/skills" -maxdepth 1 -type d -name 'gsd-*'
+_sweep "${H}/.config/opencode/command" -maxdepth 1 -type f -name 'gsd-*.md'
+_sweep "${H}/.config/opencode" -maxdepth 1 -type d -name 'get-shit-done'
+# -maxdepth 2 mirrors the install-side assertion (gsd/install.sh) so a deeper
+# namespacing by a future GSD pin is torn down symmetrically, not orphaned.
+_sweep "${H}/.gemini/commands" -maxdepth 2 -type d -name 'gsd'
+_sweep "${H}/.gemini" -maxdepth 1 -type d -name 'get-shit-done'
+_sweep "${H}/.codex/skills" -maxdepth 1 -type d -name 'gsd-*'
+_sweep "${H}/.codex" -maxdepth 1 -type d -name 'get-shit-done'
+_sweep "${H}/.qwen/skills" -maxdepth 1 -type d -name 'gsd-*'
+_sweep "${H}/.qwen" -maxdepth 1 -type d -name 'get-shit-done'
 
 # Step 3: npm uninstall -g on a missing package exits 0 with "up to date"
 # — idempotent. Real truth check is `command -v` below.

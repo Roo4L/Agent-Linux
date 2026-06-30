@@ -44,13 +44,16 @@ fi
 # user-authored dir isn't collateral damage. Looping (not find -exec) so each
 # entry runs through _should_remove; these dirs aren't in the preserve set, so
 # rm proceeds.
+# WIRE-01: also tear down the cross-agent mirror under ~/.agents/skills/
+# (codex/opencode shared skill scan path) that install.sh created. Same
+# `playwright-cli`-anchored match + preserve gate as the ~/.claude/skills sweep.
 while IFS= read -r -d '' skill_dir; do
   if _should_remove "$skill_dir"; then
     rm -rf -- "$skill_dir" || true
   else
     echo "playwright-cli uninstall: preserving ${skill_dir} (AGENTLINUX_PRESERVE_PATHS)"
   fi
-done < <(find "${AGENTLINUX_AGENT_HOME}/.claude/skills" -maxdepth 1 -type d -name 'playwright-cli*' -print0 2>/dev/null)
+done < <(find "${AGENTLINUX_AGENT_HOME}/.claude/skills" "${AGENTLINUX_AGENT_HOME}/.agents/skills" -maxdepth 1 -type d -name 'playwright-cli*' -print0 2>/dev/null)
 
 # Step 3: npm uninstall -g. Idempotent on missing package.
 npm uninstall -g @playwright/cli --no-fund --no-audit >/dev/null 2>&1 || true

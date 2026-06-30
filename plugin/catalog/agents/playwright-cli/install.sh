@@ -73,4 +73,27 @@ if ! find "$skill_dir" -maxdepth 1 -type d -name 'playwright-cli*' -print -quit 
   exit 1
 fi
 
-echo "playwright-cli: install complete (binary at ${bin_path}; skill wired into ${skill_dir}/playwright-cli)"
+# WIRE-01 (cross-agent skill wiring): the Claude-format skill the bootstrapper
+# just dropped is portable as-is to the other coding agents AgentLinux ships —
+# its SKILL.md (a directory with YAML `name`/`description` frontmatter) is the
+# same shape codex and opencode read. We mirror it into the cross-tool
+# `~/.agents/skills/` convention, which BOTH codex and opencode scan for
+# user-level skills. opencode additionally reads `~/.claude/skills/` directly,
+# so it is already covered; the copy is what lights the skill up inside codex.
+# The copy is UNCONDITIONAL (independent of whether codex/opencode are installed
+# yet) so the wiring is install-order-independent: a codex installed later finds
+# the skill already present. gemini-cli and qwen-code have no skill host (only
+# prompt-style commands), so Playwright is not-applicable there — a multi-file
+# skill with a references/ tree does not round-trip to a single command prompt.
+wire_agents_skills_dir="${AGENTLINUX_AGENT_HOME}/.agents/skills"
+mkdir -p "$wire_agents_skills_dir"
+while IFS= read -r -d '' pw_skill; do
+  dest="${wire_agents_skills_dir}/$(basename "$pw_skill")"
+  # Refresh idempotently: drop a stale copy, then re-copy the current skill so a
+  # pin bump (newer SKILL.md / references/) propagates on reinstall.
+  rm -rf -- "$dest"
+  cp -R -- "$pw_skill" "$dest"
+  echo "playwright-cli: mirrored skill into ${dest} (codex/opencode ~/.agents/skills scan)"
+done < <(find "$skill_dir" -maxdepth 1 -type d -name 'playwright-cli*' -print0 2>/dev/null)
+
+echo "playwright-cli: install complete (binary at ${bin_path}; skill wired into ${skill_dir}/playwright-cli + ${wire_agents_skills_dir})"
