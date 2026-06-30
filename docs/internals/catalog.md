@@ -100,6 +100,48 @@ at install time, leaving the curated pin authoritative and routing all
 version changes through `agentlinux upgrade`. The explicit, operator-run
 update path is untouched — only the silent one is frozen.
 
+## Source kinds: npm, script, and prebuilt binary
+
+Not every tool ships on npm. Some of the most useful developer CLIs are
+distributed only as a compiled, per-architecture binary attached to a
+GitHub release. The catalog's `source_kind` field names how an entry is
+installed, and it now understands three values:
+
+- `npm` — install the pinned package into the agent-owned npm prefix.
+- `script` — run the upstream's own install script (how Claude Code
+  installs).
+- `binary` — fetch a pinned release artifact, verify its checksum, and
+  drop the binary into the agent's own `~/.local/bin`.
+
+The prebuilt-binary kind is the one that needs the most care, because
+"download a binary from the internet and run it" is exactly where a
+supply-chain mistake does the most damage. AgentLinux installs a binary
+the same disciplined way its own curl-installer verifies a release: the
+asset is staged to a scratch directory, its gzip signature and its
+SHA-256 are checked against the release's published `checksums.txt`
+**before anything is extracted**, and any mismatch aborts the install
+without unpacking or replacing a single file. Verification happens
+before extraction, never after.
+
+The mechanics live in one shared helper,
+`plugin/catalog/lib/prebuilt-binary.sh`, that every binary recipe
+sources. It maps the running architecture to the right release asset,
+performs the verify-before-extract download, installs the binary
+`0755` into `~/.local/bin` — agent-owned, no root, and deliberately no
+`/usr/local/bin` shim (the shim is the anti-pattern that breaks a
+tool's own self-update) — then asserts the installed binary reports the
+pinned version. Because the helper is generic over
+repo/tag/asset/binary-name, adding the next binary-distributed tool is
+a catalog entry plus a thin recipe, with no shared code to touch.
+
+`rtk` (the Rust Token Killer, a token-optimizing CLI proxy) is the
+first tool installed this way. Its entry pins an exact release, its
+recipe is a handful of lines over the shared helper, and its optional
+Claude Code hook is strictly opt-in — installing `rtk` never writes to
+`~/.claude` on its own; a user runs `rtk init` themselves if they want
+it, and `agentlinux remove rtk` reverts that hook along with the binary
+and rtk's own config and cache, leaving no residue behind.
+
 ## Worked example
 
 ```
