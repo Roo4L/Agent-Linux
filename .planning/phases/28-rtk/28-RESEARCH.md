@@ -422,7 +422,7 @@ we pin one minor behind per ADR-011 curation).
 | A2 | OPS-01 minimal op for rtk = a local offline proxy command (e.g. `rtk ls <dir>` or `rtk gain`), no credential | Validation Architecture | LOW — Appendix C explicitly lists rtk as "no credential (offline/local ops)"; exact subcommand is the planner's choice. |
 | A3 | rtk's `--opencode`/`--gemini`/`--codex` init variants need symmetric `--uninstall` flags only if the install opted into them; default opt-in covers claude only | Runtime State Inventory | LOW — post-install instruction defaults to `rtk init -g` (claude); defensive uninstall can run the common flags. Verified `--uninstall` accepts the same mode flags. |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
 1. **Shared helper vs. inline-then-extract**
    - What we know: `cp -R "$CATALOG_SRC"/.` stages any new `lib/` subdir with no provisioner edit; a sourced (non-`+x`) helper works.
