@@ -10,7 +10,7 @@ export interface CatalogEntry {
   description: string;
   homepage?: string;
   license?: string;
-  source_kind: "npm" | "script";
+  source_kind: "npm" | "script" | "binary";
   npm_package_name?: string; // required when source_kind === 'npm' (allOf clause)
   pinned_version: string; // exact semver — CAT-04 / ADR-011
   version_constraint?: string; // e.g. '^2.1' — --all-latest upper-bound
