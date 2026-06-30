@@ -52,9 +52,14 @@ teardown_file() {
 }
 
 # Run the alt-user install once; idempotent re-runs are harmless. Tests that
-# need the alt-user state call this first.
+# need the alt-user state call this first. `--yes` is required: the harness has
+# already installed the default `agent`, so switching the shared artefacts
+# (sudoers line, /etc/agentlinux.env, npm prefix) to the alt user is a
+# state-changing remediation that the v0.3.4 aware installer gates behind
+# explicit consent (it otherwise bails exit 65). AL-50 adds --user; it does not
+# relax that consent gate.
 _install_alt_user() {
-  run bash "$INSTALLER" --user="$ALT_USER"
+  run bash "$INSTALLER" --user="$ALT_USER" --yes
   assert_exit_zero "INST-07"
 }
 
@@ -95,6 +100,28 @@ _install_alt_user() {
     ! grep -Eq "^${bad}[[:space:]]" /etc/sudoers.d/agentlinux 2>/dev/null \
       || __fail "INST-07" "sudoers not granted to invalid '${bad}'" "$(cat /etc/sudoers.d/agentlinux)" /etc/sudoers.d/agentlinux
   done
+}
+
+# ---------------------------------------------------------------------------
+# AC5 — an EXISTING system account (uid<1000) is refused adoption with exit 64.
+# This exercises remediate::user_adoptable, the runtime gate the charset/reserved
+# denylist above never reaches: `svcacct` passes validate_user_name (valid
+# charset, not reserved), so user_adoptable is the only thing standing between a
+# stray system account and a NOPASSWD: ALL grant / clobbered home. Exit 64 fires
+# after require_root but before any provisioner, so no mutation occurs.
+# ---------------------------------------------------------------------------
+@test "INST-07: AC5 existing system account (uid<1000) refused adoption with exit 64" {
+  if ! id svcacct >/dev/null 2>&1; then
+    useradd -r svcacct >/dev/null 2>&1 || true
+  fi
+  [[ "$(id -u svcacct)" -lt 1000 ]] \
+    || __fail "INST-07" "svcacct is a uid<1000 system account" "uid=$(id -u svcacct)" "$LOG"
+  run bash "$INSTALLER" --user=svcacct
+  [[ "$status" -eq 64 ]] \
+    || __fail "INST-07" "exit 64 adopting uid<1000 svcacct" "status=${status}; output: ${output}" "$LOG"
+  # The gate fires before mutation: sudoers was not granted to svcacct.
+  ! grep -Eq '^svcacct[[:space:]]' /etc/sudoers.d/agentlinux 2>/dev/null \
+    || __fail "INST-07" "sudoers not granted to svcacct" "$(cat /etc/sudoers.d/agentlinux)" /etc/sudoers.d/agentlinux
 }
 
 # ---------------------------------------------------------------------------
@@ -151,7 +178,7 @@ _install_alt_user() {
 # AC2 — AGENTLINUX_USER=NAME env (no flag) honored identically.
 # ---------------------------------------------------------------------------
 @test "INST-07: AC2 AGENTLINUX_USER env (no flag) honored identically to --user" {
-  run env AGENTLINUX_USER="$ALT_USER" bash "$INSTALLER"
+  run env AGENTLINUX_USER="$ALT_USER" bash "$INSTALLER" --yes
   assert_exit_zero "INST-07"
   grep -Fxq "AGENTLINUX_USER=${ALT_USER}" /etc/agentlinux.env \
     || __fail "INST-07" "env-driven install wrote AGENTLINUX_USER=${ALT_USER}" "$(cat /etc/agentlinux.env)" /etc/agentlinux.env
@@ -168,11 +195,15 @@ _install_alt_user() {
   for f in /etc/sudoers.d/agentlinux /etc/agentlinux.env /etc/profile.d/agentlinux.sh \
     /etc/cron.d/agentlinux "/home/${ALT_USER}/.npmrc"; do
     [[ -f "$f" ]] || __fail "INST-07" "artefact ${f} present" "missing" "$LOG"
-    # Case-sensitive: the word `agent` (bare) and /home/agent must NOT appear.
-    # `AgentLinux` / `AGENTLINUX_*` (capitalized) and `agentlinux` (no boundary)
-    # are intentionally NOT matched by \bagent\b.
-    if grep -nE '\bagent\b|/home/agent' "$f"; then
-      __fail "INST-07" "no leftover 'agent'/'home/agent' in ${f}" "$(grep -nE '\bagent\b|/home/agent' "$f" | head -3)" "$f"
+    # Case-sensitive: the word `agent` (bare) and /home/agent must NOT appear as
+    # install wiring. `AgentLinux` / `AGENTLINUX_*` (capitalized) and `agentlinux`
+    # (no word boundary) are intentionally NOT matched by \bagent\b. The sudoers
+    # header cites ADR `012-agent-user-full-sudo.md` — an immutable documentation
+    # reference, not a hardcoded install user — so that one line is whitelisted.
+    local leftovers
+    leftovers=$(grep -nE '\bagent\b|/home/agent' "$f" | grep -vF 'agent-user-full-sudo.md' || true)
+    if [[ -n "$leftovers" ]]; then
+      __fail "INST-07" "no leftover 'agent'/'home/agent' in ${f}" "$(printf '%s' "$leftovers" | head -3)" "$f"
     fi
   done
 }
@@ -184,7 +215,7 @@ _install_alt_user() {
 @test "INST-07: AC3 interactive prompt provisions under the typed name" {
   # No --user / AGENTLINUX_USER → main() fires prompt::choose_install_user on a
   # TTY. Feed the alt user name + newline.
-  run python3 "$TTY_DRIVER" "${ALT_USER}\n" -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" "${ALT_USER}\n" -- bash "$INSTALLER" --yes
   [[ "$status" -eq 0 ]] \
     || __fail "INST-07" "interactive install exit 0" "status=${status}; output: ${output}" "$LOG"
   printf '%s' "$output" | grep -q 'Install AgentLinux under which user?' \
