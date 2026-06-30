@@ -31,6 +31,24 @@ function resolveFixturesDir(): string {
 }
 const FIXTURES = resolveFixturesDir();
 
+// Pin the validator to the REPO's plugin/catalog/schema.json — the source of
+// truth this suite exercises — rather than whatever may be staged under
+// /opt/agentlinux/catalog/<ver>/ on the build host. getValidator() consults
+// AGENTLINUX_CATALOG_DIR before its production default, so setting it here at
+// module load (before any getValidator() call) keeps the schema tests hermetic
+// regardless of an ambient AgentLinux install on the test machine.
+function resolveRepoCatalogDir(): string {
+  for (let depth = 0; depth <= 6; depth++) {
+    const up = Array(depth).fill("..");
+    const candidate = join(HERE, ...up, "catalog", "schema.json");
+    if (existsSync(candidate)) return dirname(candidate);
+    const pluginSide = join(HERE, ...up, "plugin", "catalog", "schema.json");
+    if (existsSync(pluginSide)) return dirname(pluginSide);
+  }
+  throw new Error(`cannot locate plugin/catalog/schema.json from ${HERE}`);
+}
+process.env.AGENTLINUX_CATALOG_DIR = resolveRepoCatalogDir();
+
 function loadFixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
 }
@@ -75,6 +93,15 @@ describe("ajv catalog schema (CAT-03 / CAT-04)", () => {
     const allowed =
       (enumErr?.params as { allowedValues?: string[] } | undefined)?.allowedValues ?? [];
     assert.ok(allowed.includes("npm") && allowed.includes("script"));
+    // ENABLE-01: "binary" is now a first-class dispatchable source_kind.
+    assert.ok(allowed.includes("binary"), `expected "binary" among allowed; got ${allowed}`);
+  });
+
+  test("accepts well-formed catalog with a binary entry", async () => {
+    const validate = await getValidator();
+    const catalog = loadFixture("catalog-binary.json");
+    const ok = validate(catalog);
+    assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
   });
 
   test("accepts well-formed catalog with mixed npm + script entries", async () => {
