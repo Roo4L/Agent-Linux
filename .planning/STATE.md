@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v0.3.6
 milestone_name: Catalog Expansion
-status: executing
-stopped_at: Completed 28-01-PLAN.md
-last_updated: "2026-06-30T18:41:04.931Z"
+status: verifying
+stopped_at: Completed 28-02-PLAN.md
+last_updated: "2026-06-30T18:48:22.466Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 28
   completed_phases: 0
   total_plans: 7
-  completed_plans: 6
-  percent: 86
+  completed_plans: 7
+  percent: 100
 ---
 
 # Project State
@@ -39,7 +39,7 @@ Milestone: v0.3.6 Catalog Expansion — **in progress** (5/27 phases, 2026-06-29
 
 Phase: 28 (rtk 🔧 — WORK-02 + ENABLE-01 prebuilt-binary installer) — IN PROGRESS. The first **architectural** machinery phase (new prebuilt-binary `source_kind` + checksum verification + `~/.local/bin` install). Plan 28-01 (schema enum + types union + unit coverage) COMPLETE.
 Plan: 28-01 ✓ complete (1 of 4) — `source_kind` enum extended to `["npm","script","binary"]` in `plugin/catalog/schema.json` + `CatalogEntry.source_kind` union in `plugin/cli/src/types.ts`; new `catalog-binary.json` fixture + extended `schema.test.ts` prove a binary entry validates and the enum negative test advertises `"binary"` (schema suite 8/8 green). NO declarative release/asset/checksum schema fields — per RESEARCH §Alternatives Considered, binary fetch logic lives in the recipe + shared bash helper (28-02). No catalog/package version bump (version-lockstep intact). Two atomic commits (hooks on, pre-commit green): 141673b (feat enum+union), 800851f (test fixture+coverage). One Rule 3 auto-fix: the schema unit test was silently validating a stale staged `/opt/agentlinux/catalog/0.3.4/schema.json` (this host has a leftover real install at the same version as `package.json`); pinned `AGENTLINUX_CATALOG_DIR` to the repo schema in `schema.test.ts` so the suite is hermetic. Pre-existing out-of-scope `install.test.js` process-level failure logged to `deferred-items.md` (not caused by, nor in scope of, 28-01). Next: 28-02 shared `prebuilt-binary.sh` helper.
-Status: Ready to execute (28-02 next)
+Status: Phase complete — ready for verification
 
 **Known issue (flagged for milestone audit):** v0.3.6 reassigned AGT-05/06/08 to new tools, but the archived Phase 5 suite `tests/bats/50-agents.bats` still cites AGT-05 for playwright-cli — a requirement-ID collision across milestones (consider namespacing IDs per milestone). Does not affect cluster coverage.
 
@@ -123,6 +123,7 @@ Progress: [░░░░░░░░░░] 0% (0 of ~12 v0.3.4 plans done; v0.3.
 | Phase 15-preflight-ux P01 | 4h 10m | 2 tasks | 13 files |
 | Phase Phase 15-preflight-ux PP02 | 3h | 2 tasks tasks | 11 files files |
 | Phase 16-documentation-brownfield-acceptance P01 | 33min | 2 tasks | 3 files |
+| Phase 28 P02 | 3min | 2 tasks | 1 files |
 
 ## Accumulated Context
 
@@ -354,6 +355,7 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - [Phase ?]: Plan 15-01: --dry-run flag on both bash + TS halves; TTY per-action prompts with decline-and-continue (reused-with-warning sentinel); symmetric --dry-run + --yes contradiction rejection
 - [Phase ?]: Plan 16-01: README mid-doc placement (D-16-01) + relative-path link to MIGRATION.md (T-16-01-03)
 - [Phase ?]: Plan 16-01: 4 mandatory scenarios B/A/C/D in difficulty order with spec letters preserved in anchors (D-16-07)
+- [Phase 28]: Prebuilt-binary helper is a sourced (non-+x) bash lib at plugin/catalog/lib/prebuilt-binary.sh with no top-level set -euo pipefail; each al_pb_* function returns non-zero so the sourcing recipe aborts
 
 ### Key Infrastructure Details
 
@@ -392,6 +394,6 @@ Items acknowledged and deferred at v0.3.4 milestone close on 2026-05-27:
 
 ## Session Continuity
 
-Last session: 2026-05-26T13:31:26.613Z
-Stopped at: Completed 15-02-PLAN.md
+Last session: 2026-06-30T18:48:22.377Z
+Stopped at: Completed 28-02-PLAN.md
 Resume file: None
