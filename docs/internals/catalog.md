@@ -117,8 +117,9 @@ The prebuilt-binary kind is the one that needs the most care, because
 "download a binary from the internet and run it" is exactly where a
 supply-chain mistake does the most damage. AgentLinux installs a binary
 the same disciplined way its own curl-installer verifies a release: the
-asset is staged to a scratch directory, its gzip signature and its
-SHA-256 are checked against the release's published `checksums.txt`
+asset is staged to a scratch directory, its gzip magic bytes are
+checked, and its SHA-256 is verified against the release's published
+`checksums.txt`
 **before anything is extracted**, and any mismatch aborts the install
 without unpacking or replacing a single file. Verification happens
 before extraction, never after.
