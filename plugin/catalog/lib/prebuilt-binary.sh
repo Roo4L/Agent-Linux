@@ -94,3 +94,80 @@ al_pb_fetch_and_verify() {
 
   return 0
 }
+
+# al_pb_extract_install <tmpdir> <asset> <bin_path_in_archive> <bin_name> <dest_dir>
+# Extract ONLY <bin_path_in_archive> from the (already-verified) <asset> tarball and
+# install it 0755 as <dest_dir>/<bin_name>. <bin_path_in_archive> handles per-tool
+# archive-layout variety (RESEARCH Pattern 3): rtk is a flat top-level `rtk`; future
+# tools may nest (e.g. `gh_2.95.0_linux_amd64/bin/gh`). MUST run only AFTER
+# al_pb_fetch_and_verify succeeds. `--no-same-owner` defends against forged owner
+# metadata inside the tarball (V10); `install -m 0755` sets an explicit mode.
+al_pb_extract_install() {
+  local tmp="$1" asset="$2" bin_path="$3" bin_name="$4" dest="$5"
+
+  mkdir -p "$dest" \
+    || {
+      al_pb_die "could not create dest dir ${dest}"
+      return 1
+    }
+  tar -xzf "${tmp}/${asset}" -C "$tmp" --no-same-owner "$bin_path" \
+    || {
+      al_pb_die "tar extraction failed for ${bin_path} from ${asset}"
+      return 1
+    }
+  install -m 0755 "${tmp}/${bin_path}" "${dest}/${bin_name}" \
+    || {
+      al_pb_die "install of ${bin_name} into ${dest} failed"
+      return 1
+    }
+
+  return 0
+}
+
+# al_pb_assert_version <bin_name> <pinned>
+# Version-lock assert: refresh the command hash table, then require the installed
+# binary's `--version` output to contain the pinned version. Guards against a
+# wrong-arch / wrong-tool binary slipping through (T-28-05). <bin_name> must be on
+# PATH (the dest_dir is on the agent's PATH in all six invocation modes).
+al_pb_assert_version() {
+  local bin_name="$1" pinned="$2" got
+  hash -r
+  got="$("$bin_name" --version 2>&1 | head -1)"
+  printf '%s' "$got" | grep -qF -- "$pinned" \
+    || {
+      al_pb_die "${bin_name}: pinned=${pinned} but --version: ${got}"
+      return 1
+    }
+  printf 'prebuilt-binary: %s installed (%s)\n' "$bin_name" "$got"
+  return 0
+}
+
+# al_pb_install <tool> <repo> <tag> <bin_path_in_archive> <bin_name> <dest_dir>
+# Public orchestrator: detect the per-arch asset, stage a self-cleaning tmpdir,
+# fetch + verify (BEFORE extract), extract + install the named binary, then assert
+# the pinned version. Any step's failure returns non-zero so the sourcing recipe
+# aborts. Uses `trap ... RETURN` (NOT EXIT) because this helper is sourced into a
+# longer-lived recipe shell — EXIT would defer cleanup to the recipe's own exit.
+al_pb_install() {
+  local tool="$1" repo="$2" tag="$3" bin_path="$4" bin_name="$5" dest="$6"
+  local asset base tmp
+
+  asset=$(al_pb_detect_asset "$tool") || return 1
+
+  tmp=$(mktemp -d -t "agentlinux-${tool}.XXXXXX") \
+    || {
+      al_pb_die "mktemp -d failed; cannot stage download"
+      return 1
+    }
+  # shellcheck disable=SC2064
+  # Expand $tmp now so the trap keeps the real path even if the var is reassigned.
+  trap "rm -rf '${tmp}'" RETURN
+
+  base="https://github.com/${repo}/releases/download/${tag}"
+
+  al_pb_fetch_and_verify "$base" "$asset" "$tmp" || return 1
+  al_pb_extract_install "$tmp" "$asset" "$bin_path" "$bin_name" "$dest" || return 1
+  al_pb_assert_version "$bin_name" "${AGENTLINUX_PINNED_VERSION:-${tag#v}}" || return 1
+
+  return 0
+}
