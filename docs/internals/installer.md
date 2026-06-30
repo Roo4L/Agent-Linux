@@ -77,13 +77,15 @@ The target user is resolved by this precedence, highest first:
    case) with no flag and no env var keep `agent`, so greenfield behavior is
    unchanged.
 
-**Validation.** Whether it comes from the flag, the env var, or the prompt,
-the name must match the POSIX-portable charset `^[a-z][a-z0-9_-]*$` and must
-not be `root` or a reserved/system account (`daemon`, `www-data`, `nobody`,
-any `systemd-*`, …). An invalid name is rejected with exit code 64
-(`EX_USAGE`) *before* any host mutation — no user is created, no file is
-written. This keeps an operator typo or a hostile `--user=root` from ever
-reaching `useradd`, `chown`, or the passwordless-sudo grant.
+**Validation.** A supplied name must match the POSIX-portable charset
+`^[a-z][a-z0-9_-]*$` and must not be `root` or a reserved/system account
+(`daemon`, `www-data`, `nobody`, any `systemd-*`, …). When the name comes
+from the `--user` flag or the `AGENTLINUX_USER` env var, an invalid name is
+rejected with exit code 64 (`EX_USAGE`) *before* any host mutation — no user
+is created, no file is written — so an operator typo or a hostile
+`--user=root` never reaches `useradd`, `chown`, or the passwordless-sudo
+grant. At the interactive prompt an invalid entry is re-prompted (up to three
+times) and then falls back to the default `agent` rather than aborting.
 
 **Create or adopt.** If the chosen name does not exist, it is created as a
 fresh login. If it already exists, it is *adopted* in place — its uid and
@@ -95,7 +97,7 @@ or have its home overwritten.
 ```
 $ curl -fsSL https://agentlinux.org/install.sh | sudo bash -s -- --user=claude
 agentlinux-install: agentlinux-install v0.3.0 starting
-agentlinux-install: install user 'claude' now has passwordless sudo (scope: ALL commands) — INST-06
+agentlinux-install: install user 'claude' now has passwordless sudo (scope: ALL commands)
 agentlinux-install: 50-registry-cli: done
 agentlinux-install: agentlinux-install complete
 

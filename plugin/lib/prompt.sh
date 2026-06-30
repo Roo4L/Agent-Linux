@@ -199,11 +199,12 @@ prompt::choose_install_user() {
 # Uses `exit` (not return) on bail paths — main() relies on this being a
 # terminal sink; the accept path returns 0 so main() can re-run detection.
 #
-# KNOWN LIMITATION (AL-59): accepting an alternate name only partially
-# provisions it. 10-agent-user.sh honors INSTALL_USER, but 30-nodejs.sh,
-# 40-path-wiring.sh, and the sudoers content still hardcode agent / /home/agent
-# — so the npm prefix, PATH wiring, and passwordless sudo land on the canonical
-# `agent`, not the alternate. Full alt-user provisioning is tracked in AL-59.
+# NOTE: the former AL-59 partial-provisioning limitation is closed (AL-50).
+# 30-nodejs.sh, 40-path-wiring.sh, 50-registry-cli.sh, and the sudoers content
+# all derive from INSTALL_USER now, so an accepted alternate name is fully
+# provisioned — npm prefix, PATH wiring, passwordless sudo, and the registry CLI
+# land on the chosen user. This bail path stays the detection-failure fallback;
+# the primary configurable-user entry point is prompt::choose_install_user above.
 prompt::alt_user_or_bail() {
   local existing_user="${INSTALL_USER:-agent}"
   local reason="${DETECT_USER_BAIL_REASON:-unknown}"

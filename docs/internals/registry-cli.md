@@ -32,8 +32,8 @@ verbs, fleet-level concerns (stickiness, three-way divergence,
 to live.
 
 A CLI is also where invocation discipline gets enforced. Every recipe
-must run as the `agent` user (not root) so the install tree lands
-agent-owned; every recipe must receive the catalog's `pinned_version`
+must run as the configured install user (not root) so the install tree
+lands owned by that user; every recipe must receive the catalog's `pinned_version`
 in the environment so the install version matches what AgentLinux's CI
 actually exercised. That preflight is impossible to enforce in a
 README; it is trivial in a CLI.
@@ -55,9 +55,9 @@ The CLI exposes six verbs:
   "run install to migrate", because that install is a migration candidate,
   not blessed as-is. Hides `test_only` entries unless `--include-test`.
 - `agentlinux install <name>` — load the catalog, find the entry,
-  inject `AGENTLINUX_PINNED_VERSION` and the agent-user environment,
+  inject `AGENTLINUX_PINNED_VERSION` and the install-user environment,
   and dispatch the entry's `install_recipe_path` (typically
-  `install.sh`) as the `agent` user. After success, write a sentinel
+  `install.sh`) as the configured install user. After success, write a sentinel
   to `/opt/agentlinux/state/installed.d/<id>.json` recording the
   installed version and source (`curated`, `latest`, or
   `pinned=<semver>`). `--version <semver>` overrides the catalog
@@ -173,8 +173,8 @@ command" and "manage the fleet by hand." Two problems:
 
 **One stable verb surface for an evolving agent set — the CLI keeps
 the contract honest while the recipes move underneath, and every
-state-changing operation runs as the agent user with the catalog's
-`pinned_version` in the environment.**
+state-changing operation runs as the configured install user with the
+catalog's `pinned_version` in the environment.**
 
 ## Related
 
