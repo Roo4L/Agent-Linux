@@ -127,7 +127,7 @@ Plans:
 - [x] 28-01-PLAN.md — Add "binary" to the source_kind enum (schema.json + types.ts) + unit test
 - [x] 28-02-PLAN.md — Shared prebuilt-binary helper (arch-detect + verify-before-extract + install + version-lock)
 - [x] 28-03-PLAN.md — rtk recipe pair (install/uninstall) + catalog.json entry (source_kind binary, pin 0.42.4)
-- [ ] 28-04-PLAN.md — ENABLE-01/WORK-02/OPS-01 bats lifecycle test + docs/internals/catalog.md note
+- [x] 28-04-PLAN.md — ENABLE-01/WORK-02/OPS-01 bats lifecycle test + docs/internals/catalog.md note
 
 ### Phase 29: gh
 **Goal**: Make gh (GitHub CLI) installable + removable via the catalog.

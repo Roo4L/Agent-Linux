@@ -145,8 +145,8 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | WORK-01 | Phase 27 | ccusage | Done |
 | ENABLE-08 | Phases 24–26 | passive autoupdate freeze (opencode/gemini-cli/qwen-code) 🔧 | Done |
 | WIRE-01 | Phases 24–27 (retrofit) | cross-agent skill wiring (GSD + playwright-cli → all shipped agents) 🔧 | Done |
-| WORK-02 | Phase 28 | rtk 🔧 | Pending |
-| ENABLE-01 | Phase 28 | prebuilt-binary installer 🔧 | Pending |
+| WORK-02 | Phase 28 | rtk 🔧 | Done |
+| ENABLE-01 | Phase 28 | prebuilt-binary installer 🔧 | Done |
 | DEVT-01 | Phase 29 | gh | Pending |
 | DEVT-02 | Phase 30 | glab | Pending |
 | DEVT-04 | Phase 31 | trivy | Pending |
