@@ -3,14 +3,14 @@ gsd_state_version: 1.0
 milestone: v0.3.6
 milestone_name: Catalog Expansion
 status: verifying
-stopped_at: Completed 28-02-PLAN.md
-last_updated: "2026-06-30T18:48:22.466Z"
+stopped_at: Completed 28-03-PLAN.md
+last_updated: "2026-06-30T18:59:33.918Z"
 last_activity: 2026-06-30
 progress:
   total_phases: 28
   completed_phases: 0
   total_plans: 7
-  completed_plans: 7
+  completed_plans: 8
   percent: 100
 ---
 
@@ -124,6 +124,7 @@ Progress: [░░░░░░░░░░] 0% (0 of ~12 v0.3.4 plans done; v0.3.
 | Phase Phase 15-preflight-ux PP02 | 3h | 2 tasks tasks | 11 files files |
 | Phase 16-documentation-brownfield-acceptance P01 | 33min | 2 tasks | 3 files |
 | Phase 28 P02 | 3min | 2 tasks | 1 files |
+| Phase 28 P03 | 7min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -356,6 +357,8 @@ Full decision log in PROJECT.md Key Decisions table. ADR-001..ADR-010 ✓ seeded
 - [Phase ?]: Plan 16-01: README mid-doc placement (D-16-01) + relative-path link to MIGRATION.md (T-16-01-03)
 - [Phase ?]: Plan 16-01: 4 mandatory scenarios B/A/C/D in difficulty order with spec letters preserved in anchors (D-16-07)
 - [Phase 28]: Prebuilt-binary helper is a sourced (non-+x) bash lib at plugin/catalog/lib/prebuilt-binary.sh with no top-level set -euo pipefail; each al_pb_* function returns non-zero so the sourcing recipe aborts
+- [Phase ?]: Plan 28-03: rtk is the catalog's first source_kind:binary entry; install.sh sources the Plan 02 prebuilt-binary helper and al_pb_installs rtk-ai/rtk@v-pin to ~/.local/bin (never crates.io, never cargo); hook is opt-in (install only prints 'rtk init -g')
+- [Phase ?]: Plan 28-03: rtk uninstall reverts the opt-in hook (rtk init --uninstall) BEFORE deleting the binary, then removes config/cache + settings.json.bak idempotently; no preserve_paths.json (remove deletes all); added compatibility_window >=0.42.0 <0.43.0 (REUSE-03); manifest version unchanged 0.3.4 (lockstep)
 
 ### Key Infrastructure Details
 
@@ -394,6 +397,6 @@ Items acknowledged and deferred at v0.3.4 milestone close on 2026-05-27:
 
 ## Session Continuity
 
-Last session: 2026-06-30T18:48:22.377Z
-Stopped at: Completed 28-02-PLAN.md
+Last session: 2026-06-30T18:59:33.908Z
+Stopped at: Completed 28-03-PLAN.md
 Resume file: None

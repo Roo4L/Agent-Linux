@@ -18,3 +18,8 @@
   6/6 in isolation and continues to pass after the enum change.
 - **Suggested follow-up:** Triage the `install.test.js` process-level exit
   separately (likely a `mock`/`process.exit` stub leak); candidate Jira sub-task.
+- **Re-confirmed in Plan 28-03 (Task 3):** Still 157 pass / 1 fail with the rtk
+  `catalog.json` entry present; stashing the rtk entry yields the identical
+  157 / 1, and `rtk` is absent from the committed `HEAD` catalog — so the failure
+  is independent of the new binary entry. The rtk entry validates against the
+  schema (ajv) and round-trips through `loadCatalog`. Left untouched.
