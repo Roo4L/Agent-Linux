@@ -17,8 +17,18 @@ set -euo pipefail
 
 echo "rtk: removing rtk"
 
+# Capture whether rtk's hook was wired BEFORE we revert it. rtk's `init` installs
+# ~/.claude/RTK.md, so its presence is the proof that rtk (not a hand-edit or some
+# other tool) wired the Claude Code hook — and therefore that rtk is the owner of
+# the generically-named settings.json.bak in the shared ~/.claude dir (step 4).
+hook_was_present=0
+[[ -e "${AGENTLINUX_AGENT_HOME}/.claude/RTK.md" ]] && hook_was_present=1
+
 # 1. Revert the opt-in Claude Code hook BEFORE deleting the binary. No-op if the
 #    user never ran `rtk init` (the binary simply reverts an absent hook).
+#    `--auto-patch` makes the revert non-interactive (install advertises the bare
+#    `rtk init -g`; the asymmetry is intentional — uninstall must never block on a
+#    prompt, so don't "fix" it to match install).
 if command -v rtk >/dev/null 2>&1; then
   rtk init --uninstall -g --auto-patch >/dev/null 2>&1 || true
 fi
@@ -31,9 +41,16 @@ rm -f "${AGENTLINUX_AGENT_HOME}/.local/bin/rtk"
 rm -rf "${AGENTLINUX_AGENT_HOME}/.config/rtk" \
   "${AGENTLINUX_AGENT_HOME}/.local/share/rtk"
 
-# 4. Remove rtk's own backup residue. Do NOT touch ~/.claude/settings.json itself —
-#    it is user-owned; the hook revert leaves an empty PreToolUse scaffold.
-rm -f "${AGENTLINUX_AGENT_HOME}/.claude/settings.json.bak"
+# 4. Remove rtk's own backup residue — but ONLY when rtk actually wired the hook.
+#    settings.json.bak is a generically-named file in the SHARED ~/.claude dir that
+#    another tool or a hand-edit could legitimately own; rtk only creates it when
+#    `rtk init` patches settings.json (the same step that writes RTK.md). Gating on
+#    hook_was_present means we never delete a .bak rtk did not create. Do NOT touch
+#    ~/.claude/settings.json itself — it is user-owned; the hook revert leaves an
+#    empty PreToolUse scaffold.
+if [[ $hook_was_present -eq 1 ]]; then
+  rm -f "${AGENTLINUX_AGENT_HOME}/.claude/settings.json.bak"
+fi
 
 # 5. Truth check: refresh the command hash table and assert rtk is gone.
 hash -r

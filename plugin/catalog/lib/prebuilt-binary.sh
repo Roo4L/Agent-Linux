@@ -61,9 +61,17 @@ al_pb_fetch_and_verify() {
 
   # -f: fail on HTTP errors (non-optional — a stripped -f lets 404-HTML through).
   # -s -S: quiet but still print errors. -L: follow the release CDN redirect.
-  curl -fsSL "${base}/${asset}" -o "${tmp}/${asset}" \
+  # --proto-redir '=https': every REDIRECT hop must be https. GitHub release
+  # downloads 302 to objects.githubusercontent.com (https) — pinning redirects to
+  # https means a hijacked redirect can never silently downgrade the transport to
+  # plaintext http (the security goal here). --proto '=https,file' pins the INITIAL
+  # request to https (no http/ftp) while still permitting file:// — the production
+  # base is always a hardcoded https://github.com/... URL (file:// is unreachable
+  # from any catalog input), and the file scheme exists solely so the offline
+  # verify-before-extract self-test can drive this path without a network.
+  curl -fsSL --proto '=https,file' --proto-redir '=https' "${base}/${asset}" -o "${tmp}/${asset}" \
     || al_pb_die "download failed: ${base}/${asset}" || return 1
-  curl -fsSL "${base}/checksums.txt" -o "${tmp}/checksums.txt" \
+  curl -fsSL --proto '=https,file' --proto-redir '=https' "${base}/checksums.txt" -o "${tmp}/checksums.txt" \
     || al_pb_die "download failed: ${base}/checksums.txt" || return 1
 
   # gzip magic guard (404-as-HTML / proxy-rewrite). Read the first two bytes with
@@ -77,11 +85,21 @@ al_pb_fetch_and_verify() {
       return 1
     }
 
-  # Select ONLY the asset's checksum line (exact two-space form — checksums.txt is
-  # the standard `<sha256>␣␣<filename>` format, RESEARCH Pitfall 2) and verify it.
-  # sha256sum -c resolves the filename column relative to CWD, so chdir into the
-  # tmpdir where the asset lives under its exact upstream name.
-  grep -E "  ${asset}\$" "${tmp}/checksums.txt" >"${tmp}/${asset}.sha256" \
+  # Trust anchor: checksums.txt is fetched over the SAME TLS channel as the asset and
+  # is NOT independently signed. So the guarantee here is integrity against in-transit
+  # tampering given honest TLS-to-github and an honest published release — it is NOT a
+  # cryptographic proof of upstream authorship. (Transport + release honesty, not
+  # supply-chain authenticity.)
+  #
+  # Select ONLY the asset's checksum line by an EXACT 2nd-column match — awk's $2==a is
+  # a literal string compare, unlike `grep -E` whose `.` in the asset name would match
+  # any character (a near-name collision could otherwise slip through). checksums.txt is
+  # the standard `<sha256>␣␣<filename>` format (RESEARCH Pitfall 2); awk exits non-zero
+  # when no line's filename column equals the asset exactly, preserving the
+  # "no checksum line → abort" behavior below. sha256sum -c then resolves the filename
+  # column relative to CWD, so chdir into the tmpdir where the asset lives under its
+  # exact upstream name.
+  awk -v a="$asset" '$2==a {print; found=1} END{exit !found}' "${tmp}/checksums.txt" >"${tmp}/${asset}.sha256" \
     || {
       al_pb_die "no checksum line for ${asset} in checksums.txt"
       return 1
@@ -113,6 +131,14 @@ al_pb_extract_install() {
   tar -xzf "${tmp}/${asset}" -C "$tmp" --no-same-owner "$bin_path" \
     || {
       al_pb_die "tar extraction failed for ${bin_path} from ${asset}"
+      return 1
+    }
+  # Assert the extracted path is a real regular file, not a symlink — a tarball
+  # member could be a symlink pointing outside the tmpdir, which `install` would then
+  # follow and copy from an attacker-chosen path. Refuse anything but a plain file.
+  [[ -f "${tmp}/${bin_path}" && ! -L "${tmp}/${bin_path}" ]] \
+    || {
+      al_pb_die "extracted ${bin_path} is not a regular file"
       return 1
     }
   install -m 0755 "${tmp}/${bin_path}" "${dest}/${bin_name}" \
