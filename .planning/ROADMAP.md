@@ -121,7 +121,13 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
   3. The optional `rtk init` hook into `~/.claude` is opt-in; `remove` reverts the binary AND the hook symmetrically (`--uninstall`) — no residue.
   4. `agentlinux remove rtk` deletes the binary + its config/cache symmetrically; idempotent.
   5. ≥1 bats @test (binary fetch → checksum → version → optional-hook → remove) is green — TST-07 gate.
-**Plans**: TBD
+**Plans**: 4 plans
+
+Plans:
+- [ ] 28-01-PLAN.md — Add "binary" to the source_kind enum (schema.json + types.ts) + unit test
+- [ ] 28-02-PLAN.md — Shared prebuilt-binary helper (arch-detect + verify-before-extract + install + version-lock)
+- [ ] 28-03-PLAN.md — rtk recipe pair (install/uninstall) + catalog.json entry (source_kind binary, pin 0.42.4)
+- [ ] 28-04-PLAN.md — ENABLE-01/WORK-02/OPS-01 bats lifecycle test + docs/internals/catalog.md note
 
 ### Phase 29: gh
 **Goal**: Make gh (GitHub CLI) installable + removable via the catalog.
