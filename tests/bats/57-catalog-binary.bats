@@ -103,6 +103,13 @@ _rtk_pin() {
     __fail "WORK-02" "rtk --version contains pinned ${pinned}" "${output:-<empty>}" "$LOG"
   fi
 
+  # Seed rtk's config + cache dirs (with a file inside) BEFORE the remove so the
+  # post-remove `! test -e` assertions actually kill a deletion regression — without
+  # this seeding the dirs never exist and the assertions pass vacuously.
+  run sudo -u agent -H bash --login -c \
+    'mkdir -p /home/agent/.config/rtk /home/agent/.local/share/rtk && : >/home/agent/.config/rtk/state'
+  assert_exit_zero "ENABLE-01 (seed residue dirs)"
+
   # Symmetric remove: binary off PATH AND config + cache deleted (no residue).
   run sudo -u agent -H bash --login -c 'agentlinux remove --force rtk'
   assert_exit_zero "ENABLE-01 (remove)"
@@ -129,6 +136,14 @@ _rtk_pin() {
   sudo -u agent -H bash --login -c \
     'rm -f /home/agent/.claude/RTK.md /home/agent/.claude/settings.json.bak' >/dev/null 2>&1 || true
 
+  # Seed a USER-owned ~/.claude/settings.json carrying a sentinel key BEFORE rtk
+  # touches anything. Two jobs: (1) rtk init now has a real prior file to back up,
+  # so the settings.json.bak it creates is a genuine artifact — making its later
+  # removal a real kill, not vacuous (D3). (2) the sentinel key lets us prove the
+  # remove leaves the user's settings.json untouched (T-28-14 trust boundary, D4).
+  sudo -u agent -H bash --login -c \
+    'mkdir -p /home/agent/.claude && printf "%s\n" "{\"_al28_sentinel\":\"keepme\"}" >/home/agent/.claude/settings.json' >/dev/null 2>&1 || true
+
   run sudo -u agent -H bash --login -c 'agentlinux install rtk'
   assert_exit_zero "WORK-02 (install)"
   assert_no_eacces "WORK-02 (install)" "$output"
@@ -145,6 +160,13 @@ _rtk_pin() {
   [[ "${status}" -eq 0 ]] \
     || __fail "WORK-02" "rtk init -g wires /home/agent/.claude/RTK.md" "RTK.md absent after opt-in init" "$LOG"
 
+  # D3: patching the seeded settings.json must have produced a real backup. Assert
+  # it EXISTS now so the post-remove "settings.json.bak gone" assertion below is a
+  # genuine kill rather than a vacuous pass on a never-created file.
+  run sudo -u agent -H bash --login -c 'test -e /home/agent/.claude/settings.json.bak'
+  [[ "${status}" -eq 0 ]] \
+    || __fail "WORK-02" "rtk init -g backs up settings.json to settings.json.bak" "settings.json.bak absent after opt-in init" "$LOG"
+
   # Symmetric remove reverts the opt-in hook AND drops the backup residue — no
   # orphan hook pointing at a deleted binary.
   run sudo -u agent -H bash --login -c 'agentlinux remove --force rtk'
@@ -156,15 +178,29 @@ _rtk_pin() {
   run sudo -u agent -H bash --login -c 'test -e /home/agent/.claude/settings.json.bak'
   [[ "${status}" -ne 0 ]] \
     || __fail "WORK-02" "remove drops rtk's settings.json.bak residue" "settings.json.bak survived remove" "$LOG"
+
+  # D4 (T-28-14 trust boundary): the user-owned settings.json — and its sentinel
+  # key — must SURVIVE the remove untouched. rtk reverts only its own hook entry.
+  run sudo -u agent -H bash --login -c 'jq -r "._al28_sentinel // empty" /home/agent/.claude/settings.json'
+  if [[ "${output}" != "keepme" ]]; then
+    __fail "WORK-02" "remove leaves the user settings.json + sentinel intact (T-28-14)" "_al28_sentinel=[${output:-<empty>}]" "$LOG"
+  fi
+
+  # Drop the test's own sentinel settings.json (this @test owns it — not a shared
+  # rtk artifact), so it does not leak into later @test files.
+  sudo -u agent -H bash --login -c 'rm -f /home/agent/.claude/settings.json' >/dev/null 2>&1 || true
 }
 
-@test "ENABLE-01: a mismatched checksum aborts BEFORE extract (binary not installed/replaced)" {
-  # Verify-before-extract security gate (threat T-28-12). This is the ONE offline
-  # test: instead of the real GitHub download (the happy path other @tests use),
-  # it stages a LOCALLY-corrupted asset + a wrong-hash checksums.txt and drives
-  # the helper's verify path via file://. A real gzip is used so the rejection is
-  # the SHA256 mismatch specifically — not the gzip-magic guard — proving the
-  # checksum gate aborts non-zero and extracts/installs nothing.
+@test "ENABLE-01: a mismatched checksum aborts BEFORE extract (pre-existing binary not replaced)" {
+  # Verify-before-extract security gate (threat T-28-12), driven at the INSTALL
+  # level — not just al_pb_fetch_and_verify in isolation. We seed a SENTINEL binary
+  # at the real install destination (/home/agent/.local/bin/rtk), then replicate
+  # al_pb_install's exact ordering (`fetch_and_verify && extract_install`) against a
+  # LOCALLY-corrupted asset + wrong-hash checksums.txt over file:// (offline/green
+  # in Docker). A real gzip is used so the rejection is the SHA256 mismatch
+  # specifically — not the gzip-magic guard. The binding assertion: because verify
+  # fails, extract_install is never reached, so the pre-existing sentinel binary is
+  # byte-for-byte UNCHANGED (no extract, no replace).
   run sudo -u agent -H bash --login -c '
     set -u
     helper="/opt/agentlinux/catalog/'"${PKG_VERSION}"'/lib/prebuilt-binary.sh"
@@ -172,21 +208,30 @@ _rtk_pin() {
     # shellcheck source=/dev/null
     source "$helper"
     asset=$(al_pb_detect_asset rtk) || { echo "ASSET_DETECT_FAIL" >&2; exit 71; }
-    stage=$(mktemp -d); verify=$(mktemp -d); dest=$(mktemp -d)
-    trap "rm -rf \"$stage\" \"$verify\" \"$dest\"" EXIT
+    stage=$(mktemp -d); verify=$(mktemp -d)
+    dest="/home/agent/.local/bin"
+    mkdir -p "$dest"
+    # Seed a pre-existing binary at the real install destination.
+    printf "%s" "SENTINEL" >"$dest/rtk"
+    before=$(sha256sum "$dest/rtk" | cut -d" " -f1)
+    trap "rm -rf \"$stage\" \"$verify\"; rm -f \"$dest/rtk\"" EXIT
+    # A real gzip whose sha256 does NOT match the all-zero checksums.txt entry.
     echo "tampered-payload" | gzip -c >"$stage/$asset"
     printf "%s  %s\n" "0000000000000000000000000000000000000000000000000000000000000000" "$asset" >"$stage/checksums.txt"
-    al_pb_fetch_and_verify "file://$stage" "$asset" "$verify"
-    rc=$?
-    if [ -e "$dest/rtk" ] || [ -e "$verify/rtk" ]; then
-      echo "BINARY_WAS_WRITTEN_DESPITE_BAD_CHECKSUM" >&2
-      exit 72
+    # Replicate al_pb_install ordering: extract/install runs ONLY if verify passes.
+    if al_pb_fetch_and_verify "file://$stage" "$asset" "$verify"; then
+      rc=0
+      al_pb_extract_install "$verify" "$asset" rtk rtk "$dest"
+    else
+      rc=$?
+      echo "VERIFY_REJECTED rc=$rc"
     fi
+    after=$(sha256sum "$dest/rtk" | cut -d" " -f1)
+    if [ "$before" = "$after" ]; then echo "SENTINEL_INTACT"; else echo "SENTINEL_REPLACED"; fi
     if [ "$rc" -eq 0 ]; then
       echo "VERIFY_PASSED_ON_BAD_CHECKSUM" >&2
       exit 73
     fi
-    echo "VERIFY_REJECTED rc=$rc"
     exit "$rc"
   '
   # The gate must abort non-zero ...
@@ -200,9 +245,9 @@ _rtk_pin() {
   if ! printf '%s' "${output}" | grep -qi 'verification failed'; then
     __fail "ENABLE-01" "a 'verification failed'-class diagnostic on mismatch" "${output:-<empty>}" "$LOG"
   fi
-  # ... and NOT have written/replaced any binary.
-  if printf '%s' "${output}" | grep -q 'BINARY_WAS_WRITTEN'; then
-    __fail "ENABLE-01" "no binary written/replaced when checksum mismatches" "${output:-<empty>}" "$LOG"
+  # ... and the pre-existing binary must be byte-unchanged (extract never reached).
+  if ! printf '%s' "${output}" | grep -q 'SENTINEL_INTACT'; then
+    __fail "ENABLE-01" "pre-existing binary NOT replaced when checksum mismatches" "${output:-<empty>}" "$LOG"
   fi
 }
 
