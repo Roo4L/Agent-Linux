@@ -24,6 +24,32 @@
 # opencode also ships a self-updater but is deliberately NOT ENABLE-05-frozen —
 # its updater is allowed to run, so the assertion is "updates cleanly +
 # monotonic", not "pin frozen".
+#
+# ENABLE-08 (passive autoupdate freeze) — the *other* half, added here: three
+# tools AUTO-INSTALL updates in the background by default (opencode on TUI
+# startup; gemini-cli + qwen-code via a detached `npm install -g @latest` on
+# startup). That passive path silently replaces the catalog pin out of band —
+# the canonical AGT-02 hazard. The install recipe freezes it via each tool's own
+# launch-mode-independent config. The EXPLICIT user-initiated update path is
+# unaffected — the freeze lives in config, separate from the package, so
+# `agentlinux upgrade` / an npm reinstall still updates the tool; the codex +
+# opencode explicit updaters are exercised by the AGT-02-style @tests below, and
+# gemini-cli/qwen-code expose no in-tool updater by design.
+# The @tests below assert the freeze CONFIG is present + correct after install.
+#
+# (The full passive-trigger reproduction — install N-1, drive an interactive
+# session, watch it auto-bump — was performed manually under Docker for
+# gemini-cli: 0.47.0→0.49.0 with no freeze, pinned at 0.47.0 with the freeze. It
+# is intentionally NOT a CI @test: it needs an allocated PTY + live network +
+# ~90s and is inherently flaky. The deterministic config assertion is the CI
+# gate; see the phase SUMMARY for the manual A/B.)
+#
+# PIN-BUMP GUARDRAIL (qa): the config assertion checks the key NAME we write, not
+# that the tool still READS it. If an opencode/gemini-cli/qwen-code pin bump
+# renames the upstream key (e.g. enableAutoUpdate→autoUpdate), the freeze breaks
+# silently while this test stays green. On any pin bump of these three, re-run
+# the manual interactive A/B above to confirm the freeze still takes, and update
+# the key name in BOTH the recipe and these @tests if upstream changed it.
 
 load 'helpers/invoke_modes'
 load 'helpers/assertions'
@@ -51,6 +77,14 @@ teardown_file() {
 
 _install() { sudo -u agent -H bash --login -c "agentlinux install ${1}"; }
 _remove() { sudo -u agent -H bash --login -c "agentlinux remove --force ${1}" >/dev/null 2>&1 || true; }
+# _reinstall — force the recipe to actually RUN (agentlinux install is a no-op
+# when the tool is already installed, which would skip the freeze side-effect
+# the ENABLE-08 tests assert). Remove first so the install re-executes install.sh
+# against the config dirs setup_file wiped.
+_reinstall() {
+  _remove "$1"
+  sudo -u agent -H bash --login -c "agentlinux install ${1}"
+}
 # extract the first semver from a --version line
 _semver() { grep -oE '[0-9]+\.[0-9]+\.[0-9]+' <<<"$1" | head -1; }
 
@@ -90,6 +124,68 @@ _assert_no_updater() {
   if printf '%s' "${output}" | grep -qiE '(^|[[:space:]])(update|upgrade)([[:space:]]|$)'; then
     __fail "$req" "${tool} exposes no in-tool self-updater subcommand" "${output:-<empty>}" "$LOG"
   fi
+}
+
+# _assert_frozen_json <req> <file> <jq-filter> — the agent-readable config
+# <file> exists AND the jq boolean <jq-filter> is true (the passive-autoupdate
+# key is set to its frozen value). Runs as the agent user (the config lives
+# under the agent's $HOME, written by the recipe at install time). jq is
+# available in the harness (used across 53/54). The filter is passed through the
+# environment, never interpolated into the shell command.
+_assert_frozen_json() {
+  local req=$1 file=$2 filter=$3
+  run sudo -u agent -H AGENTLINUX_JQ_FILTER="$filter" bash --login -c \
+    'test -f "$0" && jq -e "$AGENTLINUX_JQ_FILTER" "$0" >/dev/null' "$file"
+  if [[ ${status} -ne 0 ]]; then
+    local got
+    got=$(sudo -u agent -H cat "$file" 2>/dev/null | tr -d '[:space:]' | head -c 200)
+    __fail "$req" "freeze key satisfied in ${file} (${filter})" "exit ${status}; content=${got:-<missing>}" "$LOG"
+  fi
+}
+
+@test "ENABLE-08: opencode install freezes passive autoupdate (autoupdate=false) — explicit upgrade path intact" {
+  _reinstall opencode
+  # Recipe wrote ~/.config/opencode/opencode.json with autoupdate:false.
+  _assert_frozen_json "ENABLE-08/opencode" \
+    "/home/agent/.config/opencode/opencode.json" '.autoupdate == false'
+  # Explicit user-initiated path must remain: `opencode upgrade` still exists.
+  run sudo -u agent -H bash --login -c 'opencode --help </dev/null 2>&1'
+  assert_exit_zero "ENABLE-08/opencode (--help)"
+  if ! printf '%s' "${output}" | grep -qE '(^|[[:space:]])upgrade([[:space:]]|$)'; then
+    __fail "ENABLE-08/opencode" "explicit 'opencode upgrade' subcommand still present" "${output:-<empty>}" "$LOG"
+  fi
+  _remove opencode
+}
+
+@test "ENABLE-08: gemini-cli install freezes passive autoupdate (general.enableAutoUpdate=false)" {
+  _reinstall gemini-cli
+  _assert_frozen_json "ENABLE-08/gemini-cli" \
+    "/home/agent/.gemini/settings.json" '.general.enableAutoUpdate == false'
+  # Smoke that the binary still launches with the freeze config in place (JSON
+  # well-formedness is already enforced by jq -e above; this just guards against
+  # the freeze write having left the tool unrunnable for any reason).
+  run sudo -u agent -H bash --login -c 'gemini --version </dev/null 2>&1'
+  assert_exit_zero "ENABLE-08/gemini-cli (--version with freeze present)"
+  _remove gemini-cli
+}
+
+@test "ENABLE-08: qwen-code install freezes passive autoupdate (general.enableAutoUpdate=false)" {
+  _reinstall qwen-code
+  _assert_frozen_json "ENABLE-08/qwen-code" \
+    "/home/agent/.qwen/settings.json" '.general.enableAutoUpdate == false'
+  run sudo -u agent -H bash --login -c 'qwen --version </dev/null 2>&1'
+  assert_exit_zero "ENABLE-08/qwen-code (--version with freeze present)"
+  _remove qwen-code
+}
+
+@test "ENABLE-08/ENABLE-05: codex install freezes the startup update check (check_for_update_on_startup=false)" {
+  _reinstall codex
+  # codex is notify-only (no passive auto-install), but the recipe freezes its
+  # startup check anyway as belt-and-braces — assert it landed in config.toml.
+  run sudo -u agent -H bash --login -c \
+    'grep -Eq "^[[:space:]]*check_for_update_on_startup[[:space:]]*=[[:space:]]*false" /home/agent/.codex/config.toml'
+  assert_exit_zero "ENABLE-08/codex (check_for_update_on_startup=false in config.toml)"
+  _remove codex
 }
 
 @test "AGT-02-style/ENABLE-05: codex update runs as agent — exits 0, no EACCES, no /usr/local shim, pin stays authoritative" {
