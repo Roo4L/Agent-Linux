@@ -234,9 +234,11 @@ CHECKSUMS="${CACHE}/${TARGET}.checksums"
 
 # Download the cloud image on cold cache; the checksums manifest is refetched on
 # EVERY run (Pitfall 10: never trust cached bytes without re-verification).
+downloaded_fresh=0
 if [[ ! -f "$IMG" ]]; then
   printf 'fetching %s\n' "$IMG_URL"
   curl -fsSL -o "$IMG" "$IMG_URL"
+  downloaded_fresh=1
 else
   printf 'using cached image %s\n' "$IMG"
 fi
@@ -251,15 +253,37 @@ curl -fsSL -o "$CHECKSUMS" "$SHASUMS_URL"
 # pass). Both run on every invocation, including cache hits.
 selftest_checksum_guard || exit 1
 if ! verify_one_checksum "$CACHE" "$IMG_NAME" "$CHECKSUMS"; then
-  cat >&2 <<EOF
-ERROR: cloud image SHA256 verification failed for ${IMG_NAME} — refusing to boot.
-       Either the cached image does not match the upstream ${SHASUMS_URL##*/}
-       manifest (tampered cache / mid-download corruption), or the pinned
-       filename is absent from it (image rotated upstream — bump the row in
-       tests/qemu/cloud-images.txt). Force a re-download:
-         rm -f "${IMG}"
+  if [[ "$downloaded_fresh" -eq 1 ]]; then
+    # A just-downloaded image can't be a stale cache — there's nothing to
+    # discard, so fail hard. The message below names the causes.
+    cat >&2 <<EOF
+ERROR: cloud image SHA256 verification failed for ${IMG_NAME} after a fresh
+       download — refusing to boot. The pinned filename is likely absent from
+       the upstream ${SHASUMS_URL##*/} manifest (image rotated upstream — bump
+       the row in tests/qemu/cloud-images.txt), or upstream served corrupt bytes.
 EOF
-  exit 1
+    exit 1
+  fi
+  # Self-heal a STALE CACHE HIT (the common nightly failure): the non-dated
+  # `release/` cloud image is republished in place (same URL, new bytes + new
+  # digest), but the CI image cache keys on hashFiles(cloud-images.txt), which
+  # does NOT change on an upstream rebuild — so a stale .img is restored
+  # indefinitely and mismatches the freshly-fetched manifest every run. Discard
+  # it and re-download ONCE against the same URL, then re-verify.
+  printf 'cached image failed checksum — discarding stale cache and re-downloading %s\n' "$IMG_URL" >&2
+  rm -f "$IMG"
+  curl -fsSL -o "$IMG" "$IMG_URL"
+  if ! verify_one_checksum "$CACHE" "$IMG_NAME" "$CHECKSUMS"; then
+    cat >&2 <<EOF
+ERROR: cloud image SHA256 verification failed for ${IMG_NAME} even after
+       discarding the cache and re-downloading — refusing to boot. Either
+       upstream is serving bytes that do not match its own ${SHASUMS_URL##*/}
+       manifest, or the pinned filename has rotated upstream (bump the row in
+       tests/qemu/cloud-images.txt).
+EOF
+    exit 1
+  fi
+  printf 'fresh image verified OK after discarding stale cache\n' >&2
 fi
 
 # ---------------------------------------------------------------------------
