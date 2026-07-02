@@ -2,10 +2,11 @@
 
 `agentlinux` is the small TypeScript CLI shipped with the plugin. It reads
 the agent catalog and dispatches install / adopt / list / remove / upgrade /
-pin commands — every state-changing operation runs as the agent user, never
-as root. The CLI is the surface developers actually touch; everything
-else (provisioner steps, recipes, sentinels, the catalog itself) is
-wiring underneath.
+pin commands — every state-changing operation runs as the configured install
+user (the `agent` user by default; see [Choosing the install
+user](installer.md)), never as root. The CLI is the surface developers
+actually touch; everything else (provisioner steps, recipes, sentinels, the
+catalog itself) is wiring underneath.
 
 ## The problem
 
@@ -31,8 +32,8 @@ verbs, fleet-level concerns (stickiness, three-way divergence,
 to live.
 
 A CLI is also where invocation discipline gets enforced. Every recipe
-must run as the `agent` user (not root) so the install tree lands
-agent-owned; every recipe must receive the catalog's `pinned_version`
+must run as the configured install user (not root) so the install tree
+lands owned by that user; every recipe must receive the catalog's `pinned_version`
 in the environment so the install version matches what AgentLinux's CI
 actually exercised. That preflight is impossible to enforce in a
 README; it is trivial in a CLI.
@@ -54,9 +55,9 @@ The CLI exposes six verbs:
   "run install to migrate", because that install is a migration candidate,
   not blessed as-is. Hides `test_only` entries unless `--include-test`.
 - `agentlinux install <name>` — load the catalog, find the entry,
-  inject `AGENTLINUX_PINNED_VERSION` and the agent-user environment,
+  inject `AGENTLINUX_PINNED_VERSION` and the install-user environment,
   and dispatch the entry's `install_recipe_path` (typically
-  `install.sh`) as the `agent` user. After success, write a sentinel
+  `install.sh`) as the configured install user. After success, write a sentinel
   to `/opt/agentlinux/state/installed.d/<id>.json` recording the
   installed version and source (`curated`, `latest`, or
   `pinned=<semver>`). `--version <semver>` overrides the catalog
@@ -94,14 +95,31 @@ The CLI exposes six verbs:
 
 Every command starts with the same preflight. A Commander `preAction`
 hook calls `guardAgentUser`, which exits with code 64 if the CLI is
-running as root or as any user other than `agent`. The catalog snapshot
-shipped with the release is staged on disk at
+running as any user other than the **configured install user**. That user
+is not a hardcoded `agent` constant: `guardAgentUser` resolves it from
+`AGENTLINUX_USER` — the environment variable first, then the
+`AGENTLINUX_USER=` line in the root-owned `/etc/agentlinux.env` written by
+the installer — defaulting to `agent` when neither is set. So on a host
+installed with `--user=claude`, the guard answers to `claude`; on a default
+host it answers to `agent`. A malformed value (one that fails the POSIX
+username charset) falls back to `agent` as defense-in-depth.
+
+The catalog snapshot shipped with the release is staged on disk at
 `/opt/agentlinux/catalog/<version>/catalog.json` and validated against
 `schema.json` (JSON Schema 2020-12, ajv) before any state-changing
-operation runs. Recipes are dispatched via a thin runner that exports
-the agent's PATH / NPM_CONFIG_PREFIX / HOME / `AGENTLINUX_PINNED_VERSION`
-and shells into the per-agent `install.sh` — the recipe itself is
-plain bash, easy to read and easy for the catalog auditor to review.
+operation runs. Recipes are dispatched via a thin runner (`dispatchRecipe`)
+that runs the per-agent `install.sh` / `uninstall.sh` **as the configured
+install user** — `dispatcher(user, …)`, not a hardcoded `agent` — with the
+env block (`PATH` / `NPM_CONFIG_PREFIX` / `HOME` / `AGENTLINUX_AGENT_HOME` /
+`AGENTLINUX_PINNED_VERSION`) derived from that user's home (`/home/<user>`).
+For the default user the produced PATH string is byte-identical to the
+`/etc/agentlinux.env` line the installer wrote, so the recipe environment
+matches the provisioner exactly. This is what closes the alt-user
+hollow-install gap: a `--user=claude` host dispatches catalog ops under
+`claude` (`sudo -u claude …`), so a system that has no `agent` user at all
+does not fail every install/remove/upgrade with `sudo: unknown user: agent`.
+The recipe itself stays plain bash, easy to read and easy for the catalog
+auditor to review.
 
 ## Worked example
 
@@ -155,8 +173,8 @@ command" and "manage the fleet by hand." Two problems:
 
 **One stable verb surface for an evolving agent set — the CLI keeps
 the contract honest while the recipes move underneath, and every
-state-changing operation runs as the agent user with the catalog's
-`pinned_version` in the environment.**
+state-changing operation runs as the configured install user with the
+catalog's `pinned_version` in the environment.**
 
 ## Related
 

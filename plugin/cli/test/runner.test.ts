@@ -5,7 +5,7 @@
 // both Node 20 dev and Node 22 production without any flag toggles.
 
 import assert from "node:assert/strict";
-import { beforeEach, describe, test } from "node:test";
+import { afterEach, beforeEach, describe, test } from "node:test";
 import { AGENT_PATH, dispatchRecipe } from "../src/runner.js";
 import type { CatalogEntry } from "../src/types.js";
 
@@ -113,5 +113,62 @@ describe("dispatchRecipe", () => {
       erroring,
     );
     assert.deepEqual(result, { exitCode: 3, stdout: "out", stderr: "err" });
+  });
+});
+
+// AL-50 AC4 / AL-59 catalog-side gap: dispatchRecipe must run recipes AS the
+// configured install user (AGENTLINUX_USER), not the hardcoded `agent`, and
+// derive HOME/PATH/NPM_CONFIG_PREFIX from that user's home.
+describe("dispatchRecipe — configured install user (AL-50 AC4)", () => {
+  let cap: ReturnType<typeof makeCapturingDispatcher>;
+  let origUserEnv: string | undefined;
+  beforeEach(() => {
+    cap = makeCapturingDispatcher();
+    origUserEnv = process.env.AGENTLINUX_USER;
+  });
+  afterEach(() => {
+    // biome-ignore lint/performance/noDelete: delete is required for process.env
+    if (origUserEnv === undefined) delete process.env.AGENTLINUX_USER;
+    else process.env.AGENTLINUX_USER = origUserEnv;
+  });
+
+  test("AGENTLINUX_USER=claude → dispatches as claude with /home/claude env", async () => {
+    process.env.AGENTLINUX_USER = "claude";
+    await dispatchRecipe(
+      { entry: ENTRY, recipePath: "/opt/.../install.sh", version: "1.0.0", catalogDir: "/c" },
+      cap.impl,
+    );
+    const [user, , opts] = cap.calls[0];
+    assert.equal(user, "claude"); // the dispatch user, NOT "agent"
+    assert.equal(opts.env.HOME, "/home/claude");
+    assert.equal(opts.env.AGENTLINUX_AGENT_HOME, "/home/claude");
+    assert.equal(opts.env.NPM_CONFIG_PREFIX, "/home/claude/.npm-global");
+    assert.equal(
+      opts.env.PATH,
+      "/home/claude/.npm-global/bin:/home/claude/.local/bin:/usr/local/bin:/usr/bin:/bin",
+    );
+  });
+
+  test("explicit AGENTLINUX_USER=agent → byte-identical to the default", async () => {
+    process.env.AGENTLINUX_USER = "agent";
+    await dispatchRecipe(
+      { entry: ENTRY, recipePath: "/x", version: "1.0.0", catalogDir: "/y" },
+      cap.impl,
+    );
+    const [user, , opts] = cap.calls[0];
+    assert.equal(user, "agent");
+    assert.equal(opts.env.PATH, AGENT_PATH);
+    assert.equal(opts.env.HOME, "/home/agent");
+    assert.equal(opts.env.NPM_CONFIG_PREFIX, "/home/agent/.npm-global");
+  });
+
+  test("malformed AGENTLINUX_USER falls back to agent (T-AL50-06 defense-in-depth)", async () => {
+    process.env.AGENTLINUX_USER = "root; rm -rf /"; // fails POSIX charset
+    await dispatchRecipe(
+      { entry: ENTRY, recipePath: "/x", version: "1.0.0", catalogDir: "/y" },
+      cap.impl,
+    );
+    assert.equal(cap.calls[0][0], "agent");
+    assert.equal(cap.calls[0][2].env.HOME, "/home/agent");
   });
 });

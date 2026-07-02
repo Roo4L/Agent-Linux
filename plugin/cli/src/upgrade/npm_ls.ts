@@ -22,21 +22,25 @@
 // the asUser signature. Unit tests inject a capturing/stubbing function so no
 // sudo invocation ever happens under `pnpm test`.
 
-import { AGENT_PATH } from "../runner.js";
+import { resolveInstallUser } from "../runner.js";
 import { asUser } from "../state/dispatcher.js";
 import type { CatalogEntry } from "../types.js";
 import { resolveLatestFor } from "./divergence.js";
 
-// Shared minimal env for npm invocations. Mirrors runner.ts so `npm` resolves
-// to /home/agent/.npm-global/bin/npm (Pitfall 5 — sudo -E alone drops PATH to
-// secure_path on Ubuntu).
-const NPM_ENV: Record<string, string> = {
-  PATH: AGENT_PATH,
-  HOME: "/home/agent",
-  NPM_CONFIG_PREFIX: "/home/agent/.npm-global",
-  LANG: "C.UTF-8",
-  LC_ALL: "C.UTF-8",
-};
+// Build the minimal npm env for the configured install user (AL-50 AC4 /
+// AL-59). Mirrors runner.ts's per-user derivation so `npm` resolves to the
+// user's ~/.npm-global/bin (Pitfall 5 — sudo -E alone drops PATH to secure_path
+// on Ubuntu). For the default user `agent` this is byte-identical to the old
+// hardcoded /home/agent env and to the AGENT_PATH constant in runner.ts.
+function npmEnvFor(home: string): Record<string, string> {
+  return {
+    PATH: `${home}/.npm-global/bin:${home}/.local/bin:/usr/local/bin:/usr/bin:/bin`,
+    HOME: home,
+    NPM_CONFIG_PREFIX: `${home}/.npm-global`,
+    LANG: "C.UTF-8",
+    LC_ALL: "C.UTF-8",
+  };
+}
 
 // Dispatcher signature — mirrors state/dispatcher.ts asUser exactly.
 // Typed separately here so unit tests can pass a stub without pulling the real
@@ -53,8 +57,11 @@ interface NpmLsShape {
 }
 
 /**
- * Run `sudo -u agent -H -E -- npm ls -g --json --depth=0` and return a
- * Map<pkgName, version> of the agent user's globally-installed npm packages.
+ * Run `sudo -u <install-user> -H -E -- npm ls -g --json --depth=0` and return a
+ * Map<pkgName, version> of the configured install user's globally-installed npm
+ * packages. The user is resolved via resolveInstallUser() (AL-50 AC4 / AL-59) so
+ * `agentlinux upgrade` probes the right home on a `--user=NAME` host instead of
+ * a hardcoded `agent` that may not exist.
  *
  * Defensive parsing per Pitfall 4:
  *   (a) missing `dependencies` key (no globals installed) → empty map
@@ -65,8 +72,9 @@ interface NpmLsShape {
 export async function queryGlobalNpm(
   dispatcher: NpmDispatcher = asUser,
 ): Promise<Map<string, string>> {
-  const result = await dispatcher("agent", ["npm", "ls", "-g", "--json", "--depth=0"], {
-    env: NPM_ENV,
+  const user = resolveInstallUser();
+  const result = await dispatcher(user, ["npm", "ls", "-g", "--json", "--depth=0"], {
+    env: npmEnvFor(`/home/${user}`),
     timeout: 30_000,
   });
 
@@ -104,10 +112,11 @@ export async function queryNpmViewLatest(
   if (entry.source_kind !== "npm" || !entry.npm_package_name) {
     return null;
   }
+  const user = resolveInstallUser();
   const result = await dispatcher(
-    "agent",
+    user,
     ["npm", "view", entry.npm_package_name, "versions", "--json"],
-    { env: NPM_ENV, timeout: 30_000 },
+    { env: npmEnvFor(`/home/${user}`), timeout: 30_000 },
   );
   if (result.exitCode !== 0) {
     throw new Error(

@@ -34,13 +34,19 @@ fi
 remediate::sudoers::install_or_overwrite() {
   local action=${1:-install}
   local sudoers_file=/etc/sudoers.d/agentlinux
+  # Resolved install user (AL-50). The username is charset-validated upstream
+  # (remediate::validate_user_name), so it is safe to interpolate into the
+  # sudoers username column — printf '%s …' "$user" (NOT an unquoted heredoc
+  # that could expand $PATH-like tokens or eval the value).
+  local user="${INSTALL_USER:-agent}"
   local content
-  # Heredoc tag single-quoted so the content is byte-stable (no shell expansion).
+  # Static header (single-quoted heredoc, byte-stable), then the NOPASSWD line
+  # with the resolved user spliced into the username column via printf.
   read -r -d '' content <<'SUDOERS' || true
-# Installed by AgentLinux — grants passwordless sudo to agent user.
+# Installed by AgentLinux — grants passwordless sudo to the install user.
 # Scope: ALL commands. See docs/decisions/012-agent-user-full-sudo.md.
-agent ALL=(ALL) NOPASSWD: ALL
 SUDOERS
+  content+=$(printf '\n%s ALL=(ALL) NOPASSWD: ALL' "$user")
   # Test-only override hatch (production: both unset, dead branch).
   if [[ "${AGENTLINUX_TEST_MODE:-}" == "1" && -n "${AGENTLINUX_TEST_SUDOERS_OVERRIDE:-}" ]]; then
     content=$AGENTLINUX_TEST_SUDOERS_OVERRIDE

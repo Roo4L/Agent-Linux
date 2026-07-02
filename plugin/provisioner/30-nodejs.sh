@@ -5,16 +5,23 @@
 # Sourced by agentlinux-install. Inherits strict-mode, the ERR trap, and the
 # tee redirect — MUST NOT set its own strict-mode flags.
 #
-# Satisfies RT-01 (Node.js 22 LTS) and RT-04 (~agent/.npmrc carries
-# prefix=/home/agent/.npm-global; the belt-and-braces NPM_CONFIG_PREFIX env var
+# Satisfies RT-01 (Node.js 22 LTS) and RT-04 (the install user's ~/.npmrc carries
+# prefix=<home>/.npm-global; the belt-and-braces NPM_CONFIG_PREFIX env var
 # is written by 40-path-wiring.sh for systemd/cron). Runs after 10-agent-user.sh
 # and before 40-path-wiring.sh. Mutations route through idempotency.sh
 # primitives so re-runs converge (INST-02).
 #
-# NOTE (AL-59): the /home/agent paths below are hardcoded — an accepted
-# alternate install user (INSTALL_USER != agent) is NOT provisioned here yet.
+# AL-59 (DONE): every per-user path/ownership below derives from the resolved
+# install user (_AL_USER / _AL_HOME), so an alternate install user
+# (INSTALL_USER != agent) is fully provisioned here — no hardcoded `agent` home.
 
 log_info "30-nodejs: starting"
+
+# Resolved install user + home (AL-50/AL-59). Mirrors 10-agent-user.sh: the
+# alt-user flow may have updated INSTALL_USER, so derive every per-user path,
+# ownership pair, and npm-prefix location from these instead of literal `agent`.
+_AL_USER="${INSTALL_USER:-agent}"
+_AL_HOME="/home/${_AL_USER}"
 
 # Dispatch on the pre-resolved RESOLUTIONS[node] token. On REUSE (a detected
 # Node matches ^v?22\. and the install user can write the prefix), skip the
@@ -95,28 +102,28 @@ log_info "Node.js $(node --version) installed (RT-01 — v22 LTS)"
 # remediation), skip the ensure_dir chown so the decline is honored — otherwise
 # the CREATE-path ensure_dir would silently chown the prefix back to agent.
 if [[ "${RESOLUTIONS[npm-prefix]:-}" != "reuse-with-warning" ]]; then
-  ensure_dir /home/agent/.npm-global 0755 agent:agent
-  ensure_dir /home/agent/.npm-global/bin 0755 agent:agent
-  ensure_dir /home/agent/.npm-global/lib 0755 agent:agent
+  ensure_dir "${_AL_HOME}/.npm-global" 0755 "${_AL_USER}:${_AL_USER}"
+  ensure_dir "${_AL_HOME}/.npm-global/bin" 0755 "${_AL_USER}:${_AL_USER}"
+  ensure_dir "${_AL_HOME}/.npm-global/lib" 0755 "${_AL_USER}:${_AL_USER}"
 else
-  # 50-registry-cli's later symlink will ensure_dir bin/ (chowning it to agent)
-  # — accepted, since the symlink needs an agent-owned bin/; the decline marker
-  # already records that the parent prefix was not touched.
-  log_warn "30-nodejs: SKIPPING ensure_dir on /home/agent/.npm-global (RESOLUTIONS[npm-prefix]=reuse-with-warning; user declined REMEDIATE-01)"
+  # 50-registry-cli's later symlink will ensure_dir bin/ (chowning it to the
+  # install user) — accepted, since the symlink needs a user-owned bin/; the
+  # decline marker already records that the parent prefix was not touched.
+  log_warn "30-nodejs: SKIPPING ensure_dir on ${_AL_HOME}/.npm-global (RESOLUTIONS[npm-prefix]=reuse-with-warning; user declined REMEDIATE-01)"
 fi
 
-# Step 6: write ~agent/.npmrc with the prefix line (RT-04). Atomic
+# Step 6: write the install user's ~/.npmrc with the prefix line (RT-04). Atomic
 # create-if-absent, then ensure_line_in_file's grep-before-append (zero diff on
 # re-run; a blind append would duplicate the line).
-if [[ ! -f /home/agent/.npmrc ]]; then
-  install -m 0644 -o agent -g agent /dev/null /home/agent/.npmrc
+if [[ ! -f "${_AL_HOME}/.npmrc" ]]; then
+  install -m 0644 -o "$_AL_USER" -g "$_AL_USER" /dev/null "${_AL_HOME}/.npmrc"
 fi
-ensure_line_in_file 'prefix=/home/agent/.npm-global' /home/agent/.npmrc
+ensure_line_in_file "prefix=${_AL_HOME}/.npm-global" "${_AL_HOME}/.npmrc"
 # ensure_line_in_file runs with root's umask and doesn't chown — re-assert
-# agent:agent + 0644 so subsequent agent edits aren't denied.
-chown agent:agent /home/agent/.npmrc
-chmod 0644 /home/agent/.npmrc
-log_info "wrote ~agent/.npmrc (prefix=/home/agent/.npm-global — RT-04)"
+# <user>:<user> + 0644 so subsequent edits by the install user aren't denied.
+chown "${_AL_USER}:${_AL_USER}" "${_AL_HOME}/.npmrc"
+chmod 0644 "${_AL_HOME}/.npmrc"
+log_info "wrote ${_AL_HOME}/.npmrc (prefix=${_AL_HOME}/.npm-global — RT-04)"
 
 fi # end NODE_REUSED guard — CREATE-path block
 

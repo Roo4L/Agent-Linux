@@ -53,11 +53,22 @@ consumed via `EnvironmentFile=`), cron jobs (`/etc/cron.d/agentlinux` PATH
 header), and `sudo -u agent` / `sudo -u agent -i`. Six modes, four
 artifacts, byte-identical PATH literal in each.
 
-Every install routes through an `as_user agent <cmd>` helper that drops to
+Every install routes through an `as_user <user> <cmd>` helper that drops to
 the agent user before invoking npm, the upstream native installer, or any
 other write. The agent ends up owning every file it later needs to update.
 `sudo npm install -g` is forbidden everywhere in the codebase; our PR
 review process flags it on every PR.
+
+`agent` is the **default** target, not the only one. An operator can point
+the whole install at any regular login — `--user=NAME`, the `AGENTLINUX_USER`
+environment variable, or an interactive prompt — and every per-user
+artifact (npm prefix, PATH wiring, the sudo grant, the registry CLI symlink,
+the Node prefix) follows that name. See
+[Installer › Choosing the install user](installer.md) for the resolution
+precedence and validation rules. The runtime source-of-truth for "who is the
+install user" is the `AGENTLINUX_USER=` line in `/etc/agentlinux.env`: the
+registry CLI reads it to decide who may invoke the CLI and which user catalog
+recipes run as, so a non-`agent` install stays internally consistent.
 
 ## Worked example
 

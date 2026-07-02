@@ -47,13 +47,13 @@ case "${RESOLUTIONS[sudoers]:-create}" in
   remediate)
     # Gate already passed (would have exited 65 if --yes were missing).
     remediate::sudoers::install_or_overwrite "overwrite" || return 1
-    log_info "agent user now has passwordless sudo (scope: ALL commands — drift remediated) — INST-06"
+    log_info "install user '${INSTALL_USER:-agent}' now has passwordless sudo (scope: ALL commands — drift remediated) — INST-06"
     log_info "20-sudoers: done"
     return 0
     ;;
   create)
     remediate::sudoers::install_or_overwrite "install" || return 1
-    log_info "agent user now has passwordless sudo (scope: ALL commands) — INST-06"
+    log_info "install user '${INSTALL_USER:-agent}' now has passwordless sudo (scope: ALL commands) — INST-06"
     log_info "20-sudoers: done"
     return 0
     ;;

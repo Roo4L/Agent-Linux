@@ -55,6 +55,58 @@ ran today, byte for byte. That is the key win over a hand-rolled `curl
 installer, runtime, and catalog, with the SHA256 verified before any
 code runs.
 
+## Choosing the install user
+
+By default the installer provisions a user named `agent`. Brownfield
+maintainers who already have a working login (for example `claude` or a
+person's own account) can point the entire install at that name instead —
+the npm prefix, PATH wiring, the sudo drop-in, the registry CLI, and the
+Node prefix all follow the chosen user, so there is no half-provisioned
+"hollow install" left pointing at `agent`.
+
+The target user is resolved by this precedence, highest first:
+
+1. **`--user=NAME` flag** — explicit, always wins.
+2. **`AGENTLINUX_USER=NAME` environment variable** — honored when no flag is
+   given. Useful for `curl … | AGENTLINUX_USER=claude bash` where adding a
+   flag to the piped script is awkward.
+3. **Interactive prompt** — on a TTY with neither a flag nor the env var, the
+   installer asks `Install AgentLinux under which user? [agent]` and
+   provisions under the typed name (Enter accepts the default).
+4. **Default `agent`** — non-interactive runs (the common `curl … | bash`
+   case) with no flag and no env var keep `agent`, so greenfield behavior is
+   unchanged.
+
+**Validation.** A supplied name must match the POSIX-portable charset
+`^[a-z][a-z0-9_-]*$` and must not be `root` or a reserved/system account
+(`daemon`, `www-data`, `nobody`, any `systemd-*`, …). When the name comes
+from the `--user` flag or the `AGENTLINUX_USER` env var, an invalid name is
+rejected with exit code 64 (`EX_USAGE`) *before* any host mutation — no user
+is created, no file is written — so an operator typo or a hostile
+`--user=root` never reaches `useradd`, `chown`, or the passwordless-sudo
+grant. At the interactive prompt an invalid entry is re-prompted (up to three
+times) and then falls back to the default `agent` rather than aborting.
+
+**Create or adopt.** If the chosen name does not exist, it is created as a
+fresh login. If it already exists, it is *adopted* in place — its uid and
+home are left untouched — but only when it is a regular login (uid ≥ 1000).
+The installer refuses to adopt an existing system account (uid < 1000) with
+exit 64, so a stray `--user=daemon` can never be handed `NOPASSWD: ALL` sudo
+or have its home overwritten.
+
+```
+$ curl -fsSL https://agentlinux.org/install.sh | sudo bash -s -- --user=claude
+agentlinux-install: agentlinux-install v0.3.0 starting
+agentlinux-install: install user 'claude' now has passwordless sudo (scope: ALL commands)
+agentlinux-install: 50-registry-cli: done
+agentlinux-install: agentlinux-install complete
+
+$ sudo -u claude -H agentlinux list   # the CLI now answers to 'claude'
+```
+
+In-place rename of an already-installed AgentLinux user and multi-user
+installs (more than one agent user on one host) are out of scope.
+
 ## Worked example
 
 ```
