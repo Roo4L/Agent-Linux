@@ -2,10 +2,10 @@
 gsd_state_version: 1.0
 milestone: v0.3.5
 milestone_name: AlmaLinux 9 Support
-status: executing
-stopped_at: v0.3.5 roadmap written (ROADMAP.md + REQUIREMENTS.md traceability + this STATE.md); 5 phases 18-22, 14 requirements mapped, 100% coverage.
-last_updated: "2026-06-28T23:23:15.954Z"
-last_activity: 2026-06-28
+status: complete
+stopped_at: v0.3.5 shipped — AlmaLinux 9 support (Phases 18–22) complete; full Docker matrix (22.04/24.04/26.04/almalinux-9) 260/260 + nightly-QEMU green; archived to milestones/.
+last_updated: "2026-07-02T00:00:00.000Z"
+last_activity: 2026-07-02
 progress:
   total_phases: 5
   completed_phases: 3
@@ -21,18 +21,18 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights. v0.3.5 extends "any supported Linux system" past Ubuntu to AlmaLinux 9.
-**Current focus:** Phase 22 — QEMU Release-Gate + Pipeline (milestone exit)
+**Current focus:** None — v0.3.5 shipped; between milestones. Next milestone starts with `/gsd-new-milestone`.
 
 ## Current Position
 
 Milestone: v0.3.5 AlmaLinux 9 Support (Phases 18–22). Anchor AL-47 (Epic AL-48); blocker AL-38 Done. Scope: AlmaLinux 9 ONLY. Goal: port the plugin to AlmaLinux 9 with the same six-mode invocation contract + zero-EACCES self-update gate Ubuntu has (apt→dnf, dpkg→rpm; behavior contract unchanged). Milestone-close gate: AGT-02 (PAR-02) green on a real enforcing-SELinux EL9 QEMU guest.
 
-Phase: 22 (complete)
-Plan: 22-01 complete — harness + REL-01 hard-flip done; EL9 QEMU CI-green
-Status: Phase 22 COMPLETE. nightly-qemu almalinux-9 GREEN in CI (run 28391444242, 2026-06-29): real EL9 GenericCloud VM boots under systemd + enforcing SELinux + cloud-init ("SELinux: Enforcing confirmed"), installer runs, full bats suite green in-guest INCLUDING AGT-02 (claude update zero-EACCES, ok 252) + BHV-52a brownfield-AGT-02 (ok 253) + AGT-06 playwright launch (ok 251). REL-01 hard-flip done (gate-2-docker + gate-3-qemu almalinux-9 now hard, experimental dropped). All 14 v0.3.5 requirements Done. **Milestone functionally complete — pending the single milestone PR (user-gated) + merge + v0.3.5 tag.**
-Last activity: 2026-06-29
+Phase: 22 (complete) — milestone shipped
+Plan: all v0.3.5 plans complete; milestone archived to .planning/milestones/
+Status: v0.3.5 SHIPPED. All 5 phases (18–22) and 14 requirements Done. Full Docker matrix green — 22.04 / 24.04 / 26.04 / almalinux-9 all 260/260 — plus nightly-QEMU green (real EL9 enforcing-SELinux guest: AGT-02 zero-EACCES + AGT-06 Chromium launch). Close-out hardening this cycle: bats-1.2.1 BATS_TEST_TMPDIR clobber fix (22.04/26.04), playwright-cli pin 0.1.11→0.1.15 (Ubuntu 26.04 Chromium), boot.sh stale-cache self-heal (nightly-QEMU), and tty-driver prompt-sync (EL9 interactive flakiness). Archived to milestones/; between milestones.
+Last activity: 2026-07-02
 
-Progress: [██████████] 100% (5 of 5 phases complete; milestone PR + tag pending)
+Progress: [██████████] 100% (5 of 5 phases complete; shipped)
 
 ### Phase list (v0.3.5)
 

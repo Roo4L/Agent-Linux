@@ -20,9 +20,9 @@ An agent can be dropped into any supported Linux system and *just work* — a de
 
 **Documentation:** README has a new `## Brownfield install` section linked from main Install; `docs/MIGRATION.md` walks 4 worked scenarios (manual `useradd`, NodeSource Node, root-Claude reinstall, broken Playwright); per-phase AUDITs at `.planning/phases/{12..16}-*/`-AUDIT.md`; milestone audit at `.planning/v0.3.4-MILESTONE-AUDIT.md`.
 
-## Current Milestone: v0.3.5 AlmaLinux 9 Support
+## Shipped Milestone: v0.3.5 AlmaLinux 9 Support (2026-07-02)
 
-**Goal:** Port the AgentLinux plugin to AlmaLinux 9 so `curl … | bash` installs it with the same six-mode invocation contract and zero-EACCES self-update gate that Ubuntu has — implementation may diverge per distro (apt→dnf, dpkg→rpm), the behavior contract (BHV/RT/AGT/CLI/CAT/INST) must not.
+**Goal (delivered):** Port the AgentLinux plugin to AlmaLinux 9 so `curl … | bash` installs it with the same six-mode invocation contract and zero-EACCES self-update gate that Ubuntu has — implementation may diverge per distro (apt→dnf, dpkg→rpm), the behavior contract (BHV/RT/AGT/CLI/CAT/INST) must not. Shipped with the full Docker ×4 (incl. almalinux-9) + nightly-QEMU release gate green; see `MILESTONES.md` and `milestones/v0.3.5-ROADMAP.md`.
 
 **Anchor:** [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) under Epic AL-48 (maintainer-VM daily-driver readiness). Blocker [AL-38](https://copiedwonder.atlassian.net/browse/AL-38) is **Done**. File phase work as Sub-tasks under AL-47.
 
