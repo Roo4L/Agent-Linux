@@ -13,6 +13,7 @@
 
 load 'helpers/assertions'
 load 'helpers/detection'
+load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
 INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
@@ -196,14 +197,32 @@ EOF
 
 @test "DET-03: npm prefix probe runs via as_user_login (NPM_CONFIG_PREFIX user-shell export observed)" {
   # REQ: DET-03
-  # Fixture: write a .profile snippet that exports NPM_CONFIG_PREFIX to a
-  # known sentinel path. as_user_login (sudo -i) sources the profile;
-  # bare as_user (sudo -E without -i) would NOT source it. If the probe is
-  # implemented correctly with as_user_login, effective_prefix reflects
-  # the sentinel value.
+  # Fixture: write a login-shell profile snippet that exports NPM_CONFIG_PREFIX
+  # to a known sentinel path. as_user_login (sudo -i) sources the login-shell
+  # profile; bare as_user (sudo -E without -i) would NOT source it. If the probe
+  # is implemented correctly with as_user_login, effective_prefix reflects the
+  # sentinel value.
+  #
+  # The per-user login-shell profile file is FAMILY-SPECIFIC: a bash login shell
+  # sources the FIRST of ~/.bash_profile, ~/.bash_login, ~/.profile that exists.
+  # Debian/Ubuntu skel ships ~/.profile (no ~/.bash_profile); RHEL/EL skel ships
+  # ~/.bash_profile (no ~/.profile). Write the sentinel to the file the login
+  # shell on THIS family actually reads — same observable (a user-shell
+  # NPM_CONFIG_PREFIX export propagates through as_user_login into
+  # effective_prefix), family-correct path. Generalize, never weaken.
+  #
+  # Proven live on EL9 (Plan 20-05 spike): a sentinel in ~/.profile is IGNORED
+  # by `sudo -u agent -i` (the file is unsourced on EL9) while a sentinel in
+  # ~/.bash_profile propagates correctly — confirming the product as_user_login
+  # is correct and only the fixture's target file was Debian-specific.
   local sentinel=/tmp/det03-npm-prefix-sentinel
+  local profile
+  case "$(distro_family)" in
+    rhel) profile=.bash_profile ;;
+    *)    profile=.profile ;;
+  esac
   sudo -u agent mkdir -p "$sentinel"
-  sudo -u agent bash -c 'echo "export NPM_CONFIG_PREFIX=/tmp/det03-npm-prefix-sentinel" >> ~/.profile'
+  sudo -u agent bash -c "echo 'export NPM_CONFIG_PREFIX=/tmp/det03-npm-prefix-sentinel' >> ~/${profile}"
   run bash "$INSTALLER" --report-only --report-format=json
   assert_exit_zero "DET-03"
   local effective
@@ -211,7 +230,7 @@ EOF
   [[ "$effective" == "/tmp/det03-npm-prefix-sentinel" ]] \
     || __fail "DET-03" "effective_prefix reflects user-shell NPM_CONFIG_PREFIX export (got '$effective'); confirms as_user_login was used" "$output" "$LOG"
   # Cleanup so subsequent @tests see a clean profile.
-  sudo -u agent sed -i '/NPM_CONFIG_PREFIX=\/tmp\/det03-npm-prefix-sentinel/d' /home/agent/.profile
+  sudo -u agent sed -i '/NPM_CONFIG_PREFIX=\/tmp\/det03-npm-prefix-sentinel/d' "/home/agent/${profile}"
   sudo rm -rf "$sentinel"
 }
 

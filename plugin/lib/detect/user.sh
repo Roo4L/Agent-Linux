@@ -38,14 +38,23 @@ detect::user_probe() {
     else
       home_writable=false
     fi
-    # Can the user run apt-get non-interactively via sudo? Use the ABSOLUTE
-    # path /usr/bin/apt-get (not bare `apt-get`): a user with NOPASSWD for the
-    # absolute path plus write access to an earlier-PATH dir could otherwise
-    # shadow apt-get with a malicious binary; the absolute form anchors the
-    # grant to the real binary. Run as raw `sudo -u <user> -n` (not via
+    # Can the user run the system package manager non-interactively via sudo?
+    # The probe BINARY branches by family (rhel: /usr/bin/dnf --version; debian:
+    # /usr/bin/apt-get --help) but the variable, export, JSON field, and accessor
+    # all stay named `can_sudo_apt` — that name is the DET-01 contract surface
+    # asserted by render.sh + the bats suite, so generalize the probe, never the
+    # field. Use the ABSOLUTE path (not a bare `dnf`/`apt-get`): a user with
+    # NOPASSWD for the absolute path plus write access to an earlier-PATH dir
+    # could otherwise shadow it with a malicious binary; the absolute form anchors
+    # the grant to the real binary. Run as raw `sudo -u <user> -n` (not via
     # as_user, which carries caller env) so a passwordless failure surfaces as
-    # exit 1 rather than a hanging prompt. `--help` is read-only.
-    if sudo -u "$user" -n /usr/bin/apt-get --help >/dev/null 2>&1; then
+    # exit 1 rather than a hanging prompt. `--version`/`--help` are read-only.
+    local probe probe_arg
+    case "${AGENTLINUX_DISTRO_FAMILY:-debian}" in
+      rhel) probe=/usr/bin/dnf probe_arg=--version ;;
+      *) probe=/usr/bin/apt-get probe_arg=--help ;;
+    esac
+    if sudo -u "$user" -n "$probe" "$probe_arg" >/dev/null 2>&1; then
       can_sudo_apt=true
     else
       can_sudo_apt=false

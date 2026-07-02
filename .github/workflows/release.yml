@@ -132,14 +132,23 @@ jobs:
     # caps a genuine hang without flaky re-timeouts; matches test.yml's bats-docker
     # budget. (gate-3-qemu stays 45 — that QEMU budget is proven by nightly-qemu.)
     timeout-minutes: 60
+    # almalinux-9 is a HARD release gate (REL-01). The EL9 Docker suite is green
+    # (Phase 20: 258/258; test.yml hard-gates it on every PR) AND the EL9 QEMU row
+    # is proven green in CI (nightly-qemu almalinux-9 success, run 28391444242,
+    # 2026-06-29 — incl. AGT-02 zero-EACCES on the real enforcing-SELinux guest),
+    # so the experimental include was dropped here and on gate-3-qemu in one
+    # coordinated flip. continue-on-error stays a harmless no-op (no arm sets
+    # matrix.experimental) so re-introducing a future experimental arm needs no
+    # plumbing change — matches test.yml's bats-docker.
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
-        ubuntu: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04]
+        target: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, almalinux-9]
     steps:
       - uses: actions/checkout@v5
       - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)
-        run: bash tests/docker/run.sh ${{ matrix.ubuntu }}
+        run: bash tests/docker/run.sh ${{ matrix.target }}
 
   # Gate 3 — QEMU matrix. Release-gate-only (ADR-007 — Docker alone is
   # disqualified). Mirrors nightly-qemu.yml's KVM udev + image-cache pattern.
@@ -149,10 +158,18 @@ jobs:
     needs: gate-2-docker
     runs-on: ubuntu-24.04
     timeout-minutes: 45
+    # almalinux-9 is a HARD release gate (REL-01). The EL9 QEMU row is proven
+    # green in CI (nightly-qemu almalinux-9 success, run 28391444242, 2026-06-29:
+    # boots under systemd + enforcing SELinux + cloud-init, full bats suite green
+    # in-guest incl. AGT-02 zero-EACCES `claude update` on the real guest — the
+    # PAR-02 milestone-close gate). The experimental include was dropped here in
+    # lockstep with gate-2-docker. continue-on-error stays a harmless no-op (no
+    # arm sets matrix.experimental) so a future experimental arm needs no plumbing.
+    continue-on-error: ${{ matrix.experimental || false }}
     strategy:
       fail-fast: false
       matrix:
-        ubuntu: ['22.04', '24.04', '26.04']
+        target: ['22.04', '24.04', '26.04', 'almalinux-9']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -197,16 +214,16 @@ jobs:
       # image URL forces a fresh fetch. boot.sh ALSO re-verifies sha256 against
       # upstream SHA256SUMS on every run (Pitfall 10 — belt-and-suspenders:
       # cache poisoning is rejected even if the cache key hash collided).
-      - name: Cache Ubuntu cloud images
+      - name: Cache cloud images
         uses: actions/cache@v4
         with:
           path: ~/.cache/agentlinux/qemu
-          key: cloud-image-${{ matrix.ubuntu }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
+          key: cloud-image-${{ matrix.target }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
           restore-keys: |
-            cloud-image-${{ matrix.ubuntu }}-
+            cloud-image-${{ matrix.target }}-
 
       - name: QEMU boot + installer + bats (incl. 51-*.bats — TST-05 inside QEMU)
-        run: bash tests/qemu/boot.sh ${{ matrix.ubuntu }}
+        run: bash tests/qemu/boot.sh ${{ matrix.target }}
 
       # Artifacts on failure only — serial.log is the primary diagnostic when
       # cloud-init or the installer hangs. 14-day retention keeps storage
@@ -215,7 +232,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: qemu-artifacts-${{ matrix.ubuntu }}
+          name: qemu-artifacts-${{ matrix.target }}
           path: tests/qemu/artifacts/
           if-no-files-found: ignore
           retention-days: 14
@@ -325,6 +342,13 @@ jobs:
           tag_name: ${{ needs.resolve.outputs.tag }}
           generate_release_notes: true
           fail_on_unmatched_files: false
+          # A pre-release tag (vX.Y.Z-rc1, -beta, …) is published as a GitHub
+          # pre-release and is NOT marked "latest", so the curl-installer's
+          # default latest-resolution never serves an RC to ordinary users —
+          # they must opt in with AGENTLINUX_VERSION=vX.Y.Z-rc1. A final
+          # vX.Y.Z tag (no suffix) publishes as a normal latest release.
+          prerelease: ${{ contains(needs.resolve.outputs.tag, '-') }}
+          make_latest: ${{ !contains(needs.resolve.outputs.tag, '-') }}
           files: |
             dist/agentlinux-*.tar.gz
             dist/agentlinux-*.tar.gz.sha256

@@ -28,8 +28,10 @@ The agent catalog and registry CLI:
 - [GSD](gsd.md) — `get-shit-done-cc`, the planning workflow CLI, installed
   via npm into the agent's per-user prefix.
 - [Playwright](playwright.md) — browser automation with chromium, installed
-  via npm as `@playwright/cli` plus a one-shot `playwright-cli install --skills`
-  that pulls down the chromium binary and the apt-layer browser dependencies.
+  via npm as `@playwright/cli` plus a `playwright-cli install --skills` step
+  that wires the Claude Code skill and pulls down the chromium binary, then a
+  family-dispatched browser-launch-deps step (Playwright's own `install-deps`
+  on Ubuntu, an explicit `dnf` list on AlmaLinux 9).
 - [Registry CLI](registry-cli.md) — the `agentlinux` command that drives
   list / install / remove / upgrade / pin against the catalog.
 - [Catalog](catalog.md) — the curated, version-pinned manifest of available

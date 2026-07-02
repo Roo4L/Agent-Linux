@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/docker/run.sh — build + run the Docker bats harness for one Ubuntu version.
+# tests/docker/run.sh — build + run the Docker bats harness for one target.
 #
 # Invoked by .github/workflows/test.yml and developers locally. This is the
 # single CI entrypoint for Phase 2's acceptance gate: it builds the matching
@@ -18,12 +18,12 @@
 #   AGENTLINUX_DOCKER_KEEP_CONTAINER=1 bash tests/docker/run.sh ubuntu-24.04
 # leaves the container running after the script exits so you can
 # `docker exec -it $CID bash` and poke at state. The container is named
-# agentlinux-test-<version> so the ID is easy to find via `docker ps`.
+# agentlinux-test-<target> so the ID is easy to find via `docker ps`.
 set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04>
+usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9>
 
 Builds the matching Docker image, runs agentlinux-install inside, runs the
 bats suite inside, and exits with the bats exit code.
@@ -39,19 +39,19 @@ Exit codes:
 EOF
 }
 
-UBUNTU_VERSION=${1:-}
-if [[ -z $UBUNTU_VERSION ]]; then
+TARGET=${1:-}
+if [[ -z $TARGET ]]; then
   usage
   exit 64
 fi
-case "$UBUNTU_VERSION" in
-  ubuntu-22.04 | ubuntu-24.04 | ubuntu-26.04) ;;
+case "$TARGET" in
+  ubuntu-22.04 | ubuntu-24.04 | ubuntu-26.04 | almalinux-9) ;;
   -h | --help)
     usage
     exit 0
     ;;
   *)
-    printf 'tests/docker/run.sh: unsupported ubuntu version: %s\n' "$UBUNTU_VERSION" >&2
+    printf 'tests/docker/run.sh: unsupported target: %s\n' "$TARGET" >&2
     usage
     exit 64
     ;;
@@ -59,8 +59,8 @@ esac
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$HERE/../.." && pwd)
-IMG="agentlinux-test:${UBUNTU_VERSION}"
-DF="$HERE/Dockerfile.${UBUNTU_VERSION}"
+IMG="agentlinux-test:${TARGET}"
+DF="$HERE/Dockerfile.${TARGET}"
 
 if [[ ! -f $DF ]]; then
   printf 'tests/docker/run.sh: missing Dockerfile %s\n' "$DF" >&2
@@ -99,9 +99,9 @@ done
 FINAL_STATUS=1
 final_banner() {
   if [[ $FINAL_STATUS -eq 0 ]]; then
-    echo "== PASS: agentlinux-install + bats on ${UBUNTU_VERSION} =="
+    echo "== PASS: agentlinux-install + bats on ${TARGET} =="
   else
-    echo "== FAIL: agentlinux-install + bats on ${UBUNTU_VERSION} (exit ${FINAL_STATUS}) ==" >&2
+    echo "== FAIL: agentlinux-install + bats on ${TARGET} (exit ${FINAL_STATUS}) ==" >&2
   fi
 }
 trap final_banner EXIT
@@ -131,6 +131,15 @@ echo "== run systemd container from ${IMG} =="
 #      slice/scope cgroups under the bind-mounted tree. A read-only mount
 #      causes systemd to fail before emitting any journal output (container
 #      exits 255 with zero log output — the exact symptom observed locally).
+#   3. `--tmpfs /tmp:exec` (not the default `--tmpfs /tmp`): Docker mounts a
+#      bare tmpfs `noexec`, but the PATH-stub bats harnesses (18-pkg-dispatch,
+#      18-detect-el9) write executable stubs under BATS_TEST_TMPDIR
+#      (= /tmp/bats-run-*). On a noexec /tmp those stubs cannot execve: bash
+#      falls through to the REAL dnf/rpm/curl (exit 0, empty capture -> grep
+#      fails) or dies 126 (apt-get on EL9) -> false RED. `:exec` restores the
+#      normal-outside-Docker default. SHARED across all rows (the same noexec
+#      /tmp silently broke the Debian arm of those files too); do NOT branch
+#      it per-target. exec-on-/tmp does not perturb the systemd-in-Docker boot.
 #
 # Repo is bind-mounted read-only at /workspace; the installer needs to write
 # under /etc and /home so it runs against a writable copy under /opt.
@@ -140,7 +149,7 @@ CID=$(docker run --rm -d \
   --cgroupns=host \
   "${DOCKER_ENV_FLAGS[@]}" \
   -v /sys/fs/cgroup:/sys/fs/cgroup:rw \
-  --tmpfs /run --tmpfs /tmp \
+  --tmpfs /run --tmpfs /tmp:exec \
   -v "$REPO_ROOT":/workspace:ro \
   -w /workspace \
   "$IMG")

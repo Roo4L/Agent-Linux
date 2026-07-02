@@ -1,5 +1,5 @@
 #!/usr/bin/env bats
-# tests/bats/50-agents.bats — Phase 5 integration: AGT-01, AGT-02b, AGT-03, AGT-04, AGT-05.
+# tests/bats/50-agents.bats — Phase 5 integration: AGT-01, AGT-02b, AGT-03, AGT-04, AGT-05, AGT-06.
 #
 # Non-destructive tests. AGT-02 (real self-update path) lives in
 # tests/bats/51-agt02-release-gate.bats so Phase 6 CI can select it via
@@ -26,6 +26,7 @@
 
 load 'helpers/invoke_modes'
 load 'helpers/assertions'
+load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
 # AL-29: derive the catalog version from package.json — single SoT.
@@ -55,7 +56,13 @@ setup_file() {
     install -d -m 0700 -o agent -g agent /home/agent/.ssh
     install -m 0600 -o agent -g agent \
       /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
-    systemctl start ssh >/dev/null 2>&1 || true
+    # Relabel the re-seeded keys so a confined sshd_t can read them under real
+    # SELinux (EL-06). Guarded no-op where restorecon is absent (the Docker row,
+    # where enforcing SELinux is structurally unavailable — the genuine proof is
+    # the Phase 22 QEMU row); `:` on Debian. SELinux enforcement is never
+    # disabled — the guarded restorecon is the only sanctioned fix.
+    distro_restore_ssh_context /home/agent/.ssh
+    systemctl start "$(distro_ssh_unit)" >/dev/null 2>&1 || true
     # Wait up to 5s for sshd to accept connections (mirrors 20-*.bats setup).
     for _ in $(seq 1 5); do
       if ss -lnt 2>/dev/null | grep -q ':22 '; then break; fi
@@ -315,4 +322,60 @@ teardown_file() {
   assert_exit_zero "AGT-05 re-install"
   echo "$output" | grep -q 'already installed' \
     || __fail "AGT-05" "idempotent re-install prints 'already installed'" "${output:-<empty>}" "$LOG"
+}
+
+# ---------- AGT-06: playwright-cli Chromium actually launches (REC-01) ----------
+
+# AGT-06 (REC-01): install.sh now installs the OS-level libraries Chromium
+# needs to LAUNCH, family-dispatched (Playwright's own `install-deps` on
+# Debian/Ubuntu; an explicit `dnf` list on EL9). Without that step the recipe
+# downloads a Chromium build whose shared-library closure is unsatisfied —
+# `playwright-cli --version` (AGT-05) still passes, but the first real browser
+# command dies with `error while loading shared libraries`. This @test locks
+# the launch capability so a regression (deps step dropped, or the EL9 list
+# drifting out of sync with the bundled Chromium build) fails the suite
+# instead of silently shipping an unlaunchable browser. The asserted
+# observable is identical on both families (PAR-01): zero missing libs + a
+# headless launch that exits 0 and emits DOM.
+@test "AGT-06: playwright-cli Chromium shared-lib closure is satisfied and it launches headless" {
+  # The browser is downloaded under the agent's per-user ms-playwright cache.
+  # `-path "*chrome-linux*"` matches the Chrome-for-Testing layout on both
+  # x86_64 (chrome-linux64) and arm64 (chrome-linux) while still excluding the
+  # bundled firefox's decoy `.../firefox/browser/chrome` file.
+  local chrome
+  chrome=$(sudo -u agent -H bash --login -c \
+    'find ~/.cache/ms-playwright -type f -name chrome -path "*chrome-linux*" 2>/dev/null | head -1')
+  if [[ -z "$chrome" ]]; then
+    __fail "AGT-06" \
+      "downloaded Chromium binary present under ~agent/.cache/ms-playwright" \
+      "<none found>" "$LOG"
+  fi
+
+  # (1) ldd reports no missing shared libraries — the deps step satisfied the
+  # closure. Deterministic and fast; catches a dropped/incomplete deps list
+  # even in a headless-hostile container. `grep | wc -l` (not `grep -c`) so the
+  # zero-match case prints 0 AND exits 0 — `grep -c` exits 1 on no matches,
+  # which under bats' errexit would abort this assignment exactly when the
+  # closure IS satisfied (0 missing), inverting the test.
+  local missing
+  missing=$(sudo -u agent -H bash --login -c "ldd '$chrome' 2>&1 | grep 'not found' | wc -l")
+  if [[ "${missing:-1}" -ne 0 ]]; then
+    __fail "AGT-06" \
+      "Chromium ldd reports 0 missing libs (browser-launch deps installed)" \
+      "$(sudo -u agent -H bash --login -c "ldd '$chrome' 2>&1 | grep 'not found'")" \
+      "$LOG"
+  fi
+
+  # (2) End-to-end proof: a real headless launch exits 0 and emits the DOM.
+  # --no-sandbox because the container has no user-namespace sandbox;
+  # --disable-dev-shm-usage because the test container's /dev/shm is Docker's
+  # 64MB default (Chromium writes shm there and can crash without it). dbus
+  # warnings on stderr are non-fatal (no system bus needed for about:blank).
+  run sudo -u agent -H bash --login -c \
+    "'$chrome' --headless=new --no-sandbox --disable-gpu --disable-dev-shm-usage --dump-dom about:blank"
+  assert_exit_zero "AGT-06 headless launch"
+  printf '%s' "$output" | grep -q '<html' \
+    || __fail "AGT-06" \
+      "headless --dump-dom about:blank emits <html>" \
+      "${output:-<empty>}" "$LOG"
 }

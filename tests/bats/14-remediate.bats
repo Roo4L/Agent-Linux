@@ -30,6 +30,20 @@
 load 'helpers/assertions'
 load 'helpers/detection'
 load 'helpers/brownfield'
+load 'helpers/tmpdir'
+
+# AL_TMPDIR is a writable temp root that is safe even on bats < 1.4 (Ubuntu 22.04
+# ships bats 1.2.1, which leaves BATS_TEST_TMPDIR unset → a bare expansion would
+# write fixture state like "/home/.npm-global" and "/shims" into the real host
+# root). The @tests below build all per-test paths under $AL_TMPDIR instead.
+# See helpers/tmpdir.bash.
+setup() {
+  al_tmpdir_init || { printf 'setup: no safe temp dir\n' >&2; return 1; }
+}
+
+teardown() {
+  al_tmpdir_teardown
+}
 
 # Plan 14-02 teardown_file invariant. The brownfield-running @tests in this
 # file (REMEDIATE-01/02/03 E2E paths) call `bash $INSTALLER --purge` + manual
@@ -341,8 +355,8 @@ __reset_remediate_state() {
   # Shim filesystem-mutation commands by prepending a tmpdir of logging stubs
   # to PATH. After collect_all_decisions runs, the shim log must be empty —
   # proof that the decision-collection phase made zero host mutations.
-  local shimdir="$BATS_TEST_TMPDIR/shims"
-  local mutation_log="$BATS_TEST_TMPDIR/mutation.log"
+  local shimdir="$AL_TMPDIR/shims"
+  local mutation_log="$AL_TMPDIR/mutation.log"
   mkdir -p "$shimdir"
   : >"$mutation_log"
   local cmd
@@ -572,8 +586,8 @@ setup_brownfield_for_bail_sudoers_drift() {
 @test "UX-03 (T-14-13) / UX-04 (D-15-08): NO-MUTATION SNAPSHOT — wrong-shell user bail leaves /etc/sudoers.d /home /etc/passwd byte-identical" {
   setup_brownfield_for_bail_user_wrongshell
 
-  local before="$BATS_TEST_TMPDIR/before"
-  local after="$BATS_TEST_TMPDIR/after"
+  local before="$AL_TMPDIR/before"
+  local after="$AL_TMPDIR/after"
   snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
 
   run bash "$INSTALLER"
@@ -597,8 +611,8 @@ setup_brownfield_for_bail_sudoers_drift() {
 @test "UX-03 (T-14-13): NO-MUTATION SNAPSHOT — sudoers drift bail leaves host byte-identical" {
   setup_brownfield_for_bail_sudoers_drift
 
-  local before="$BATS_TEST_TMPDIR/before"
-  local after="$BATS_TEST_TMPDIR/after"
+  local before="$AL_TMPDIR/before"
+  local after="$AL_TMPDIR/after"
   snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
 
   run bash "$INSTALLER"
@@ -643,8 +657,8 @@ setup_brownfield_for_bail_sudoers_drift() {
   echo "prefix=/home/agent/.npm-global" >>/home/agent/.npmrc
   chown agent:agent /home/agent/.npmrc
 
-  local before="$BATS_TEST_TMPDIR/before"
-  local after="$BATS_TEST_TMPDIR/after"
+  local before="$AL_TMPDIR/before"
+  local after="$AL_TMPDIR/after"
   snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
 
   run bash "$INSTALLER"
@@ -679,8 +693,8 @@ setup_brownfield_for_bail_sudoers_drift() {
   echo "prefix=/home/agent/.npm-global" >>/home/agent/.npmrc
   chown agent:agent /home/agent/.npmrc
 
-  local before="$BATS_TEST_TMPDIR/before"
-  local after="$BATS_TEST_TMPDIR/after"
+  local before="$AL_TMPDIR/before"
+  local after="$AL_TMPDIR/after"
   snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
 
   run bash "$INSTALLER"
@@ -762,7 +776,7 @@ run_provisioners'
 # Test 25 — Predicate: trivially salvageable returns 0 on empty allowlist tree.
 @test "REMEDIATE-01: _is_trivially_salvageable returns 0 (true) on allowlist-only prefix" {
   __source_lib_chain_with_remediate
-  local prefix="$BATS_TEST_TMPDIR/empty-prefix"
+  local prefix="$AL_TMPDIR/empty-prefix"
   mkdir -p "$prefix/lib" "$prefix/bin" "$prefix/share" "$prefix/etc"
   : >"$prefix/package.json"
   : >"$prefix/package-lock.json"
@@ -773,7 +787,7 @@ run_provisioners'
 # Test 26 — T-14-03 mitigation: predicate REJECTS non-allowlist entry.
 @test "REMEDIATE-01 (T-14-03): _is_trivially_salvageable returns 1 (false) on lib/node_modules/<user-pkg>" {
   __source_lib_chain_with_remediate
-  local prefix="$BATS_TEST_TMPDIR/with-user-pkg"
+  local prefix="$AL_TMPDIR/with-user-pkg"
   mkdir -p "$prefix/lib/node_modules/some-user-pkg"
   cat >"$prefix/lib/node_modules/some-user-pkg/package.json" <<'JSON'
 { "name": "some-user-pkg", "version": "0.0.1" }
@@ -786,7 +800,7 @@ JSON
 # Test 27 — Strategy selector picks chown for under-home + salvageable.
 @test "REMEDIATE-01: _strategy_for returns 'chown' for under-home + trivially salvageable" {
   __source_lib_chain_with_remediate
-  local home="$BATS_TEST_TMPDIR/home"
+  local home="$AL_TMPDIR/home"
   local prefix="$home/.npm-global"
   mkdir -p "$prefix/lib" "$prefix/bin"
   run remediate::nodejs::_strategy_for "$prefix" "$home"
@@ -797,7 +811,7 @@ JSON
 # Test 28 — Strategy selector picks rebase for prefix OUTSIDE home.
 @test "REMEDIATE-01 (T-14-08): _strategy_for returns 'rebase' for prefix OUTSIDE user home (system path)" {
   __source_lib_chain_with_remediate
-  local home="$BATS_TEST_TMPDIR/home"
+  local home="$AL_TMPDIR/home"
   mkdir -p "$home"
   # /usr (a system path) is the canonical T-14-08 case — even if empty,
   # strategy MUST be rebase because we never chown a system path.
@@ -809,7 +823,7 @@ JSON
 # Test 29 — Strategy selector picks rebase for under-home + NOT salvageable.
 @test "REMEDIATE-01 (T-14-03): _strategy_for returns 'rebase' for under-home + non-salvageable" {
   __source_lib_chain_with_remediate
-  local home="$BATS_TEST_TMPDIR/home"
+  local home="$AL_TMPDIR/home"
   local prefix="$home/.npm-global"
   mkdir -p "$prefix/lib/node_modules/some-user-pkg"
   : >"$prefix/lib/node_modules/some-user-pkg/package.json"
@@ -964,7 +978,7 @@ JSON
   # /usr is canonically empty-of-our-allowlist-violators in a healthy host,
   # but it is NOT under any user home. The strategy selector must return
   # rebase regardless of salvageability.
-  local home="$BATS_TEST_TMPDIR/home"
+  local home="$AL_TMPDIR/home"
   mkdir -p "$home"
   run remediate::nodejs::_strategy_for "/usr" "$home"
   [[ "$output" == "rebase" ]] \
