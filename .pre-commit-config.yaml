@@ -88,3 +88,9 @@ repos:
         language: system
         files: ^tests/bats/([^/]+\.bats|helpers/[^/]+\.bash)$
         pass_filenames: false
+      - id: check-tty-sentinels
+        name: Check TTY driver prompt sentinels stay in sync with prompt.sh
+        entry: scripts/check-tty-sentinels.sh
+        language: system
+        files: ^(tests/bats/helpers/tty-driver\.py|plugin/lib/prompt\.sh)$
+        pass_filenames: false

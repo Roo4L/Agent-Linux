@@ -68,23 +68,40 @@ def main() -> int:
 
     # Parent process: feed input to the pty master + capture all output.
     #
-    # CRITICAL TIMING: writing all input bytes immediately (before the child
-    # has reached its first `read`) can race — the bytes land in the pty's
-    # input buffer before the child's stdin descriptor is fully wired up,
-    # and bash's later `read` blocks forever. The reliable pattern is:
-    # write one byte at a time, AFTER each prompt arrives. We trigger a
-    # write when the most recent output chunk ends with the prompt sentinel
-    # 'Proceed with this remediation? [Y/n] (...)' or — more conservatively
-    # — when output activity has been quiet for one select cycle (the child
-    # is presumably blocked on read).
+    # CRITICAL TIMING: writing any input byte BEFORE the child has reached its
+    # first `read` races — the bytes land in the pty's input buffer before the
+    # child's stdin descriptor is fully wired up, they are dropped, and bash's
+    # later `read` blocks (or default-accepts on an empty read). A quiet-timeout
+    # heuristic alone is NOT enough: the installer's detection phase (`sudo -i`
+    # npm probes) also goes quiet for seconds BEFORE any prompt, and on slower
+    # hosts (EL9) that quiet window fired a premature first byte that was then
+    # lost — the observed flaky UX-02/UX-04 failures on the AlmaLinux 9 row.
     #
-    # See plugin/lib/prompt.sh for the prompt format.
+    # Fix: gate ALL input writes on having actually SEEN a prompt in the output.
+    # `prompting_started` flips true only once a prompt sentinel appears, which
+    # means the child has completed its first `read` and the pty is wired up;
+    # from then on bytes queue reliably. The sentinels cover the installer's two
+    # prompts (see plugin/lib/prompt.sh) as three strings: the remediation [Y/n]
+    # prompt, plus the alt-user name prompt in both its suggested and
+    # no-suggestion forms. After the gate opens we keep feeding one byte per
+    # quiet cycle, which is safe (post-first-read pty writes are buffered).
+    PROMPT_SENTINELS = (
+        b"Proceed with this remediation? [Y/n]",
+        b"or type another name:",
+        b"Type a name for the new install user:",
+    )
     PROMPT_QUIET_THRESHOLD = 2  # consecutive empty-read cycles → assume read-block
     EOF_AFTER_EMPTY_QUIET = 6  # cycles of quiet AFTER write_buf is empty → send EOF (^D)
     write_buf = input_bytes
     output: list[bytes] = []
     quiet_cycles = 0
     eof_sent = False
+    prompting_started = False
+    # Scan buffer: accumulates output only until the first sentinel is seen,
+    # then is freed. Keeps sentinel matching from re-scanning the whole
+    # transcript every cycle. (The overall deadline below caps its growth on the
+    # no-prompt-ever path, same as the `output` list.)
+    sentinel_scan = b""
 
     # Bounded overall timeout — DEFENSIVE.
     #
@@ -147,11 +164,18 @@ def main() -> int:
                 break
             output.append(chunk)
             quiet_cycles = 0
+            # Watch for the first prompt: until one appears, the child has not
+            # completed its first `read` and any byte we send would be dropped.
+            if not prompting_started:
+                sentinel_scan += chunk
+                if any(s in sentinel_scan for s in PROMPT_SENTINELS):
+                    prompting_started = True
+                    sentinel_scan = b""  # gate is open; stop accumulating
         else:
             quiet_cycles += 1
-            # When output goes quiet, the child is probably blocked on read.
+            # Output quiet + a prompt already seen ⇒ child is blocked on read.
             # Feed one byte at a time so each prompt sees its own byte.
-            if quiet_cycles >= PROMPT_QUIET_THRESHOLD and write_buf:
+            if quiet_cycles >= PROMPT_QUIET_THRESHOLD and write_buf and prompting_started:
                 try:
                     os.write(fd, write_buf[:1])
                     write_buf = write_buf[1:]
@@ -159,15 +183,17 @@ def main() -> int:
                 except OSError:
                     break
             # Plan 15-02 (UX-04 Test 15): once input is exhausted AND the child
-            # is still blocked on read, send EOF (^D = 0x04 in canonical/ICANON
-            # pty mode) so `read -r response` returns non-zero and the alt-user
-            # prompt's EOF-bail path fires. Without this, Test 15 (decline-and-
-            # bail via EOF) hangs forever because pty.fork()'s slave-side TTY
-            # never closes on its own.
+            # is still blocked on read at a prompt, send EOF (^D = 0x04 in
+            # canonical/ICANON pty mode) so `read -r response` returns non-zero
+            # and the alt-user prompt's EOF-bail path fires. Without this, Test
+            # 15 (decline-and-bail via EOF) hangs forever because pty.fork()'s
+            # slave-side TTY never closes on its own. Gated on prompting_started
+            # so we never send EOF into the pre-prompt detection phase.
             elif (
                 quiet_cycles >= EOF_AFTER_EMPTY_QUIET
                 and not write_buf
                 and not eof_sent
+                and prompting_started
             ):
                 try:
                     os.write(fd, b"\x04")  # Ctrl-D / EOT
