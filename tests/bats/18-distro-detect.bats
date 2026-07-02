@@ -18,6 +18,8 @@
 # These are pure unit fixtures: no installer run, no Docker, dev-host runnable.
 # Failures use a plain four-line diagnostic mirroring helpers/assertions __fail.
 
+load 'helpers/tmpdir'
+
 # Resolve the lib dir relative to this bats file so the suite runs identically on
 # the Ubuntu dev host (repo root) and the Docker substrate (/opt/agentlinux-src).
 LIB_DIR="${BATS_TEST_DIRNAME}/../../plugin/lib"
@@ -35,8 +37,19 @@ __el01_fail() {
 
 # write_osrelease <line>... — write a fixture os-release into the bats temp dir
 # and export the AGENTLINUX_OS_RELEASE_PATH seam so detect_distro reads it.
+setup() {
+  # AL_TMPDIR is a writable temp root that is safe even on bats < 1.4 (Ubuntu
+  # 22.04 ships 1.2.1, which leaves BATS_TEST_TMPDIR unset → a bare expansion
+  # would resolve to "/os-release"). See helpers/tmpdir.bash.
+  al_tmpdir_init || { printf 'setup: no safe temp dir\n' >&2; return 1; }
+}
+
+teardown() {
+  al_tmpdir_teardown
+}
+
 write_osrelease() {
-  local f="${BATS_TEST_TMPDIR}/os-release"
+  local f="$AL_TMPDIR/os-release"
   printf '%s\n' "$@" > "$f"
   export AGENTLINUX_OS_RELEASE_PATH="$f"
 }
@@ -162,7 +175,7 @@ run_detect() {
 
 @test "EL-01: SKIP_DISTRO_CHECK=1 no preset, no readable os-release → defaults FAMILY=debian" {
   export AGENTLINUX_SKIP_DISTRO_CHECK=1
-  export AGENTLINUX_OS_RELEASE_PATH="${BATS_TEST_TMPDIR}/does-not-exist"
+  export AGENTLINUX_OS_RELEASE_PATH="$AL_TMPDIR/does-not-exist"
   run_detect
   unset AGENTLINUX_SKIP_DISTRO_CHECK AGENTLINUX_OS_RELEASE_PATH
   [[ "$status" -eq 0 ]] || __el01_fail "exit 0 with escape hatch" "status=$status; $output"

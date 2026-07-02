@@ -26,6 +26,8 @@
 # Open Q1 (carried): the EXACT `%{RELEASE}` string is live-verified on
 # almalinux:9 in Phase 19; the classifier keys on the `nodesource` substring.
 
+load 'helpers/tmpdir'
+
 LIB_DIR="${BATS_TEST_DIRNAME}/../../plugin/lib"
 
 # __el07_fail <expected> <observed> — TST-04-style diagnostic.
@@ -47,18 +49,23 @@ __el07_fail() {
 # and home_writable are false) WITHOUT exec'ing the absolute-path binary. The
 # dnf stub logs + exits 0 and must never be reached by a read-only probe.
 setup() {
-  STUBDIR="${BATS_TEST_TMPDIR}/bin"
+  # Resolve a writable temp root that is safe even on bats < 1.4 (Ubuntu 22.04
+  # ships 1.2.1, which leaves BATS_TEST_TMPDIR unset → a bare expansion of
+  # "${BATS_TEST_TMPDIR}/bin" would be "/bin" and the stubs below would clobber
+  # the real /usr/bin/{sudo,rpm,dnf} via usr-merge). See helpers/tmpdir.bash.
+  al_tmpdir_init || { printf 'setup: no safe temp dir\n' >&2; return 1; }
+  STUBDIR="$AL_TMPDIR/bin"
   mkdir -p "$STUBDIR"
-  CAPTURE="${BATS_TEST_TMPDIR}/capture.log"
+  CAPTURE="$AL_TMPDIR/capture.log"
   : >"$CAPTURE"
-  FRAGMENT="${BATS_TEST_TMPDIR}/nodejs.json"
-  USER_FRAGMENT="${BATS_TEST_TMPDIR}/user.json"
-  HOME_DIR="${BATS_TEST_TMPDIR}/home"
+  FRAGMENT="$AL_TMPDIR/nodejs.json"
+  USER_FRAGMENT="$AL_TMPDIR/user.json"
+  HOME_DIR="$AL_TMPDIR/home"
   mkdir -p "$HOME_DIR"
   # The temp stand-in for the NodeSource yum-repo file; presence is toggled per
   # @test by touching / rm-ing this path, and the nodesource_repo_paths override
   # echoes it so the rhel detect gate reads it as the repo-presence signal.
-  REPO_PATH="${BATS_TEST_TMPDIR}/nodesource-nodejs.repo"
+  REPO_PATH="$AL_TMPDIR/nodesource-nodejs.repo"
   # A real, existing user so detect::user_probe takes the present-user branch and
   # actually runs the sudo-capability probe (a non-existent user short-circuits).
   USERNAME="$(id -un)"
@@ -90,6 +97,10 @@ setup() {
     printf 'exit 1\n'
   } >"$STUBDIR/sudo"
   chmod +x "$STUBDIR/sudo"
+}
+
+teardown() {
+  al_tmpdir_teardown
 }
 
 # run_nodejs_probe <family> <nevr> <repo_present:0|1> — source the libs + the

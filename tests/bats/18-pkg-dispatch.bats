@@ -24,6 +24,8 @@
 #            apt-transport-https (byte-for-byte the current call site), repo
 #            paths→apt sources.list.d + preferences.d
 
+load 'helpers/tmpdir'
+
 LIB_DIR="${BATS_TEST_DIRNAME}/../../plugin/lib"
 
 # __elNN_fail <id> <expected> <observed> — TST-04-style four-line diagnostic.
@@ -48,14 +50,19 @@ __el05_fail() { __elNN_fail EL-05 "$1" "$2"; }
 # appends "<tool> <args>" to $CAPTURE and exits 0; `locale`/`dpkg-query` also emit
 # the stdout the verbs grep so the success path is exercised.
 setup() {
-  STUBDIR="${BATS_TEST_TMPDIR}/bin"
+  # Resolve a writable temp root that is safe even on bats < 1.4 (Ubuntu 22.04
+  # ships 1.2.1, which leaves BATS_TEST_TMPDIR unset → a bare expansion of
+  # "${BATS_TEST_TMPDIR}/bin" would be "/bin" and the stubs below would clobber
+  # the real /usr/bin/{apt-get,dnf,rpm,...} via usr-merge). See helpers/tmpdir.bash.
+  al_tmpdir_init || { printf 'setup: no safe temp dir\n' >&2; return 1; }
+  STUBDIR="$AL_TMPDIR/bin"
   mkdir -p "$STUBDIR"
-  CAPTURE="${BATS_TEST_TMPDIR}/capture.log"
+  CAPTURE="$AL_TMPDIR/capture.log"
   : > "$CAPTURE"
   export AGENTLINUX_TEST_CAPTURE="$CAPTURE"
   # Temp stand-in for the rhel locale write target (write_file_atomic is
   # overridden in-test to land here instead of the root-owned /etc/locale.conf).
-  LOCALE_CONF="${BATS_TEST_TMPDIR}/locale.conf"
+  LOCALE_CONF="$AL_TMPDIR/locale.conf"
   export AGENTLINUX_TEST_LOCALE_CONF="$LOCALE_CONF"
 
   local tool
@@ -89,6 +96,10 @@ setup() {
 
   PATH="$STUBDIR:$PATH"
   export PATH
+}
+
+teardown() {
+  al_tmpdir_teardown
 }
 
 # run_verb <FAMILY> <verb> [args...] — source the three libs in a fresh subshell
