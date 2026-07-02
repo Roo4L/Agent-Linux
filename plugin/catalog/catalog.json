@@ -47,7 +47,7 @@
       "license": "Apache-2.0",
       "source_kind": "npm",
       "npm_package_name": "@playwright/cli",
-      "pinned_version": "0.1.11",
+      "pinned_version": "0.1.15",
       "compatibility_window": ">=0.1.0 <1.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
