@@ -202,6 +202,13 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   run python3 "$TTY_DRIVER" 'Y\nY\n' -- bash "$INSTALLER"
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY accept-all exits 0" "exit=$status output=$output" "$LOG"
+  # The AL-50 install-user prompt must NOT fire on a brownfield TTY (agent
+  # already exists): it would consume a REMEDIATE 'Y' answer and desync the
+  # loop. This names the invariant that the Y\nY\n input-count matching guards
+  # only implicitly (regression: AL-50 prompt fired on every TTY install).
+  if printf '%s' "$output" | grep -qF 'Install AgentLinux under which user?'; then
+    __fail "UX-02" "no AL-50 install-user prompt on brownfield TTY" "$output" "$LOG"
+  fi
   # No DECLINED marker — both accepted.
   if printf '%s' "$output" | grep -qE 'DECLINED by user'; then
     __fail "UX-02" "no DECLINED markers on accept-all" "$output" "$LOG"
