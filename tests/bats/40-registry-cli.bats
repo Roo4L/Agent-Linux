@@ -534,8 +534,8 @@ JSON
     || __fail "CAT-04" "claude-code pinned_version=2.1.98" "$claude_ver" "plugin/catalog/catalog.json"
   [[ "$gsd_ver" == "1.37.1" ]] \
     || __fail "CAT-04" "gsd pinned_version=1.37.1" "$gsd_ver" "plugin/catalog/catalog.json"
-  [[ "$playwright_cli_ver" == "0.1.11" ]] \
-    || __fail "CAT-04" "playwright-cli pinned_version=0.1.11" "$playwright_cli_ver" "plugin/catalog/catalog.json"
+  [[ "$playwright_cli_ver" == "0.1.15" ]] \
+    || __fail "CAT-04" "playwright-cli pinned_version=0.1.15" "$playwright_cli_ver" "plugin/catalog/catalog.json"
   [[ "$dummy_ver" == "0.0.1" ]] \
     || __fail "CAT-04" "test-dummy pinned_version=0.0.1" "$dummy_ver" "plugin/catalog/catalog.json"
 }

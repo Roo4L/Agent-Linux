@@ -7,8 +7,9 @@
 #     not vacuously skipped. Requires `--privileged --cgroupns=host` at runtime.
 #   - cron + openssh-server installed so BHV-02/BHV-03 helpers have a daemon to
 #     talk to (systemd units start them once PID 1 is up).
-#   - bats installed system-wide (22.04 apt ships 1.8.2 — adequate for
-#     --separate-stderr and the `run` helper).
+#   - bats installed system-wide (22.04 apt ships 1.2.1, which predates the
+#     BATS_TEST_TMPDIR export added in bats 1.4.0 — fixtures must not assume that
+#     variable is set; see tests/bats/helpers/tmpdir.bash).
 #   - locales + C.UTF-8 update-locale seeded so BHV-01 locale checks fire against
 #     a real system configuration, not Docker's DEBIAN_FRONTEND env override.
 #   - sudo present so run_sudo_u / run_sudo_u_i helpers can exercise BHV-05.

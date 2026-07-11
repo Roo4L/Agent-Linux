@@ -45,15 +45,72 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# Checksum helpers (HARN-02).
+# ---------------------------------------------------------------------------
+# verify_one_checksum <cache-dir> <image-filename> <checksums-file>
+# Verifies EXACTLY the pinned image against its line in the GNU-format checksums
+# file (Ubuntu SHA256SUMS and AlmaLinux CHECKSUM are both `<sha256hex>  <name>`).
+# `sha256sum --ignore-missing --check` exits 0 when ZERO listed files are present
+# (the HARN-02 false-pass), so instead this REQUIRES the pinned filename's line
+# to exist (≥1 row matched) and pipes only that line to `sha256sum --check
+# --strict`. A missing line, a malformed line, or a digest mismatch all fail.
+verify_one_checksum() {
+  local cache=$1 img_name=$2 checksums=$3
+  local line
+  # Select the line whose FILENAME field equals the pinned image, field-exact
+  # via awk (no regex). This is immune to filename metacharacters AND to the two
+  # GNU coreutils separator modes: Ubuntu's SHA256SUMS is BINARY mode
+  # (`<hash> *name` — the `*` attaches to the last field), AlmaLinux's CHECKSUM
+  # is TEXT mode (`<hash>  name`). Both reduce to "$NF is `name` or `*name`".
+  # Cloud image filenames contain no whitespace, so $NF is the whole name. awk
+  # `exit !found` makes a zero-match return non-zero — the HARN-02 >=1-match gate.
+  line=$(awk -v n="$img_name" '$NF==n || $NF=="*"n {print; found=1} END{exit !found}' \
+    "$checksums") || {
+    printf 'ERROR: %s has no line in %s — cannot verify (HARN-02 >=1-match gate)\n' \
+      "$img_name" "$checksums" >&2
+    return 1
+  }
+  # `sha256sum --check --strict` parses both text- and binary-mode lines.
+  (cd "$cache" && printf '%s\n' "$line" | sha256sum --check --strict -)
+}
+
+# selftest_checksum_guard
+# Proves the verification path actually REJECTS corruption, on every run, using a
+# tiny synthetic file (no cost to copy the multi-hundred-MB image). Asserts an
+# intact check passes, then flips the first byte and asserts the check FAILS. If
+# corruption is NOT detected the guard is broken and we refuse to proceed — a
+# green run would otherwise be a false pass.
+selftest_checksum_guard() {
+  local d probe
+  d=$(mktemp -d -t agentlinux-cksum.XXXXXX) || return 1
+  probe="$d/probe.bin"
+  printf 'agentlinux-checksum-guard-probe\n' >"$probe"
+  (cd "$d" && sha256sum probe.bin >sums)
+  if ! (cd "$d" && sha256sum --check --strict sums) >/dev/null 2>&1; then
+    printf 'ERROR: checksum self-test: intact file failed to verify\n' >&2
+    rm -rf "$d"
+    return 1
+  fi
+  # Flip the first byte ('a' -> 'b') — a guaranteed content change.
+  printf 'b' | dd of="$probe" bs=1 count=1 conv=notrunc status=none
+  if (cd "$d" && sha256sum --check --strict sums) >/dev/null 2>&1; then
+    printf 'ERROR: checksum self-test: flipped-byte corruption NOT detected — guard broken\n' >&2
+    rm -rf "$d"
+    return 1
+  fi
+  rm -rf "$d"
+}
+
+# ---------------------------------------------------------------------------
 # 0. Argument parsing.
 # ---------------------------------------------------------------------------
 usage() {
   cat <<'EOF'
-usage: tests/qemu/boot.sh <22.04|24.04|26.04>
+usage: tests/qemu/boot.sh <22.04|24.04|26.04|almalinux-9>
 
-Runs the AgentLinux QEMU release-gate harness against a fresh Ubuntu cloud
-image. Exits 0 on a fully green run (cloud-init seed → installer → bats),
-exits 1 on any in-guest failure, exits 64 on bad usage.
+Runs the AgentLinux QEMU release-gate harness against a fresh cloud image
+(Ubuntu LTS or AlmaLinux 9). Exits 0 on a fully green run (cloud-init seed →
+installer → bats), exits 1 on any in-guest failure, exits 64 on bad usage.
 
 Options:
   -h, --help    print this message and exit 0
@@ -88,9 +145,11 @@ case "${1:-}" in
     ;;
 esac
 
-UBUNTU_ARG=$1
-# Accept both `22.04` and `ubuntu-22.04` (strip optional `ubuntu-` prefix).
-UBUNTU_VERSION=${UBUNTU_ARG#ubuntu-}
+TARGET_ARG=$1
+# Accept `22.04`, `ubuntu-22.04` (Ubuntu rows strip the optional `ubuntu-`
+# prefix), and `almalinux-9` (the AlmaLinux row key, used verbatim — it has no
+# `ubuntu-` prefix to strip).
+TARGET=${TARGET_ARG#ubuntu-}
 
 # ---------------------------------------------------------------------------
 # 1. Locate the cloud-images.txt manifest + resolve URLs for this version.
@@ -102,23 +161,31 @@ if [[ ! -f "$IMAGES_MANIFEST" ]]; then
   exit 1
 fi
 
-# Match the leading version field; version dots are escaped in the grep literal.
-MANIFEST_LINE=$(grep -E "^${UBUNTU_VERSION//./\\.}[[:space:]]" "$IMAGES_MANIFEST" || true)
+# Match the leading target-key field; dots are escaped in the grep literal.
+MANIFEST_LINE=$(grep -E "^${TARGET//./\\.}[[:space:]]" "$IMAGES_MANIFEST" || true)
 if [[ -z "$MANIFEST_LINE" ]]; then
-  printf 'ERROR: unsupported Ubuntu version %q (must appear in %s)\n' \
-    "$UBUNTU_ARG" "$IMAGES_MANIFEST" >&2
+  printf 'ERROR: unsupported target %q (must appear in %s)\n' \
+    "$TARGET_ARG" "$IMAGES_MANIFEST" >&2
   exit 64
 fi
-# shellcheck disable=SC2034  # _UV echoed back out of the split for clarity
-read -r _UV IMG_URL SHASUMS_URL <<<"$MANIFEST_LINE"
+# shellcheck disable=SC2034  # _TK echoed back out of the split for clarity
+read -r _TK IMG_URL SHASUMS_URL <<<"$MANIFEST_LINE"
 
-case "$UBUNTU_VERSION" in
-  22.04) RELEASE=jammy ;;
-  24.04) RELEASE=noble ;;
-  26.04) RELEASE=resolute ;;
+# Family dispatch. FAMILY drives the cloud-init seed (debian: ssh + apt bats;
+# rhel: sshd + EPEL bats — see cloud-init/user-data.almalinux9). RELEASE is a
+# label used for the instance-id and the failure-artifact filename. The SSH
+# model is root@ for BOTH families: AlmaLinux's GenericCloud image ships
+# `PermitRootLogin yes` (only the root password is locked), so the in-guest
+# installer + bats run as root with no sudo wrapper, byte-equivalent to Ubuntu.
+# (Escape hatch if a future EL image drops root key-login: almalinux@ + sudo.)
+case "$TARGET" in
+  22.04) FAMILY=debian RELEASE=jammy ;;
+  24.04) FAMILY=debian RELEASE=noble ;;
+  26.04) FAMILY=debian RELEASE=resolute ;;
+  almalinux-9) FAMILY=rhel RELEASE=almalinux-9 ;;
   *)
-    printf 'ERROR: unsupported Ubuntu version %q (no release codename mapping)\n' \
-      "$UBUNTU_ARG" >&2
+    printf 'ERROR: unsupported target %q (no family/release mapping)\n' \
+      "$TARGET_ARG" >&2
     exit 64
     ;;
 esac
@@ -157,33 +224,66 @@ done
 # ---------------------------------------------------------------------------
 CACHE=${AGENTLINUX_QEMU_CACHE:-"$HOME/.cache/agentlinux/qemu"}
 mkdir -p "$CACHE"
-IMG_NAME="ubuntu-${UBUNTU_VERSION}-server-cloudimg-amd64.img"
+# Derive the local image filename from the URL basename so both families work
+# (Ubuntu `ubuntu-..-cloudimg-amd64.img`, AlmaLinux `AlmaLinux-9-GenericCloud-
+# <minor>-<date>.x86_64.qcow2`). The checksums file is cached under a generic
+# per-target name (its CONTENT references IMG_NAME; the local name is arbitrary).
+IMG_NAME=$(basename "$IMG_URL")
 IMG="${CACHE}/${IMG_NAME}"
-SHASUMS="${CACHE}/${RELEASE}-SHA256SUMS"
+CHECKSUMS="${CACHE}/${TARGET}.checksums"
 
-# Download the cloud image on cold cache; the SHA manifest is refetched on
+# Download the cloud image on cold cache; the checksums manifest is refetched on
 # EVERY run (Pitfall 10: never trust cached bytes without re-verification).
+downloaded_fresh=0
 if [[ ! -f "$IMG" ]]; then
   printf 'fetching %s\n' "$IMG_URL"
   curl -fsSL -o "$IMG" "$IMG_URL"
+  downloaded_fresh=1
 else
   printf 'using cached image %s\n' "$IMG"
 fi
 
-printf 'refreshing SHA256SUMS manifest from %s\n' "$SHASUMS_URL"
-curl -fsSL -o "$SHASUMS" "$SHASUMS_URL"
+printf 'refreshing checksums manifest from %s\n' "$SHASUMS_URL"
+curl -fsSL -o "$CHECKSUMS" "$SHASUMS_URL"
 
-# `sha256sum --ignore-missing --check` only validates the rows whose filenames
-# are present in $CACHE — the upstream SHA256SUMS lists many variants; we only
-# cache the amd64 server cloudimg.
-if ! (cd "$CACHE" && sha256sum --ignore-missing --check "${RELEASE}-SHA256SUMS"); then
-  cat >&2 <<EOF
-ERROR: cloud image SHA256 mismatch for ${IMG_NAME} — refusing to boot.
-       The cached image does not match the upstream manifest. This is either
-       a tampered cache or a mid-download corruption. Force a re-download:
-         rm -f "${IMG}"
+# HARN-02: first prove the verification path rejects corruption (self-test on a
+# synthetic file), then verify the pinned image against its published digest
+# with a POSITIVE >=1-match assertion (verify_one_checksum requires the pinned
+# filename's line to exist — closing the `--ignore-missing` zero-match false
+# pass). Both run on every invocation, including cache hits.
+selftest_checksum_guard || exit 1
+if ! verify_one_checksum "$CACHE" "$IMG_NAME" "$CHECKSUMS"; then
+  if [[ "$downloaded_fresh" -eq 1 ]]; then
+    # A just-downloaded image can't be a stale cache — there's nothing to
+    # discard, so fail hard. The message below names the causes.
+    cat >&2 <<EOF
+ERROR: cloud image SHA256 verification failed for ${IMG_NAME} after a fresh
+       download — refusing to boot. The pinned filename is likely absent from
+       the upstream ${SHASUMS_URL##*/} manifest (image rotated upstream — bump
+       the row in tests/qemu/cloud-images.txt), or upstream served corrupt bytes.
 EOF
-  exit 1
+    exit 1
+  fi
+  # Self-heal a STALE CACHE HIT (the common nightly failure): the non-dated
+  # `release/` cloud image is republished in place (same URL, new bytes + new
+  # digest), but the CI image cache keys on hashFiles(cloud-images.txt), which
+  # does NOT change on an upstream rebuild — so a stale .img is restored
+  # indefinitely and mismatches the freshly-fetched manifest every run. Discard
+  # it and re-download ONCE against the same URL, then re-verify.
+  printf 'cached image failed checksum — discarding stale cache and re-downloading %s\n' "$IMG_URL" >&2
+  rm -f "$IMG"
+  curl -fsSL -o "$IMG" "$IMG_URL"
+  if ! verify_one_checksum "$CACHE" "$IMG_NAME" "$CHECKSUMS"; then
+    cat >&2 <<EOF
+ERROR: cloud image SHA256 verification failed for ${IMG_NAME} even after
+       discarding the cache and re-downloading — refusing to boot. Either
+       upstream is serving bytes that do not match its own ${SHASUMS_URL##*/}
+       manifest, or the pinned filename has rotated upstream (bump the row in
+       tests/qemu/cloud-images.txt).
+EOF
+    exit 1
+  fi
+  printf 'fresh image verified OK after discarding stale cache\n' >&2
 fi
 
 # ---------------------------------------------------------------------------
@@ -234,11 +334,19 @@ ssh-keygen -q -t ed25519 -N '' -f "${RUN_DIR}/id_ed25519" -C agentlinux-qemu
 PUBKEY=$(<"${RUN_DIR}/id_ed25519.pub")
 INSTANCE_ID="agentlinux-ci-${RELEASE}-$(date +%s)"
 
+# Select the family-correct seed template: the EL9 sibling uses `sshd` + EPEL
+# bats, the Ubuntu seed uses `ssh` + apt bats. Both carry the same root-pubkey
+# placeholder and meta-data contract.
+case "$FAMILY" in
+  rhel) SEED_TEMPLATE="${SCRIPT_DIR}/cloud-init/user-data.almalinux9" ;;
+  debian) SEED_TEMPLATE="${SCRIPT_DIR}/cloud-init/user-data" ;;
+esac
+
 # sed delimiter is | because the pubkey never contains | but does contain /.
 # PUBKEY is a single-line ssh-ed25519 payload; no escaping of sed metachars
 # is necessary (ssh-keygen output is alphanumerics + ` ` + `+/=` base64).
 sed "s|__AGENTLINUX_QEMU_PUBKEY__|${PUBKEY}|" \
-  "${SCRIPT_DIR}/cloud-init/user-data" >"${RUN_DIR}/user-data"
+  "$SEED_TEMPLATE" >"${RUN_DIR}/user-data"
 sed "s|__AGENTLINUX_QEMU_INSTANCE_ID__|${INSTANCE_ID}|" \
   "${SCRIPT_DIR}/cloud-init/meta-data" >"${RUN_DIR}/meta-data"
 
@@ -254,8 +362,8 @@ QEMU_MEM=${AGENTLINUX_QEMU_MEM:-2048}
 QEMU_SMP=${AGENTLINUX_QEMU_SMP:-2}
 QEMU_PORT=${AGENTLINUX_QEMU_PORT:-2222}
 
-printf 'booting QEMU (Ubuntu %s / %s; mem=%s smp=%s port=%s)\n' \
-  "$UBUNTU_VERSION" "$RELEASE" "$QEMU_MEM" "$QEMU_SMP" "$QEMU_PORT"
+printf 'booting QEMU (target %s / %s; mem=%s smp=%s port=%s)\n' \
+  "$TARGET" "$RELEASE" "$QEMU_MEM" "$QEMU_SMP" "$QEMU_PORT"
 
 ## Build a writable qcow2 overlay backed by the cached cloud image.
 ## `-drive ...,snapshot=on` would also work in theory, but QEMU 8.2+ is
@@ -281,7 +389,7 @@ qemu-system-x86_64 \
   -m "$QEMU_MEM" -smp "$QEMU_SMP" \
   -drive "file=${RUN_DIR}/disk.qcow2,if=virtio,format=qcow2" \
   -cdrom "${RUN_DIR}/seed.iso" \
-  -netdev "user,id=n0,hostfwd=tcp::${QEMU_PORT}-:22" \
+  -netdev "user,id=n0,hostfwd=tcp:127.0.0.1:${QEMU_PORT}-:22" \
   -device virtio-net,netdev=n0 \
   -nographic -serial "file:${RUN_DIR}/serial.log" \
   -display none \
@@ -322,6 +430,18 @@ while ((SECONDS < DEADLINE)); do
     CLOUD_INIT_OK=1
     break
   fi
+  # `status --wait` returns non-zero either because sshd isn't up yet OR because
+  # cloud-init reached a TERMINAL `error` state (e.g. an EL9 `dnf install` in
+  # runcmd failed) — in which case --wait returns immediately and the loop would
+  # otherwise spin uselessly to the deadline. Probe the state explicitly and
+  # fail fast with the real diagnostic instead of a misleading timeout.
+  if ssh "${SSH_OPTS[@]}" root@localhost 'cloud-init status' 2>/dev/null \
+    | grep -q 'status: error'; then
+    printf 'ERROR: cloud-init reported status: error on the guest — failing fast\n' >&2
+    ssh "${SSH_OPTS[@]}" root@localhost 'cloud-init status --long' >&2 2>/dev/null || true
+    tail -n 200 "${RUN_DIR}/serial.log" >&2 || true
+    exit 1
+  fi
   if ! kill -0 "$QEMU_PID" 2>/dev/null; then
     printf 'ERROR: QEMU process exited before cloud-init finished\n' >&2
     cat "${RUN_DIR}/serial.log" >&2 || true
@@ -333,6 +453,24 @@ if ((CLOUD_INIT_OK == 0)); then
   printf 'ERROR: cloud-init did not finish within %ds\n' "$TIMEOUT" >&2
   tail -n 200 "${RUN_DIR}/serial.log" >&2 || true
   exit 1
+fi
+
+# HARN-02 / EL-06: the milestone's headline is "six invocation modes under
+# ENFORCING SELinux". The in-guest bats suite exercises enforcement only
+# IMPLICITLY (the non-interactive-SSH mode would fail under sshd_t confinement
+# without the guarded restorecon) — so a guest that booted permissive/disabled
+# (image rotation, a stray `enforcing=0` cmdline) would pass every mode trivially
+# and silently degrade the proof. Assert enforcement explicitly here, on the
+# real guest, BEFORE the suite runs. rhel-only; Debian has no SELinux. SELinux is
+# never disabled to pass — this is a read-only check.
+if [[ "$FAMILY" == rhel ]]; then
+  SE_MODE=$(ssh "${SSH_OPTS[@]}" root@localhost getenforce 2>/dev/null || true)
+  if [[ "$SE_MODE" != Enforcing ]]; then
+    printf 'ERROR: SELinux is %q on the EL9 guest, expected Enforcing — refusing (green-on-permissive is a false pass)\n' \
+      "${SE_MODE:-unknown}" >&2
+    exit 1
+  fi
+  printf 'SELinux: Enforcing confirmed on the EL9 guest\n'
 fi
 
 # ---------------------------------------------------------------------------
@@ -430,8 +568,8 @@ if ((BATS_STATUS != 0)); then
   TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
   cp -f "${RUN_DIR}/serial.log" \
     "${ARTIFACTS}/serial-${RELEASE}-${TIMESTAMP}.log" || true
-  printf 'ERROR: in-guest bats exited %d on Ubuntu %s; serial log in %s\n' \
-    "$BATS_STATUS" "$UBUNTU_VERSION" "$ARTIFACTS" >&2
+  printf 'ERROR: in-guest bats exited %d on target %s; serial log in %s\n' \
+    "$BATS_STATUS" "$TARGET" "$ARTIFACTS" >&2
 fi
 
 # ---------------------------------------------------------------------------

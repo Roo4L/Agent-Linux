@@ -16,7 +16,7 @@
 log_info "10-agent-user: starting"
 
 # Dispatch on the pre-resolved RESOLUTIONS[user] token (decisions are made
-# up-front in main()). On a REUSE-compatible user, skip useradd + locale-gen +
+# up-front in main()). On a REUSE-compatible user, skip useradd + locale +
 # ensure_dir on the existing home; Step 3 (CLAUDE.md) and 40-path-wiring.sh
 # still run unconditionally (additive).
 #
@@ -32,7 +32,7 @@ case "${RESOLUTIONS[user]:-create}" in
     # (the sudoers drop-in) is owned by 20-sudoers.sh (RESOLUTIONS[sudoers]), so
     # the two tokens act identically on the user itself — skip useradd + locale.
     reuse::log_user_reuse "${INSTALL_USER:-agent}"
-    log_info "10-agent-user: REUSE branch — skipping useradd + locale-gen for existing user"
+    log_info "10-agent-user: REUSE branch — skipping useradd + locale provisioning for existing user"
     REUSED_USER=true
     ;;
   create)
@@ -67,31 +67,13 @@ if [[ "${REUSED_USER:-false}" != true ]]; then
   ensure_user "${_AL_INSTALL_USER}"
   ensure_dir "${_AL_INSTALL_HOME}" 0755 "${_AL_INSTALL_USER}:${_AL_INSTALL_USER}"
 
-  # Step 2: locale (BHV-01 — LANG/LC_ALL=C.UTF-8 system-wide).
-  # locale-gen C.UTF-8 is a no-op on glibc 2.35+ (Ubuntu 22.04+) since C.UTF-8
-  # is built in, so we don't trust its exit code and verify via `locale -a`.
-  # Docker slim images strip the `locales` package; install it first.
-  # apt-get update first — the cache may be empty on fresh containers and
-  # long-idle hosts, else apt-get install reports "no installation candidate".
-  if ! command -v locale-gen >/dev/null 2>&1; then
-    log_warn "locale-gen not found; installing 'locales' package"
-    DEBIAN_FRONTEND=noninteractive apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends locales
-  fi
-
-  # The one allowed `|| true` here: locale-gen may exit non-zero when
-  # /etc/locale.gen has no matching line (the expected state on 22.04+, where
-  # C.UTF-8 is a glibc built-in). The `locale -a` check below is the real test.
-  locale-gen C.UTF-8 >/dev/null 2>&1 || true
-  update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
-
-  # Accept both `C.UTF-8` and `C.utf8` (the form Ubuntu 24.04 reports);
-  # case-insensitive, optional dash before the 8.
-  if ! locale -a 2>/dev/null | grep -Eiq '^c\.utf-?8$'; then
-    log_error "C.UTF-8 locale not available after locale-gen + update-locale"
-    return 1
-  fi
-  log_info "locale C.UTF-8 enforced (LANG + LC_ALL in /etc/default/locale)"
+  # Step 2: locale (BHV-01 — LANG/LC_ALL=C.UTF-8 system-wide). Routed through
+  # the distro-neutral locale_ensure verb (plugin/lib/pkg.sh): the debian arm
+  # keeps the locales-package install + locale generation + update path verbatim
+  # (writing /etc/default/locale), the rhel arm writes /etc/locale.conf. Both
+  # arms end with the same portable `locale -a` correctness gate, so the BHV-01
+  # observable is identical on Ubuntu and EL9.
+  locale_ensure C.UTF-8 || { log_error "C.UTF-8 locale not available"; return 1; }
 fi
 
 # Step 3: DOC-02 — /home/agent/CLAUDE.md with anti-pattern guidance.
