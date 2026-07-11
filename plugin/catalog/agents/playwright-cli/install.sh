@@ -37,7 +37,22 @@ if [[ -z "$bin_path" ]]; then
 fi
 
 # Verify CLI version matches pin before invoking the skill bootstrapper.
-pw_version=$(playwright-cli --version 2>&1 | head -1 | tr -d '[:space:]')
+# @playwright/cli's VERY FIRST invocation in a pristine environment (cold npm
+# install, no prior run) can print an empty line before it settles and reports
+# the real version on the next call — observed with 0.1.15 on fresh CI runners.
+# Probe a few times so a cold first-run empty does not fail the whole install;
+# the version is stable by the second call.
+pw_version=""
+for _ in 1 2 3 4 5; do
+  # `|| true`: under `set -euo pipefail` a cold `--version` that exits non-zero
+  # (or SIGPIPEs `head`) would otherwise abort the script on iteration 1 before
+  # the retry can help — and bypass the informative `!= pin` diagnostic below.
+  # The loop owns retry/failure; a persistent miss still fails closed at the pin
+  # check with a clear message.
+  pw_version=$(playwright-cli --version 2>&1 | head -1 | tr -d '[:space:]') || true
+  [[ -n "$pw_version" ]] && break
+  sleep 1
+done
 if [[ "$pw_version" != "${AGENTLINUX_PINNED_VERSION}" ]]; then
   printf 'playwright-cli install: pinned=%s but --version: %s\n' \
     "${AGENTLINUX_PINNED_VERSION}" "$pw_version" >&2
