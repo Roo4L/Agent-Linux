@@ -1,0 +1,14 @@
+{
+  "version": "0.3.0",
+  "agents": [
+    {
+      "id": "test-npm",
+      "display_name": "Test NPM",
+      "description": "fixture — missing pinned_version (CAT-04 negative)",
+      "source_kind": "npm",
+      "npm_package_name": "foo",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh"
+    }
+  ]
+}

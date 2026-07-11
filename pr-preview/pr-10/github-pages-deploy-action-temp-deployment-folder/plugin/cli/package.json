@@ -1,0 +1,33 @@
+{
+  "name": "@agentlinux/cli",
+  "version": "0.3.0",
+  "private": true,
+  "description": "AgentLinux registry CLI — install, upgrade, remove catalog agents",
+  "type": "module",
+  "bin": {
+    "agentlinux": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc && ([ -f dist/index.js ] && chmod 0755 dist/index.js || true)",
+    "test": "tsc -p tsconfig.test.json && node --test dist-test/test/*.test.js",
+    "test:types": "tsc --noEmit",
+    "check": "biome check src/ test/ scripts/",
+    "lint": "biome check src/ test/",
+    "format": "biome format --write src/ test/ scripts/"
+  },
+  "dependencies": {
+    "ajv": "^8.17.0",
+    "ajv-formats": "^3.0.1",
+    "commander": "^12.1.0",
+    "semver": "^7.7.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.0.0",
+    "@types/semver": "^7.5.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

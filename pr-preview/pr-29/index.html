@@ -1,0 +1,895 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- Google Analytics 4 — replace G-7CR1MW6RL0 with your Measurement ID from https://analytics.google.com -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-7CR1MW6RL0"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-7CR1MW6RL0');
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AgentLinux -- Linux, for agents</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon.ico" sizes="32x32">
+  <link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://agentlinux.org">
+  <meta property="og:title" content="AgentLinux -- Linux, for agents">
+  <meta property="og:description" content="Linux that gives coding agents a stable place to run — without you having to set it up. An installable Ubuntu plugin that ships a dedicated agent environment and a curated, stability-tested toolchain.">
+  <meta property="og:image" content="https://agentlinux.org/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="AgentLinux -- Linux, for agents">
+  <meta name="twitter:description" content="Linux that gives coding agents a stable place to run — without you having to set it up.">
+  <meta name="twitter:image" content="https://agentlinux.org/assets/og-image.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-primary: #0a0a0a;
+      --bg-secondary: #141414;
+      --bg-tertiary: #1e1e1e;
+      --text-primary: #e0e0e0;
+      --text-secondary: #a0a0a0;
+      --text-muted: #666666;
+      --border: #2a2a2a;
+      --accent: #ffffff;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html {
+      scroll-behavior: smooth;
+      scroll-padding-top: 80px;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'SF Mono', monospace;
+      line-height: 1.6;
+      font-size: 16px;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.01ms !important;
+      }
+    }
+
+    /* Sticky Nav */
+    nav {
+      position: sticky;
+      top: 0;
+      z-index: 1000;
+      background: var(--bg-primary);
+      border-bottom: 1px solid var(--border);
+    }
+
+    .nav-inner {
+      max-width: 900px;
+      margin: 0 auto;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1rem 2rem;
+    }
+
+    .nav-logo {
+      font-weight: 700;
+      font-size: 1.2rem;
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .nav-links a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      margin-left: 2rem;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      transition: color 0.2s ease;
+    }
+
+    .nav-links a:hover {
+      color: var(--accent);
+    }
+
+    @media (max-width: 640px) {
+      .nav-links a {
+        margin-left: 1rem;
+        font-size: 0.75rem;
+      }
+    }
+
+    /* Section base styles */
+    .section-container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 6rem 2rem;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    section.full-height {
+      min-height: 100vh;
+    }
+
+    section.full-height .section-container {
+      min-height: 100vh;
+    }
+
+    section h2 {
+      font-size: 2rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 1rem;
+    }
+
+    section p {
+      color: var(--text-secondary);
+    }
+
+    /* Hero Section */
+    #hero .section-container {
+      align-items: center;
+      text-align: center;
+    }
+
+    .hero-mascot {
+      width: 360px;
+      height: 180px;
+      margin-bottom: 2rem;
+      image-rendering: pixelated;
+    }
+
+    .hero-title {
+      font-size: 3.5rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .hero-tagline {
+      font-size: 1.5rem;
+      color: var(--text-secondary);
+      margin-bottom: 2rem;
+      font-weight: 400;
+    }
+
+    .hero-value-prop {
+      font-size: 1rem;
+      color: var(--text-secondary);
+      max-width: 600px;
+      margin-bottom: 3rem;
+      line-height: 1.8;
+    }
+
+    .hero-cta {
+      display: inline-block;
+      color: var(--accent);
+      background: transparent;
+      border: 1px solid var(--accent);
+      padding: 0.875rem 2.5rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      text-decoration: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .hero-cta:hover {
+      background: var(--accent);
+      color: var(--bg-primary);
+    }
+
+    @media (max-width: 640px) {
+      .hero-mascot {
+        width: 200px;
+        height: 113px;
+      }
+
+      .hero-title {
+        font-size: 2.25rem;
+      }
+
+      .hero-tagline {
+        font-size: 1.125rem;
+      }
+
+      .hero-value-prop {
+        font-size: 0.875rem;
+      }
+    }
+
+    /* Problem Section */
+    #problem {
+      background: var(--bg-secondary);
+    }
+
+    .problem-intro {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 3rem;
+      line-height: 1.8;
+      max-width: 760px;
+    }
+
+    .pain-point {
+      margin-bottom: 3rem;
+    }
+
+    .pain-point:last-child {
+      margin-bottom: 2rem;
+    }
+
+    .pain-point-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .pain-point-icon {
+      width: 24px;
+      height: 24px;
+      color: var(--text-secondary);
+      flex-shrink: 0;
+    }
+
+    .pain-point-title {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .pain-point-columns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+
+    .pain-point-col {
+      padding: 1.25rem;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+
+    .pain-point-col-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+      margin-bottom: 0.75rem;
+      font-weight: 500;
+    }
+
+    .pain-point-col p {
+      color: var(--text-secondary);
+      line-height: 1.8;
+      margin-bottom: 0;
+    }
+
+    .pain-point code {
+      background: var(--bg-tertiary);
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+      font-size: 0.9em;
+      color: var(--text-primary);
+    }
+
+    .pain-point .punch {
+      color: var(--text-primary);
+      font-style: italic;
+    }
+
+    @media (max-width: 640px) {
+      .pain-point-columns {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    .problem-bridge {
+      margin-top: 2rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      font-size: 1.1rem;
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    /* Features Section */
+    .features-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 2rem;
+      margin-top: 2rem;
+    }
+
+    .feature-card {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1.5rem;
+    }
+
+    .feature-icon {
+      width: 24px;
+      height: 24px;
+      color: var(--text-secondary);
+      margin-bottom: 0.75rem;
+    }
+
+    .feature-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    .feature-desc {
+      font-size: 0.875rem;
+      color: var(--text-secondary);
+      line-height: 1.7;
+    }
+
+    .features-intro {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      line-height: 1.8;
+      max-width: 760px;
+    }
+
+    @media (max-width: 640px) {
+      .features-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Comparison Section */
+    #comparison {
+      background: var(--bg-secondary);
+    }
+
+    .comparison-intro {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 3rem;
+      line-height: 1.8;
+      max-width: 760px;
+    }
+
+    .comparison-block {
+      margin-bottom: 2.5rem;
+    }
+
+    .comparison-block:last-of-type {
+      margin-bottom: 2rem;
+    }
+
+    .comparison-block h3 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.75rem;
+    }
+
+    .comparison-block p {
+      color: var(--text-secondary);
+      line-height: 1.8;
+      margin-bottom: 0.75rem;
+    }
+
+    .comparison-block code {
+      background: var(--bg-tertiary);
+      padding: 0.15em 0.4em;
+      border-radius: 3px;
+      font-size: 0.9em;
+      color: var(--text-primary);
+    }
+
+    .comparison-block .solution {
+      color: var(--text-primary);
+      font-weight: 500;
+    }
+
+    .comparison-closing {
+      margin-top: 2rem;
+      padding-top: 2rem;
+      border-top: 1px solid var(--border);
+      font-size: 1.1rem;
+      color: var(--text-primary);
+      line-height: 1.8;
+      font-weight: 500;
+    }
+
+    /* Signup Section */
+    #signup {
+      background: var(--bg-secondary);
+    }
+
+    .signup-subtext {
+      font-size: 1.05rem;
+      color: var(--text-secondary);
+      margin-bottom: 2.5rem;
+      line-height: 1.8;
+      max-width: 600px;
+    }
+
+    .signup-form {
+      display: flex;
+      gap: 1rem;
+      max-width: 500px;
+      width: 100%;
+    }
+
+    .signup-form input[type="email"] {
+      flex: 1;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border);
+      color: var(--text-primary);
+      padding: 0.875rem 1rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color 0.2s ease;
+    }
+
+    .signup-form input[type="email"]::placeholder {
+      color: var(--text-muted);
+    }
+
+    .signup-form input[type="email"]:focus {
+      border-color: var(--accent);
+    }
+
+    .signup-form button {
+      background: transparent;
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      padding: 0.875rem 1.5rem;
+      font-family: inherit;
+      font-size: 0.875rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+
+    .signup-form button:hover {
+      background: var(--accent);
+      color: var(--bg-primary);
+    }
+
+    .signup-form button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .signup-success {
+      color: var(--text-primary);
+      font-size: 1.05rem;
+      line-height: 1.8;
+    }
+
+    .signup-error {
+      color: #cc6666;
+      font-size: 0.875rem;
+      margin-top: 0.75rem;
+    }
+
+    @media (max-width: 640px) {
+      .signup-form {
+        flex-direction: column;
+      }
+
+      .signup-form input[type="email"],
+      .signup-form button {
+        width: 100%;
+      }
+    }
+
+    /* FAQ Section */
+    #faq {
+      background: var(--bg-primary);
+    }
+
+    .faq-list {
+      margin-top: 2rem;
+      max-width: 760px;
+    }
+
+    .faq-item {
+      margin-bottom: 2rem;
+    }
+
+    .faq-item:last-child {
+      margin-bottom: 0;
+    }
+
+    .faq-question {
+      font-size: 1rem;
+      font-weight: 700;
+      color: var(--accent);
+      margin-bottom: 0.5rem;
+    }
+
+    .faq-answer {
+      font-size: 0.9375rem;
+      color: var(--text-secondary);
+      line-height: 1.8;
+    }
+
+    /* Footer */
+    footer {
+      background: var(--bg-secondary);
+      border-top: 1px solid var(--border);
+    }
+
+    footer .section-container {
+      padding: 2rem;
+      text-align: center;
+    }
+
+    footer p {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+
+    footer a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      transition: color 0.2s ease;
+    }
+
+    footer a:hover {
+      color: var(--accent);
+    }
+
+    /* Responsive: Mobile (max-width: 640px) */
+    @media (max-width: 640px) {
+      .section-container {
+        padding: 4rem 1.25rem;
+      }
+
+      section h2 {
+        font-size: 1.5rem;
+      }
+
+      .problem-intro,
+      .features-intro,
+      .comparison-intro,
+      .signup-subtext {
+        font-size: 0.9375rem;
+      }
+
+      .pain-point-title {
+        font-size: 1.1rem;
+      }
+
+      .pain-point-col p {
+        font-size: 0.9375rem;
+      }
+
+      .problem-bridge {
+        font-size: 1rem;
+      }
+
+      .feature-card {
+        padding: 1.25rem;
+      }
+
+      .comparison-block h3 {
+        font-size: 1rem;
+      }
+
+      .comparison-block p {
+        font-size: 0.9375rem;
+      }
+
+      .comparison-closing {
+        font-size: 1rem;
+      }
+
+      .faq-question {
+        font-size: 0.9375rem;
+      }
+
+      .faq-answer {
+        font-size: 0.875rem;
+      }
+    }
+
+    /* Responsive: Tablet (max-width: 900px) */
+    @media (max-width: 900px) and (min-width: 641px) {
+      .features-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+    }
+
+    /* Prevent horizontal scrollbar */
+    body {
+      overflow-x: hidden;
+    }
+  </style>
+</head>
+<body>
+
+  <nav>
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">AgentLinux</a>
+      <div class="nav-links">
+        <a href="#problem">Problem</a>
+        <a href="#features">Features</a>
+        <a href="#signup">Signup</a>
+        <a href="#faq">FAQ</a>
+      </div>
+    </div>
+  </nav>
+
+  <section id="hero" class="full-height">
+    <div class="section-container">
+      <img src="assets/crab-mascot.svg" alt="AgentLinux crab mascot" class="hero-mascot">
+      <h1 class="hero-title">AgentLinux</h1>
+      <p class="hero-tagline">Linux, for agents</p>
+      <p class="hero-value-prop">Linux that gives coding agents a stable place to run — without you having to set it up.</p>
+      <a href="#signup" class="hero-cta">Join the waitlist</a>
+    </div>
+  </section>
+
+  <section id="problem" class="full-height">
+    <div class="section-container">
+      <h2>The problem with running agents today</h2>
+      <p class="problem-intro">You need somewhere to run your agent. Every option available was designed for humans, not machines.</p>
+
+      <div class="pain-point">
+        <div class="pain-point-header">
+          <!-- Lucide: monitor -->
+          <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg>
+          <span class="pain-point-title">Your local machine</span>
+        </div>
+        <div class="pain-point-columns">
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the engineer</div>
+            <p>You give the agent access to your machine and immediately face a choice: run it unrestricted and risk it wiping your <code>~/.ssh</code>, or sandbox it and spend your day approving every config file read, every <code>apt install</code>, every port binding. Either it's unsafe or it's unusable. <span class="punch">Your machine was built for you, not for a tireless process that doesn't know when to stop.</span></p>
+          </div>
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the agent</div>
+            <p>I'm walking through someone else's house. Every file I touch might be important. Every package I install might conflict with theirs. Half the time I'm blocked by permission prompts I can't dismiss. I need <code>sudo</code> for basic setup but the engineer is right not to trust me with it. <span class="punch">I need my own space, not a corner of someone else's.</span></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pain-point">
+        <div class="pain-point-header">
+          <!-- Lucide: box -->
+          <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          <span class="pain-point-title">Docker</span>
+        </div>
+        <div class="pain-point-columns">
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the engineer</div>
+            <p>Containers seem perfect until you realize your agent needs Docker inside Docker to build and test services. Now you're debugging nested daemon sockets, volume mount propagation, and network namespaces within namespaces. Every <code>apt install</code> requires rebuilding the image. <span class="punch">Containers are for shipping apps, not housing workers.</span></p>
+          </div>
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the agent</div>
+            <p>I can't <code>systemctl</code> start anything. I can't install packages without the whole container being rebuilt. My long-running sessions vanish when the container recycles. And tools like Claude Code refuse to run as <code>root</code>, but the container's default user is root. <span class="punch">I'm not a microservice — I'm a worker that needs a real OS.</span></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="pain-point">
+        <div class="pain-point-header">
+          <!-- Lucide: server -->
+          <svg class="pain-point-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="8" x="2" y="2" rx="2" ry="2"/><rect width="20" height="8" x="2" y="14" rx="2" ry="2"/><line x1="6" x2="6.01" y1="6" y2="6"/><line x1="6" x2="6.01" y1="18" y2="18"/></svg>
+          <span class="pain-point-title">Generic VMs</span>
+        </div>
+        <div class="pain-point-columns">
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the engineer</div>
+            <p>A full VM gives you real isolation. It also gives you a sysadmin job: provisioning Ubuntu, creating users, installing toolchains, configuring SSH, hardening security — before the agent writes one line of code. Multiply by ten agents. <span class="punch">You became the sysadmin for your agent fleet.</span></p>
+          </div>
+          <div class="pain-point-col">
+            <div class="pain-point-col-label">// the agent</div>
+            <p>I land in a blank Linux install that knows nothing about my workload. No language runtimes. No non-root user for me. No skills or rules preconfigured for how I work. Everything has to be provisioned by the engineer before I can start. <span class="punch">The environment should have been ready on boot.</span></p>
+          </div>
+        </div>
+      </div>
+
+      <p class="problem-bridge">What if the operating system itself was designed for agents?</p>
+    </div>
+  </section>
+
+  <section id="features" class="full-height">
+    <div class="section-container">
+      <h2>Built for agents from the ground up</h2>
+      <p class="features-intro">AgentLinux is an installable Ubuntu plugin. It ships the assembly already built — the agent user, the runtime, the catalog — so the user installs once and starts working with the agent.</p>
+
+      <div class="features-grid">
+        <div class="feature-card">
+          <!-- Lucide: minimize-2 (minimalistic) -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/><line x1="14" x2="21" y1="10" y2="3"/><line x1="3" x2="10" y1="21" y2="14"/></svg>
+          <div class="feature-title">No-touch agent environment</div>
+          <p class="feature-desc">One install command on your existing Ubuntu host. The agent user, its permissions, the runtime, the install paths — all decisions made.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: terminal -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg>
+          <div class="feature-title">Automatic agent user</div>
+          <p class="feature-desc">The installer provisions a dedicated <code>agent</code> user with a correctly-owned Node.js runtime and npm prefix. Tools like Claude Code that refuse to run as <code>root</code> work the first time — no <code>sudo npm install -g</code>, no EACCES.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: package -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
+          <div class="feature-title">Curated catalog</div>
+          <p class="feature-desc">A small, deliberately chosen set of agents and tools the project tests as a combination. The default version set is the one we have exercised together before shipping.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: wand-2 (skills) -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.64 3.64-1.28-1.28a1.21 1.21 0 0 0-1.72 0L2.36 18.64a1.21 1.21 0 0 0 0 1.72l1.28 1.28a1.2 1.2 0 0 0 1.72 0L21.64 5.36a1.2 1.2 0 0 0 0-1.72Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8H3"/><path d="M21 16h-4"/><path d="M11 3H9"/></svg>
+          <div class="feature-title">Agent skills</div>
+          <p class="feature-desc">Built-in skills for popular AI agents to work with distro-specific tooling and setup. The agent knows how to manage its own OS.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: download -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" x2="12" y1="15" y2="3"/></svg>
+          <div class="feature-title">One verb to install an agent</div>
+          <p class="feature-desc">Pick an agent from the catalog and the plugin handles the rest — runtime ownership, install paths, the self-update path. <code>agentlinux install claude-code</code> and the next <code>claude update</code> goes through the agent's own updater without sudo.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: puzzle (frameworks) -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.439 7.85c-.049.322.059.648.289.878l1.568 1.568c.47.47.706 1.087.706 1.704s-.235 1.233-.706 1.704l-1.611 1.611a.98.98 0 0 1-.837.276c-.47-.07-.802-.48-.968-.925a2.501 2.501 0 1 0-3.214 3.214c.446.166.855.497.925.968a.979.979 0 0 1-.276.837l-1.61 1.61a2.404 2.404 0 0 1-1.705.707 2.402 2.402 0 0 1-1.704-.706l-1.568-1.568a1.026 1.026 0 0 0-.877-.29c-.493.074-.84.504-1.02.968a2.5 2.5 0 1 1-3.237-3.237c.464-.18.894-.527.967-1.02a1.026 1.026 0 0 0-.289-.877l-1.568-1.568A2.402 2.402 0 0 1 1.998 12c0-.617.236-1.234.706-1.704L4.315 8.685a.98.98 0 0 1 .837-.276c.47.07.802.48.968.925a2.501 2.501 0 1 0 3.214-3.214c-.446-.166-.855-.497-.925-.968a.979.979 0 0 1 .276-.837l1.61-1.61a2.404 2.404 0 0 1 1.705-.707 2.402 2.402 0 0 1 1.704.706l1.568 1.568c.23.23.556.338.877.29.493-.074.84-.504 1.02-.968a2.5 2.5 0 1 1 3.237 3.237c-.464.18-.894.527-.967 1.02Z"/></svg>
+          <div class="feature-title">Frameworks and plugins</div>
+          <p class="feature-desc">Agent frameworks like GSD for Claude Code travel through the same catalog and the same install verb. The plugin keeps them on the curated version set across agent self-updates.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: wrench (CLI) -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76Z"/></svg>
+          <div class="feature-title">Agent-friendly CLI tools</div>
+          <p class="feature-desc">Custom command-line tooling designed to be operated by agents, not humans. Clear output, predictable behavior, machine-readable where it matters.</p>
+        </div>
+
+        <div class="feature-card">
+          <!-- Lucide: layers (distribution) -->
+          <svg class="feature-icon" xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83Z"/><path d="m22.54 12.43-8.58 3.91a2 2 0 0 1-1.66 0L3.46 12.5"/><path d="m22.54 16.43-8.58 3.91a2 2 0 0 1-1.66 0L3.46 16.5"/></svg>
+          <div class="feature-title">Meets you on your distribution</div>
+          <p class="feature-desc">Installs on top of your existing Ubuntu host. We do not ask you to migrate, reinstall, or boot a custom image — the distribution maintainer's work is the foundation we build on.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="comparison" class="full-height">
+    <div class="section-container">
+      <h2>Why not just use what exists?</h2>
+      <p class="comparison-intro">Every option today was built for a different job. Here's what changes when the integration work is already done.</p>
+
+      <div class="comparison-block">
+        <h3>Local machine → a dedicated agent user instead</h3>
+        <p class="solution">The plugin provisions an <code>agent</code> user with a correctly-owned Node.js runtime and npm prefix on your existing Ubuntu host. <code>sudo npm install -g claude</code> is replaced by an install path the agent owns — so <code>claude update</code> later goes through Claude Code's own updater without EACCES, and the agent stays scoped to its own user.</p>
+      </div>
+
+      <div class="comparison-block">
+        <h3>Docker → a real host with a real agent user</h3>
+        <p class="solution">A container image freezes today's tool versions and rebuilds for every <code>apt install</code>. The plugin installs onto a real host the agent can keep using across restarts — <code>systemctl</code> works, mid-session installs work, and the agent user is in place before the first command runs.</p>
+      </div>
+
+      <div class="comparison-block">
+        <h3>Generic VMs → the integration work, already done</h3>
+        <p class="solution">A blank Ubuntu VM still hands you the integration work — agent user, runtime ownership, install paths, version compatibility. The plugin closes that gap in one install command and holds a curated version set we have tested together before shipping.</p>
+      </div>
+
+      <p class="comparison-closing">If that fits the way you want to run agents, <a href="#signup">join the waitlist</a>.</p>
+    </div>
+  </section>
+
+  <section id="signup">
+    <div class="section-container">
+      <h2>Get early access</h2>
+      <p class="signup-subtext">AgentLinux is in active development. Join the waitlist to be notified when it's ready -- and get early access to preview builds.</p>
+      <form action="https://buttondown.com/api/emails/embed-subscribe/agentlinux" method="post" class="embeddable-buttondown-form signup-form" id="signup-form">
+        <input type="email" name="email" placeholder="you@example.com" required aria-label="Email address" />
+        <input type="hidden" name="embed" value="1" />
+        <button type="submit">Join the waitlist</button>
+      </form>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="section-container">
+      <h2>Frequently asked questions</h2>
+      <div class="faq-list">
+        <div class="faq-item">
+          <p class="faq-question">What is AgentLinux?</p>
+          <p class="faq-answer">An installable Ubuntu plugin that ships a dedicated agent environment and a curated, stability-tested toolchain. One install command provisions the agent user, the runtime, the install paths, and a small catalog of supported agents — so the user installs once and starts working with the agent.</p>
+        </div>
+        <div class="faq-item">
+          <p class="faq-question">When will it be available?</p>
+          <p class="faq-answer">We're in early development. Join the waitlist to get notified when preview builds are ready.</p>
+        </div>
+        <div class="faq-item">
+          <p class="faq-question">Is it free?</p>
+          <p class="faq-answer">Yes. AgentLinux will be free and open source.</p>
+        </div>
+        <div class="faq-item">
+          <p class="faq-question">What agents does it support?</p>
+          <p class="faq-answer">Any agent that runs on Linux -- Claude Code, Codex, and more. If it can execute in a terminal, it runs on AgentLinux.</p>
+        </div>
+        <div class="faq-item">
+          <p class="faq-question">How is this different from Docker?</p>
+          <p class="faq-answer">Docker is a container runtime. AgentLinux installs onto your real Ubuntu host — the agent keeps state across restarts, <code>systemctl</code> works, mid-session <code>apt install</code> works, and the agent user the plugin provisions owns its own Node.js runtime so <code>claude update</code> never needs <code>sudo</code>.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="section-container">
+      <p>&copy; 2026 AgentLinux</p>
+    </div>
+  </footer>
+
+  <script>
+    // Progressive enhancement for email signup form
+    document.getElementById('signup-form').addEventListener('submit', async function(e) {
+      // On file:// protocol, let the form POST normally (redirect)
+      if (window.location.protocol === 'file:') return;
+
+      e.preventDefault();
+      var form = e.target;
+      var button = form.querySelector('button');
+      var originalText = button.textContent;
+
+      button.textContent = 'Submitting...';
+      button.disabled = true;
+
+      try {
+        var response = await fetch(form.action, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(new FormData(form))
+        });
+
+        if (response.ok || response.redirected) {
+          form.innerHTML = '<p class="signup-success">You\'re on the list. We\'ll be in touch.</p>';
+        } else {
+          throw new Error('Submission failed');
+        }
+      } catch (err) {
+        button.textContent = originalText;
+        button.disabled = false;
+        // Fallback: submit form normally (will redirect)
+        form.submit();
+      }
+    });
+  </script>
+
+</body>
+</html>

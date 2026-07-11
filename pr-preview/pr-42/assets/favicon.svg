@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" shape-rendering="crispEdges">
+  <style>
+    .o { fill: #d97757; }
+    .w { fill: #ffffff; }
+  </style>
+  <!-- Simplified crab for favicon -->
+  <!-- Claws -->
+  <rect class="o" x="4" y="12" width="2" height="2"/>
+  <rect class="o" x="26" y="12" width="2" height="2"/>
+  <!-- Arms -->
+  <rect class="o" x="6" y="14" width="2" height="2"/>
+  <rect class="o" x="24" y="14" width="2" height="2"/>
+  <!-- Body top -->
+  <rect class="o" x="10" y="10" width="12" height="2"/>
+  <!-- Body with eyes -->
+  <rect class="o" x="8" y="12" width="16" height="2"/>
+  <rect class="w" x="11" y="12" width="2" height="2"/>
+  <rect class="w" x="19" y="12" width="2" height="2"/>
+  <!-- Body middle -->
+  <rect class="o" x="8" y="14" width="16" height="2"/>
+  <!-- Body lower -->
+  <rect class="o" x="10" y="16" width="12" height="2"/>
+  <!-- Body bottom -->
+  <rect class="o" x="10" y="18" width="12" height="2"/>
+  <!-- Feet -->
+  <rect class="o" x="10" y="20" width="2" height="2"/>
+  <rect class="o" x="15" y="20" width="2" height="2"/>
+  <rect class="o" x="20" y="20" width="2" height="2"/>
+</svg>
