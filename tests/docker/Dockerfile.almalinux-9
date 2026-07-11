@@ -1,0 +1,166 @@
+# tests/docker/Dockerfile.almalinux-9
+# Systemd-capable AlmaLinux 9 (EL9) base for running the full BHV matrix in CI.
+# Source: live almalinux:9 probe 2026-06-28, ADR-007, 19-RESEARCH.md §Pattern 1.
+#
+# This is the EL9 sibling of Dockerfile.ubuntu-24.04. The cli-builder stage is
+# byte-identical (distro-independent hermetic CLI build); only the final stage
+# is translated apt -> dnf. Per-package deltas vs the Ubuntu row:
+#   - systemd (EL9 systemd is already the init; no separate sysv-init package)
+#   - cron                 -> cronie
+#   - dbus                 -> dbus-broker (EL9 default system bus)
+#   - bats / shellcheck    -> via EPEL (not in base/AppStream); epel-release first
+#   - the apt locales package is DROPPED (C.UTF-8 is a glibc builtin on EL9)
+#   - the curl package is DROPPED (curl-minimal is preinstalled and provides the
+#                                  curl binary; pulling the full package triggers
+#                                  the curl/curl-minimal file conflict)
+#   - the coreutils package is DROPPED (the base image ships coreutils-single,
+#                                  which provides every coreutils binary; pulling
+#                                  the full coreutils package triggers the same
+#                                  minimal-vs-full file conflict as curl)
+#   - + procps-ng (optional `ps` for `docker exec` debugging)
+#   - + diffutils (provides `diff` — the base image ships none; absent it,
+#                  `diff: command not found` fails every NO-MUTATION snapshot +
+#                  idempotency assertion: INST-02, DET-read-only, UX-01/UX-03,
+#                  REMEDIATE-02, 40-registry-cli. Ubuntu ships `diff` in the base.)
+#   - + openssh-clients (provides the `ssh` CLIENT — the image installs only
+#                  `openssh-server` (the daemon); absent the client, `ssh:
+#                  command not found` fails BHV-02 and every six-mode SSH
+#                  assertion in 30-runtime/40/50/51. Ubuntu's openssh-client is
+#                  pulled in transitively on the Debian rows.)
+#   - + iproute (provides `ss` for the sshd readiness poll in test setup;
+#                  non-fatal — the image already `enable`s sshd so it auto-starts
+#                  — but its absence turns the poll into a blind sleep.)
+#
+# Invariants (same as the Ubuntu rows):
+#   - PID 1 = systemd (CMD ["/sbin/init"]) so BHV-04 (systemd User=agent) is real,
+#     not vacuously skipped. Requires `--privileged --cgroupns=host` at runtime.
+#   - cronie + openssh-server installed so BHV-02/BHV-03 helpers have a daemon to
+#     talk to (systemd units start them once PID 1 is up).
+#   - bats installed system-wide so `bats tests/bats/` works inside the container
+#     without a host-side install.
+#   - C.UTF-8 active so BHV-01 locale checks fire against a real configuration;
+#     the installer's own locale_ensure rhel arm writes /etc/locale.conf at
+#     install time.
+#   - sudo present so run_sudo_u / run_sudo_u_i helpers can exercise BHV-05.
+#   - --setopt=install_weak_deps=False keeps the image small (mirrors apt's
+#     --no-install-recommends).
+
+# ---------------------------------------------------------------
+# Stage 1: cli-builder — compile plugin/cli/ via pnpm on node:22-slim.
+# node:22-slim ships Node + npm + corepack, so there is no NodeSource apt
+# touchpoint at Docker-build time (Docker-build hermeticity). Copies ONLY
+# plugin/cli/ into the builder so the build cache keys on CLI sources, not
+# the full repo. Build context for this Dockerfile is the repo root (set by
+# tests/docker/run.sh).
+# ---------------------------------------------------------------
+FROM node:22-slim AS cli-builder
+WORKDIR /build/cli
+# Copy package manifests first for Docker-layer cache hit on source-only edits.
+COPY plugin/cli/package.json plugin/cli/pnpm-lock.yaml ./
+COPY plugin/cli/tsconfig.json ./
+COPY plugin/cli/src ./src
+# corepack ships with node 22+; activate pnpm (version pinned by package.json
+# engines/packageManager if present, else latest 9.x from the corepack channel).
+# --frozen-lockfile = fail if lockfile drift; --prod would skip devDeps but
+# tsc is a devDep, so we need the full install here, then prune devDeps after
+# build to minimize the node_modules/ we ship into the final image.
+RUN corepack enable \
+    && corepack prepare pnpm@latest --activate \
+    && pnpm install --frozen-lockfile \
+    && pnpm run build \
+    && pnpm prune --prod
+
+# ---------------------------------------------------------------
+# Stage 2: final test image — AlmaLinux 9 + systemd-in-docker.
+# ---------------------------------------------------------------
+FROM almalinux:9
+
+ENV LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8
+
+# Core: systemd + cronie + openssh + bats + sudo + dbus-broker + coreutils +
+# shellcheck. EPEL is installed FIRST because bats and shellcheck live in EPEL,
+# not base/AppStream (a bare `dnf install bats` returns "No matching Packages").
+# dbus-broker is REQUIRED for BHV-04: `systemd-run --uid=agent` needs a reachable
+# system bus or it errors with "Failed to connect to bus" and the test fails
+# vacuously. jq is REQUIRED by tests/bats/40-registry-cli.bats (JSON parsing) and
+# the 15-detection.bats read-only invariant (so the detection layer's ensure_jq
+# fallback is a no-op). python3 is REQUIRED by tests/bats/60-curl-installer.bats
+# (`python3 -m http.server` fixture). `file` is REQUIRED by the curl-installer
+# gzip magic sanity check. The full curl package is DELIBERATELY ABSENT —
+# curl-minimal is preinstalled and already provides the binary the installer's
+# NodeSource path (curl -fsSL) needs; pulling the full package triggers the
+# curl/curl-minimal file conflict (19-RESEARCH Pitfall 1). The full coreutils
+# package is likewise ABSENT — the base image ships coreutils-single, which
+# provides every coreutils binary, and pulling full coreutils hits the same
+# minimal-vs-full conflict. No separate
+# sysv-init package (EL9 systemd IS init). No apt locales package (C.UTF-8 is a
+# glibc builtin: `locale -a` lists C.utf8). shellcheck + procps-ng are debug
+# conveniences for interactive `docker exec`. diffutils (`diff`), openssh-clients
+# (the `ssh` CLIENT, distinct from the openssh-server daemon above), and iproute
+# (`ss`) are substrate the BHV contract exercises directly: `diff` drives every
+# NO-MUTATION/idempotency snapshot, the `ssh` client drives the six-mode SSH
+# assertions, and `ss` drives the sshd readiness poll. On the Ubuntu rows these
+# come from the base image; on minimal EL9 they must be installed explicitly.
+RUN dnf install -y --setopt=install_weak_deps=False epel-release && \
+    dnf install -y --setopt=install_weak_deps=False \
+      systemd \
+      cronie openssh-server \
+      bats sudo \
+      dbus-broker \
+      jq \
+      python3 \
+      file \
+      ca-certificates bash util-linux \
+      diffutils openssh-clients iproute \
+      procps-ng shellcheck && \
+    dnf clean all && rm -rf /var/cache/dnf
+
+# Systemd inside Docker: mask units that fight with containerized PID 1
+# (logind needs real seats; resolved/networkd assume real netns ownership;
+# tmpfiles-clean clobbers the bind-mounted cgroup tree). No `|| true`: masking an
+# absent unit (resolved/networkd are not installed on minimal EL9) already
+# succeeds by creating the /dev/null symlink, so a non-zero exit here is a real
+# failure that should fail the build — matching the Ubuntu rows.
+RUN rm -f /lib/systemd/system/multi-user.target.wants/* && \
+    systemctl mask \
+      systemd-logind.service \
+      systemd-resolved.service \
+      systemd-networkd.service \
+      systemd-tmpfiles-setup.service \
+      systemd-tmpfiles-clean.service \
+      systemd-tmpfiles-clean.timer
+
+# SSH: generate host keys at build time (daemon is started later by systemd).
+RUN mkdir -p /run/sshd && ssh-keygen -A
+
+# systemd-in-Docker accommodation: relax /etc/shadow to owner-readable 0640.
+# EL9 ships it 0000 (read needs CAP_DAC_OVERRIDE), but under systemd-as-PID-1 in
+# the --privileged container `sudo` drops that capability before its PAM `account`
+# stage, so pam_unix cannot read a 0000 shadow and every `sudo -u agent` the suite
+# runs fails. 0640 makes it owner-readable without the capability. This is a
+# throwaway-test-image quirk only — a real EL9 host/VM keeps stock 0000 (the
+# Phase 22 QEMU row exercises that). (Ubuntu base images already ship 0640, just
+# root:shadow rather than root:root — the group is irrelevant for a disposable image.)
+RUN chmod 0640 /etc/shadow
+
+# (No locale build step: C.UTF-8 is a glibc builtin on EL9 — see invariants above.)
+
+# Copy the pre-built CLI dist/ + production-pruned node_modules/ + package.json
+# from the builder stage. tests/docker/run.sh splices the TRIO into
+# /opt/agentlinux-src/plugin/cli/ after staging the bind-mounted /workspace copy,
+# so the 50-registry-cli.sh provisioner finds a runnable CLI bundle at install
+# time. node_modules/ is required because dist/index.js contains ESM
+# `import ... from 'commander'` — Node's resolver walks up from dist/ and finds
+# deps in a sibling node_modules/. These COPY targets are byte-identical to the
+# Ubuntu rows (the run.sh splice hard-depends on the exact paths).
+COPY --from=cli-builder /build/cli/dist /opt/cli-prebuilt/dist
+COPY --from=cli-builder /build/cli/node_modules /opt/cli-prebuilt/node_modules
+COPY --from=cli-builder /build/cli/package.json /opt/cli-prebuilt/package.json
+
+# cgroup bind + SIGRTMIN+3 graceful-stop required by systemd-as-PID-1 recipe.
+VOLUME /sys/fs/cgroup
+STOPSIGNAL SIGRTMIN+3
+
+# /sbin/init is systemd — Pitfall 3 mitigation.
+CMD ["/sbin/init"]

@@ -41,6 +41,13 @@ __source_lib_chain() {
   source "$LIB_DIR/log.sh"
   # shellcheck disable=SC1091
   source "$LIB_DIR/distro_detect.sh"
+  # Seed AGENTLINUX_DISTRO_FAMILY from the product detector BEFORE detect.sh so
+  # the live detect::user_probe selects the family-correct package-manager arm
+  # (/usr/bin/dnf on EL9, /usr/bin/apt-get on Ubuntu) instead of defaulting to
+  # the debian arm (plugin/lib/detect/user.sh `case "${AGENTLINUX_DISTRO_FAMILY:-debian}"`).
+  # Use the shipped detect_distro (lib already sourced) — never a hardcoded
+  # family token. Quiet so the [INFO] line does not pollute TAP. (EL-08 / PAR-01)
+  detect_distro >/dev/null 2>&1
   # shellcheck disable=SC1091
   source "$LIB_DIR/as_user.sh"
   # shellcheck disable=SC1091

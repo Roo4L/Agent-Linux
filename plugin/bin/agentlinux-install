@@ -55,8 +55,8 @@ Options:
       --verbose         Enable DEBUG-level logging
       --purge           Remove the agent user, /opt/agentlinux/, and all
                         installer-placed files (requires root; destructive)
-      --remove-nodejs   Used WITH --purge: also apt-get purge nodejs. Other
-                        users may depend on Node.js, so this is NOT the
+      --remove-nodejs   Used WITH --purge: also remove the nodejs package.
+                        Other users may depend on Node.js, so this is NOT the
                         default purge behavior.
       --report-only     Run detection pass + emit report; exit 0 without
                         running provisioners. Read-only.
@@ -153,6 +153,12 @@ trap on_error ERR
 
 # shellcheck source=../lib/distro_detect.sh
 . "$LIB_DIR/distro_detect.sh"
+# pkg.sh defines the apt↔dnf verbs but only DECLARES functions at source time
+# (no calls), so sourcing it here — before idempotency.sh — is safe; verbs are
+# resolved at call time, by which point detect_distro has exported
+# AGENTLINUX_DISTRO_FAMILY (the install path in main(); run_purge seeds it itself).
+# shellcheck source=../lib/pkg.sh
+. "$LIB_DIR/pkg.sh"
 # shellcheck source=../lib/idempotency.sh
 . "$LIB_DIR/idempotency.sh"
 # shellcheck source=../lib/as_user.sh
@@ -284,16 +290,15 @@ parse_args() {
 }
 
 # ensure_jq — install jq if absent (required by the detection layer). Minimal
-# cloud images and bare base containers can ship without it; apt-get install is
-# idempotent (no-op when present).
+# cloud images and bare base containers can ship without it; pkg_install is
+# idempotent (no-op when present) and family-correct (apt on debian, dnf on rhel).
 ensure_jq() {
   if ! command -v jq >/dev/null 2>&1; then
     log_warn "jq not found; installing 'jq' package (required by detection layer)"
-    # apt-get update first — this runs before any provisioner, and the cache
-    # may be empty on fresh containers / long-idle hosts (else apt-get install
-    # reports "no installation candidate").
-    DEBIAN_FRONTEND=noninteractive apt-get update
-    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends jq
+    # pkg_install refreshes the package cache first on debian — this runs before
+    # any provisioner, and the cache may be empty on fresh containers / long-idle
+    # hosts (else the install reports "no installation candidate").
+    pkg_install jq
   fi
 }
 
@@ -343,8 +348,8 @@ run_agent_adoption() {
 # run_purge [remove_nodejs_flag] — ordered 7-step teardown; every step is
 # idempotent. Ordering matters:
 #   1. per-agent uninstall.sh (needs /opt/agentlinux/catalog/ still present)
-#   2-4. rm /opt/agentlinux, PATH artefacts, NodeSource apt files
-#   5. (optional) apt-get purge nodejs when $1 == true
+#   2-4. rm /opt/agentlinux, PATH artefacts, NodeSource repo files
+#   5. (optional) pkg_remove nodejs when $1 == true
 #   6. userdel -r <install-user> (pkill first to avoid "user is logged in")
 #   7. LAST — rm the install log, so the tee still has its file until the EXIT
 #      trap closes FDs and delivers EOF.
@@ -361,6 +366,15 @@ run_purge() {
   local _al_home="/home/${_al_user}"
 
   log_info "running --purge (destructive) — install user '${_al_user}'"
+
+  # --purge runs before main()'s detect_distro, but Steps 4/5 below dispatch on
+  # AGENTLINUX_DISTRO_FAMILY (nodesource_repo_paths / pkg_remove / pkg_autoremove).
+  # Seed it here — detect_distro is read-only and idempotent. If detection refuses
+  # (unsupported/unreadable os-release), fall back to debian so `set -u` never
+  # aborts teardown mid-way (which would orphan the agent user and install log).
+  detect_distro >/dev/null 2>&1 || true
+  : "${AGENTLINUX_DISTRO_FAMILY:=debian}"
+  export AGENTLINUX_DISTRO_FAMILY
 
   # Step 1: per-agent uninstall.sh for every sentinel. Look up recipe paths
   # from the catalog snapshot keyed by sentinel id — do NOT trust paths from
@@ -399,17 +413,22 @@ run_purge() {
   # NOPASSWD grant — leaving it behind orphans the privilege.
   rm -f /etc/sudoers.d/agentlinux
 
-  # Step 4: NodeSource apt repo files. Both filenames (deb822 + legacy) handled.
-  rm -f /etc/apt/sources.list.d/nodesource.sources
-  rm -f /etc/apt/sources.list.d/nodesource.list
-  rm -f /etc/apt/preferences.d/nodejs
+  # Step 4: NodeSource repo files. Iterate nodesource_repo_paths — the single
+  # source of truth shared with the 30-nodejs idempotency gate and the detect
+  # gate — so --purge cleans the family-correct files (debian: deb822 + legacy
+  # sources + preferences pin; rhel: the yum.repos.d repo files). Each path is a
+  # static in-code literal per family (no globbing, no user input).
+  while IFS= read -r repo_file; do
+    rm -f "$repo_file"
+  done < <(nodesource_repo_paths)
 
-  # Step 5: optionally apt-remove nodejs. Opt-in — other users on this host may
-  # depend on Node installed by this installer.
+  # Step 5: optionally remove nodejs. Opt-in — other users on this host may
+  # depend on Node installed by this installer. pkg_remove/pkg_autoremove are
+  # family-correct (apt purge/autoremove on debian, dnf remove/autoremove on rhel).
   if [[ $remove_nodejs == true ]]; then
-    log_info "removing nodejs (apt-get purge -y nodejs)"
-    DEBIAN_FRONTEND=noninteractive apt-get purge -y nodejs || log_warn "apt purge nodejs failed"
-    DEBIAN_FRONTEND=noninteractive apt-get autoremove -y || true
+    log_info "removing nodejs package (family-correct purge)"
+    pkg_remove nodejs || log_warn "purge nodejs failed"
+    pkg_autoremove || true
   fi
 
   # Step 6: remove the install user + its home. pkill -u first to avoid "user is

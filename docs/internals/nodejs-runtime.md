@@ -1,6 +1,7 @@
 # Node.js runtime
 
-AgentLinux installs the system Node.js LTS via apt (NodeSource), then wires
+AgentLinux installs the system Node.js LTS from NodeSource via the distro's
+package manager (apt on Ubuntu, dnf on AlmaLinux 9), then wires
 the agent user with a per-user npm prefix at `~/.npm-global/` and a PATH
 that resolves the agent's binaries across every invocation mode the agent
 ever runs in — interactive shell, non-interactive SSH, cron, systemd user
@@ -21,8 +22,8 @@ fires in interactive shells. Cron, systemd, non-interactive SSH (`ssh host
 missing in exactly the contexts where automation actually runs. Tests pass
 in the developer's terminal and break the moment the agent runs unattended.
 
-The second is ownership corruption. System Node.js installed via apt is
-owned by root. `sudo npm install -g <tool>` then writes into
+The second is ownership corruption. System Node.js installed by the distro
+package manager is owned by root. `sudo npm install -g <tool>` then writes into
 `/usr/lib/node_modules` as root, leaves a wrapper at `/usr/local/bin/`,
 and the next non-root operation under `~/.npm/` fails with EACCES — and
 worse, every tool that ships its own self-updater can no longer rewrite
@@ -39,14 +40,19 @@ own tools. Either way, the autonomous loop stalls.
 
 The runtime layer has two halves and they only work together.
 
-The first half is system Node.js via apt. AgentLinux installs the official
-NodeSource apt repository (HTTPS, GPG-signed, the upstream blessed in
-[the system-Node decision record](../decisions/005-system-nodejs-over-version-managers.md)),
-then `apt-get install nodejs`. The currently-tracked line is Node.js LTS
+The first half is system Node.js from NodeSource. AgentLinux installs the
+official NodeSource repository (HTTPS, GPG-signed, the upstream blessed in
+[the system-Node decision record](../decisions/005-system-nodejs-over-version-managers.md))
+through a distro-family abstraction — the apt repo plus `apt-get install
+nodejs` on Ubuntu, the dnf/yum repo plus `dnf install nodejs` (with the
+AppStream `nodejs` module defused) on AlmaLinux 9, both behind the same
+package-manager-neutral verbs (see
+[the distro-family decision record](../decisions/017-distro-family-bucket.md)).
+The currently-tracked line is Node.js LTS
 (v22 at the v0.3.0 release; future releases follow the LTS cadence).
 System Node.js means a stable PATH entry that works in every invocation
 mode, no shell-init hooks, no per-user re-activation flow. The trade-off
-— Node.js version upgrades follow the distro's apt cadence rather than a
+— Node.js version upgrades follow the distro's package-manager cadence rather than a
 bleeding-edge per-user toggle — is acceptable because AgentLinux's job is
 a correctly-owned runtime, not bleeding-edge Node features.
 

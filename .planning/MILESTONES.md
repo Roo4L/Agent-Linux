@@ -1,5 +1,26 @@
 # Milestones
 
+## v0.3.5 AlmaLinux 9 Support (Shipped: 2026-07-02)
+
+**Phases completed:** 5 phases (18 Detection + Branching Foundation → 19 Docker AlmaLinux 9 Row → 20 Behavior-Test-Green on AlmaLinux 9 → 21 Catalog Verify on AlmaLinux 9 → 22 QEMU Release-Gate + Pipeline)
+
+**Release:** `v0.3.5` — the plugin now installs and self-updates on AlmaLinux 9 with the identical behavior contract Ubuntu has. Full release gate green: pre-commit + Docker ×4 (Ubuntu 22.04 / 24.04 / 26.04 + **almalinux-9**, all 260/260) + nightly-QEMU (real EL9 GenericCloud guest under systemd + enforcing SELinux) + pinned-combo + build + publish.
+
+**Key accomplishments:**
+
+- **AlmaLinux 9 port without changing the behavior contract:** a distro-family fork point (`AGENTLINUX_DISTRO_FAMILY ∈ {debian,rhel}`) branches the *implementation* (apt→dnf, dpkg→rpm, NodeSource deb→rpm, `/etc/default/locale`→`/etc/locale.conf`, ssh→sshd) while every asserted observable — six-mode invocation contract, zero-EACCES self-update (AGT-02), correctly-owned Node/npm-prefix — holds identically on both families. SELinux stays enforcing (`restorecon`, never `setenforce 0`).
+- **Real EL9 release gate:** AlmaLinux 9 is a hard gate in both Docker (fast, every PR) and nightly-QEMU (real GenericCloud VM, enforcing SELinux) — Docker proves fast, QEMU proves real (ADR-007).
+- **Playwright on EL9 + Ubuntu 26.04:** browser-launch deps are family-dispatched (Playwright `install-deps` on Debian; an explicit dnf list on EL9); AGT-06 locks that Chromium actually launches headless (0 missing libs + DOM) on every row. Pinned `@playwright/cli` to 0.1.15 so Chromium installs on the newest Ubuntu 26.04.
+- **Close-out hardening (found while validating the full matrix):** fixed a bats-1.2.1 `BATS_TEST_TMPDIR`-unset bug that clobbered `/usr/bin` on 22.04/26.04; made the QEMU harness self-heal a stale cloud-image cache; and prompt-synced the interactive-TTY driver to end EL9 flakiness (+ a pre-commit sentinel-drift guard).
+
+**Test surface at ship:** Bats **260/260** on all four Docker rows (22.04 / 24.04 / 26.04 / almalinux-9); nightly-QEMU green (EL9 AGT-02 zero-EACCES + AGT-06 Chromium launch). 14/14 v0.3.5 requirements Done.
+
+**Jira:** anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) (Epic AL-48); phase sub-tasks AL-64..68. **Carried forward:** AL-59 (alt-user hollow-install) and EL-family expansion (Alma 10 / RHEL / Rocky / Fedora) deferred until Alma 9 is daily-driver one cycle.
+
+**Archived phases:** `.planning/milestones/v0.3.5-ROADMAP.md` · `.planning/milestones/v0.3.5-REQUIREMENTS.md` (14/14 complete) · `.planning/milestones/v0.3.5-phases/`
+
+---
+
 ## v0.3.4 Aware Installation Process (Shipped: 2026-06-08)
 
 **Phases completed:** 6 phases (12 Detection → 13 Reuse → 14 Remediate + Consent + Exit Codes → 15 Pre-flight UX → 16 Docs + Brownfield Gate → 17 Changes Delivery + Release Candidate)

@@ -30,6 +30,18 @@
 #     `$output` of subsequent `run` invocations.
 #   - Idempotent on re-run: `useradd` is wrapped in `id -u agent` guard;
 #     curl-pipe-bash installer overwrites in place.
+#   - Family-dispatch verbs (distro_install_node22, distro_sudoers_pkg_line, …)
+#     live in helpers/distro.bash. We source it relative to our OWN dir so the
+#     brownfield fixtures build family-correct EL9 / Debian state regardless of
+#     the consuming test's `load` order. Each verb's debian arm is the line that
+#     used to be hardcoded here verbatim, so the Ubuntu rows are byte-identical.
+
+# Source the family-dispatch helper relative to this file's directory (no-op if
+# the consuming test already `load`ed it — re-sourcing just redefines the verbs).
+if ! declare -F distro_install_node22 >/dev/null 2>&1; then
+  # shellcheck source=tests/bats/helpers/distro.bash
+  source "$(dirname "${BASH_SOURCE[0]}")/distro.bash"
+fi
 
 # log_brownfield <message>
 # Emits to FD 3 (bats detail channel) with a stable [brownfield] prefix so
@@ -72,22 +84,19 @@ setup_brownfield_host() {
   # Q1 amendment). visudo gate ensures we never install a syntactically-broken
   # sudoers file (would lock root out of sudo).
   if [[ ! -f /etc/sudoers.d/local-agent-apt ]]; then
-    log_brownfield "installing NOPASSWD-for-apt sudoers fragment"
+    log_brownfield "installing NOPASSWD-for-package-manager sudoers fragment"
     local tmp
     tmp=$(mktemp)
-    printf 'agent ALL=(ALL) NOPASSWD: /usr/bin/apt-get, /usr/bin/apt\n' >"$tmp"
+    distro_sudoers_pkg_line agent >"$tmp"
     if visudo -cf "$tmp" >/dev/null; then
       install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/local-agent-apt
     fi
     rm -f "$tmp"
   fi
 
-  # Step 3: NodeSource Node 22 (skip if already installed via dpkg).
-  if ! dpkg-query -W -f='${Status}' nodejs 2>/dev/null | grep -q "install ok installed"; then
-    log_brownfield "installing NodeSource Node 22 (apt-get install -y nodejs)"
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
-    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/dev/null 2>&1
-  fi
+  # Step 3: NodeSource Node 22 (family-dispatched; no-op if already installed).
+  log_brownfield "ensuring NodeSource Node 22 (distro_install_node22)"
+  distro_install_node22
 
   # Step 4: Install claude-code as the agent user via the official native
   # installer. Lands at ~/.local/bin/claude — the catalog canonical path
@@ -136,10 +145,7 @@ _brownfield_baseline() {
   printf 'agent ALL=(ALL) NOPASSWD: ALL\n' >"$tmp"
   install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
   rm -f "$tmp"
-  if ! dpkg-query -W -f='${Status}' nodejs 2>/dev/null | grep -q "install ok installed"; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
-    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/dev/null 2>&1
-  fi
+  distro_install_node22
   # npm-prefix REUSE prep: without an agent-writable prefix + ~agent/.npmrc
   # pointing at it, npm config get prefix falls back to /usr (root-owned) →
   # reuse::npm_prefix_decision returns remediate → bail without --yes. The
@@ -282,7 +288,7 @@ setup_brownfield_for_remediate_03_drift() {
   _brownfield_baseline
   local tmp
   tmp=$(mktemp)
-  printf 'agent ALL=(ALL) NOPASSWD: /usr/bin/apt-get\n' >"$tmp"
+  distro_sudoers_pkg_line agent narrow >"$tmp"
   install -m 0440 -o root -g root "$tmp" /etc/sudoers.d/agentlinux
   rm -f "$tmp"
 }
@@ -425,19 +431,30 @@ teardown_brownfield_remediate04_catalog() {
 # -----------------------------------------------------------------------------
 
 # setup_brownfield_host_user_wrong_shell
-# Targets UX-04 wrong-shell branch. Creates `agent` with login shell /bin/sh
-# (DET-01 requires bash, REUSE-01 predicate 2 fails → bail wrong-shell).
+# Targets UX-04 wrong-shell branch. Creates `agent` with a family-correct
+# genuinely-non-bash BUT FUNCTIONAL login shell (DET-01 requires bash, REUSE-01
+# predicate 2 fails → bail wrong-shell). The shell is family-dispatched via
+# distro_wrong_shell: /bin/sh on Debian (→ dash) but /usr/bin/tcsh on RHEL/EL9
+# (because /bin/sh → bash on RHEL, so a /bin/sh agent would be (correctly) deemed
+# bash-compatible and the wrong-shell bail — and thus the UX-04 alt-user gate —
+# would never fire; and /sbin/nologin is non-bash but breaks the as_user_login
+# detection probes, which must complete before the gate). distro_wrong_shell
+# provisions tcsh on EL9 idempotently.
 setup_brownfield_host_user_wrong_shell() {
+  local wrong_shell
+  wrong_shell=$(distro_wrong_shell)
   log_brownfield "purging any existing AgentLinux state (idempotent)"
   bash /opt/agentlinux-src/plugin/bin/agentlinux-install --purge >/dev/null 2>&1 || true
-  log_brownfield "creating agent user with shell=/bin/sh (DET-01 incompatible)"
+  log_brownfield "creating agent user with shell=${wrong_shell} (DET-01 incompatible, family-correct non-bash, functional login shell)"
   if ! id -u agent >/dev/null 2>&1; then
-    useradd -m -s /bin/sh agent
+    useradd -m -s "$wrong_shell" agent
   else
-    usermod -s /bin/sh agent
+    usermod -s "$wrong_shell" agent
   fi
-  # Belt-and-braces: confirm shell stuck (some images symlink /bin/sh → /bin/dash;
-  # /bin/sh is rejected by REUSE-01 regardless).
+  # Belt-and-braces: the family-correct wrong shell resolves to a non-bash
+  # binary on BOTH families (dash on Debian /bin/sh; tcsh on RHEL), so
+  # reuse::user_decision's `readlink -f` shell check bails wrong-shell on both,
+  # while still being a real login shell so detection's as_user_login probes run.
 }
 
 # setup_brownfield_host_with_agent2_taken
@@ -500,12 +517,8 @@ _setup_brownfield_apt_layer() {
     rm -f "$tmp"
   fi
 
-  if ! dpkg-query -W -f='${Status}' nodejs 2>/dev/null \
-    | grep -q "install ok installed"; then
-    log_brownfield "installing NodeSource Node 22 (apt-get install -y nodejs)"
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null 2>&1
-    DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs >/dev/null 2>&1
-  fi
+  log_brownfield "ensuring NodeSource Node 22 (distro_install_node22)"
+  distro_install_node22
 }
 
 # setup_brownfield_host_full

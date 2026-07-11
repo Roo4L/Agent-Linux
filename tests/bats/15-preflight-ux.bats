@@ -24,6 +24,19 @@
 
 load 'helpers/assertions'
 load 'helpers/brownfield'
+load 'helpers/tmpdir'
+
+# AL_TMPDIR is a writable temp root that is safe even on bats < 1.4 (Ubuntu 22.04
+# ships bats 1.2.1, which leaves BATS_TEST_TMPDIR unset → a bare expansion would
+# write the snapshot fixtures to "/before" and "/after" at the host root). The
+# snapshot @tests below build their paths under $AL_TMPDIR. See helpers/tmpdir.bash.
+setup() {
+  al_tmpdir_init || { printf 'setup: no safe temp dir\n' >&2; return 1; }
+}
+
+teardown() {
+  al_tmpdir_teardown
+}
 
 # Restore canonical post-installer state at teardown so downstream bats files
 # (40-registry-cli.bats, 50-agents.bats, etc.) see the same shape the docker
@@ -126,8 +139,8 @@ setup_brownfield_for_path_mismatch() {
 @test "UX-01 (T-15-01-02): NO-MUTATION SNAPSHOT — agentlinux-install --dry-run on brownfield combo leaves /etc/sudoers.d /home /etc/passwd byte-identical" {
   setup_brownfield_for_dry_run_combo
 
-  local before="$BATS_TEST_TMPDIR/before"
-  local after="$BATS_TEST_TMPDIR/after"
+  local before="$AL_TMPDIR/before"
+  local after="$AL_TMPDIR/after"
   snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
 
   run bash "$INSTALLER" --dry-run
@@ -342,9 +355,12 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # Confirm the new user actually exists post-install.
   id -u agent2 >/dev/null 2>&1 \
     || __fail "UX-04" "agent2 user created" "id -u agent2 failed" "$LOG"
-  # Original incompatible agent is untouched (still /bin/sh shell).
-  getent passwd agent | grep -qE ':/bin/sh$' \
-    || __fail "UX-04" "original agent user untouched (still /bin/sh)" "$(getent passwd agent)" "$LOG"
+  # Original incompatible agent is untouched (still its family-correct wrong
+  # shell — /bin/sh on Debian, /usr/bin/tcsh on RHEL/EL9 per distro_wrong_shell).
+  local orig_shell
+  orig_shell=$(distro_wrong_shell)
+  [[ "$(getent passwd agent | cut -d: -f7)" == "$orig_shell" ]] \
+    || __fail "UX-04" "original agent user untouched (still ${orig_shell})" "$(getent passwd agent)" "$LOG"
   # Teardown: remove agent2 so subsequent tests' find_alt_user_name still
   # suggests "agent2" (the deterministic first-suggestion contract).
   userdel -rf agent2 2>/dev/null || true

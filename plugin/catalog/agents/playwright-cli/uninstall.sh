@@ -4,6 +4,13 @@ set -euo pipefail
 # Order: tear down the wired Claude Code skill → npm uninstall -g → hash -r.
 # CAT-04: AGENTLINUX_PRESERVE_PATHS keeps ~/.cache/ms-playwright (browser
 # binaries are hundreds of MB to re-download) across REMEDIATE-04.
+#
+# Deliberate asymmetry: install.sh's Chromium browser-launch deps (the apt /
+# dnf system packages — libnss3, libgbm1, the libX* set, ...) are NOT removed
+# here. They are shared OS libraries other software on the host may depend on,
+# so `apt-get remove` / `dnf remove` of them on agent-uninstall risks breaking
+# unrelated programs. Leaving them is the same safe-by-default stance as the
+# preserved browser binaries above.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 

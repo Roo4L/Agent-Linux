@@ -19,13 +19,13 @@
 log_info "20-sudoers: starting"
 
 # Minimal cloud/Docker images ship without the `sudo` package (which provides
-# both `sudo` and `visudo`); we need visudo to validate the drop-in. apt-get
-# update first — the cache may be empty on fresh/idle hosts. Run BEFORE the
-# dispatch so even REUSE/REMEDIATE arms have visudo for validation.
+# both `sudo` and `visudo`); we need visudo to validate the drop-in. The
+# install routes through the distro-neutral pkg_install verb (plugin/lib/pkg.sh):
+# debian runs the apt cache-refresh + install, rhel runs dnf install. Run BEFORE
+# the dispatch so even REUSE/REMEDIATE arms have visudo for validation.
 if ! command -v visudo >/dev/null 2>&1; then
   log_warn "visudo not found; installing 'sudo' package"
-  DEBIAN_FRONTEND=noninteractive apt-get update
-  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends sudo
+  pkg_install sudo
 fi
 
 # ensure_dir is a no-op re-asserting mode+ownership when the dir exists.

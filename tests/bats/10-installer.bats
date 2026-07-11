@@ -12,6 +12,7 @@
 #     re-run the installer from inside the bats test.
 
 load 'helpers/assertions'
+load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
 INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
@@ -47,7 +48,9 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   # monotonically as each phase adds provisioner artefacts —
   #   Phase 2 (5): profile.d/agentlinux.sh, agentlinux.env, cron.d/agentlinux,
   #                /home/agent/.bashrc, /home/agent/CLAUDE.md.
-  #   Phase 3 (+2): /home/agent/.npmrc, /etc/apt/sources.list.d/nodesource.sources.
+  #   Phase 3 (+2): /home/agent/.npmrc, the family-correct NodeSource repo path
+  #                 (distro_nodesource_repo_paths: apt sources on Ubuntu /
+  #                 /etc/yum.repos.d/nodesource-nodejs.repo on EL9).
   #   Phase 4 (+2): /opt/agentlinux/catalog/${AGENTLINUX_VERSION}/catalog.json,
   #                 /opt/agentlinux/catalog/${AGENTLINUX_VERSION}/agents/test-dummy/install.sh.
   #   Phase 4 (+2 SEPARATE byte-stability checks with their own __fail paths):
@@ -68,6 +71,13 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   #     regardless of any internal tsc reordering of the generated body.
   local version
   version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)}
+  # distro_nodesource_repo_paths emits one path PER LINE (the rhel arm now emits
+  # both nodesource-nodejs.repo AND nodesource-nsolid.repo, mirroring the product
+  # nodesource_repo_paths). Read into an array so each path is a SEPARATE find
+  # operand — a double-quoted "$(...)" would collapse the two newline-separated
+  # rhel paths into one bogus argument and make find fail.
+  local -a ns_repos
+  mapfile -t ns_repos < <(distro_nodesource_repo_paths)
   find \
     /etc/profile.d/agentlinux.sh \
     /etc/agentlinux.env \
@@ -75,7 +85,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     /home/agent/.bashrc \
     /home/agent/CLAUDE.md \
     /home/agent/.npmrc \
-    /etc/apt/sources.list.d/nodesource.sources \
+    "${ns_repos[@]}" \
     "/opt/agentlinux/catalog/${version}/catalog.json" \
     "/opt/agentlinux/catalog/${version}/agents/test-dummy/install.sh" \
     -type f -exec sha256sum {} + >"$pre" 2>/dev/null
@@ -103,7 +113,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     /home/agent/.bashrc \
     /home/agent/CLAUDE.md \
     /home/agent/.npmrc \
-    /etc/apt/sources.list.d/nodesource.sources \
+    "${ns_repos[@]}" \
     "/opt/agentlinux/catalog/${version}/catalog.json" \
     "/opt/agentlinux/catalog/${version}/agents/test-dummy/install.sh" \
     -type f -exec sha256sum {} + >"$post" 2>/dev/null
