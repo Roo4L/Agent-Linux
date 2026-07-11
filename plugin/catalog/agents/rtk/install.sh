@@ -26,17 +26,22 @@ set -euo pipefail
 # shellcheck source=../../lib/prebuilt-binary.sh
 source "${AGENTLINUX_CATALOG_DIR}/lib/prebuilt-binary.sh"
 
-tool="rtk"
-repo="rtk-ai/rtk"
-tag="v${AGENTLINUX_PINNED_VERSION}"
+ver="${AGENTLINUX_PINNED_VERSION}"
+# rtk names its assets with Rust target triples: musl for x86_64, gnu for aarch64
+# (there is no aarch64-musl asset). Release tags are v-prefixed; the binary reports
+# the bare version, which al_pb_assert_version checks.
+arch=$(al_pb_arch "x86_64-unknown-linux-musl" "aarch64-unknown-linux-gnu") || exit 1
+base="https://github.com/rtk-ai/rtk/releases/download/v${ver}"
+asset="rtk-${arch}.tar.gz"
+checksums="checksums.txt"
 bin_in_archive="rtk"
 bin_name="rtk"
 dest="${AGENTLINUX_AGENT_HOME}/.local/bin"
 
-echo "rtk: installing ${repo}@${tag} (source_kind binary) to ${dest}"
+echo "rtk: installing rtk-ai/rtk@v${ver} (source_kind binary) to ${dest}"
 
-al_pb_install "$tool" "$repo" "$tag" "$bin_in_archive" "$bin_name" "$dest" || {
-  echo "rtk install: al_pb_install failed for ${repo}@${tag}" >&2
+al_pb_install "$base" "$asset" "$checksums" "$bin_in_archive" "$bin_name" "$dest" "$ver" || {
+  echo "rtk install: al_pb_install failed for rtk-ai/rtk@v${ver}" >&2
   exit 1
 }
 

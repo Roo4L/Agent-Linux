@@ -207,7 +207,8 @@ _rtk_pin() {
     test -f "$helper" || { echo "MISSING_HELPER:$helper" >&2; exit 70; }
     # shellcheck source=/dev/null
     source "$helper"
-    asset=$(al_pb_detect_asset rtk) || { echo "ASSET_DETECT_FAIL" >&2; exit 71; }
+    arch=$(al_pb_arch "x86_64-unknown-linux-musl" "aarch64-unknown-linux-gnu") || { echo "ASSET_DETECT_FAIL" >&2; exit 71; }
+    asset="rtk-${arch}.tar.gz"
     stage=$(mktemp -d); verify=$(mktemp -d)
     dest="/home/agent/.local/bin"
     mkdir -p "$dest"
@@ -219,7 +220,7 @@ _rtk_pin() {
     echo "tampered-payload" | gzip -c >"$stage/$asset"
     printf "%s  %s\n" "0000000000000000000000000000000000000000000000000000000000000000" "$asset" >"$stage/checksums.txt"
     # Replicate al_pb_install ordering: extract/install runs ONLY if verify passes.
-    if al_pb_fetch_and_verify "file://$stage" "$asset" "$verify"; then
+    if al_pb_fetch_and_verify "file://$stage" "$asset" "checksums.txt" "$verify"; then
       rc=0
       al_pb_extract_install "$verify" "$asset" rtk rtk "$dest"
     else
