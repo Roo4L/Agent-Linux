@@ -56,9 +56,10 @@ catalog auditor and the install path both read from.
 
 The second is `plugin/catalog/catalog.json` — the embedded agent list
 shipped in every release tarball. It holds the real entries (the
-originals claude-code, gsd, playwright-cli plus the v0.3.6 coding-agent
-cluster codex, gemini-cli, opencode, qwen-code, ccusage) plus one
-`test_only` fixture exercised only by bats. Pre-commit and CI both run the catalog
+originals claude-code, gsd, playwright-cli; the v0.3.6 coding-agent
+cluster codex, gemini-cli, opencode, qwen-code, ccusage; the
+prebuilt-binary cluster rtk, gh, glab, trivy, gitleaks; and the npm
+Sentry CLI) plus one `test_only` fixture exercised only by bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
 
@@ -121,27 +122,41 @@ asset is staged to a scratch directory, its gzip magic bytes are
 checked, and its SHA-256 is verified against the release's published
 `checksums.txt`
 **before anything is extracted**, and any mismatch aborts the install
-without unpacking or replacing a single file. Verification happens
-before extraction, never after.
+without unpacking or replacing a single file.
 
 The mechanics live in one shared helper,
 `plugin/catalog/lib/prebuilt-binary.sh`, that every binary recipe
-sources. It maps the running architecture to the right release asset,
-performs the verify-before-extract download, installs the binary
-`0755` into `~/.local/bin` — agent-owned, no root, and deliberately no
+sources. The helper owns the security-critical, tool-agnostic core:
+the architecture dispatch (x86-64 or ARM64, abort otherwise), the
+verify-before-extract download, the single-member extract, and the
+version-lock assertion. It installs the binary `0755` into
+`~/.local/bin` — agent-owned, no root, and deliberately no
 `/usr/local/bin` shim (the shim is the anti-pattern that breaks a
-tool's own self-update) — then asserts the installed binary reports the
-pinned version. Because the helper is generic over
-repo/tag/asset/binary-name, adding the next binary-distributed tool is
-a catalog entry plus a thin recipe, with no shared code to touch.
+tool's own self-update). The recipe owns only what genuinely differs
+per upstream: which host serves the release, how the per-architecture
+asset and checksum files are named, and where the binary sits inside
+the archive. So adding the next binary-distributed tool is a catalog
+entry plus a thin recipe, with no shared code to touch.
 
-`rtk` (the Rust Token Killer, a token-optimizing CLI proxy) is the
-first tool installed this way. Its entry pins an exact release, its
-recipe is a handful of lines over the shared helper, and its optional
-Claude Code hook is strictly opt-in — installing `rtk` never writes to
-`~/.claude` on its own; a user runs `rtk init` themselves if they want
-it, and `agentlinux remove rtk` reverts that hook along with the binary
-and rtk's own config and cache, leaving no residue behind.
+That split earns its keep across a mix of real upstreams. `rtk` (the
+Rust Token Killer, a token-optimizing CLI proxy) names its assets with
+Rust target triples and ships the binary flat. The GitHub CLI (`gh`)
+uses Go-style `os_arch` names, a per-version checksums file, and nests
+its binary under an architecture-named directory. `trivy` and
+`gitleaks` (a vulnerability scanner and a secret scanner — both run
+their scans with no Docker daemon) each spell the architecture their
+own way. And the GitLab CLI (`glab`) is served from `gitlab.com`
+rather than `github.com` entirely — which is why the recipe, not the
+helper, supplies the release base URL. Every one of them is a handful
+of lines over the same helper.
+
+`rtk`'s optional Claude Code hook is strictly opt-in — installing `rtk`
+never writes to `~/.claude` on its own; a user runs `rtk init`
+themselves if they want it, and `agentlinux remove rtk` reverts that
+hook along with the binary and rtk's own config and cache. The other
+binary tools remove just as symmetrically: `agentlinux remove gh`
+deletes the binary and `~/.config/gh`, `remove trivy` also clears
+`~/.cache/trivy`, and none leaves residue behind.
 
 ## Worked example
 
@@ -152,6 +167,8 @@ $ jq '.agents[] | {id, source_kind, pinned_version}' \
 { "id": "gsd",            "source_kind": "npm",    "pinned_version": "1.37.1" }
 { "id": "playwright-cli", "source_kind": "npm",    "pinned_version": "0.1.11" }
 { "id": "codex",          "source_kind": "npm",    "pinned_version": "0.142.3" }
+{ "id": "rtk",            "source_kind": "binary", "pinned_version": "0.42.4" }
+{ "id": "gh",             "source_kind": "binary", "pinned_version": "2.95.0" }
 # … (abridged — see catalog.json for the full roster)
 ```
 
