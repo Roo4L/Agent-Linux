@@ -467,14 +467,20 @@ main() {
     run_purge "$REMOVE_NODEJS_REQUESTED"
     exit 0
   fi
-  # Interactive install-time user prompt (AC3). Fires ONLY on a TTY AND when no
-  # explicit --user flag / AGENTLINUX_USER env was supplied — this preserves AC1
-  # (non-TTY curl|bash keeps `agent`) and the explicit-choice path (no prompt).
-  # Runs BEFORE detect::run_once so detection probes the chosen user. Captured
-  # via command substitution (the function returns the name on stdout, never via
-  # export — the call goes through a pipe subshell). A typed name re-runs the
-  # adoption-safety gate (a system account is refused even when typed).
-  if [[ -t 0 ]] && [[ "$USER_EXPLICITLY_SET" != true ]]; then
+  # Interactive install-time user prompt (AC3). Fires ONLY on a GREENFIELD host
+  # — no prior install marker (/etc/agentlinux.env) AND no pre-existing default
+  # user — on a TTY with no explicit --user flag / AGENTLINUX_USER env. This
+  # preserves AC1 (non-TTY curl|bash keeps `agent`) and the explicit-choice
+  # path, and — critically — does NOT fire on a brownfield re-run/remediation:
+  # the user is already chosen there, an unexpected username prompt would derail
+  # the interactive REMEDIATE Y/n loop, and re-asking every run is the wrong UX
+  # (switching an already-installed user is out of scope for AL-50; the existing
+  # detection + alt_user_or_bail flow handles a problematic reused user). Runs
+  # BEFORE detect::run_once so detection probes the chosen user. Captured via
+  # command substitution (the function returns the name on stdout, never via
+  # export). A typed name re-runs the adoption-safety gate.
+  if [[ -t 0 ]] && [[ "$USER_EXPLICITLY_SET" != true ]] &&
+    [[ ! -e /etc/agentlinux.env ]] && ! id "$INSTALL_USER" >/dev/null 2>&1; then
     # shellcheck source=../lib/prompt.sh
     . "$LIB_DIR/prompt.sh"
     INSTALL_USER="$(prompt::choose_install_user)"

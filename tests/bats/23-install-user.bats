@@ -213,9 +213,14 @@ _install_alt_user() {
 # Drive a real pty via tty-driver.py; feed the alt user at the "[agent]" prompt.
 # ---------------------------------------------------------------------------
 @test "INST-07: AC3 interactive prompt provisions under the typed name" {
-  # No --user / AGENTLINUX_USER → main() fires prompt::choose_install_user on a
-  # TTY. Feed the alt user name + newline.
-  run python3 "$TTY_DRIVER" "${ALT_USER}\n" -- bash "$INSTALLER" --yes
+  # The username prompt fires ONLY on a greenfield host (no /etc/agentlinux.env
+  # and no pre-existing default `agent` user) — on a brownfield re-run the user
+  # is already chosen and prompting would derail the REMEDIATE loop. Purge to
+  # greenfield, then drive a TTY with no --user/env so main() fires
+  # prompt::choose_install_user; feed the alt name. Greenfield needs no --yes
+  # (fresh create, nothing to remediate).
+  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  run python3 "$TTY_DRIVER" "${ALT_USER}\n" -- bash "$INSTALLER"
   [[ "$status" -eq 0 ]] \
     || __fail "INST-07" "interactive install exit 0" "status=${status}; output: ${output}" "$LOG"
   printf '%s' "$output" | grep -q 'Install AgentLinux under which user?' \

@@ -70,9 +70,12 @@ The target user is resolved by this precedence, highest first:
 2. **`AGENTLINUX_USER=NAME` environment variable** — honored when no flag is
    given. Useful for `curl … | AGENTLINUX_USER=claude bash` where adding a
    flag to the piped script is awkward.
-3. **Interactive prompt** — on a TTY with neither a flag nor the env var, the
-   installer asks `Install AgentLinux under which user? [agent]` and
-   provisions under the typed name (Enter accepts the default).
+3. **Interactive prompt** — on a **greenfield** TTY install (no prior
+   `/etc/agentlinux.env` and no existing default `agent` user) with neither a
+   flag nor the env var, the installer asks `Install AgentLinux under which
+   user? [agent]` and provisions under the typed name (Enter accepts the
+   default). A brownfield re-run does not re-prompt — the user is already
+   chosen, so the prompt stays out of the remediation flow.
 4. **Default `agent`** — non-interactive runs (the common `curl … | bash`
    case) with no flag and no env var keep `agent`, so greenfield behavior is
    unchanged.
