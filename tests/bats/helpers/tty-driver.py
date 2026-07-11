@@ -80,15 +80,17 @@ def main() -> int:
     # Fix: gate ALL input writes on having actually SEEN a prompt in the output.
     # `prompting_started` flips true only once a prompt sentinel appears, which
     # means the child has completed its first `read` and the pty is wired up;
-    # from then on bytes queue reliably. The sentinels cover the installer's two
-    # prompts (see plugin/lib/prompt.sh) as three strings: the remediation [Y/n]
-    # prompt, plus the alt-user name prompt in both its suggested and
-    # no-suggestion forms. After the gate opens we keep feeding one byte per
-    # quiet cycle, which is safe (post-first-read pty writes are buffered).
+    # from then on bytes queue reliably. The sentinels cover the installer's
+    # prompts (see plugin/lib/prompt.sh): the remediation [Y/n] prompt, the
+    # alt-user name prompt in both its suggested and no-suggestion forms, and the
+    # AL-50 greenfield install-user prompt. After the gate opens we keep feeding
+    # one byte per quiet cycle, which is safe (post-first-read pty writes are
+    # buffered).
     PROMPT_SENTINELS = (
         b"Proceed with this remediation? [Y/n]",
         b"or type another name:",
         b"Type a name for the new install user:",
+        b"Install AgentLinux under which user?",
     )
     PROMPT_QUIET_THRESHOLD = 2  # consecutive empty-read cycles → assume read-block
     EOF_AFTER_EMPTY_QUIET = 6  # cycles of quiet AFTER write_buf is empty → send EOF (^D)
