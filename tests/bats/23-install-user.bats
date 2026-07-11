@@ -49,6 +49,20 @@ teardown_file() {
   bash "$INSTALLER" --purge --user="$ALT_USER" >/dev/null 2>&1 || true
   rm -f /tmp/agentlinux-test-dummy.marker || true
   bash "$INSTALLER" >/dev/null 2>&1 || true
+  # SSH keypair recovery (mirrors 50-agents.bats): the AC3 test runs
+  # `--purge` (no --user) to reach a greenfield state, and that `userdel -r
+  # agent` deletes /home/agent including ~/.ssh/authorized_keys. The reinstall
+  # above recreates the agent user but does NOT re-authorize the keypair (that's
+  # harness setup, not installer scope), so downstream ssh-mode tests
+  # (30-runtime, 40-registry-cli) would fail to log in. Restore it when absent;
+  # /root/.ssh/id_ed25519 survives --purge (root's $HOME is untouched).
+  if [[ -f /root/.ssh/id_ed25519.pub ]] \
+    && [[ ! -f /home/agent/.ssh/authorized_keys ]]; then
+    install -d -m 0700 -o agent -g agent /home/agent/.ssh
+    install -m 0600 -o agent -g agent \
+      /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
+    systemctl start ssh >/dev/null 2>&1 || true
+  fi
 }
 
 # Run the alt-user install once; idempotent re-runs are harmless. Tests that
