@@ -22,11 +22,11 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 26: qwen-code** `[npm]` - Qwen Code CLI installable + removable ✓ COMPLETE
 - [x] **Phase 27: ccusage** `[npm]` - read-only Claude cost reporter installable + removable ✓ COMPLETE
 - [x] **Phase 28: rtk** 🔧 `[bin]` - Rust Token Killer + prebuilt-binary installer enabler (ENABLE-01)
-- [ ] **Phase 29: gh** `[bin]` - GitHub CLI installable + removable
-- [ ] **Phase 30: glab** `[bin]` - GitLab CLI (gitlab-org/cli) installable + removable
-- [ ] **Phase 31: trivy** `[bin]` - Trivy scanner (no-Docker fs/repo scans) installable + removable
-- [ ] **Phase 32: gitleaks** `[bin]` - Gitleaks secret scanner installable + removable
-- [ ] **Phase 33: sentry-cli** `[npm]` - Sentry CLI (FSL) installable + removable
+- [x] **Phase 29: gh** `[bin]` - GitHub CLI installable + removable ✓ COMPLETE (also generalized the ENABLE-01 helper: GitHub+GitLab hosts, Go-style asset naming)
+- [x] **Phase 30: glab** `[bin]` - GitLab CLI (gitlab-org/cli) installable + removable ✓ COMPLETE
+- [x] **Phase 31: trivy** `[bin]` - Trivy scanner (no-Docker fs/repo scans) installable + removable ✓ COMPLETE
+- [x] **Phase 32: gitleaks** `[bin]` - Gitleaks secret scanner installable + removable ✓ COMPLETE
+- [x] **Phase 33: sentry-cli** `[npm]` - Sentry CLI (FSL) installable + removable ✓ COMPLETE
 - [ ] **Phase 34: chrome-devtools-mcp** 🔧 `[mcp]` - Chrome DevTools MCP + MCP-recipe-pattern enabler (ENABLE-02)
 - [ ] **Phase 35: context7** `[mcp]` - Context7 MCP server registerable + deregisterable
 - [ ] **Phase 36: github-mcp** `[mcp]` - GitHub MCP (remote-http/PAT or Go-binary stdio, never Docker)
@@ -398,11 +398,11 @@ Plans:
 | 26. qwen-code | 0/TBD | Not started | - |
 | 27. ccusage | 0/TBD | Not started | - |
 | 28. rtk 🔧 | 3/4 | In Progress|  |
-| 29. gh | 0/TBD | Not started | - |
-| 30. glab | 0/TBD | Not started | - |
-| 31. trivy | 0/TBD | Not started | - |
-| 32. gitleaks | 0/TBD | Not started | - |
-| 33. sentry-cli | 0/TBD | Not started | - |
+| 29. gh | 1/1 | Complete | 2026-07-02 |
+| 30. glab | 1/1 | Complete | 2026-07-02 |
+| 31. trivy | 1/1 | Complete | 2026-07-02 |
+| 32. gitleaks | 1/1 | Complete | 2026-07-02 |
+| 33. sentry-cli | 1/1 | Complete | 2026-07-02 |
 | 34. chrome-devtools-mcp 🔧 | 0/TBD | Not started | - |
 | 35. context7 | 0/TBD | Not started | - |
 | 36. github-mcp | 0/TBD | Not started | - |

@@ -59,11 +59,11 @@
 
 ### DevOps / git / observability CLIs (prebuilt binary, ENABLE-01)
 
-- [ ] **DEVT-01**: `agentlinux install gh` installs GitHub CLI (binary → `~/.local/bin`); symmetric remove (+ `~/.config/gh`).
-- [ ] **DEVT-02**: `agentlinux install glab` installs GitLab CLI (binary, from `gitlab-org/cli` — **not** the archived `profclems/glab`); symmetric remove (+ `~/.config/glab`).
-- [ ] **DEVT-03**: `agentlinux install sentry-cli` installs Sentry CLI (npm `@sentry/cli` or binary); symmetric remove. *(FSL — Appendix B.)*
-- [ ] **DEVT-04**: `agentlinux install trivy` installs Trivy (binary); fs/repo scans need no Docker; symmetric remove (+ `~/.cache/trivy`).
-- [ ] **DEVT-05**: `agentlinux install gitleaks` installs Gitleaks (binary); symmetric remove.
+- [x] **DEVT-01**: `agentlinux install gh` installs GitHub CLI (binary → `~/.local/bin`); remove drops the binary and preserves `~/.config/gh` (auth) per CAT-04 — consistent with every other authenticated agent; only `--purge` wipes it.
+- [x] **DEVT-02**: `agentlinux install glab` installs GitLab CLI (binary, from `gitlab-org/cli` — **not** the archived `profclems/glab`); remove drops the binary and preserves `~/.config/glab` (auth) per CAT-04.
+- [x] **DEVT-03**: `agentlinux install sentry-cli` installs Sentry CLI (npm `@sentry/cli` or binary); symmetric remove. *(FSL — Appendix B.)*
+- [x] **DEVT-04**: `agentlinux install trivy` installs Trivy (binary); fs/repo scans need no Docker; symmetric remove (+ `~/.cache/trivy`).
+- [x] **DEVT-05**: `agentlinux install gitleaks` installs Gitleaks (binary); symmetric remove.
 
 ### Token / context / workflow tools
 
@@ -147,11 +147,11 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | WIRE-01 | Phases 24–27 (retrofit) | cross-agent skill wiring (GSD + playwright-cli → all shipped agents) 🔧 | Done |
 | WORK-02 | Phase 28 | rtk 🔧 | Done |
 | ENABLE-01 | Phase 28 | prebuilt-binary installer 🔧 | Done |
-| DEVT-01 | Phase 29 | gh | Pending |
-| DEVT-02 | Phase 30 | glab | Pending |
-| DEVT-04 | Phase 31 | trivy | Pending |
-| DEVT-05 | Phase 32 | gitleaks | Pending |
-| DEVT-03 | Phase 33 | sentry-cli | Pending |
+| DEVT-01 | Phase 29 | gh | Done |
+| DEVT-02 | Phase 30 | glab | Done |
+| DEVT-04 | Phase 31 | trivy | Done |
+| DEVT-05 | Phase 32 | gitleaks | Done |
+| DEVT-03 | Phase 33 | sentry-cli | Done |
 | MCP-01 | Phase 34 | chrome-devtools-mcp 🔧 | Pending |
 | ENABLE-02 | Phase 34 | MCP recipe pattern 🔧 | Pending |
 | MCP-02 | Phase 35 | context7 | Pending |
