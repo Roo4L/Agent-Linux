@@ -1,6 +1,6 @@
 # Milestones
 
-## v0.3.5 AlmaLinux 9 Support (Shipped: 2026-07-02)
+## v0.3.5 AlmaLinux 9 Support (Shipped: 2026-07-11)
 
 **Phases completed:** 5 phases (18 Detection + Branching Foundation → 19 Docker AlmaLinux 9 Row → 20 Behavior-Test-Green on AlmaLinux 9 → 21 Catalog Verify on AlmaLinux 9 → 22 QEMU Release-Gate + Pipeline)
 
