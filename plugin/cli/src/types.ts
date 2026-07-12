@@ -10,8 +10,17 @@ export interface CatalogEntry {
   description: string;
   homepage?: string;
   license?: string;
-  source_kind: "npm" | "script" | "binary";
+  source_kind: "npm" | "script" | "binary" | "mcp";
   npm_package_name?: string; // required when source_kind === 'npm' (allOf clause)
+  // ENABLE-02: secret convention. requires_secret marks an entry that needs a
+  // credential to function; secret_env names the env var carrying it (e.g.
+  // CONTEXT7_API_KEY). Declarative metadata — the recipe prints the post-install
+  // instruction and the secret is never baked. Introduced for MCP-server entries
+  // but intentionally not restricted to source_kind "mcp": any entry that needs a
+  // post-install credential (e.g. an API-token CLI) may declare them. Both absent
+  // for a keyless entry (e.g. chrome-devtools-mcp).
+  requires_secret?: boolean;
+  secret_env?: string;
   pinned_version: string; // exact semver — CAT-04 / ADR-011
   version_constraint?: string; // e.g. '^2.1' — --all-latest upper-bound
   compatibility_window?: string; // REUSE-03 semver range: adopt a detected install whose version satisfies this

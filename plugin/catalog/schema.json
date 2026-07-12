@@ -35,10 +35,19 @@
         "description": { "type": "string", "minLength": 1 },
         "homepage": { "type": "string", "format": "uri" },
         "license": { "type": "string" },
-        "source_kind": { "type": "string", "enum": ["npm", "script", "binary"] },
+        "source_kind": { "type": "string", "enum": ["npm", "script", "binary", "mcp"] },
         "npm_package_name": {
           "type": "string",
           "pattern": "^(@[a-z0-9-]+/)?[a-z0-9][a-z0-9_-]*$"
+        },
+        "requires_secret": {
+          "type": "boolean",
+          "description": "ENABLE-02: true when this entry needs a credential to function. Declarative metadata — the recipe prints the post-install instruction; the secret is never baked into the recipe/snapshot. Introduced for MCP-server entries but usable by any source_kind that needs a post-install credential. Absent → no secret required."
+        },
+        "secret_env": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "ENABLE-02: name of the environment variable that carries this entry's credential (e.g. CONTEXT7_API_KEY). Set when a secret is used at all — required or optional. The user supplies it post-install; it is never baked."
         },
         "pinned_version": {
           "type": "string",

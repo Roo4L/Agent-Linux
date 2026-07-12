@@ -1,0 +1,25 @@
+{
+  "version": "0.3.0",
+  "agents": [
+    {
+      "id": "test-mcp-keyless",
+      "display_name": "Test MCP (keyless)",
+      "description": "fixture — well-formed MCP entry, no secret (chrome-devtools-mcp shape)",
+      "source_kind": "mcp",
+      "pinned_version": "1.4.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh"
+    },
+    {
+      "id": "test-mcp-secret",
+      "display_name": "Test MCP (secret)",
+      "description": "fixture — MCP entry declaring the ENABLE-02 secret convention",
+      "source_kind": "mcp",
+      "pinned_version": "3.2.2",
+      "requires_secret": true,
+      "secret_env": "TEST_MCP_API_KEY",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh"
+    }
+  ]
+}

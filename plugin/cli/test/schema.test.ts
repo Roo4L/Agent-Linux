@@ -95,12 +95,67 @@ describe("ajv catalog schema (CAT-03 / CAT-04)", () => {
     assert.ok(allowed.includes("npm") && allowed.includes("script"));
     // ENABLE-01: "binary" is now a first-class dispatchable source_kind.
     assert.ok(allowed.includes("binary"), `expected "binary" among allowed; got ${allowed}`);
+    // ENABLE-02: "mcp" is a first-class dispatchable source_kind.
+    assert.ok(allowed.includes("mcp"), `expected "mcp" among allowed; got ${allowed}`);
   });
 
   test("accepts well-formed catalog with a binary entry", async () => {
     const validate = await getValidator();
     const catalog = loadFixture("catalog-binary.json");
     const ok = validate(catalog);
+    assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
+  });
+
+  test("ENABLE-02: accepts MCP entries — keyless and with the secret convention", async () => {
+    const validate = await getValidator();
+    const catalog = loadFixture("catalog-mcp.json");
+    const ok = validate(catalog);
+    assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
+  });
+
+  test("ENABLE-02: secret_env must be an UPPER_SNAKE env-var name", async () => {
+    const validate = await getValidator();
+    const bad = {
+      version: "0.3.0",
+      agents: [
+        {
+          id: "bad-mcp",
+          display_name: "Bad MCP",
+          description: "secret_env with a lowercase name",
+          source_kind: "mcp",
+          pinned_version: "1.0.0",
+          requires_secret: true,
+          secret_env: "lowercase-key",
+          install_recipe_path: "install.sh",
+          uninstall_recipe_path: "uninstall.sh",
+        },
+      ],
+    };
+    assert.equal(validate(bad), false);
+    const errs = validate.errors ?? [];
+    assert.ok(
+      errs.some((e) => e.keyword === "pattern" && e.instancePath.endsWith("/secret_env")),
+      `expected keyword=pattern on /secret_env; got ${JSON.stringify(errs)}`,
+    );
+  });
+
+  test("ENABLE-02: an MCP entry needs no npm_package_name", async () => {
+    const validate = await getValidator();
+    const good = {
+      version: "0.3.0",
+      agents: [
+        {
+          id: "keyless-mcp",
+          display_name: "Keyless MCP",
+          description: "mcp source_kind does not trigger the npm allOf clause",
+          source_kind: "mcp",
+          pinned_version: "1.4.0",
+          install_recipe_path: "install.sh",
+          uninstall_recipe_path: "uninstall.sh",
+        },
+      ],
+    };
+    const ok = validate(good);
     assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
   });
 
