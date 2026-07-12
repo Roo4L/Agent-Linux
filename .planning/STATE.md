@@ -98,6 +98,7 @@ None — all v0.3.5 blockers resolved (the Playwright EL9 chromium question, the
 | 260524-ch1 | Disable Claude Code background auto-updater (version pinning; AGT-02c) | 2026-05-24 | AL-51 | — |
 | 260525-nv0 | Test-secrets infrastructure — `.env.local` + GH repo secrets + bats `require_secret`; SECRET_ALLOWLIST in `tests/docker/run.sh`; step-level nightly-qemu env; internals doc; smoke test | 2026-05-25 | AL-53 | 181996b |
 | 260526-84p | Interactive-CLI bats helpers (`expect`-based) + AGT-02d behavioral test; QEMU SendEnv/AcceptEnv forwarding; `docs/internals/test-interactive.md` | 2026-05-26 | AL-54 | d7bf9ee |
+| 260630-gn4 | Configurable target install username (`--user` / `AGENTLINUX_USER` / greenfield interactive prompt; default `agent`) — hardened validation (reject root/reserved/uid<1000) + resolved user threaded through all provisioners, sudoers, PATH wiring, and the catalog CLI guard + dispatch + upgrade probe; closes the AL-59 alt-user hollow-install bug. `--validate`: plan-checked, 3 review rounds, verified; new `tests/bats/23-install-user.bats` (INST-07). | 2026-06-30 | AL-50 | d59dcb7 |
 
 _Quick-task working directories are not retained on `master` (AL-63 — see the `planning-workflow` skill); this table is the durable record. Full PLAN/SUMMARY detail for each task lives in git history and the linked Jira issue._
 

@@ -16,11 +16,16 @@ if ! command -v log_error >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
-# LOCKED constants (ADR-012, mirrored from provisioner/20-sudoers.sh). Hardcoded
-# rather than $VAR-driven so a tampered env can't redirect the probe at a
-# different file.
+# LOCKED path (ADR-012, mirrored from provisioner/20-sudoers.sh). The PROBE PATH
+# stays hardcoded so a tampered env can't redirect the probe at a different file.
 readonly DETECT_SUDOERS_PATH=/etc/sudoers.d/agentlinux
-readonly DETECT_SUDOERS_EXPECTED_LINE='agent ALL=(ALL) NOPASSWD: ALL'
+# The expected NOPASSWD line's username column is parameterized on the resolved
+# install user (AL-50) so a correctly-provisioned alt-user host (e.g.
+# `claude ALL=(ALL) NOPASSWD: ALL`) reads as REUSE, not drift. INSTALL_USER is
+# the installer's own charset-validated variable (not arbitrary external input)
+# and is set before detect::run_once sources this fragment; defaults to `agent`.
+DETECT_SUDOERS_EXPECTED_LINE="${INSTALL_USER:-agent} ALL=(ALL) NOPASSWD: ALL"
+readonly DETECT_SUDOERS_EXPECTED_LINE
 
 # detect::sudoers_probe <fragment_path>
 #

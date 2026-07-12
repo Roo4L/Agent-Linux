@@ -137,6 +137,70 @@ prompt::run_all() {
   return 0
 }
 
+# prompt::choose_install_user
+# AL-50 AC3 — general install-time prompt fired BEFORE detection (unlike
+# prompt::alt_user_or_bail, which fires AFTER detection only on an incompatible
+# existing user). Prints a short 3-line context block (what the account is, that
+# it gets passwordless sudo, create-vs-adopt, and a docs URL) once, then renders
+# `Install AgentLinux under which user? [default: <name>] ` on STDERR and reads a
+# line (IFS= read -r, line-based — names are >1 char, so NOT the single-char
+# -n 1 form used by prompt::confirm_remediate). `[default: <name>]` (not bare
+# `[<name>]`) reads as the Enter-to-accept default. The `Install AgentLinux under
+# which user?` substring is the tty-driver.py PROMPT_SENTINELS gate — keep it
+# verbatim (check-tty-sentinels.sh).
+#
+# Return-by-stdout contract (NOT export): on accept the function PRINTS the
+# chosen name to STDOUT (a single printf) and the caller assigns it via
+# `INSTALL_USER="$(prompt::choose_install_user)"`. The real call site and the
+# test both invoke it through a pipe, where a pipe subshell would discard any
+# exported/assigned variable — so stdout is the only reliable channel. ALL
+# prompts/warnings go to STDERR so stdout carries ONLY the chosen name.
+#
+# Default: empty input keeps the default (`${INSTALL_USER:-agent}`). A typed
+# name is validated via remediate::validate_user_name; on invalid, re-prompt up
+# to 3 times then fall back to the default.
+prompt::choose_install_user() {
+  local default_user="${INSTALL_USER:-agent}"
+  local response chosen="" tries=0
+  # STDERR only — STDOUT is the return channel and must carry ONLY the chosen
+  # name (see the return-by-stdout contract above).
+  {
+    printf 'This account runs your coding agents and is granted passwordless sudo.\n'
+    printf 'A name that does not exist yet is created; an existing compatible user is adopted.\n'
+    printf 'Details: https://github.com/Roo4L/Agent-Linux/blob/master/docs/install-user.md\n'
+  } >&2
+  while [[ $tries -lt 3 ]]; do
+    printf 'Install AgentLinux under which user? [default: %s] ' "$default_user" >&2
+    # Line-based read (no -n N). EOF / closed stdin → fall back to default.
+    if ! IFS= read -r response; then
+      printf '\n' >&2
+      log_warn "prompt: stdin closed (EOF) — using default install user '${default_user}'"
+      printf '%s\n' "$default_user"
+      return 0
+    fi
+    # Empty (bare Enter) accepts the default.
+    if [[ -z "$response" ]]; then
+      chosen="$default_user"
+      break
+    fi
+    if remediate::validate_user_name "$response"; then
+      chosen="$response"
+      break
+    fi
+    tries=$((tries + 1))
+    printf 'invalid name: %q — must match ^[a-z][a-z0-9_-]*$ and not be root/a reserved account\n' "$response" >&2
+  done
+
+  # 3 invalid responses → fall back to the default rather than wedging.
+  if [[ -z "$chosen" ]]; then
+    log_warn "prompt: 3 invalid responses — using default install user '${default_user}'"
+    chosen="$default_user"
+  fi
+
+  printf '%s\n' "$chosen"
+  return 0
+}
+
 # prompt::alt_user_or_bail
 # Called from main() when reuse::user_decision returned 'bail' and
 # DETECT_USER_BAIL_REASON is set (wrong-shell, home-unwritable, name-mismatch).
@@ -147,11 +211,12 @@ prompt::run_all() {
 # Uses `exit` (not return) on bail paths — main() relies on this being a
 # terminal sink; the accept path returns 0 so main() can re-run detection.
 #
-# KNOWN LIMITATION (AL-59): accepting an alternate name only partially
-# provisions it. 10-agent-user.sh honors INSTALL_USER, but 30-nodejs.sh,
-# 40-path-wiring.sh, and the sudoers content still hardcode agent / /home/agent
-# — so the npm prefix, PATH wiring, and passwordless sudo land on the canonical
-# `agent`, not the alternate. Full alt-user provisioning is tracked in AL-59.
+# NOTE: the former AL-59 partial-provisioning limitation is closed (AL-50).
+# 30-nodejs.sh, 40-path-wiring.sh, 50-registry-cli.sh, and the sudoers content
+# all derive from INSTALL_USER now, so an accepted alternate name is fully
+# provisioned — npm prefix, PATH wiring, passwordless sudo, and the registry CLI
+# land on the chosen user. This bail path stays the detection-failure fallback;
+# the primary configurable-user entry point is prompt::choose_install_user above.
 prompt::alt_user_or_bail() {
   local existing_user="${INSTALL_USER:-agent}"
   local reason="${DETECT_USER_BAIL_REASON:-unknown}"

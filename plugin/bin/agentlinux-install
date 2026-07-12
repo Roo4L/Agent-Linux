@@ -171,7 +171,14 @@ REMOVE_NODEJS_REQUESTED=false
 # the renderer (text/json); INSTALL_USER is the user passed to detect::run_once.
 REPORT_ONLY=false
 REPORT_FORMAT=text
+# INSTALL_USER resolution precedence (AL-50): explicit --user flag >
+# AGENTLINUX_USER env > interactive prompt (Task 2) > default `agent`. The env
+# fallback is applied AFTER parse_args (so an explicit --user always wins);
+# USER_EXPLICITLY_SET records that a flag OR env supplied the value, which
+# suppresses the Task 2 interactive prompt. Both the flag and the env value are
+# validated at parse time — an invalid name exits 64 before any host mutation.
 INSTALL_USER=agent
+USER_EXPLICITLY_SET=false
 # --yes authorizes state-overwriting Remediate actions in non-TTY mode.
 # YES_FLAG_EXPLICIT_NO records --no-yes so a later --yes is rejected as
 # contradictory — argv must be unambiguous, no "last flag wins".
@@ -223,6 +230,7 @@ parse_args() {
         ;;
       --user=*)
         INSTALL_USER="${1#*=}"
+        USER_EXPLICITLY_SET=true
         ;;
       --user)
         shift
@@ -231,6 +239,7 @@ parse_args() {
           exit "$EX_USAGE"
         }
         INSTALL_USER="$1"
+        USER_EXPLICITLY_SET=true
         ;;
       --yes)
         # --no-yes-then-yes is contradictory: exit rather than last-flag-wins.
@@ -330,8 +339,9 @@ run_provisioners() {
 # PATH match a normal agent `agentlinux` invocation. Best-effort: a failure here
 # must not fail an otherwise-successful install.
 run_agent_adoption() {
-  log_info "adopting pre-existing reuse-eligible agents (agentlinux adopt --all)"
-  as_user_login agent agentlinux adopt --all \
+  local _al_user="${INSTALL_USER:-agent}"
+  log_info "adopting pre-existing reuse-eligible agents as ${_al_user} (agentlinux adopt --all)"
+  as_user_login "$_al_user" agentlinux adopt --all \
     || log_warn "agentlinux adopt --all reported a problem (continuing; run it manually to retry)"
 }
 
@@ -340,16 +350,22 @@ run_agent_adoption() {
 #   1. per-agent uninstall.sh (needs /opt/agentlinux/catalog/ still present)
 #   2-4. rm /opt/agentlinux, PATH artefacts, NodeSource repo files
 #   5. (optional) pkg_remove nodejs when $1 == true
-#   6. userdel -r agent (pkill first to avoid "user is logged in")
+#   6. userdel -r <install-user> (pkill first to avoid "user is logged in")
 #   7. LAST — rm the install log, so the tee still has its file until the EXIT
 #      trap closes FDs and delivers EOF.
-# Security: every rm target is a LITERAL absolute path (no $VAR in rm -rf);
-# recipe paths derive from $AGENTLINUX_VERSION + sentinel basename (no eval on
-# agent-writable JSON); --remove-nodejs is opt-in.
+# Security: every rm target is a LITERAL absolute path (no $VAR in rm -rf); the
+# only $VAR'd target is the install-user home, fed ONLY to `userdel -r` (never
+# `rm -rf $VAR`) and charset-validated upstream (validate_user_name). Recipe
+# paths derive from $AGENTLINUX_VERSION + sentinel basename (no eval on
+# agent-writable JSON); --remove-nodejs is opt-in. The install user resolves the
+# same way as install (--user > AGENTLINUX_USER > agent) so purging an alt-user
+# install does not orphan files or fail to remove the user.
 run_purge() {
   local remove_nodejs=${1:-false}
+  local _al_user="${INSTALL_USER:-agent}"
+  local _al_home="/home/${_al_user}"
 
-  log_info "running --purge (destructive)"
+  log_info "running --purge (destructive) — install user '${_al_user}'"
 
   # --purge runs before main()'s detect_distro, but Steps 4/5 below dispatch on
   # AGENTLINUX_DISTRO_FAMILY (nodesource_repo_paths / pkg_remove / pkg_autoremove).
@@ -376,8 +392,8 @@ run_purge() {
         # as_user already appends `--`; don't pass a second one (sudo would try
         # to exec `--`). Recipes guard on ${AGENTLINUX_AGENT_HOME:?}; runner.ts
         # is gone during --purge, so provide it explicitly.
-        AGENTLINUX_AGENT_HOME=/home/agent \
-          as_user agent bash "$recipe" || log_warn "uninstall.sh for ${id} failed (continuing)"
+        AGENTLINUX_AGENT_HOME="$_al_home" \
+          as_user "$_al_user" bash "$recipe" || log_warn "uninstall.sh for ${id} failed (continuing)"
       else
         log_warn "no uninstall.sh for ${id} at ${recipe}; skipping"
       fi
@@ -415,15 +431,16 @@ run_purge() {
     pkg_autoremove || true
   fi
 
-  # Step 6: remove agent user + /home/agent. pkill -u first to avoid "user is
+  # Step 6: remove the install user + its home. pkill -u first to avoid "user is
   # logged in" from userdel when an SSH/systemd-run scope is live (non-zero on
-  # no matches — ignore).
-  if id agent >/dev/null 2>&1; then
-    pkill -u agent 2>/dev/null || true
+  # no matches — ignore). userdel -r removes the home (the name is
+  # charset-validated, so it is safe as a userdel argument).
+  if id "$_al_user" >/dev/null 2>&1; then
+    pkill -u "$_al_user" 2>/dev/null || true
     sleep 1
-    if ! userdel -r agent 2>/dev/null; then
-      log_warn "userdel -r agent failed; trying userdel -rf"
-      userdel -rf agent 2>/dev/null || log_error "could not remove agent user"
+    if ! userdel -r "$_al_user" 2>/dev/null; then
+      log_warn "userdel -r ${_al_user} failed; trying userdel -rf"
+      userdel -rf "$_al_user" 2>/dev/null || log_error "could not remove install user '${_al_user}'"
     fi
   fi
 
@@ -434,10 +451,62 @@ run_purge() {
 
 main() {
   parse_args "$@"
+  # Source the remediate lib up front for validate_user_name + user_adoptable.
+  # Idempotent (source-once guard) — the later `. remediate.sh` in the
+  # DECIDE-THEN-ACT block is a no-op, so this does not reset RESOLUTIONS.
+  # shellcheck source=../lib/remediate.sh
+  . "$LIB_DIR/remediate.sh"
+  # AGENTLINUX_USER env fallback (AL-50): honored only when no explicit --user
+  # flag was supplied, so the flag always wins. An env-supplied value sets
+  # USER_EXPLICITLY_SET too — it counts as an explicit choice, so the Task 2
+  # interactive prompt is skipped and AC1 (non-TTY default `agent`) is preserved.
+  if [[ "$USER_EXPLICITLY_SET" != true && -n "${AGENTLINUX_USER:-}" ]]; then
+    INSTALL_USER="$AGENTLINUX_USER"
+    USER_EXPLICITLY_SET=true
+  fi
+  # Parse-time validation (AC5) for BOTH the --user and AGENTLINUX_USER paths.
+  # Runs before require_root / any mutation; an invalid name exits 64 (EX_USAGE).
+  if [[ "$USER_EXPLICITLY_SET" == true ]]; then
+    if ! remediate::validate_user_name "$INSTALL_USER"; then
+      log_error "agentlinux-install: invalid install-user name '${INSTALL_USER}' — must match ^[a-z][a-z0-9_-]*\$ and must not be root or a reserved/system account"
+      exit "$EX_USAGE"
+    fi
+  fi
   require_root
+  # Adoption-safety gate (AC5, T-AL50-01): refuse to adopt an EXISTING system
+  # account (UID < 1000) — that would grant NOPASSWD sudo + overwrite a
+  # daemon/system home. A non-existent name (created fresh) and a regular login
+  # (UID >= 1000, adopted) both pass. Runs before detect::run_once so identity
+  # is settled before any decision. The Task 2 prompt re-checks a typed name.
+  if ! remediate::user_adoptable "$INSTALL_USER"; then
+    log_error "agentlinux-install: refusing to adopt existing system account '${INSTALL_USER}' (UID < 1000). Choose a name that is free or a regular login (UID >= 1000)."
+    exit "$EX_USAGE"
+  fi
   if [[ $PURGE_REQUESTED == true ]]; then
     run_purge "$REMOVE_NODEJS_REQUESTED"
     exit 0
+  fi
+  # Interactive install-time user prompt (AC3). Fires ONLY on a GREENFIELD host
+  # — no prior install marker (/etc/agentlinux.env) AND no pre-existing default
+  # user — on a TTY with no explicit --user flag / AGENTLINUX_USER env. This
+  # preserves AC1 (non-TTY curl|bash keeps `agent`) and the explicit-choice
+  # path, and — critically — does NOT fire on a brownfield re-run/remediation:
+  # the user is already chosen there, an unexpected username prompt would derail
+  # the interactive REMEDIATE Y/n loop, and re-asking every run is the wrong UX
+  # (switching an already-installed user is out of scope for AL-50; the existing
+  # detection + alt_user_or_bail flow handles a problematic reused user). Runs
+  # BEFORE detect::run_once so detection probes the chosen user. Captured via
+  # command substitution (the function returns the name on stdout, never via
+  # export). A typed name re-runs the adoption-safety gate.
+  if [[ -t 0 ]] && [[ "$USER_EXPLICITLY_SET" != true ]] &&
+    [[ ! -e /etc/agentlinux.env ]] && ! id "$INSTALL_USER" >/dev/null 2>&1; then
+    # shellcheck source=../lib/prompt.sh
+    . "$LIB_DIR/prompt.sh"
+    INSTALL_USER="$(prompt::choose_install_user)"
+    if ! remediate::user_adoptable "$INSTALL_USER"; then
+      log_error "agentlinux-install: refusing to adopt existing system account '${INSTALL_USER}' (UID < 1000). Choose a name that is free or a regular login (UID >= 1000)."
+      exit "$EX_USAGE"
+    fi
   fi
   # In --report-format=json mode the JSON object must be the only thing
   # downstream consumers see, so suppress the banner log_info calls and route
