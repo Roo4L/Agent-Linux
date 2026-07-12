@@ -1,10 +1,15 @@
 #!/usr/bin/env bats
-# tests/bats/59-catalog-mcp.bats — v0.3.6 Phase 34 (chrome-devtools-mcp 🔧) the
-# MCP-server source_kind gate: MCP-01 (register the Chrome DevTools MCP server
-# into Claude Code user scope, Chrome-present requirement surfaced, symmetric
-# residue-free deregister) + ENABLE-02 (the MCP recipe pattern — `claude mcp add
-# --scope user` register / `claude mcp remove` deregister; keyless here, the
-# requires_secret/secret_env convention lands with its first secret consumer).
+# tests/bats/59-catalog-mcp.bats — v0.3.6 MCP-server catalog gate.
+#   Phase 34 (chrome-devtools-mcp 🔧): MCP-01 (register the Chrome DevTools MCP
+#     server into Claude Code user scope, Chrome-present requirement surfaced,
+#     symmetric residue-free deregister) + ENABLE-02 (the MCP recipe pattern —
+#     `claude mcp add --scope user` register / `claude mcp remove` deregister;
+#     keyless here).
+#   Phase 35 (context7): MCP-02 — register the Context7 MCP server (npx), assert
+#     the registration is KEYLESS (no baked CONTEXT7_API_KEY) and that install
+#     surfaces the optional post-install key instruction, then deregister with no
+#     residue. context7 is the first consumer of the requires_secret/secret_env
+#     convention (declared optional: requires_secret=false, secret_env set).
 #
 # The full TST-07 lifecycle on a provisioned host:
 #   agentlinux install claude-code  (precondition — an MCP server registers INTO
@@ -52,11 +57,11 @@ setup_file() {
   # Idempotent — a no-op if an earlier file left it installed.
   sudo -u agent -H bash --login -c 'agentlinux install claude-code' >/dev/null 2>&1 || true
 
-  # Defensive scrub of any prior chrome-devtools-mcp registration BEFORE any test,
-  # so a stale ~/.claude.json entry cannot satisfy a present-assertion even if a
-  # regressed recipe stopped registering it (parity with 53/57/58).
+  # Defensive scrub of any prior MCP registrations BEFORE any test, so a stale
+  # ~/.claude.json entry cannot satisfy a present-assertion even if a regressed
+  # recipe stopped registering it (parity with 53/57/58).
   sudo -u agent -H bash --login -c \
-    'command -v claude >/dev/null 2>&1 && claude mcp remove chrome-devtools-mcp --scope user' \
+    'command -v claude >/dev/null 2>&1 && { claude mcp remove chrome-devtools-mcp --scope user; claude mcp remove context7 --scope user; }' \
     >/dev/null 2>&1 || true
 }
 
@@ -64,26 +69,30 @@ teardown_file() {
   # Symmetric removal so later @test files see a clean slate.
   if [[ -L /home/agent/.npm-global/bin/agentlinux ]]; then
     sudo -u agent -H bash --login -c 'agentlinux remove --force chrome-devtools-mcp' >/dev/null 2>&1 || true
+    sudo -u agent -H bash --login -c 'agentlinux remove --force context7' >/dev/null 2>&1 || true
   fi
   sudo -u agent -H bash --login -c \
-    'command -v claude >/dev/null 2>&1 && claude mcp remove chrome-devtools-mcp --scope user' \
+    'command -v claude >/dev/null 2>&1 && { claude mcp remove chrome-devtools-mcp --scope user; claude mcp remove context7 --scope user; }' \
     >/dev/null 2>&1 || true
 }
 
-# _pin <req> — echo chrome-devtools-mcp's pin from the provisioned catalog (jq,
-# never hardcoded) and guard it non-empty/non-null.
+# _pin <req> <id> — echo <id>'s pin from the provisioned catalog (jq, never
+# hardcoded) and guard it non-empty/non-null.
 _pin() {
-  local req=$1 pinned
-  pinned=$(jq -r '.agents[] | select(.id=="chrome-devtools-mcp") | .pinned_version' "$CATALOG")
+  local req=$1 id=$2 pinned
+  pinned=$(jq -r --arg id "$id" '.agents[] | select(.id==$id) | .pinned_version' "$CATALOG")
   if [[ -z "$pinned" || "$pinned" == "null" ]]; then
-    __fail "$req" "non-empty pinned_version for chrome-devtools-mcp" "pinned=[${pinned}] CATALOG=${CATALOG}" "$LOG"
+    __fail "$req" "non-empty pinned_version for ${id}" "pinned=[${pinned}] CATALOG=${CATALOG}" "$LOG"
+    # __fail returns from its OWN frame, so return here too — otherwise the
+    # trailing printf resets $? to 0 and the call site's `|| return 1` is dead.
+    return 1
   fi
   printf '%s' "$pinned"
 }
 
 @test "MCP-01: chrome-devtools-mcp registers into Claude Code user scope (no EACCES), surfaces the Chrome requirement, and deregisters with no residue" {
   local pinned
-  pinned=$(_pin "MCP-01") || return 1
+  pinned=$(_pin "MCP-01" chrome-devtools-mcp) || return 1
 
   # Guard: the precondition (claude present) actually held. If claude-code install
   # failed in setup, fail loud here rather than let the register no-op look green.
@@ -144,5 +153,83 @@ _pin() {
   assert_exit_zero "ENABLE-02 (read requires_secret)"
   if [[ "${output}" != "false" ]]; then
     __fail "ENABLE-02" "chrome-devtools-mcp is keyless (requires_secret false/absent)" "requires_secret=[${output:-<empty>}]" "$LOG"
+  fi
+}
+
+@test "MCP-02: context7 registers into Claude Code user scope (no EACCES), KEYLESS with no baked CONTEXT7_API_KEY, surfaces the optional key instruction, and deregisters with no residue" {
+  local pinned
+  pinned=$(_pin "MCP-02" context7) || return 1
+
+  # Guard: the precondition (claude present) actually held. If claude-code install
+  # failed in setup, fail loud here rather than let the register no-op look green.
+  run sudo -u agent -H bash --login -c 'command -v claude'
+  assert_exit_zero "MCP-02 (claude present precondition)"
+
+  # Register.
+  run sudo -u agent -H bash --login -c 'agentlinux install context7'
+  assert_exit_zero "MCP-02 (install)"
+  assert_no_eacces "MCP-02 (install)" "$output"
+
+  # ENABLE-02 secret contract: install surfaces the OPTIONAL post-install key
+  # instruction. Anchor on the instruction WORDING, not a bare "context7" (the
+  # server name is echoed regardless) — so a mutation dropping the key notice fails
+  # loud. context7 works keyless, so the notice is about raising the rate limit.
+  if ! printf '%s' "${output}" | grep -qiE 'higher rate limit|works keyless'; then
+    __fail "MCP-02" "install surfaces the optional CONTEXT7_API_KEY instruction" "${output:-<empty>}" "$LOG"
+  fi
+
+  # The server is registered in ~/.claude.json user-scope mcpServers with the
+  # pinned npx spec (jq-derived pin, never hardcoded). @upstash/context7-mcp is the
+  # published package name; the entry id (context7) is the registration key.
+  run sudo -u agent -H bash --login -c \
+    "jq -e --arg v \"@upstash/context7-mcp@${pinned}\" '.mcpServers[\"context7\"].args // [] | index(\$v)' ${CLAUDE_JSON}"
+  assert_exit_zero "MCP-02 (registered with pinned spec)"
+
+  # Secret NEVER baked (ENABLE-02 keystone): the stored registration carries no
+  # CONTEXT7_API_KEY — not in the env block, not smuggled into args. A regression
+  # that baked the key would leak a credential into ~/.claude.json; fail loud.
+  run sudo -u agent -H bash --login -c \
+    "jq -e '.mcpServers[\"context7\"] | ((.args // []) | any(test(\"CONTEXT7_API_KEY\"))) or ((.env // {}) | has(\"CONTEXT7_API_KEY\"))' ${CLAUDE_JSON}"
+  [[ "${status}" -ne 0 ]] \
+    || __fail "MCP-02" "context7 registration carries NO baked CONTEXT7_API_KEY" "key found in stored spec" "$LOG"
+
+  # Deregister.
+  run sudo -u agent -H bash --login -c 'agentlinux remove --force context7'
+  assert_exit_zero "MCP-02 (remove)"
+  assert_no_eacces "MCP-02 (remove)" "$output"
+
+  # No residue: the server key is gone from ~/.claude.json.
+  run sudo -u agent -H bash --login -c \
+    "jq -e '.mcpServers | has(\"context7\")' ${CLAUDE_JSON}"
+  [[ "${status}" -ne 0 ]] \
+    || __fail "MCP-02" "context7 key gone from ${CLAUDE_JSON} after remove" "still registered" "$LOG"
+
+  # Idempotent re-remove.
+  run sudo -u agent -H bash --login -c 'agentlinux remove --force context7'
+  assert_exit_zero "MCP-02 (idempotent re-remove)"
+}
+
+@test "ENABLE-02: context7 is the first secret-carrying mcp entry — declares secret_env=CONTEXT7_API_KEY with requires_secret=false (optional key)" {
+  # context7 is the first entry to exercise the requires_secret/secret_env
+  # convention. Its key is OPTIONAL (the server works keyless), so requires_secret
+  # is false while secret_env names the env var the post-install instruction and a
+  # user-supplied registration would carry. The schema itself is unit-tested in
+  # plugin/cli/test/schema.test.ts; here we assert the catalog entry's shape.
+  run bash -c "jq -r '.agents[] | select(.id==\"context7\") | .source_kind' ${CATALOG}"
+  assert_exit_zero "ENABLE-02 (context7 read source_kind)"
+  if [[ "${output}" != "mcp" ]]; then
+    __fail "ENABLE-02" "context7 entry is source_kind mcp" "source_kind=[${output:-<empty>}]" "$LOG"
+  fi
+
+  run bash -c "jq -r '.agents[] | select(.id==\"context7\") | .secret_env // \"\"' ${CATALOG}"
+  assert_exit_zero "ENABLE-02 (context7 read secret_env)"
+  if [[ "${output}" != "CONTEXT7_API_KEY" ]]; then
+    __fail "ENABLE-02" "context7 declares secret_env=CONTEXT7_API_KEY" "secret_env=[${output:-<empty>}]" "$LOG"
+  fi
+
+  run bash -c "jq -r '.agents[] | select(.id==\"context7\") | .requires_secret // false' ${CATALOG}"
+  assert_exit_zero "ENABLE-02 (context7 read requires_secret)"
+  if [[ "${output}" != "false" ]]; then
+    __fail "ENABLE-02" "context7 key is optional (requires_secret false)" "requires_secret=[${output:-<empty>}]" "$LOG"
   fi
 }

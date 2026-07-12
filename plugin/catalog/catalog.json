@@ -230,6 +230,22 @@
       "tags": ["mcp", "browser", "devtools"]
     },
     {
+      "id": "context7",
+      "display_name": "Context7 MCP",
+      "description": "MCP server that pulls up-to-date, version-specific library docs and code examples into Claude Code (Upstash context7). Registered into Claude Code user scope. Works keyless; an optional free CONTEXT7_API_KEY raises the rate limit and is supplied post-install (never baked).",
+      "homepage": "https://github.com/upstash/context7",
+      "license": "MIT",
+      "source_kind": "mcp",
+      "pinned_version": "3.2.3",
+      "compatibility_window": ">=3.2.0 <4.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": false,
+      "secret_env": "CONTEXT7_API_KEY",
+      "post_install_verify": "jq -e '.mcpServers[\"context7\"]' /home/agent/.claude.json",
+      "tags": ["mcp", "docs", "context"]
+    },
+    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",
