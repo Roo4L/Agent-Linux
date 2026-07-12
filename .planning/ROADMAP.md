@@ -1,10 +1,10 @@
 # Roadmap
 
-**Current milestone:** None — between milestones. v0.3.5 shipped 2026-07-02; start the next with `/gsd-new-milestone`.
+**Current milestone:** None — between milestones. v0.3.5 shipped 2026-07-11; start the next with `/gsd-new-milestone`.
 
 ## Milestones
 
-- ✅ **v0.3.5 AlmaLinux 9 Support** — Phases 18–22 (SHIPPED 2026-07-02) — archived: [`milestones/v0.3.5-ROADMAP.md`](milestones/v0.3.5-ROADMAP.md)
+- ✅ **v0.3.5 AlmaLinux 9 Support** — Phases 18–22 (SHIPPED 2026-07-11) — archived: [`milestones/v0.3.5-ROADMAP.md`](milestones/v0.3.5-ROADMAP.md)
 - ✅ **v0.3.4 Aware Installation Process** — Phases 12–17 (SHIPPED 2026-06-08)
 - ✅ **v0.4.0 Open-Source Release** — Phases 7–11 (feature-complete; formal closeout pending)
 - ✅ **v0.3.3 Agenda Redefinition** — Phases 13–17 (shipped 2026-05-24)
@@ -16,7 +16,7 @@
 
 | Version | Name | Phases | Status | Archive |
 |---------|------|--------|--------|---------|
-| v0.3.5 | AlmaLinux 9 Support | 5 (Phase 18-22) | **SHIPPED 2026-07-02** (Docker ×4 incl. almalinux-9 + nightly-QEMU green) | [v0.3.5-ROADMAP.md](milestones/v0.3.5-ROADMAP.md) · [v0.3.5-REQUIREMENTS.md](milestones/v0.3.5-REQUIREMENTS.md) · phases archived under [milestones/v0.3.5-phases/](milestones/v0.3.5-phases/) |
+| v0.3.5 | AlmaLinux 9 Support | 5 (Phase 18-22) | **SHIPPED 2026-07-11** (Docker ×4 incl. almalinux-9 + nightly-QEMU green) | [v0.3.5-ROADMAP.md](milestones/v0.3.5-ROADMAP.md) · [v0.3.5-REQUIREMENTS.md](milestones/v0.3.5-REQUIREMENTS.md) · phases archived under [milestones/v0.3.5-phases/](milestones/v0.3.5-phases/) |
 | v0.3.4 | Aware Installation Process | 6 (Phase 12-17) | **SHIPPED 2026-06-08** (final v0.3.4, Latest; rc1→rc4 maintainer-validated) | [v0.3.4-ROADMAP.md](milestones/v0.3.4-ROADMAP.md) · [v0.3.4-REQUIREMENTS.md](milestones/v0.3.4-REQUIREMENTS.md) · [v0.3.4-MILESTONE-AUDIT.md](v0.3.4-MILESTONE-AUDIT.md) |
 | v0.3.3 | Agenda Redefinition | 5 (Phase 13-17) | shipped 2026-05-24 (docs/vision/website) | [v0.3.3-ROADMAP.md](milestones/v0.3.3-ROADMAP.md) · [v0.3.3-REQUIREMENTS.md](milestones/v0.3.3-REQUIREMENTS.md) · phases archived under [milestones/v0.3.3-phases/](milestones/v0.3.3-phases/) |
 | v0.4.0 | Open-Source Release | 5 (Phase 7-11) | feature-complete (formal closeout pending) | [v0.4.0-ROADMAP.md](milestones/v0.4.0-ROADMAP.md) · [v0.4.0-REQUIREMENTS.md](milestones/v0.4.0-REQUIREMENTS.md) |

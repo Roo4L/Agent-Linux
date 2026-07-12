@@ -4,8 +4,8 @@ milestone: v0.3.5
 milestone_name: AlmaLinux 9 Support
 status: complete
 stopped_at: v0.3.5 shipped — AlmaLinux 9 support (Phases 18–22) complete; full Docker matrix (22.04/24.04/26.04/almalinux-9) 260/260 + nightly-QEMU green; archived to milestones/.
-last_updated: "2026-07-02T00:00:00.000Z"
-last_activity: 2026-07-02
+last_updated: "2026-07-11T00:00:00.000Z"
+last_activity: 2026-07-11
 progress:
   total_phases: 5
   completed_phases: 3
@@ -30,7 +30,7 @@ Milestone: v0.3.5 AlmaLinux 9 Support (Phases 18–22). Anchor AL-47 (Epic AL-48
 Phase: 22 (complete) — milestone shipped
 Plan: all v0.3.5 plans complete; milestone archived to .planning/milestones/
 Status: v0.3.5 SHIPPED. All 5 phases (18–22) and 14 requirements Done. Full Docker matrix green — 22.04 / 24.04 / 26.04 / almalinux-9 all 260/260 — plus nightly-QEMU green (real EL9 enforcing-SELinux guest: AGT-02 zero-EACCES + AGT-06 Chromium launch). Close-out hardening this cycle: bats-1.2.1 BATS_TEST_TMPDIR clobber fix (22.04/26.04), playwright-cli pin 0.1.11→0.1.15 (Ubuntu 26.04 Chromium), boot.sh stale-cache self-heal (nightly-QEMU), and tty-driver prompt-sync (EL9 interactive flakiness). Archived to milestones/; between milestones.
-Last activity: 2026-07-02
+Last activity: 2026-07-11
 
 Progress: [██████████] 100% (5 of 5 phases complete; shipped)
 
