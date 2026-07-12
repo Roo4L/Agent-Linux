@@ -72,10 +72,13 @@ The target user is resolved by this precedence, highest first:
    flag to the piped script is awkward.
 3. **Interactive prompt** — on a **greenfield** TTY install (no prior
    `/etc/agentlinux.env` and no existing default `agent` user) with neither a
-   flag nor the env var, the installer asks `Install AgentLinux under which
-   user? [agent]` and provisions under the typed name (Enter accepts the
-   default). A brownfield re-run does not re-prompt — the user is already
-   chosen, so the prompt stays out of the remediation flow.
+   flag nor the env var, the installer prints a short context block (this
+   account runs the user's coding agents and is granted passwordless sudo; a
+   name that does not exist is created while an existing compatible user is
+   adopted; a link to the install-user docs page) and then asks `Install
+   AgentLinux under which user? [default: agent]`, provisioning under the typed
+   name (Enter accepts the default). A brownfield re-run does not re-prompt — the
+   user is already chosen, so the prompt stays out of the remediation flow.
 4. **Default `agent`** — non-interactive runs (the common `curl … | bash`
    case) with no flag and no env var keep `agent`, so greenfield behavior is
    unchanged.

@@ -140,9 +140,14 @@ prompt::run_all() {
 # prompt::choose_install_user
 # AL-50 AC3 — general install-time prompt fired BEFORE detection (unlike
 # prompt::alt_user_or_bail, which fires AFTER detection only on an incompatible
-# existing user). Renders `Install AgentLinux under which user? [<default>] ` on
-# STDERR and reads a line (IFS= read -r, line-based — names are >1 char, so NOT
-# the single-char -n 1 form used by prompt::confirm_remediate).
+# existing user). Prints a short 3-line context block (what the account is, that
+# it gets passwordless sudo, create-vs-adopt, and a docs URL) once, then renders
+# `Install AgentLinux under which user? [default: <name>] ` on STDERR and reads a
+# line (IFS= read -r, line-based — names are >1 char, so NOT the single-char
+# -n 1 form used by prompt::confirm_remediate). `[default: <name>]` (not bare
+# `[<name>]`) reads as the Enter-to-accept default. The `Install AgentLinux under
+# which user?` substring is the tty-driver.py PROMPT_SENTINELS gate — keep it
+# verbatim (check-tty-sentinels.sh).
 #
 # Return-by-stdout contract (NOT export): on accept the function PRINTS the
 # chosen name to STDOUT (a single printf) and the caller assigns it via
@@ -157,8 +162,15 @@ prompt::run_all() {
 prompt::choose_install_user() {
   local default_user="${INSTALL_USER:-agent}"
   local response chosen="" tries=0
+  # STDERR only — STDOUT is the return channel and must carry ONLY the chosen
+  # name (see the return-by-stdout contract above).
+  {
+    printf 'This account runs your coding agents and is granted passwordless sudo.\n'
+    printf 'A name that does not exist yet is created; an existing compatible user is adopted.\n'
+    printf 'Details: https://agentlinux.org/docs/install-user\n'
+  } >&2
   while [[ $tries -lt 3 ]]; do
-    printf 'Install AgentLinux under which user? [%s] ' "$default_user" >&2
+    printf 'Install AgentLinux under which user? [default: %s] ' "$default_user" >&2
     # Line-based read (no -n N). EOF / closed stdin → fall back to default.
     if ! IFS= read -r response; then
       printf '\n' >&2
