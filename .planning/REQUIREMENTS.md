@@ -13,7 +13,7 @@
 ### Machinery enablers (catalog capability additions; each folded into its first-consumer phase)
 
 - [x] **ENABLE-01**: Catalog supports a **prebuilt-binary** entry kind — fetches a pinned release, verifies its checksum, installs the binary to `~/.local/bin` (agent-owned, no root, no `/usr/local` shim), and `remove` deletes the binary + its config/cache symmetrically.
-- [ ] **ENABLE-02**: Catalog supports **MCP-server** entries — `install` registers via `claude mcp add --scope user` (npx-stdio and remote-http shapes); `remove` deregisters via `claude mcp remove` (+ `claude mcp logout` for OAuth). Secrets are never baked into the recipe/image: entries declare `requires_secret`/`secret_env`, and `install` prints a post-install token/login instruction.
+- [x] **ENABLE-02**: Catalog supports **MCP-server** entries — `install` registers via `claude mcp add --scope user` (npx-stdio and remote-http shapes); `remove` deregisters via `claude mcp remove` (+ `claude mcp logout` for OAuth). Secrets are never baked into the recipe/image: entries declare `requires_secret`/`secret_env`, and `install` prints a post-install token/login instruction. *(Phase 34 delivers the npx-stdio shape + `source_kind: "mcp"` + the `requires_secret`/`secret_env` schema convention; the remote-http/OAuth shape extends ENABLE-02 in Phase 42 (linear-mcp), and the secret-instruction path is first exercised by Phase 35 (context7).)*
 - [ ] **ENABLE-03**: Catalog supports **Python+uv** entries via a per-user `uv` bootstrap (`~/.local/bin`, no root); install via `uv tool`/`uvx`, with symmetric uninstall.
 - [ ] **ENABLE-04**: Catalog supports **AI-assistant daemon** entries — `install` sets up a per-user background service; `remove` tears it down symmetrically (no stray daemon, unit, or state).
 - [x] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern. *(Phase 23 — codex `check_for_update_on_startup=false`)*
@@ -46,7 +46,7 @@
 
 ### MCP servers
 
-- [ ] **MCP-01**: `agentlinux install chrome-devtools-mcp` registers the Chrome DevTools MCP server (npx, no secret); requires Chrome present (documented); `remove` deregisters.
+- [x] **MCP-01**: `agentlinux install chrome-devtools-mcp` registers the Chrome DevTools MCP server (npx, no secret); requires Chrome present (documented); `remove` deregisters.
 - [ ] **MCP-02**: `agentlinux install context7` registers Context7 (npx); optional `CONTEXT7_API_KEY` handled per ENABLE-02; symmetric remove.
 - [ ] **MCP-03**: `agentlinux install github-mcp` registers the GitHub MCP server (remote-http + PAT header, or Go binary stdio — **never** the Docker recipe); PAT supplied post-install; symmetric remove.
 - [ ] **MCP-04**: `agentlinux install sentry-mcp` registers Sentry MCP (npx + `SENTRY_ACCESS_TOKEN`, or hosted OAuth); symmetric remove. *(FSL license — see Appendix B.)*
@@ -152,8 +152,8 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | DEVT-04 | Phase 31 | trivy | Done |
 | DEVT-05 | Phase 32 | gitleaks | Done |
 | DEVT-03 | Phase 33 | sentry-cli | Done |
-| MCP-01 | Phase 34 | chrome-devtools-mcp 🔧 | Pending |
-| ENABLE-02 | Phase 34 | MCP recipe pattern 🔧 | Pending |
+| MCP-01 | Phase 34 | chrome-devtools-mcp 🔧 | Done |
+| ENABLE-02 | Phase 34 | MCP recipe pattern 🔧 | Done |
 | MCP-02 | Phase 35 | context7 | Pending |
 | MCP-03 | Phase 36 | github-mcp | Pending |
 | MCP-04 | Phase 37 | sentry-mcp | Pending |

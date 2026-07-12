@@ -27,7 +27,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 31: trivy** `[bin]` - Trivy scanner (no-Docker fs/repo scans) installable + removable ✓ COMPLETE
 - [x] **Phase 32: gitleaks** `[bin]` - Gitleaks secret scanner installable + removable ✓ COMPLETE
 - [x] **Phase 33: sentry-cli** `[npm]` - Sentry CLI (FSL) installable + removable ✓ COMPLETE
-- [ ] **Phase 34: chrome-devtools-mcp** 🔧 `[mcp]` - Chrome DevTools MCP + MCP-recipe-pattern enabler (ENABLE-02)
+- [x] **Phase 34: chrome-devtools-mcp** 🔧 `[mcp]` - Chrome DevTools MCP + MCP-recipe-pattern enabler (ENABLE-02) ✓ COMPLETE
 - [ ] **Phase 35: context7** `[mcp]` - Context7 MCP server registerable + deregisterable
 - [ ] **Phase 36: github-mcp** `[mcp]` - GitHub MCP (remote-http/PAT or Go-binary stdio, never Docker)
 - [ ] **Phase 37: sentry-mcp** `[mcp]` - Sentry MCP (npx+token or hosted OAuth; FSL)
@@ -403,7 +403,7 @@ Plans:
 | 31. trivy | 1/1 | Complete | 2026-07-02 |
 | 32. gitleaks | 1/1 | Complete | 2026-07-02 |
 | 33. sentry-cli | 1/1 | Complete | 2026-07-02 |
-| 34. chrome-devtools-mcp 🔧 | 0/TBD | Not started | - |
+| 34. chrome-devtools-mcp 🔧 | 1/1 | Complete | 2026-07-12 |
 | 35. context7 | 0/TBD | Not started | - |
 | 36. github-mcp | 0/TBD | Not started | - |
 | 37. sentry-mcp | 0/TBD | Not started | - |
