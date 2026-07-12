@@ -56,10 +56,12 @@ catalog auditor and the install path both read from.
 
 The second is `plugin/catalog/catalog.json` — the embedded agent list
 shipped in every release tarball. It holds the real entries (the
-originals claude-code, gsd, playwright-cli; the v0.3.6 coding-agent
-cluster codex, gemini-cli, opencode, qwen-code, ccusage; the
-prebuilt-binary cluster rtk, gh, glab, trivy, gitleaks; and the npm
-Sentry CLI) plus one `test_only` fixture exercised only by bats. Pre-commit and CI both run the catalog
+originals claude-code, gsd, playwright-cli; the coding-agent CLIs
+codex, gemini-cli, opencode, qwen-code, and ccusage; the
+prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
+npm-distributed Sentry CLI; and the first MCP server,
+chrome-devtools-mcp) plus one `test_only` fixture exercised only by
+bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
 
@@ -101,18 +103,21 @@ at install time, leaving the curated pin authoritative and routing all
 version changes through `agentlinux upgrade`. The explicit, operator-run
 update path is untouched — only the silent one is frozen.
 
-## Source kinds: npm, script, and prebuilt binary
+## Source kinds: npm, script, prebuilt binary, and MCP server
 
 Not every tool ships on npm. Some of the most useful developer CLIs are
 distributed only as a compiled, per-architecture binary attached to a
-GitHub release. The catalog's `source_kind` field names how an entry is
-installed, and it now understands three values:
+GitHub release; others are not installed at all but *registered* — MCP
+servers a coding agent talks to. The catalog's `source_kind` field names
+how an entry is installed, and it now understands four values:
 
 - `npm` — install the pinned package into the agent-owned npm prefix.
 - `script` — run the upstream's own install script (how Claude Code
   installs).
 - `binary` — fetch a pinned release artifact, verify its checksum, and
   drop the binary into the agent's own `~/.local/bin`.
+- `mcp` — register a Model Context Protocol server into the coding
+  agent's own config, so the agent can call its tools.
 
 The prebuilt-binary kind is the one that needs the most care, because
 "download a binary from the internet and run it" is exactly where a
@@ -154,9 +159,44 @@ of lines over the same helper.
 never writes to `~/.claude` on its own; a user runs `rtk init`
 themselves if they want it, and `agentlinux remove rtk` reverts that
 hook along with the binary and rtk's own config and cache. The other
-binary tools remove just as symmetrically: `agentlinux remove gh`
-deletes the binary and `~/.config/gh`, `remove trivy` also clears
-`~/.cache/trivy`, and none leaves residue behind.
+binary tools remove just as symmetrically: `remove trivy` clears the
+binary and `~/.cache/trivy`, `remove gitleaks` (stateless) just the
+binary. The authenticated ones — `gh` and `glab` — delete the binary
+but *preserve* their auth config (`~/.config/gh`, `~/.config/glab`) on
+remove, the same way every other authenticated agent keeps its
+credentials; only a full agent-home purge wipes them.
+
+## The MCP source kind
+
+An MCP server is not a program AgentLinux installs — it is a service a
+coding agent is told about. So the `mcp` source kind does not put a file
+on disk; it *registers* the server into the agent's own configuration.
+For Claude Code that means `claude mcp add <name> --scope user`, which
+writes the server (its launch command and args) into the user-scope
+`mcpServers` block of `~/.claude.json`; `agentlinux remove` runs
+`claude mcp remove` to take it back out, leaving no residue. Both halves
+are idempotent, so a re-install or a double-remove is a clean no-op.
+
+Because the registration lives in the coding agent's config, an MCP
+entry has a real dependency: the agent has to be installed first. The
+recipe checks for `claude` on PATH and fails with a plain pointer
+(`agentlinux install claude-code`) rather than a cryptic
+command-not-found. The pinned version rides in the launch command
+itself — `chrome-devtools-mcp`, the first MCP entry, registers
+`npx -y chrome-devtools-mcp@<pin>`, so npx fetches exactly the curated
+version on first launch and nothing is installed into the agent prefix.
+
+Two things about MCP entries are worth their own fields. First, many
+servers need a credential — a GitHub token, an API key. The catalog
+never bakes a secret; instead an entry *declares* one with
+`requires_secret` and names the environment variable that carries it
+with `secret_env`, and the recipe prints a post-install instruction
+telling the user how to supply it. `chrome-devtools-mcp` is keyless, so
+it declares neither; the same two fields carry any server that does need
+a credential. Second, a server may need something else present to actually
+do its job: `chrome-devtools-mcp` drives a real Chrome/Chromium for its
+browser tools, so its install surfaces that requirement (the AgentLinux
+`playwright-cli` entry provides a Chromium, or a system Chrome works).
 
 ## Worked example
 
@@ -169,6 +209,7 @@ $ jq '.agents[] | {id, source_kind, pinned_version}' \
 { "id": "codex",          "source_kind": "npm",    "pinned_version": "0.142.3" }
 { "id": "rtk",            "source_kind": "binary", "pinned_version": "0.42.4" }
 { "id": "gh",             "source_kind": "binary", "pinned_version": "2.95.0" }
+{ "id": "chrome-devtools-mcp", "source_kind": "mcp", "pinned_version": "1.4.0" }
 # … (abridged — see catalog.json for the full roster)
 ```
 
