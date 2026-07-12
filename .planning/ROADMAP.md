@@ -207,7 +207,7 @@ Plans:
 **Goal**: Make context7 (Context7 MCP) registerable + deregisterable via the catalog.
 **Depends on**: Phase 34 (ENABLE-02 MCP entry kind)
 **Requirements**: MCP-02
-**Machinery**: `[mcp]` · pin `@upstash/context7-mcp@3.2.2` · npx · optional `CONTEXT7_API_KEY` per ENABLE-02
+**Machinery**: `[mcp]` · pin `@upstash/context7-mcp@3.2.3` · npx · optional `CONTEXT7_API_KEY` per ENABLE-02
 **Success Criteria** (what must be TRUE):
   1. `agentlinux install context7` registers the pinned `@upstash/context7-mcp@3.2.2` via `claude mcp add --scope user` as the agent user (no root, zero EACCES); it appears in `~/.claude.json`.
   2. The optional `CONTEXT7_API_KEY` is NOT baked — `install` prints the post-install instruction; the server works keyless by default.
@@ -404,7 +404,7 @@ Plans:
 | 32. gitleaks | 1/1 | Complete | 2026-07-02 |
 | 33. sentry-cli | 1/1 | Complete | 2026-07-02 |
 | 34. chrome-devtools-mcp 🔧 | 1/1 | Complete | 2026-07-12 |
-| 35. context7 | 0/TBD | Not started | - |
+| 35. context7 | 1/1 | Complete | 2026-07-12 |
 | 36. github-mcp | 0/TBD | Not started | - |
 | 37. sentry-mcp | 0/TBD | Not started | - |
 | 38. gitlab-mcp | 0/TBD | Not started | - |

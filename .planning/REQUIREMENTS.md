@@ -47,7 +47,7 @@
 ### MCP servers
 
 - [x] **MCP-01**: `agentlinux install chrome-devtools-mcp` registers the Chrome DevTools MCP server (npx, no secret); requires Chrome present (documented); `remove` deregisters.
-- [ ] **MCP-02**: `agentlinux install context7` registers Context7 (npx); optional `CONTEXT7_API_KEY` handled per ENABLE-02; symmetric remove.
+- [x] **MCP-02**: `agentlinux install context7` registers Context7 (npx `@upstash/context7-mcp`); optional `CONTEXT7_API_KEY` handled per ENABLE-02 (registered keyless, install prints the optional key instruction, key never baked); symmetric residue-free remove.
 - [ ] **MCP-03**: `agentlinux install github-mcp` registers the GitHub MCP server (remote-http + PAT header, or Go binary stdio — **never** the Docker recipe); PAT supplied post-install; symmetric remove.
 - [ ] **MCP-04**: `agentlinux install sentry-mcp` registers Sentry MCP (npx + `SENTRY_ACCESS_TOKEN`, or hosted OAuth); symmetric remove. *(FSL license — see Appendix B.)*
 - [ ] **MCP-05**: `agentlinux install gitlab-mcp` registers GitLab MCP (npx `@zereight/mcp-gitlab` + `GITLAB_PERSONAL_ACCESS_TOKEN`); symmetric remove.
@@ -154,7 +154,7 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | DEVT-03 | Phase 33 | sentry-cli | Done |
 | MCP-01 | Phase 34 | chrome-devtools-mcp 🔧 | Done |
 | ENABLE-02 | Phase 34 | MCP recipe pattern 🔧 | Done |
-| MCP-02 | Phase 35 | context7 | Pending |
+| MCP-02 | Phase 35 | context7 (first secret-carrying MCP; optional key) | Done |
 | MCP-03 | Phase 36 | github-mcp | Pending |
 | MCP-04 | Phase 37 | sentry-mcp | Pending |
 | MCP-05 | Phase 38 | gitlab-mcp | Pending |

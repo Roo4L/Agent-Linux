@@ -59,8 +59,8 @@ shipped in every release tarball. It holds the real entries (the
 originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, gemini-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
-npm-distributed Sentry CLI; and the first MCP server,
-chrome-devtools-mcp) plus one `test_only` fixture exercised only by
+npm-distributed Sentry CLI; and the MCP servers chrome-devtools-mcp and
+context7) plus one `test_only` fixture exercised only by
 bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
@@ -192,8 +192,14 @@ never bakes a secret; instead an entry *declares* one with
 `requires_secret` and names the environment variable that carries it
 with `secret_env`, and the recipe prints a post-install instruction
 telling the user how to supply it. `chrome-devtools-mcp` is keyless, so
-it declares neither; the same two fields carry any server that does need
-a credential. Second, a server may need something else present to actually
+it declares neither. `context7` is the first entry to use the two
+fields: its key is *optional* (the server works keyless and a free key
+just raises the rate limit), so it sets `requires_secret: false` while
+still naming `secret_env: CONTEXT7_API_KEY`. Its recipe registers the
+server keyless and prints how to re-register with the key — the value is
+never written into a recipe, the catalog, or the committed image; a
+server whose key is mandatory sets `requires_secret: true` instead.
+Second, a server may need something else present to actually
 do its job: `chrome-devtools-mcp` drives a real Chrome/Chromium for its
 browser tools, so its install surfaces that requirement (the AgentLinux
 `playwright-cli` entry provides a Chromium, or a system Chrome works).
