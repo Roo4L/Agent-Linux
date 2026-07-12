@@ -167,7 +167,7 @@ prompt::choose_install_user() {
   {
     printf 'This account runs your coding agents and is granted passwordless sudo.\n'
     printf 'A name that does not exist yet is created; an existing compatible user is adopted.\n'
-    printf 'Details: https://agentlinux.org/docs/install-user\n'
+    printf 'Details: https://github.com/Roo4L/Agent-Linux/blob/master/docs/install-user.md\n'
   } >&2
   while [[ $tries -lt 3 ]]; do
     printf 'Install AgentLinux under which user? [default: %s] ' "$default_user" >&2
