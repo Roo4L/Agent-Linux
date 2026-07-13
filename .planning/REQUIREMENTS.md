@@ -13,7 +13,7 @@
 ### Machinery enablers (catalog capability additions; each folded into its first-consumer phase)
 
 - [x] **ENABLE-01**: Catalog supports a **prebuilt-binary** entry kind — fetches a pinned release, verifies its checksum, installs the binary to `~/.local/bin` (agent-owned, no root, no `/usr/local` shim), and `remove` deletes the binary + its config/cache symmetrically.
-- [x] **ENABLE-02**: Catalog supports **MCP-server** entries — `install` registers via `claude mcp add --scope user` (npx-stdio and remote-http shapes); `remove` deregisters via `claude mcp remove` (+ `claude mcp logout` for OAuth). Secrets are never baked into the recipe/image: entries declare `requires_secret`/`secret_env`, and `install` prints a post-install token/login instruction. *(Phase 34 delivers the npx-stdio shape + `source_kind: "mcp"` + the `requires_secret`/`secret_env` schema convention; the remote-http/OAuth shape extends ENABLE-02 in Phase 42 (linear-mcp), and the secret-instruction path is first exercised by Phase 35 (context7).)*
+- [x] **ENABLE-02**: Catalog supports **MCP-server** entries — `install` registers via `claude mcp add --scope user` (npx-stdio and remote-http shapes); `remove` deregisters via `claude mcp remove` (+ `claude mcp logout` for OAuth). Secrets are never baked into the recipe/image: entries declare `requires_secret`/`secret_env`, and `install` prints a post-install token/login instruction. *(Phase 34 delivers the npx-stdio shape + `source_kind: "mcp"` + the `requires_secret`/`secret_env` schema convention; the secret-instruction path is first exercised by Phase 35 (context7); the **remote-http shape + a shared cross-agent registration helper (fan-out into claude-code/codex/gemini-cli/opencode/qwen-code) landed early in Phase 36 (github-mcp)** — pulled forward from the tentative Phase 42 slot per the maintainer's cross-agent decision — and Phase 42 (linear-mcp) adds only the OAuth-login nuance on top.)*
 - [ ] **ENABLE-03**: Catalog supports **Python+uv** entries via a per-user `uv` bootstrap (`~/.local/bin`, no root); install via `uv tool`/`uvx`, with symmetric uninstall.
 - [ ] **ENABLE-04**: Catalog supports **AI-assistant daemon** entries — `install` sets up a per-user background service; `remove` tears it down symmetrically (no stray daemon, unit, or state).
 - [x] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern. *(Phase 23 — codex `check_for_update_on_startup=false`)*
@@ -48,7 +48,7 @@
 
 - [x] **MCP-01**: `agentlinux install chrome-devtools-mcp` registers the Chrome DevTools MCP server (npx, no secret); requires Chrome present (documented); `remove` deregisters.
 - [x] **MCP-02**: `agentlinux install context7` registers Context7 (npx `@upstash/context7-mcp`); optional `CONTEXT7_API_KEY` handled per ENABLE-02 (registered keyless, install prints the optional key instruction, key never baked); symmetric residue-free remove.
-- [ ] **MCP-03**: `agentlinux install github-mcp` registers the GitHub MCP server (remote-http + PAT header, or Go binary stdio — **never** the Docker recipe); PAT supplied post-install; symmetric remove.
+- [x] **MCP-03**: `agentlinux install github-mcp` registers the GitHub hosted MCP server (**remote-http**, `https://api.githubcopilot.com/mcp/` — **never** the Docker recipe) into **every installed MCP-capable agent** (claude-code, codex, gemini-cli, opencode, qwen-code) via the shared cross-agent helper; mandatory PAT supplied post-install as an env-var **reference** (`Bearer ${GITHUB_MCP_PAT}`), never baked; symmetric multi-agent remove, no residue. *(Phase 36 folds in the ENABLE-02 **remote-http** shape + the shared cross-agent MCP registration helper, reused by 42/43.)*
 - [ ] **MCP-04**: `agentlinux install sentry-mcp` registers Sentry MCP (npx + `SENTRY_ACCESS_TOKEN`, or hosted OAuth); symmetric remove. *(FSL license — see Appendix B.)*
 - [ ] **MCP-05**: `agentlinux install gitlab-mcp` registers GitLab MCP (npx `@zereight/mcp-gitlab` + `GITLAB_PERSONAL_ACCESS_TOKEN`); symmetric remove.
 - [ ] **MCP-06**: `agentlinux install brave-search-mcp` registers Brave Search MCP (npx + `BRAVE_API_KEY`, free tier); symmetric remove.
@@ -155,7 +155,7 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | MCP-01 | Phase 34 | chrome-devtools-mcp 🔧 | Done |
 | ENABLE-02 | Phase 34 | MCP recipe pattern 🔧 | Done |
 | MCP-02 | Phase 35 | context7 (first secret-carrying MCP; optional key) | Done |
-| MCP-03 | Phase 36 | github-mcp | Pending |
+| MCP-03 | Phase 36 | github-mcp (remote-http + cross-agent fan-out; ENABLE-02 remote-http enabler) | Done |
 | MCP-04 | Phase 37 | sentry-mcp | Pending |
 | MCP-05 | Phase 38 | gitlab-mcp | Pending |
 | MCP-06 | Phase 39 | brave-search-mcp | Pending |

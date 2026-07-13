@@ -405,7 +405,7 @@ Plans:
 | 33. sentry-cli | 1/1 | Complete | 2026-07-02 |
 | 34. chrome-devtools-mcp 🔧 | 1/1 | Complete | 2026-07-12 |
 | 35. context7 | 1/1 | Complete | 2026-07-12 |
-| 36. github-mcp | 0/TBD | Not started | - |
+| 36. github-mcp 🔧 | 1/1 | Complete | 2026-07-13 |
 | 37. sentry-mcp | 0/TBD | Not started | - |
 | 38. gitlab-mcp | 0/TBD | Not started | - |
 | 39. brave-search-mcp | 0/TBD | Not started | - |

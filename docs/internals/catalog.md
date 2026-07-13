@@ -59,8 +59,8 @@ shipped in every release tarball. It holds the real entries (the
 originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, gemini-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
-npm-distributed Sentry CLI; and the MCP servers chrome-devtools-mcp and
-context7) plus one `test_only` fixture exercised only by
+npm-distributed Sentry CLI; and the MCP servers chrome-devtools-mcp,
+context7, and the hosted github-mcp) plus one `test_only` fixture exercised only by
 bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
@@ -203,6 +203,35 @@ Second, a server may need something else present to actually
 do its job: `chrome-devtools-mcp` drives a real Chrome/Chromium for its
 browser tools, so its install surfaces that requirement (the AgentLinux
 `playwright-cli` entry provides a Chromium, or a system Chrome works).
+
+### Hosted (remote-http) servers, and registering into every agent
+
+Some MCP servers are not launched locally at all — they are hosted web
+services the agent talks to over HTTP. `github-mcp` is one: it points at
+GitHub's hosted endpoint (`https://api.githubcopilot.com/mcp/`). A hosted
+service has no version number to pin, so the entry records the endpoint
+in `endpoint_url` and uses `pinned_version` to name the upstream server
+release the endpoint is validated against — the URL is the real
+stability contract.
+
+A remote server also raises two things the local kind does not. It needs
+a credential on every request (a GitHub token), and — because an MCP
+server is useful to *any* coding agent, not just Claude Code — it is
+worth registering into all of them. So `github-mcp` fans its
+registration out to every installed MCP-capable agent (Claude Code,
+Codex, Gemini CLI, opencode, qwen-code), writing each one's own config
+format, and `remove` tears the registration back out of all of them. A
+shared helper owns the per-agent writers so any remote entry gets the
+fan-out for free.
+
+The credential still never touches disk. Instead of the token, each
+config stores a *reference* to an environment variable — literally
+`Bearer ${GITHUB_MCP_PAT}` — which the agent expands from its own
+environment when it launches the server (Codex keeps it out of the file
+entirely, naming the variable in a dedicated field). The user exports the
+token once; no config, recipe, or commit ever contains the secret
+itself. An agent installed *after* the server does not automatically
+receive the registration — re-running the install fans it out again.
 
 ## Worked example
 
