@@ -49,6 +49,12 @@
           "pattern": "^[A-Z][A-Z0-9_]*$",
           "description": "ENABLE-02: name of the environment variable that carries this entry's credential (e.g. CONTEXT7_API_KEY). Set when a secret is used at all — required or optional. The user supplies it post-install; it is never baked."
         },
+        "endpoint_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "ENABLE-02 remote-http: the pinned HTTPS endpoint of a hosted remote MCP server (e.g. https://api.githubcopilot.com/mcp/). A hosted MCP is a rolling service with no semver — the URL is its stability contract, and pinned_version names the curated upstream server release the endpoint is validated against. Absent for npm/script/binary and stdio-mcp entries."
+        },
         "pinned_version": {
           "type": "string",
           "description": "Exact semver pinned by this catalog release (CAT-04 / ADR-011)",

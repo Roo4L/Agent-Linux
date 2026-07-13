@@ -21,6 +21,11 @@ export interface CatalogEntry {
   // for a keyless entry (e.g. chrome-devtools-mcp).
   requires_secret?: boolean;
   secret_env?: string;
+  // ENABLE-02 remote-http: pinned HTTPS endpoint of a hosted remote MCP server
+  // (e.g. https://api.githubcopilot.com/mcp/). A hosted MCP has no semver — the
+  // URL is its stability contract and pinned_version names the curated upstream
+  // server release it is validated against. Absent for non-remote entries.
+  endpoint_url?: string;
   pinned_version: string; // exact semver — CAT-04 / ADR-011
   version_constraint?: string; // e.g. '^2.1' — --all-latest upper-bound
   compatibility_window?: string; // REUSE-03 semver range: adopt a detected install whose version satisfies this

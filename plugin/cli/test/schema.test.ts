@@ -159,6 +159,54 @@ describe("ajv catalog schema (CAT-03 / CAT-04)", () => {
     assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
   });
 
+  test("ENABLE-02 remote-http: accepts an mcp entry with an https endpoint_url + requires_secret", async () => {
+    const validate = await getValidator();
+    const good = {
+      version: "0.3.0",
+      agents: [
+        {
+          id: "remote-mcp",
+          display_name: "Remote MCP",
+          description: "github-mcp shape: hosted remote-http endpoint + mandatory secret",
+          source_kind: "mcp",
+          pinned_version: "1.5.0",
+          endpoint_url: "https://api.githubcopilot.com/mcp/",
+          requires_secret: true,
+          secret_env: "GITHUB_MCP_PAT",
+          install_recipe_path: "install.sh",
+          uninstall_recipe_path: "uninstall.sh",
+        },
+      ],
+    };
+    const ok = validate(good);
+    assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
+  });
+
+  test("ENABLE-02 remote-http: endpoint_url must be https", async () => {
+    const validate = await getValidator();
+    const bad = {
+      version: "0.3.0",
+      agents: [
+        {
+          id: "insecure-mcp",
+          display_name: "Insecure MCP",
+          description: "endpoint_url over http is rejected",
+          source_kind: "mcp",
+          pinned_version: "1.5.0",
+          endpoint_url: "http://api.githubcopilot.com/mcp/",
+          install_recipe_path: "install.sh",
+          uninstall_recipe_path: "uninstall.sh",
+        },
+      ],
+    };
+    assert.equal(validate(bad), false);
+    const errs = validate.errors ?? [];
+    assert.ok(
+      errs.some((e) => e.keyword === "pattern" && e.instancePath.endsWith("/endpoint_url")),
+      `expected keyword=pattern on /endpoint_url; got ${JSON.stringify(errs)}`,
+    );
+  });
+
   test("accepts well-formed catalog with mixed npm + script entries", async () => {
     const validate = await getValidator();
     const catalog = loadFixture("catalog-valid.json");
