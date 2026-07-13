@@ -18,13 +18,11 @@
 # all of them. Currently targeted: claude-code, codex, gemini-cli, opencode,
 # qwen-code (the five shipped agents with remote-http MCP support).
 #
-# Never-bake keystone (CAT-02 / ENABLE-02): the credential is NEVER written to
-# disk. For the four agents that persist headers, we store an env-var REFERENCE —
-# the literal string `Bearer ${SECRET_ENV}`, which the agent expands at
-# server-launch time from its own environment (verified: Claude Code stores the
-# unexpanded `${VAR}`). Codex keeps the token off disk natively via
-# `bearer_token_env_var`. Each register asserts its reference landed, so a bash
-# mis-expansion (which would bake an empty/real value) fails loud.
+# Thin-installer keystone (ADR-017 / CAT-02): an MCP entry registers the BARE
+# server (URL only) into each client and bakes NO credential — no literal token,
+# no env-var reference, no auth header. The user authenticates IN-CLIENT afterwards
+# (the client's own OAuth prompt on first use for a remote server). There is thus
+# no secret to leak by construction; `remove` deregisters symmetrically.
 #
 # Order note (WIRE-01 corner case): fan-out is applied at the MCP entry's install
 # time to agents present THEN. An agent installed LATER does not auto-receive the
@@ -93,19 +91,19 @@ _al_mcp_json_has() {
 _al_mcp_claude_present() { command -v claude >/dev/null 2>&1; }
 _al_mcp_claude_cfg() { printf '%s/.claude.json' "$(_al_mcp_home)"; }
 
-_al_mcp_claude_register() { # <server> <url> <ref>
-  local server=$1 url=$2 ref=$3
-  # remove-then-add → idempotent AND guarantees the pinned url/header win.
+_al_mcp_claude_register() { # <server> <url>
+  local server=$1 url=$2
+  # remove-then-add → idempotent AND guarantees the pinned url wins. Bare URL, no
+  # --header (ADR-017): the user completes OAuth in-client on first use.
   claude mcp remove "$server" --scope user >/dev/null 2>&1 || true
-  claude mcp add --transport http "$server" "$url" --scope user \
-    --header "Authorization: ${ref}" >/dev/null 2>&1 \
+  claude mcp add --transport http "$server" "$url" --scope user >/dev/null 2>&1 \
     || return 1
 }
 _al_mcp_claude_deregister() { # <server>
   claude mcp remove "$1" --scope user >/dev/null 2>&1 || true
 }
 
-# ---- codex (TOML, marker-delimited block; token OFF disk) -------------------
+# ---- codex (TOML, marker-delimited block; bare url, no token) ---------------
 _al_mcp_codex_present() { command -v codex >/dev/null 2>&1; }
 _al_mcp_codex_cfg() { printf '%s/.codex/config.toml' "$(_al_mcp_home)"; }
 
@@ -124,14 +122,14 @@ _al_mcp_codex_deregister() { # <server>
     return 1
   fi
 }
-_al_mcp_codex_register() { # <server> <url> <secret_env>
-  # `url` selects codex's StreamableHTTP transport and `bearer_token_env_var` sends
-  # `Authorization: Bearer $<env>` — the token stays in the environment, never on
-  # disk. Confirmed against codex source at tag rust-v0.142.3: HTTP MCP has
-  # graduated out of experimental, so NO `experimental_use_rmcp_client` flag is
-  # needed (and codex rejects an inline `bearer_token`, which is why we use the
-  # env-var form). `server` is a schema-constrained bare TOML key ([a-z0-9-]).
-  local server=$1 url=$2 env=$3 cfg
+_al_mcp_codex_register() { # <server> <url>
+  # `url` selects codex's StreamableHTTP transport. Thin installer (ADR-017): we
+  # register only the bare URL — no token/bearer field. The user authenticates
+  # in-client (codex `codex mcp login`, or the browser OAuth the server drives).
+  # Confirmed against codex source at tag rust-v0.142.3: HTTP MCP has graduated
+  # out of experimental (no `experimental_use_rmcp_client` flag needed). `server`
+  # is a schema-constrained bare TOML key ([a-z0-9-]).
+  local server=$1 url=$2 cfg
   cfg=$(_al_mcp_codex_cfg)
   mkdir -p "$(dirname "$cfg")" || return 1
   _al_mcp_codex_deregister "$server" || return 1 # strip any prior block first
@@ -139,7 +137,6 @@ _al_mcp_codex_register() { # <server> <url> <secret_env>
     printf '\n# >>> agentlinux-mcp:%s >>>\n' "$server"
     printf '[mcp_servers.%s]\n' "$server"
     printf 'url = "%s"\n' "$url"
-    printf 'bearer_token_env_var = "%s"\n' "$env"
     printf '# <<< agentlinux-mcp:%s <<<\n' "$server"
   } >>"$cfg" || return 1
 }
@@ -149,50 +146,45 @@ _al_mcp_codex_has() { # <server>
   [[ -f "$cfg" ]] && grep -q "# >>> agentlinux-mcp:${1} >>>" "$cfg"
 }
 
-# ---- gemini-cli / qwen-code (settings.json, httpUrl+headers) ----------------
+# ---- gemini-cli / qwen-code (settings.json, bare httpUrl) -------------------
 _al_mcp_gemini_present() { command -v gemini >/dev/null 2>&1; }
 _al_mcp_gemini_cfg() { printf '%s/.gemini/settings.json' "$(_al_mcp_home)"; }
 _al_mcp_qwen_present() { command -v qwen >/dev/null 2>&1; }
 _al_mcp_qwen_cfg() { printf '%s/.qwen/settings.json' "$(_al_mcp_home)"; }
 
-# httpUrl+headers object shared by the two gemini-family agents.
-_al_mcp_gemini_obj() { # <url> <ref>
-  jq -n --arg u "$1" --arg a "$2" '{httpUrl: $u, headers: {Authorization: $a}}'
+# Bare httpUrl object shared by the two gemini-family agents (no auth — ADR-017).
+_al_mcp_gemini_obj() { # <url>
+  jq -n --arg u "$1" '{httpUrl: $u}'
 }
 
 # ---- opencode (opencode.json, type:remote) ----------------------------------
 _al_mcp_opencode_present() { command -v opencode >/dev/null 2>&1; }
 _al_mcp_opencode_cfg() { printf '%s/.config/opencode/opencode.json' "$(_al_mcp_home)"; }
-_al_mcp_opencode_obj() { # <url> <ref>
-  jq -n --arg u "$1" --arg a "$2" \
-    '{type: "remote", url: $u, enabled: true, headers: {Authorization: $a}}'
+_al_mcp_opencode_obj() { # <url>
+  jq -n --arg u "$1" '{type: "remote", url: $u, enabled: true}'
 }
 
 # ---- public API -------------------------------------------------------------
 
-# al_mcp_register_http <server> <url> <secret_env>
-# Fan out an HTTPS remote MCP registration to every present MCP-capable agent,
-# using an env-var reference for the bearer token (never the literal). Echoes one
-# "<server>: registered into <agent>" line per target and sets AL_MCP_TARGETS to
-# the space-separated agent list. Returns non-zero if a present agent fails to
-# register or its never-bake reference did not land.
+# al_mcp_register_http <server> <url>
+# Fan out a BARE remote MCP registration (URL only, NO credential — ADR-017 thin
+# installer) to every present MCP-capable agent. The user authenticates in-client
+# afterwards. Echoes one "<server>: registered into <agent>" line per target and
+# sets AL_MCP_TARGETS to the space-separated agent list. Returns non-zero if a
+# present agent fails to register or the entry did not land.
 al_mcp_register_http() {
-  local server=$1 url=$2 env=$3 ref
+  local server=$1 url=$2
   AL_MCP_TARGETS=""
-  # Literal reference string: `Bearer ${SECRET_ENV}` (the \$ keeps $ literal so
-  # the caller's shell does not expand it; the agent expands it at launch time).
-  ref="Bearer \${${env}}"
 
   if _al_mcp_claude_present; then
-    _al_mcp_claude_register "$server" "$url" "$ref" \
+    _al_mcp_claude_register "$server" "$url" \
       || {
         al_mcp_die "claude-code register failed"
         return 1
       }
-    jq -e --arg s "$server" --arg r "$ref" \
-      '.mcpServers[$s].headers.Authorization == $r' "$(_al_mcp_claude_cfg)" >/dev/null 2>&1 \
+    _al_mcp_json_has "$(_al_mcp_claude_cfg)" ".mcpServers" "$server" \
       || {
-        al_mcp_die "claude-code: env-var reference did not land (never-bake)"
+        al_mcp_die "claude-code: entry did not land"
         return 1
       }
     AL_MCP_TARGETS+="claude-code "
@@ -200,30 +192,24 @@ al_mcp_register_http() {
   fi
 
   if _al_mcp_codex_present; then
-    _al_mcp_codex_register "$server" "$url" "$env" \
+    _al_mcp_codex_register "$server" "$url" \
       || {
         al_mcp_die "codex register failed"
         return 1
       }
-    grep -q "bearer_token_env_var = \"${env}\"" "$(_al_mcp_codex_cfg)" \
+    _al_mcp_codex_has "$server" \
       || {
-        al_mcp_die "codex: bearer_token_env_var did not land (never-bake)"
+        al_mcp_die "codex: entry did not land"
         return 1
       }
     AL_MCP_TARGETS+="codex "
-    echo "${server}: registered into codex (~/.codex/config.toml, token off-disk)"
+    echo "${server}: registered into codex (~/.codex/config.toml)"
   fi
 
   if _al_mcp_gemini_present; then
-    _al_mcp_json_set "$(_al_mcp_gemini_cfg)" ".mcpServers" "$server" "$(_al_mcp_gemini_obj "$url" "$ref")" \
+    _al_mcp_json_set "$(_al_mcp_gemini_cfg)" ".mcpServers" "$server" "$(_al_mcp_gemini_obj "$url")" \
       || {
         al_mcp_die "gemini-cli register failed"
-        return 1
-      }
-    jq -e --arg s "$server" --arg r "$ref" \
-      '.mcpServers[$s].headers.Authorization == $r' "$(_al_mcp_gemini_cfg)" >/dev/null 2>&1 \
-      || {
-        al_mcp_die "gemini-cli: env-var reference did not land (never-bake)"
         return 1
       }
     AL_MCP_TARGETS+="gemini-cli "
@@ -231,15 +217,9 @@ al_mcp_register_http() {
   fi
 
   if _al_mcp_qwen_present; then
-    _al_mcp_json_set "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server" "$(_al_mcp_gemini_obj "$url" "$ref")" \
+    _al_mcp_json_set "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server" "$(_al_mcp_gemini_obj "$url")" \
       || {
         al_mcp_die "qwen-code register failed"
-        return 1
-      }
-    jq -e --arg s "$server" --arg r "$ref" \
-      '.mcpServers[$s].headers.Authorization == $r' "$(_al_mcp_qwen_cfg)" >/dev/null 2>&1 \
-      || {
-        al_mcp_die "qwen-code: env-var reference did not land (never-bake)"
         return 1
       }
     AL_MCP_TARGETS+="qwen-code "
@@ -247,15 +227,9 @@ al_mcp_register_http() {
   fi
 
   if _al_mcp_opencode_present; then
-    _al_mcp_json_set "$(_al_mcp_opencode_cfg)" ".mcp" "$server" "$(_al_mcp_opencode_obj "$url" "$ref")" \
+    _al_mcp_json_set "$(_al_mcp_opencode_cfg)" ".mcp" "$server" "$(_al_mcp_opencode_obj "$url")" \
       || {
         al_mcp_die "opencode register failed"
-        return 1
-      }
-    jq -e --arg s "$server" --arg r "$ref" \
-      '.mcp[$s].headers.Authorization == $r' "$(_al_mcp_opencode_cfg)" >/dev/null 2>&1 \
-      || {
-        al_mcp_die "opencode: env-var reference did not land (never-bake)"
         return 1
       }
     AL_MCP_TARGETS+="opencode "

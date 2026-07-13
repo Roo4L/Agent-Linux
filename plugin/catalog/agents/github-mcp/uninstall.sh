@@ -5,9 +5,8 @@ set -euo pipefail
 # Deregisters the GitHub remote MCP server from EVERY present MCP-capable agent
 # via the shared cross-agent helper. Deregistration IS the uninstall — nothing
 # was installed to a prefix; the registration lived only in each agent's config.
-# Idempotent (a no-op where the entry is already absent) and residue-free. Because
-# only an env-var REFERENCE was ever stored (never a literal PAT), no secret can
-# leak on removal.
+# Idempotent (a no-op where the entry is already absent) and residue-free.
+# AgentLinux never stored a credential (ADR-017 thin installer), so nothing to leak.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 : "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}"

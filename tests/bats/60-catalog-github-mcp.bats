@@ -2,22 +2,22 @@
 # tests/bats/60-catalog-github-mcp.bats — v0.3.6 Phase 36 (github-mcp) MCP-03:
 # the FIRST remote-http MCP entry AND the first CROSS-AGENT MCP registration.
 #
-# github-mcp registers GitHub's hosted remote MCP server into EVERY installed
-# MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code) via the
-# shared helper plugin/catalog/lib/mcp-register.sh. The mandatory GitHub PAT is
-# NEVER baked: each agent config stores an env-var REFERENCE (`Bearer
-# ${GITHUB_MCP_PAT}`) that the agent expands at launch; codex keeps it off disk
-# via bearer_token_env_var. `remove` deregisters from all agents symmetrically.
+# THIN INSTALLER (ADR-017): github-mcp registers GitHub's hosted remote MCP server
+# as a BARE URL — no credential — into EVERY installed MCP-capable agent
+# (claude-code, codex, gemini-cli, opencode, qwen-code) via the shared helper
+# plugin/catalog/lib/mcp-register.sh. AgentLinux stores NO token; the user
+# authenticates in-client (OAuth) on first use. `remove` deregisters from all
+# agents symmetrically.
 #
 # This gate installs claude-code + codex as preconditions (the two the maintainer
-# named) and asserts fan-out into BOTH, plus never-bake + no-Docker shape +
-# residue-free symmetric removal. gemini/opencode/qwen are asserted only if
-# present (the npm cluster may or may not have left them installed).
+# named) and asserts bare-URL fan-out into BOTH, that NO credential lands in any
+# config, the no-Docker shape, and residue-free symmetric removal.
+# gemini/opencode/qwen are asserted only if present.
 #
 # Design invariants (behavior-test-contract):
 #   - every @test name prefixed with the requirement ID
 #   - failures emit __fail four-line TST-04 diagnostics
-#   - version pins / endpoint read from the provisioned catalog via jq (never hardcoded)
+#   - endpoint read from the provisioned catalog via jq (never hardcoded)
 #   - installs run as the agent user through a login shell
 #   - command strings use ABSOLUTE /home/agent/... paths, never `~` (SC2088)
 
@@ -29,7 +29,9 @@ PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 CLAUDE_JSON=/home/agent/.claude.json
 CODEX_TOML=/home/agent/.codex/config.toml
-REF='Bearer ${GITHUB_MCP_PAT}'
+# Any credential-shaped string that must NEVER appear in a config under the
+# thin-installer model (ADR-017): auth headers, bearer/token fields, GitHub PATs.
+CRED_RE='ghp_[A-Za-z0-9]|github_pat_[A-Za-z0-9]|[Aa]uthorization|[Bb]earer|bearer_token'
 
 setup_file() {
   # Recover the CLI if an earlier --purge @test removed it (mirrors 53/57/58/59).
@@ -50,14 +52,15 @@ teardown_file() {
   fi
 }
 
-# _assert_ref_if_present <agent-bin> <jq-cmd> — when <agent-bin> is on the agent
-# user's PATH, assert <jq-cmd> (its config carries github-mcp with the reference)
-# exits 0. Absent agents are skipped cleanly (fan-out only touches present agents).
-_assert_ref_if_present() {
+# _assert_present_if_installed <agent-bin> <jq-cmd> — when <agent-bin> is on the
+# agent user's PATH, assert <jq-cmd> (its config carries the bare github-mcp entry)
+# exits 0. Absent agents are skipped (fan-out only touches present agents).
+_assert_present_if_installed() {
   local bin=$1 cmd=$2
-  sudo -u agent -H bash --login -c "command -v ${bin}" >/dev/null 2>&1 || return 0
+  sudo -u agent -H bash --login -c "command -v ${bin}" >/dev/null 2>&1 \
+    || { __diag "MCP-03: ${bin} not installed — fan-out assertion skipped"; return 0; }
   run sudo -u agent -H bash --login -c "$cmd"
-  assert_exit_zero "MCP-03 (${bin} carries the env-var reference)"
+  assert_exit_zero "MCP-03 (${bin} carries the bare github-mcp entry)"
 }
 
 # _assert_gone_if_present <agent-bin> <jq-cmd> — when present, assert <jq-cmd>
@@ -70,7 +73,7 @@ _assert_gone_if_present() {
     || __fail "MCP-03" "${bin} config still carries github-mcp after remove" "residue" "$LOG"
 }
 
-@test "MCP-03: github-mcp registers the GitHub remote MCP into every installed agent (never-baked PAT, no-Docker), then deregisters with no residue" {
+@test "MCP-03: github-mcp registers a BARE remote URL (no credential, ADR-017) into every installed agent, then deregisters with no residue" {
   # Guard: both named-agent preconditions actually held. Fail loud on a missing
   # precondition rather than let a skipped fan-out target look like a register bug.
   run sudo -u agent -H bash --login -c 'command -v claude'
@@ -78,15 +81,11 @@ _assert_gone_if_present() {
   run sudo -u agent -H bash --login -c 'command -v codex'
   assert_exit_zero "MCP-03 (codex present precondition)"
 
-  # Endpoint + pin are jq-derived from the provisioned catalog (never hardcoded).
-  local url pinned
+  # Endpoint is jq-derived from the provisioned catalog (never hardcoded).
+  local url
   url=$(jq -r '.agents[] | select(.id=="github-mcp") | .endpoint_url' "$CATALOG")
-  pinned=$(jq -r '.agents[] | select(.id=="github-mcp") | .pinned_version' "$CATALOG")
   if [[ -z "$url" || "$url" == "null" || "$url" != https://* ]]; then
     __fail "MCP-03" "https endpoint_url in catalog" "url=[${url}]" "$LOG"
-  fi
-  if [[ -z "$pinned" || "$pinned" == "null" ]]; then
-    __fail "MCP-03" "non-empty pinned_version" "pinned=[${pinned}]" "$LOG"
   fi
 
   # Register (fan out).
@@ -94,43 +93,39 @@ _assert_gone_if_present() {
   assert_exit_zero "MCP-03 (install)"
   assert_no_eacces "MCP-03 (install)" "$output"
 
-  # Mandatory-secret instruction surfaced (anchor on wording, not the server name).
-  if ! printf '%s' "${output}" | grep -qiE 'personal access token is required|export GITHUB_MCP_PAT'; then
-    __fail "MCP-03" "install surfaces the mandatory PAT instruction" "${output:-<empty>}" "$LOG"
+  # In-client-auth pointer surfaced (anchor on wording, not the server name).
+  if ! printf '%s' "${output}" | grep -qiE 'authenticate from within your coding agent|in-client|oauth'; then
+    __fail "MCP-03" "install surfaces the in-client auth pointer" "${output:-<empty>}" "$LOG"
   fi
 
-  # claude-code: registered as an http server pointing at the pinned endpoint,
-  # carrying the env-var REFERENCE (never a literal token).
+  # claude-code: registered as an http server at the pinned endpoint with NO auth
+  # header (bare URL — the user OAuths in-client).
   run sudo -u agent -H bash --login -c \
-    "jq -e --arg u \"${url}\" '.mcpServers[\"github-mcp\"] | .type==\"http\" and .url==\$u' ${CLAUDE_JSON}"
-  assert_exit_zero "MCP-03 (claude http registration at pinned url)"
-  run sudo -u agent -H bash --login -c \
-    "jq -e --arg r '${REF}' '.mcpServers[\"github-mcp\"].headers.Authorization == \$r' ${CLAUDE_JSON}"
-  assert_exit_zero "MCP-03 (claude carries env-var reference, not a literal token)"
+    "jq -e --arg u \"${url}\" '.mcpServers[\"github-mcp\"] | .type==\"http\" and .url==\$u and (has(\"headers\")|not)' ${CLAUDE_JSON}"
+  assert_exit_zero "MCP-03 (claude bare http registration, no headers)"
 
-  # codex: registered with the pinned url + bearer_token_env_var (token OFF disk),
-  # both scoped to github-mcp's own marker block so a stray line elsewhere in
-  # config.toml can't satisfy the assertion.
-  run sudo -u agent -H bash --login -c \
-    "sed -n '/agentlinux-mcp:github-mcp >>>/,/agentlinux-mcp:github-mcp <<</p' ${CODEX_TOML} | grep -q 'bearer_token_env_var = \"GITHUB_MCP_PAT\"'"
-  assert_exit_zero "MCP-03 (codex bearer_token_env_var, token off disk)"
+  # codex: the pinned url is registered in github-mcp's marker block, with NO
+  # bearer/token field anywhere in that block.
   run sudo -u agent -H bash --login -c \
     "sed -n '/agentlinux-mcp:github-mcp >>>/,/agentlinux-mcp:github-mcp <<</p' ${CODEX_TOML} | grep -qF 'url = \"${url}\"'"
   assert_exit_zero "MCP-03 (codex registered at pinned url)"
-
-  # Cross-agent fan-out: the gemini-family + opencode agents get the SAME env-var
-  # reference when present. They may or may not be installed on this container
-  # (the npm cluster may have left them), so assert conditionally — if the agent
-  # is on PATH, its config MUST carry github-mcp with the reference (never a token).
-  _assert_ref_if_present gemini "jq -e --arg r '${REF}' '.mcpServers[\"github-mcp\"].headers.Authorization==\$r' /home/agent/.gemini/settings.json"
-  _assert_ref_if_present qwen "jq -e --arg r '${REF}' '.mcpServers[\"github-mcp\"].headers.Authorization==\$r' /home/agent/.qwen/settings.json"
-  _assert_ref_if_present opencode "jq -e --arg r '${REF}' '.mcp[\"github-mcp\"] | .type==\"remote\" and .headers.Authorization==\$r' /home/agent/.config/opencode/opencode.json"
-
-  # NEVER-BAKED: no literal GitHub token in ANY agent config.
   run sudo -u agent -H bash --login -c \
-    "grep -rIqE 'ghp_[A-Za-z0-9]|github_pat_[A-Za-z0-9]' /home/agent/.claude.json /home/agent/.codex /home/agent/.gemini /home/agent/.qwen /home/agent/.config/opencode 2>/dev/null"
+    "sed -n '/agentlinux-mcp:github-mcp >>>/,/agentlinux-mcp:github-mcp <<</p' ${CODEX_TOML} | grep -qiE 'bearer|token'"
   [[ "${status}" -ne 0 ]] \
-    || __fail "MCP-03" "no literal GitHub token in any agent config (never-baked)" "token pattern found" "$LOG"
+    || __fail "MCP-03" "codex github-mcp block carries NO bearer/token (bare url)" "token field present" "$LOG"
+
+  # Cross-agent fan-out: gemini-family + opencode get the SAME bare entry when
+  # present. Assert conditionally (they may not be installed on this container).
+  _assert_present_if_installed gemini "jq -e --arg u \"${url}\" '.mcpServers[\"github-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.gemini/settings.json"
+  _assert_present_if_installed qwen "jq -e --arg u \"${url}\" '.mcpServers[\"github-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.qwen/settings.json"
+  _assert_present_if_installed opencode "jq -e --arg u \"${url}\" '.mcp[\"github-mcp\"] | .type==\"remote\" and .url==\$u and (has(\"headers\")|not)' /home/agent/.config/opencode/opencode.json"
+
+  # THIN INSTALLER: no credential-shaped string in ANY agent config (no header,
+  # no bearer/token field, no literal PAT). This is the ADR-017 contract.
+  run sudo -u agent -H bash --login -c \
+    "grep -rIqE '${CRED_RE}' /home/agent/.claude.json /home/agent/.codex /home/agent/.gemini /home/agent/.qwen /home/agent/.config/opencode 2>/dev/null"
+  [[ "${status}" -ne 0 ]] \
+    || __fail "MCP-03" "NO credential in any agent config (thin installer, ADR-017)" "credential-shaped string found" "$LOG"
 
   # Deregister (fan out).
   run sudo -u agent -H bash --login -c 'agentlinux remove --force github-mcp'
@@ -148,12 +143,6 @@ _assert_gone_if_present() {
   _assert_gone_if_present qwen "jq -e '.mcpServers | has(\"github-mcp\")' /home/agent/.qwen/settings.json"
   _assert_gone_if_present opencode "jq -e '.mcp | has(\"github-mcp\")' /home/agent/.config/opencode/opencode.json"
 
-  # No leaked PAT anywhere AFTER remove either (removal must not expose a token).
-  run sudo -u agent -H bash --login -c \
-    "grep -rIqE 'ghp_[A-Za-z0-9]|github_pat_[A-Za-z0-9]' /home/agent/.claude.json /home/agent/.codex /home/agent/.gemini /home/agent/.qwen /home/agent/.config/opencode 2>/dev/null"
-  [[ "${status}" -ne 0 ]] \
-    || __fail "MCP-03" "no literal GitHub token in any config after remove" "token pattern found" "$LOG"
-
   # Idempotent re-remove.
   run sudo -u agent -H bash --login -c 'agentlinux remove --force github-mcp'
   assert_exit_zero "MCP-03 (idempotent re-remove)"
@@ -161,17 +150,19 @@ _assert_gone_if_present() {
 
 @test "MCP-03: github-mcp is remote-http and NEVER the Docker recipe (no docker/ghcr invocation in the recipe)" {
   # The success criterion forbids the Docker recipe. Assert the install recipe
-  # invokes no docker/ghcr container (strip comments so the word in prose — e.g.
-  # the catalog description — cannot mask a real invocation regression).
+  # invokes no docker/ghcr container (strip comments so the word in prose cannot
+  # mask a real invocation regression).
   local recipe=/opt/agentlinux/catalog/${PKG_VERSION}/agents/github-mcp/install.sh
   run bash -c "grep -vE '^[[:space:]]*#' '${recipe}' | grep -nE 'docker|ghcr\\.io'"
   [[ "${status}" -ne 0 ]] \
     || __fail "MCP-03" "recipe uses NO docker/ghcr (remote-http only)" "${output}" "$LOG"
 
-  # And it IS remote-http: the entry declares an https endpoint_url + mandatory secret.
+  # And it IS remote-http with the thin-installer shape: source_kind mcp, an https
+  # endpoint_url, requires_secret true (needs in-client auth), and NO secret_env
+  # (ADR-017 dropped it — AgentLinux carries no credential).
   run bash -c "jq -r '.agents[] | select(.id==\"github-mcp\") | \"\\(.source_kind) \\(.requires_secret) \\(.secret_env) \\(.endpoint_url)\"' ${CATALOG}"
   assert_exit_zero "MCP-03 (entry shape)"
-  if [[ "${output}" != "mcp true GITHUB_MCP_PAT https://api.githubcopilot.com/mcp/" ]]; then
-    __fail "MCP-03" "mcp + requires_secret true + secret_env GITHUB_MCP_PAT + https endpoint" "${output:-<empty>}" "$LOG"
+  if [[ "${output}" != "mcp true null https://api.githubcopilot.com/mcp/" ]]; then
+    __fail "MCP-03" "mcp + requires_secret true + NO secret_env + https endpoint" "${output:-<empty>}" "$LOG"
   fi
 }
