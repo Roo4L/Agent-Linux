@@ -248,7 +248,7 @@
     {
       "id": "github-mcp",
       "display_name": "GitHub MCP",
-      "description": "GitHub's hosted remote MCP server (repos, issues, PRs, Actions, code search) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Remote-http endpoint; a GitHub PAT is REQUIRED and supplied post-install via GITHUB_MCP_PAT (never baked). Never the Docker recipe.",
+      "description": "GitHub's hosted remote MCP server (repos, issues, PRs, Actions, code search) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (GitHub OAuth on first use). No credential stored by AgentLinux. Never the Docker recipe.",
       "homepage": "https://github.com/github/github-mcp-server",
       "license": "MIT",
       "source_kind": "mcp",
@@ -258,9 +258,24 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "requires_secret": true,
-      "secret_env": "GITHUB_MCP_PAT",
       "post_install_verify": "jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:github-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"github-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
       "tags": ["mcp", "devops", "github"]
+    },
+    {
+      "id": "sentry-mcp",
+      "display_name": "Sentry MCP",
+      "description": "Sentry's hosted remote MCP server (issues, errors, releases, traces, projects) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (Sentry OAuth on first use). No credential stored by AgentLinux.",
+      "homepage": "https://github.com/getsentry/sentry-mcp",
+      "license": "FSL-1.1-ALv2",
+      "source_kind": "mcp",
+      "pinned_version": "0.37.0",
+      "endpoint_url": "https://mcp.sentry.dev/mcp",
+      "compatibility_window": ">=0.37.0 <1.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:sentry-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"sentry-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": ["mcp", "observability", "sentry"]
     },
     {
       "id": "test-dummy",
