@@ -278,22 +278,6 @@
       "tags": ["mcp", "observability", "sentry"]
     },
     {
-      "id": "gitlab-mcp",
-      "display_name": "GitLab MCP",
-      "description": "GitLab's official first-party hosted MCP server (Duo Agent Platform: merge requests, issues, pipelines, repo ops) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (GitLab OAuth on first use). No credential stored by AgentLinux. Beta in GitLab 18.6+; self-managed users re-register against their own host.",
-      "homepage": "https://docs.gitlab.com/user/gitlab_duo/model_context_protocol/mcp_server/",
-      "license": "MIT",
-      "source_kind": "mcp",
-      "pinned_version": "18.6.0",
-      "endpoint_url": "https://gitlab.com/api/v4/mcp",
-      "compatibility_window": ">=18.6.0 <19.0.0",
-      "install_recipe_path": "install.sh",
-      "uninstall_recipe_path": "uninstall.sh",
-      "requires_secret": true,
-      "post_install_verify": "jq -e '.mcpServers[\"gitlab-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:gitlab-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"gitlab-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"gitlab-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"gitlab-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
-      "tags": ["mcp", "devops", "gitlab"]
-    },
-    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",

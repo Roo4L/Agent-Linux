@@ -50,7 +50,7 @@
 - [x] **MCP-02**: `agentlinux install context7` registers Context7 (npx `@upstash/context7-mcp`); optional `CONTEXT7_API_KEY` handled per ENABLE-02 (registered keyless, install prints the optional key instruction, key never baked); symmetric residue-free remove.
 - [x] **MCP-03**: `agentlinux install github-mcp` registers the GitHub hosted MCP server (**remote-http**, `https://api.githubcopilot.com/mcp/` — **never** the Docker recipe) into **every installed MCP-capable agent** (claude-code, codex, gemini-cli, opencode, qwen-code) via the shared cross-agent helper; symmetric multi-agent remove, no residue. *(Phase 36 folds in the ENABLE-02 **remote-http** shape + the shared cross-agent MCP registration helper, reused by 37/42/43. **Retrofitted to ADR-017 thin-installer**: registers the bare URL, bakes NO credential — the user authenticates in-client via GitHub OAuth; the first-cut env-var-reference PAT was removed.)*
 - [x] **MCP-04**: `agentlinux install sentry-mcp` registers Sentry's **hosted remote** MCP (`https://mcp.sentry.dev/mcp`) into every installed MCP-capable agent via the shared helper — **thin installer per ADR-017**: bare URL, no credential; the user authenticates in-client (Sentry OAuth). Symmetric residue-free remove. FSL-1.1-ALv2 license recorded. *(chose the hosted-remote shape over npx-stdio; reuses the Phase 36 remote-http helper.)*
-- [x] **MCP-05**: `agentlinux install gitlab-mcp` registers GitLab's **official first-party hosted** MCP (`https://gitlab.com/api/v4/mcp`, OAuth) into every installed MCP-capable agent — **thin installer per ADR-017**: bare URL, no credential; the user authenticates in-client. Symmetric residue-free remove. *(Chose the official beta hosted endpoint over the third-party npx `@zereight/mcp-gitlab` per the ADR-017 source-selection policy: prefer first-party even if beta.)*
+- [ ] **MCP-05** *(DROPPED 2026-07-13 — deferred)*: gitlab-mcp not shipped. GitLab's official hosted MCP endpoint is **paywalled** (Premium/Ultimate; free GitLab.com users 404), and the maintainer declined the free third-party `@zereight/mcp-gitlab`. Per the corrected ADR-017 source-selection policy (free first-party = auto; everything else = per-case review), no entry was shipped. Revisit if GitLab frees the endpoint.
 - [ ] **MCP-06**: `agentlinux install brave-search-mcp` registers Brave Search MCP (npx + `BRAVE_API_KEY`, free tier); symmetric remove.
 - [ ] **MCP-07**: `agentlinux install firecrawl-mcp` registers Firecrawl MCP (npx `firecrawl-mcp` + `FIRECRAWL_API_KEY`); **pinned from npm**, not the stale GitHub tag; symmetric remove.
 - [ ] **MCP-08**: `agentlinux install slack-mcp` registers Slack MCP (npx `slack-mcp-server` + token); `xoxp` OAuth preferred, `xoxc/xoxd` stealth-mode admin-bypass warned; symmetric remove.
@@ -157,7 +157,7 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | MCP-02 | Phase 35 | context7 (first secret-carrying MCP; optional key) | Done |
 | MCP-03 | Phase 36 | github-mcp (remote-http + cross-agent fan-out; ENABLE-02 remote-http enabler) | Done |
 | MCP-04 | Phase 37 | sentry-mcp (hosted remote, thin installer ADR-017) | Done |
-| MCP-05 | Phase 38 | gitlab-mcp (official hosted, thin installer ADR-017) | Done |
+| MCP-05 | Phase 38 | gitlab-mcp — DROPPED (official paywalled; third-party declined) | Deferred |
 | MCP-06 | Phase 39 | brave-search-mcp | Pending |
 | MCP-07 | Phase 40 | firecrawl-mcp | Pending |
 | MCP-08 | Phase 41 | slack-mcp | Pending |

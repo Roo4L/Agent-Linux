@@ -88,16 +88,31 @@ Concretely:
 
 ## Source-selection policy (addendum, 2026-07-13)
 
-When choosing *which* server an MCP entry registers, **prefer the official
-first-party hosted endpoint — even if it is beta — over a third-party server.**
-First-party trust plus clean in-client OAuth outweigh beta status; fall back to a
-third-party server only when no first-party option exists. Locked by maintainer
-decision during Phase 38 (gitlab-mcp), which chose GitLab's official beta hosted
-endpoint (`https://gitlab.com/api/v4/mcp`, OAuth) over the GA third-party
-`@zereight/mcp-gitlab` npx server. This complements the catalog liveness/quality
-selection gates: a first-party beta endpoint clears the trust bar a third-party GA
-package cannot. A `pinned_version` for such an endpoint names the vendor release it
-is validated against (GitLab 18.6 for gitlab-mcp).
+When choosing *which* server an MCP entry registers:
+
+- **A FREE official first-party hosted endpoint is auto-preferred** — no
+  discussion needed. It is the ideal thin-installer fit (first-party trust + clean
+  in-client OAuth + usable by the whole user base). This is the case for
+  github-mcp and sentry-mcp.
+- **Every other case needs per-entry maintainer discussion/review** — a *paid*
+  first-party endpoint, a third-party server, a beta with caveats, etc. There is
+  no blanket rule that first-party always wins; usability for the broad user base
+  is weighed against trust and convenience per entry.
+
+A `pinned_version` for a hosted endpoint names the vendor release it is validated
+against.
+
+**Worked outcome — gitlab-mcp (Phase 38) was DROPPED (not shipped).** GitLab's
+official hosted endpoint (`https://gitlab.com/api/v4/mcp`) is **paywalled**:
+Premium/Ultimate only — a free GitLab.com user is blocked at the endpoint (404,
+per GitLab docs `Tier: Premium, Ultimate` and issue #579602). The only free
+alternative was the third-party `@zereight/mcp-gitlab` npx server, which the
+maintainer declined to auto-adopt (non-first-party). With no free first-party
+option and no clear winner among the rest, the maintainer chose to **drop
+gitlab-mcp for now** rather than ship a paywalled or third-party entry. (An earlier
+cut of this addendum recorded the opposite — "prefer first-party even if beta,"
+which had picked the official endpoint before the paywall was confirmed; that is
+superseded by this corrected policy.)
 
 ## Considered alternatives
 

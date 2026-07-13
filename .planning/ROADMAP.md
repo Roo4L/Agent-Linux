@@ -243,7 +243,8 @@ Plans:
 **Goal**: Make gitlab-mcp (GitLab MCP server) registerable + deregisterable via the catalog.
 **Depends on**: Phase 37 (ENABLE-02 MCP entry kind)
 **Requirements**: MCP-05
-**Machinery**: `[mcp]` · **official first-party hosted** `https://gitlab.com/api/v4/mcp` (GitLab Duo, OAuth) · pin `18.6.0` (GitLab release the endpoint is validated against) · **thin installer per ADR-017** (bare URL, no credential; user auths in-client). *(Reconciled 2026-07-13: chose GitLab's official beta hosted endpoint over the third-party npx `@zereight/mcp-gitlab` per the ADR-017 source-selection policy — prefer first-party even if beta.)*
+**Status**: **DROPPED 2026-07-13.** GitLab's official hosted MCP endpoint is paywalled (Premium/Ultimate; free users 404), and the maintainer declined the free third-party `@zereight/mcp-gitlab`. No entry shipped; MCP-05 deferred. See ADR-017 source-selection addendum. May revisit if GitLab frees the endpoint or the third-party is later accepted.
+**Machinery** (not shipped): `[mcp]` · official hosted `https://gitlab.com/api/v4/mcp` (paywalled) OR third-party npx `@zereight/mcp-gitlab` (free, declined).
 **Success Criteria** (what must be TRUE):
   1. `agentlinux install gitlab-mcp` registers the bare `https://gitlab.com/api/v4/mcp` into every installed MCP-capable agent via `claude mcp add --transport http --scope user` (+ codex/gemini/opencode/qwen equivalents) — no root, zero EACCES; it appears in each present agent's config.
   2. NO credential is baked (ADR-017): the entry stores only the URL; `install` prints the in-client-auth pointer (GitLab OAuth on first use); `requires_secret: true` as a doc flag, no `secret_env`.
@@ -407,7 +408,7 @@ Plans:
 | 35. context7 | 1/1 | Complete | 2026-07-12 |
 | 36. github-mcp 🔧 | 1/1 | Complete | 2026-07-13 |
 | 37. sentry-mcp | 1/1 | Complete | 2026-07-13 |
-| 38. gitlab-mcp | 1/1 | Complete | 2026-07-13 |
+| 38. gitlab-mcp | 0/0 | Dropped | 2026-07-13 |
 | 39. brave-search-mcp | 0/TBD | Not started | - |
 | 40. firecrawl-mcp | 0/TBD | Not started | - |
 | 41. slack-mcp | 0/TBD | Not started | - |
