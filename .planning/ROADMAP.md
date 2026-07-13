@@ -243,13 +243,13 @@ Plans:
 **Goal**: Make gitlab-mcp (GitLab MCP server) registerable + deregisterable via the catalog.
 **Depends on**: Phase 37 (ENABLE-02 MCP entry kind)
 **Requirements**: MCP-05
-**Machinery**: `[mcp]` · pin `@zereight/mcp-gitlab@2.1.27` · npx + `GITLAB_PERSONAL_ACCESS_TOKEN`
+**Machinery**: `[mcp]` · **official first-party hosted** `https://gitlab.com/api/v4/mcp` (GitLab Duo, OAuth) · pin `18.6.0` (GitLab release the endpoint is validated against) · **thin installer per ADR-017** (bare URL, no credential; user auths in-client). *(Reconciled 2026-07-13: chose GitLab's official beta hosted endpoint over the third-party npx `@zereight/mcp-gitlab` per the ADR-017 source-selection policy — prefer first-party even if beta.)*
 **Success Criteria** (what must be TRUE):
-  1. `agentlinux install gitlab-mcp` registers the pinned `@zereight/mcp-gitlab@2.1.27` (npx + `GITLAB_PERSONAL_ACCESS_TOKEN`) via `claude mcp add --scope user` (no root, zero EACCES); it appears in `~/.claude.json`.
-  2. The PAT is NOT baked — `install` prints the post-install instruction.
-  3. `agentlinux remove gitlab-mcp` deregisters symmetrically — no residue.
+  1. `agentlinux install gitlab-mcp` registers the bare `https://gitlab.com/api/v4/mcp` into every installed MCP-capable agent via `claude mcp add --transport http --scope user` (+ codex/gemini/opencode/qwen equivalents) — no root, zero EACCES; it appears in each present agent's config.
+  2. NO credential is baked (ADR-017): the entry stores only the URL; `install` prints the in-client-auth pointer (GitLab OAuth on first use); `requires_secret: true` as a doc flag, no `secret_env`.
+  3. `agentlinux remove gitlab-mcp` deregisters symmetrically across all agents — no residue.
   4. ≥1 bats @test covers register → verify → deregister — TST-07 gate.
-**Plans**: TBD
+**Plans**: 37-... reuse; 38-01 (recipe pair + entry + bats)
 
 ### Phase 39: brave-search-mcp
 **Goal**: Make brave-search-mcp (Brave Search MCP server) registerable + deregisterable via the catalog.
@@ -407,7 +407,7 @@ Plans:
 | 35. context7 | 1/1 | Complete | 2026-07-12 |
 | 36. github-mcp 🔧 | 1/1 | Complete | 2026-07-13 |
 | 37. sentry-mcp | 1/1 | Complete | 2026-07-13 |
-| 38. gitlab-mcp | 0/TBD | Not started | - |
+| 38. gitlab-mcp | 1/1 | Complete | 2026-07-13 |
 | 39. brave-search-mcp | 0/TBD | Not started | - |
 | 40. firecrawl-mcp | 0/TBD | Not started | - |
 | 41. slack-mcp | 0/TBD | Not started | - |

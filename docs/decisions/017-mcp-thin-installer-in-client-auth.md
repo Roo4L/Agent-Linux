@@ -86,6 +86,19 @@ Concretely:
   managed env var. Success criteria about "never baked" are satisfied trivially
   (nothing is baked); criteria naming a specific env var are advisory.
 
+## Source-selection policy (addendum, 2026-07-13)
+
+When choosing *which* server an MCP entry registers, **prefer the official
+first-party hosted endpoint — even if it is beta — over a third-party server.**
+First-party trust plus clean in-client OAuth outweigh beta status; fall back to a
+third-party server only when no first-party option exists. Locked by maintainer
+decision during Phase 38 (gitlab-mcp), which chose GitLab's official beta hosted
+endpoint (`https://gitlab.com/api/v4/mcp`, OAuth) over the GA third-party
+`@zereight/mcp-gitlab` npx server. This complements the catalog liveness/quality
+selection gates: a first-party beta endpoint clears the trust bar a third-party GA
+package cannot. A `pinned_version` for such an endpoint names the vendor release it
+is validated against (GitLab 18.6 for gitlab-mcp).
+
 ## Considered alternatives
 
 ### Keep the env-var-reference model (github-mcp's first cut)

@@ -60,7 +60,7 @@ originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, gemini-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
 npm-distributed Sentry CLI; and the MCP servers chrome-devtools-mcp,
-context7, and the hosted github-mcp and sentry-mcp) plus one `test_only` fixture exercised only by
+context7, and the hosted github-mcp, sentry-mcp, and gitlab-mcp) plus one `test_only` fixture exercised only by
 bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
