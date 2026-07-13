@@ -60,7 +60,7 @@ originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, gemini-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
 npm-distributed Sentry CLI; and the MCP servers chrome-devtools-mcp,
-context7, and the hosted github-mcp) plus one `test_only` fixture exercised only by
+context7, and the hosted github-mcp and sentry-mcp) plus one `test_only` fixture exercised only by
 bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
@@ -186,52 +186,58 @@ itself — `chrome-devtools-mcp`, the first MCP entry, registers
 `npx -y chrome-devtools-mcp@<pin>`, so npx fetches exactly the curated
 version on first launch and nothing is installed into the agent prefix.
 
-Two things about MCP entries are worth their own fields. First, many
-servers need a credential — a GitHub token, an API key. The catalog
-never bakes a secret; instead an entry *declares* one with
-`requires_secret` and names the environment variable that carries it
-with `secret_env`, and the recipe prints a post-install instruction
-telling the user how to supply it. `chrome-devtools-mcp` is keyless, so
-it declares neither. `context7` is the first entry to use the two
-fields: its key is *optional* (the server works keyless and a free key
-just raises the rate limit), so it sets `requires_secret: false` while
-still naming `secret_env: CONTEXT7_API_KEY`. Its recipe registers the
-server keyless and prints how to re-register with the key — the value is
-never written into a recipe, the catalog, or the committed image; a
-server whose key is mandatory sets `requires_secret: true` instead.
-Second, a server may need something else present to actually
-do its job: `chrome-devtools-mcp` drives a real Chrome/Chromium for its
-browser tools, so its install surfaces that requirement (the AgentLinux
-`playwright-cli` entry provides a Chromium, or a system Chrome works).
+Two things about MCP entries are worth their own fields. First, whether a
+server needs the user to authenticate. The catalog never bakes a secret;
+an entry just *flags* the need with `requires_secret` — a documentation
+signal that the user must sign in, not a value AgentLinux carries. How the
+user signs in depends on the entry's shape. For the **hosted (remote-http)
+servers** the answer is uniform and is described just below: the entry is a
+thin installer that registers a bare URL and the user completes OAuth
+in-client (the governing convention, [ADR-017](../decisions/017-mcp-thin-installer-in-client-auth.md)).
+The earlier **locally-launched (npx-stdio) servers** predate that
+convention and carry a lighter variant: `chrome-devtools-mcp` is keyless
+(needs nothing), while `context7` names an *optional* key with
+`secret_env: CONTEXT7_API_KEY` — the server works keyless and a free key
+just raises the rate limit; its recipe registers the server keyless and
+tells the user how to supply the key, which is never written into a recipe,
+the catalog, or the committed image. Second, a server may need something
+else present to actually do its job: `chrome-devtools-mcp` drives a real
+Chrome/Chromium for its browser tools, so its install surfaces that
+requirement (the AgentLinux `playwright-cli` entry provides a Chromium, or
+a system Chrome works).
 
 ### Hosted (remote-http) servers, and registering into every agent
 
 Some MCP servers are not launched locally at all — they are hosted web
-services the agent talks to over HTTP. `github-mcp` is one: it points at
-GitHub's hosted endpoint (`https://api.githubcopilot.com/mcp/`). A hosted
-service has no version number to pin, so the entry records the endpoint
-in `endpoint_url` and uses `pinned_version` to name the upstream server
-release the endpoint is validated against — the URL is the real
+services the agent talks to over HTTP. `github-mcp` and `sentry-mcp` are
+two: they point at GitHub's and Sentry's hosted endpoints
+(`https://api.githubcopilot.com/mcp/`, `https://mcp.sentry.dev/mcp`). A
+hosted service has no version number to pin, so the entry records the
+endpoint in `endpoint_url` and uses `pinned_version` to name the upstream
+server release the endpoint is validated against — the URL is the real
 stability contract.
 
-A remote server also raises two things the local kind does not. It needs
-a credential on every request (a GitHub token), and — because an MCP
-server is useful to *any* coding agent, not just Claude Code — it is
-worth registering into all of them. So `github-mcp` fans its
+Because an MCP server is useful to *any* coding agent, not just Claude
+Code, an entry registers into all of them. `github-mcp` fans its
 registration out to every installed MCP-capable agent (Claude Code,
 Codex, Gemini CLI, opencode, qwen-code), writing each one's own config
-format, and `remove` tears the registration back out of all of them. A
-shared helper owns the per-agent writers so any remote entry gets the
-fan-out for free.
+format, and `remove` tears it back out of all of them. A shared helper
+owns the per-agent writers so any remote entry gets the fan-out for free.
 
-The credential still never touches disk. Instead of the token, each
-config stores a *reference* to an environment variable — literally
-`Bearer ${GITHUB_MCP_PAT}` — which the agent expands from its own
-environment when it launches the server (Codex keeps it out of the file
-entirely, naming the variable in a dedicated field). The user exports the
-token once; no config, recipe, or commit ever contains the secret
-itself. An agent installed *after* the server does not automatically
-receive the registration — re-running the install fans it out again.
+The important part is what an MCP entry *doesn't* do: it is a **thin
+installer**. It writes the bare server — the URL, wrapped in whatever
+minimal non-credential shape each client expects — into each agent's
+config so the agent knows the server exists. It does not run the server
+and it stores **no credential**: no token, no header, no env-var
+reference. The user authenticates *inside their agent* afterwards
+— for a hosted server that means the agent's own OAuth prompt on first
+use. This keeps AgentLinux out of the credential business entirely (there
+is no secret to leak, by construction) and avoids coupling each entry to
+a tool-specific auth scheme. `requires_secret` stays on the entry as a
+documentation flag — "this server needs you to sign in" — but AgentLinux
+never carries the secret. An agent installed *after* the server does not
+automatically receive the registration; re-running the install fans it
+out again.
 
 ## Worked example
 

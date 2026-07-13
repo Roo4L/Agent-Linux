@@ -231,13 +231,13 @@ Plans:
 **Goal**: Make sentry-mcp (Sentry MCP server) registerable + deregisterable via the catalog.
 **Depends on**: Phase 36 (ENABLE-02 MCP entry kind)
 **Requirements**: MCP-04
-**Machinery**: `[mcp]` · pin `@sentry/mcp-server@0.36.0` · npx + `SENTRY_ACCESS_TOKEN`, or hosted OAuth · **FSL-1.1-Apache** license (Appendix B)
+**Machinery**: `[mcp]` · **hosted remote** `https://mcp.sentry.dev/mcp` · pin `0.37.0` (curated `@sentry/mcp-server` release the endpoint is validated against) · **FSL-1.1-ALv2** license (Appendix B) · **thin installer per ADR-017** (bare URL, no credential; user auths in-client). *(Reconciled 2026-07-13: chose the hosted-remote shape over npx-stdio; the ADR-017 reframe replaced the "npx + SENTRY_ACCESS_TOKEN / token-not-baked" model.)*
 **Success Criteria** (what must be TRUE):
-  1. `agentlinux install sentry-mcp` registers the pinned `@sentry/mcp-server@0.36.0` (npx + `SENTRY_ACCESS_TOKEN`, or hosted OAuth) via `claude mcp add --scope user` (no root, zero EACCES); it appears in `~/.claude.json`.
-  2. The token/OAuth is NOT baked — `install` prints the post-install instruction; the FSL-1.1-Apache flag is recorded in the entry.
-  3. `agentlinux remove sentry-mcp` deregisters symmetrically (+ logout for OAuth) — no residue.
+  1. `agentlinux install sentry-mcp` registers the bare hosted URL `https://mcp.sentry.dev/mcp` into every installed MCP-capable agent via `claude mcp add --transport http --scope user` (+ the codex/gemini/opencode/qwen equivalents) — no root, zero EACCES; it appears in each present agent's config.
+  2. NO credential is baked (ADR-017): the entry stores only the URL; `install` prints the in-client-auth pointer (Sentry OAuth on first use); the **FSL-1.1-ALv2** flag is recorded in the entry (`requires_secret: true` as a doc flag, no `secret_env`).
+  3. `agentlinux remove sentry-mcp` deregisters symmetrically across all agents — no residue.
   4. ≥1 bats @test covers register → verify → deregister — TST-07 gate.
-**Plans**: TBD
+**Plans**: 37-01 (recipe pair + entry + helper retrofit + bats)
 
 ### Phase 38: gitlab-mcp
 **Goal**: Make gitlab-mcp (GitLab MCP server) registerable + deregisterable via the catalog.
@@ -406,7 +406,7 @@ Plans:
 | 34. chrome-devtools-mcp 🔧 | 1/1 | Complete | 2026-07-12 |
 | 35. context7 | 1/1 | Complete | 2026-07-12 |
 | 36. github-mcp 🔧 | 1/1 | Complete | 2026-07-13 |
-| 37. sentry-mcp | 0/TBD | Not started | - |
+| 37. sentry-mcp | 1/1 | Complete | 2026-07-13 |
 | 38. gitlab-mcp | 0/TBD | Not started | - |
 | 39. brave-search-mcp | 0/TBD | Not started | - |
 | 40. firecrawl-mcp | 0/TBD | Not started | - |
