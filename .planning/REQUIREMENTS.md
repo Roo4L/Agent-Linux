@@ -160,7 +160,7 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | MCP-05 | Phase 38 | gitlab-mcp — DROPPED (official paywalled; third-party declined) | Deferred |
 | MCP-06 | Phase 39 | brave-search-mcp — DROPPED (Feb-2026 free tier removed; card required) | Deferred |
 | MCP-07 | Phase 40 | firecrawl-mcp — hosted keyless bare-URL (ADR-017); cleared free-tier gate | ✓ Covered (Docker 2/2 green) |
-| MCP-08 | Phase 41 | slack-mcp — official first-party hosted bare-URL (ADR-017); stealth-token plan superseded | ✓ Covered (Docker pending) |
+| MCP-08 | Phase 41 | slack-mcp — official first-party hosted bare-URL (ADR-017); stealth-token plan superseded | ✓ Covered (Docker 2/2 green) |
 | MCP-09 | Phase 42 | linear-mcp 🔧 (remote-http/OAuth) | Pending |
 | MCP-10 | Phase 43 | jira-atlassian-mcp | Pending |
 | WORK-03 | Phase 44 | spec-kit 🔧 | Pending |
