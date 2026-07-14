@@ -32,7 +32,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [ ] **Phase 36: github-mcp** `[mcp]` - GitHub MCP (remote-http/PAT or Go-binary stdio, never Docker)
 - [ ] **Phase 37: sentry-mcp** `[mcp]` - Sentry MCP (npx+token or hosted OAuth; FSL)
 - [ ] **Phase 38: gitlab-mcp** `[mcp]` - GitLab MCP registerable + deregisterable
-- [ ] **Phase 39: brave-search-mcp** `[mcp]` - Brave Search MCP registerable + deregisterable
+- [ ] **Phase 39: brave-search-mcp** `[mcp]` - DROPPED 2026-07-14 (Feb-2026 free tier removed; mandatory card + metered billing) — MCP-06 deferred
 - [ ] **Phase 40: firecrawl-mcp** `[mcp]` - Firecrawl MCP (pinned from npm) registerable + deregisterable
 - [ ] **Phase 41: slack-mcp** `[mcp]` - Slack MCP (xoxp preferred; stealth-mode warned)
 - [ ] **Phase 42: linear-mcp** 🔧 `[mcp]` - Linear MCP + remote-http/OAuth handling enabler
@@ -256,13 +256,9 @@ Plans:
 **Goal**: Make brave-search-mcp (Brave Search MCP server) registerable + deregisterable via the catalog.
 **Depends on**: Phase 38 (ENABLE-02 MCP entry kind)
 **Requirements**: MCP-06
-**Machinery**: `[mcp]` · pin `@brave/brave-search-mcp-server@2.0.85` · npx + `BRAVE_API_KEY` (free tier)
-**Success Criteria** (what must be TRUE):
-  1. `agentlinux install brave-search-mcp` registers the pinned `@brave/brave-search-mcp-server@2.0.85` (npx + `BRAVE_API_KEY`, free tier) via `claude mcp add --scope user` (no root, zero EACCES); it appears in `~/.claude.json`.
-  2. The `BRAVE_API_KEY` is NOT baked — `install` prints the post-install (free-tier) instruction.
-  3. `agentlinux remove brave-search-mcp` deregisters symmetrically — no residue.
-  4. ≥1 bats @test covers register → verify → deregister — TST-07 gate.
-**Plans**: TBD
+**Status**: **DROPPED 2026-07-14.** The phase premise "(free tier)" is falsified: Brave removed the card-free Search API tier in Feb 2026. New users now get only a metered ~$5/mo credit (~1,000 queries) that **requires a mandatory credit card as a live billing instrument** (no disclosed spend cap on overages) plus a Brave-attribution condition. Per the ADR-017 source-selection policy (free first-party = auto; everything else = per-case review) the maintainer dropped it — same gate GitLab failed. The server itself is official + MIT + a clean thin-installer fit; may revisit if Brave restores a genuine no-card free tier. No entry shipped; MCP-06 deferred.
+**Machinery** (not shipped): `[mcp]` · `@brave/brave-search-mcp-server@2.0.85` (MIT) · stdio or self-host HTTP · `BRAVE_API_KEY` (paid/metered, card required — NOT free)
+**Plans**: n/a (dropped)
 
 ### Phase 40: firecrawl-mcp
 **Goal**: Make firecrawl-mcp (Firecrawl MCP server) registerable + deregisterable via the catalog.
@@ -409,7 +405,7 @@ Plans:
 | 36. github-mcp 🔧 | 1/1 | Complete | 2026-07-13 |
 | 37. sentry-mcp | 1/1 | Complete | 2026-07-13 |
 | 38. gitlab-mcp | 0/0 | Dropped | 2026-07-13 |
-| 39. brave-search-mcp | 0/TBD | Not started | - |
+| 39. brave-search-mcp | 0/0 | Dropped | 2026-07-14 |
 | 40. firecrawl-mcp | 0/TBD | Not started | - |
 | 41. slack-mcp | 0/TBD | Not started | - |
 | 42. linear-mcp 🔧 | 0/TBD | Not started | - |
