@@ -412,7 +412,7 @@ Plans:
 | 40. firecrawl-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 41. slack-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 42. linear-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
-| 43. jira-atlassian-mcp | 1/1 | ✓ Complete (Docker pending) | 2026-07-14 |
+| 43. jira-atlassian-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 44. spec-kit 🔧 | 0/TBD | Not started | - |
 | 45. claude-flow | 0/TBD | Not started | - |
 | 46. bmad | 0/TBD | Not started | - |
