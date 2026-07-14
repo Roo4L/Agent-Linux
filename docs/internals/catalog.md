@@ -62,9 +62,9 @@ prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
 npm-distributed Sentry CLI; the MCP servers chrome-devtools-mcp,
 context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp,
 slack-mcp, linear-mcp, and jira-atlassian-mcp; the uv-bootstrapped
-GitHub Spec Kit CLI spec-kit; and the per-user assistant daemon
-openclaw) plus one `test_only` fixture exercised only by
-bats. Pre-commit and CI both run the catalog
+GitHub Spec Kit CLI spec-kit; and the per-user assistant daemons
+openclaw and hermes-agent) plus one `test_only` fixture exercised
+only by bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
 
@@ -239,6 +239,17 @@ are torn down completely, while the user's `~/.openclaw` state — the
 assistant's persona, its conversation history, and any key the user
 added — is preserved like every other authenticated agent's config; only
 a full agent-home purge wipes it.
+
+Hermes Agent, the second daemon tool, reuses that same lifecycle but
+installs a different way: its official channel is an installer script the
+recipe downloads and runs (never a blind `curl | bash`), pinned to an
+immutable upstream commit so the exact code is fixed even though the
+bootstrap script is fetched live. Because that install mixes the program
+(a cloned checkout and its virtualenv) with the user's data in one
+directory, remove is surgical — it strips just the checkout and the
+launched command, leaving the user's config, persona, and sessions in
+place. Same daemon lifecycle, same bring-your-own-key stance, same
+preserve-on-remove rule; only the install mechanism differs.
 
 ## The MCP source kind
 

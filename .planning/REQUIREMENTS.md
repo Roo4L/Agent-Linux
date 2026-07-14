@@ -76,7 +76,7 @@
 ### AI assistants (daemon-class, ENABLE-04)
 
 - [x] **ASST-01**: `agentlinux install openclaw` installs OpenClaw (npm + per-user daemon); `remove` tears down the daemon + state symmetrically. Self-updater coexistence per ENABLE-05.
-- [ ] **ASST-02**: `agentlinux install hermes-agent` installs Hermes Agent (curl installer + per-user daemon/gateway); symmetric teardown.
+- [x] **ASST-02**: `agentlinux install hermes-agent` installs Hermes Agent (curl installer + per-user daemon/gateway); symmetric teardown.
 
 ---
 
@@ -169,7 +169,7 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | WORK-05 | Phase 46 | bmad — DROPPED (niche for first cohort; spec-kit/GSD cover the need) | Deferred |
 | ASST-01 | Phase 47 | openclaw 🔧 | Complete (Docker 4/4, systemd-user QEMU-gated) |
 | ENABLE-04 | Phase 47 | AI-assistant daemon lifecycle 🔧 | Complete (Docker 4/4, systemd-user QEMU-gated) |
-| ASST-02 | Phase 48 | hermes-agent | Pending |
+| ASST-02 | Phase 48 | hermes-agent | Complete (Docker 3/3; systemd-user QEMU-gated) |
 | ENABLE-06 | Phase 49 | `list` category/tags UX | Pending |
 | ENABLE-07 | Phase 49 | catalog growth kit (template + rubric) | Pending |
 

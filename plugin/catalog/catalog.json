@@ -461,6 +461,23 @@
       ]
     },
     {
+      "id": "hermes-agent",
+      "display_name": "Hermes Agent",
+      "description": "Nous Research's self-hosted personal-AI-assistant with a per-user messaging Gateway (Telegram, Discord, WhatsApp, and more). Installed via the official installer pinned to an immutable commit — no root, no /usr/local shim — and run as a per-user systemd service; installs without baking any provider key (BYO, added in-tool). The per-user state dir ~/.hermes (config, persona, sessions, secrets) is user-owned and preserved on uninstall.",
+      "homepage": "https://github.com/NousResearch/hermes-agent",
+      "license": "MIT",
+      "source_kind": "script",
+      "pinned_version": "2026.6.19",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "command -v hermes && hermes --version",
+      "tags": [
+        "assistant",
+        "daemon"
+      ]
+    },
+    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",

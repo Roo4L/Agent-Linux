@@ -40,8 +40,8 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 44: spec-kit** 🔧 `[uv]` - GitHub Spec Kit + Python+uv-bootstrap enabler (ENABLE-03) ✓ COMPLETE (Docker 3/3; uv bootstrap + git-tag `uv tool install`; pin corrected 0.11.9→v0.12.11)
 - [ ] **Phase 45: claude-flow** `[npm]` - DROPPED 2026-07-14 (maintainer: niche for the first-release cohort) — WORK-04 deferred
 - [ ] **Phase 46: bmad** `[npm]` - DROPPED 2026-07-14 (maintainer: spec-kit/GSD cover the need, far more popular) — WORK-05 deferred
-- [ ] **Phase 47: openclaw** 🔧 `[daemon]` - OpenClaw + AI-assistant daemon-lifecycle enabler (ENABLE-04)
-- [ ] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (curl + per-user daemon/gateway)
+- [x] **Phase 47: openclaw** 🔧 `[daemon]` - OpenClaw + AI-assistant daemon-lifecycle enabler (ENABLE-04) ✓ COMPLETE (Docker 4/4; systemd-user QEMU-gated)
+- [x] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (official installer pinned to commit + per-user daemon/gateway, reuses ENABLE-04) ✓ COMPLETE (Docker 3/3; systemd-user QEMU-gated)
 - [ ] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
 
 ## Phase Details
@@ -374,7 +374,8 @@ Plans:
   2. Secrets are NOT baked — any gateway credentials supplied post-install.
   3. `agentlinux remove hermes-agent` tears down the daemon + gateway + state symmetrically — no residue; idempotent.
   4. ≥1 bats @test (install → daemon/gateway-up verify → remove → gone) is green — TST-07 gate.
-**Plans**: TBD
+**Status**: ✓ COMPLETE 2026-07-14 — Docker 3/3 green (ubuntu-24.04). Reuses the Phase 47 ENABLE-04 helper. `source_kind: script`, pin `2026.6.19`, MIT. **Supply-chain decision (maintainer, "build it, pin-to-commit"):** the official installer is a third-party HTTPS curl-installer with no script checksum — mitigated by download-then-run over pinned TLS + pinning the CODE to the immutable commit `2bd1977d8fad185c9b4be47884f7e87f1add0ce3` (peeled `v2026.6.19` tag) via the installer's `--commit` flag, `--non-interactive` (no baked key), no-root agent-owned dirs (no /usr/local shim). Version-lock: `hermes --version` contains `2026.6.19`. OPS-01 real op = `hermes doctor`. Surgical CAT-04 remove (strip `~/.hermes/hermes-agent` checkout + `~/.local/bin/hermes` launcher; preserve `~/.hermes` user data/secrets; --purge wipes). systemd-user Gateway lifecycle QEMU-gated (ADR-007). AL-95 → Done.
+**Plans**: 1/1 (main-agent direct execution, milestone convention).
 
 ### Phase 49: catalog growth kit
 **Goal**: Deliver the `list` category/tags UX (ENABLE-06) and the catalog growth kit — a contributor recipe template + the selection-rubric doc (ENABLE-07). Milestone capstone — no new tool.
@@ -419,7 +420,7 @@ Plans:
 | 45. claude-flow | 0/0 | Dropped | 2026-07-14 |
 | 46. bmad | 0/0 | Dropped | 2026-07-14 |
 | 47. openclaw 🔧 | 1/1 | ✓ Complete (Docker 4/4 green; systemd-user QEMU-gated) | 2026-07-14 |
-| 48. hermes-agent | 0/TBD | Not started | - |
+| 48. hermes-agent | 1/1 | ✓ Complete (Docker 3/3 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 49. catalog growth kit | 0/TBD | Not started | - |
 
 ---
