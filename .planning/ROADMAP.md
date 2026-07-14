@@ -407,7 +407,7 @@ Plans:
 | 37. sentry-mcp | 1/1 | Complete | 2026-07-13 |
 | 38. gitlab-mcp | 0/0 | Dropped | 2026-07-13 |
 | 39. brave-search-mcp | 0/0 | Dropped | 2026-07-14 |
-| 40. firecrawl-mcp | 1/1 | ✓ Complete (Docker pending) | 2026-07-14 |
+| 40. firecrawl-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 41. slack-mcp | 0/TBD | Not started | - |
 | 42. linear-mcp 🔧 | 0/TBD | Not started | - |
 | 43. jira-atlassian-mcp | 0/TBD | Not started | - |
