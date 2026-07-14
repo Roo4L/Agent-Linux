@@ -60,7 +60,7 @@ originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, gemini-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
 npm-distributed Sentry CLI; and the MCP servers chrome-devtools-mcp,
-context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp, slack-mcp, and linear-mcp) plus one `test_only` fixture exercised only by
+context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp, slack-mcp, linear-mcp, and jira-atlassian-mcp) plus one `test_only` fixture exercised only by
 bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
@@ -210,18 +210,23 @@ a system Chrome works).
 
 Some MCP servers are not launched locally at all — they are hosted web
 services the agent talks to over HTTP. `github-mcp`, `sentry-mcp`,
-`firecrawl-mcp`, `slack-mcp`, and `linear-mcp` point at GitHub's,
-Sentry's, Firecrawl's, Slack's, and Linear's hosted endpoints
-(`https://api.githubcopilot.com/mcp/`, `https://mcp.sentry.dev/mcp`,
-`https://mcp.firecrawl.dev/v2/mcp`, `https://mcp.slack.com/mcp`,
-`https://mcp.linear.app/mcp`). A
+`firecrawl-mcp`, `slack-mcp`, `linear-mcp`, and `jira-atlassian-mcp`
+point at GitHub's, Sentry's, Firecrawl's, Slack's, Linear's, and
+Atlassian's hosted endpoints (`https://api.githubcopilot.com/mcp/`,
+`https://mcp.sentry.dev/mcp`, `https://mcp.firecrawl.dev/v2/mcp`,
+`https://mcp.slack.com/mcp`, `https://mcp.linear.app/mcp`,
+`https://mcp.atlassian.com/v1/mcp/authv2`). A
 hosted service has no version number to pin, so the entry records the
 endpoint in `endpoint_url` and uses `pinned_version` to name the upstream
 server release the endpoint is validated against — the URL is the real
-stability contract. When there is no downloadable release at all — Slack's
-and Linear's MCPs are rolling first-party services with no package —
-`pinned_version` carries the endpoint's GA date instead, and the entry
-simply omits the `license` field a package would carry.
+stability contract. When
+a hosted service has no downloadable release — Slack's, Linear's, and
+Atlassian's are rolling endpoints, not packages — `pinned_version`
+carries the endpoint's GA date instead. Separately, when there is no
+public source repository, the entry omits the `license` field a package
+would carry (Slack, Linear); but a hosted service can still be backed by
+an open-source repo, so `jira-atlassian-mcp` records `Apache-2.0` (the
+Atlassian Rovo server's repo) while still pinning a GA date.
 
 Not every hosted endpoint requires signing in. `firecrawl-mcp` registers
 a **keyless** endpoint that works out of the box, so its `requires_secret`

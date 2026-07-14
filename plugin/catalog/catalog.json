@@ -405,6 +405,28 @@
       ]
     },
     {
+      "id": "jira-atlassian-mcp",
+      "display_name": "Atlassian Rovo MCP (Jira/Confluence)",
+      "description": "Atlassian's official hosted Rovo MCP server (Jira and Confluence at GA, with more Atlassian products rolling out) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (Atlassian OAuth on first use), operating within your own permissions. No credential stored by AgentLinux. Cloud-only (no Data Center/Server); free Atlassian Cloud sites are supported (500 calls/hour).",
+      "homepage": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/use-atlassian-rovo-mcp-server/",
+      "license": "Apache-2.0",
+      "source_kind": "mcp",
+      "pinned_version": "2026.2.4",
+      "endpoint_url": "https://mcp.atlassian.com/v1/mcp/authv2",
+      "compatibility_window": ">=2026.2.4",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:jira-atlassian-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"jira-atlassian-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "project-management",
+        "atlassian",
+        "jira",
+        "confluence"
+      ]
+    },
+    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",

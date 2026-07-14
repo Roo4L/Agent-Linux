@@ -36,7 +36,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 40: firecrawl-mcp** `[mcp]` - Firecrawl MCP registerable + deregisterable ✓ COMPLETE (hosted keyless bare-URL, ADR-017 thin installer; cleared the free-tier gate gitlab/brave failed)
 - [x] **Phase 41: slack-mcp** `[mcp]` - Slack MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.slack.com`, ADR-017 thin installer; supersedes the third-party stealth-token plan)
 - [x] **Phase 42: linear-mcp** `[mcp]` - Linear MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.linear.app`, ADR-017 thin installer; free-tier confirmed; OAuth enabler already shipped in 36/37)
-- [ ] **Phase 43: jira-atlassian-mcp** `[mcp]` - Atlassian Rovo MCP (remote-http OAuth, cloud-only)
+- [x] **Phase 43: jira-atlassian-mcp** `[mcp]` - Atlassian Rovo MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.atlassian.com`, ADR-017 thin installer; free-tier 500 calls/hr confirmed; cloud-only)
 - [ ] **Phase 44: spec-kit** 🔧 `[uv]` - GitHub Spec Kit + Python+uv-bootstrap enabler (ENABLE-03)
 - [ ] **Phase 45: claude-flow** `[npm]` - Claude-Flow (full-footprint symmetric remove)
 - [ ] **Phase 46: bmad** `[npm]` - BMAD-METHOD installable + removable
@@ -299,17 +299,18 @@ Plans:
   4. ≥1 bats @test (register bare URL → verify no-token fan-out → hosted-only recipe → deregister) is green — TST-07 gate. ✓ (`tests/bats/64-catalog-linear-mcp.bats`)
 **Plans**: executed inline (recipe pair + catalog entry + bats 64 + docs); offline smoke green.
 
-### Phase 43: jira-atlassian-mcp
+### Phase 43: jira-atlassian-mcp ✓ COMPLETE
 **Goal**: Make jira-atlassian-mcp (official Atlassian Rovo MCP) registerable + deregisterable via the catalog.
-**Depends on**: Phase 42 (remote-http/OAuth handling)
+**Depends on**: Phase 37 (ADR-017 thin-installer + credential-free remote-http helper)
 **Requirements**: MCP-10
-**Machinery**: `[mcp]` · official Atlassian Rovo MCP · remote-http, OAuth, **cloud-only** · **no version pin** (hosted, rolling)
+**Machinery**: `[mcp]` · **official first-party hosted remote-http** · bare endpoint `https://mcp.atlassian.com/v1/mcp/authv2` (Streamable-HTTP; SSE `/v1/sse` deprecated) · `pinned_version 2026.2.4` (GA date) · `license Apache-2.0` (official repo) · **cloud-only**
+**Source decision (2026-07-14)**: **Auto-GO** — Atlassian ships an official first-party hosted MCP (the Rovo MCP Server, GA Feb 4 2026) covering Jira + Confluence at GA (more Atlassian products rolling out); OAuth 2.1 in-client. Research **confirmed free-tier usable**: Atlassian's platform page lists Free at 500 calls/hour and states *all* Cloud customers have access — NOT gated behind a paid plan or paid Rovo add-on (unlike the dropped gitlab endpoint). Per **ADR-017** the recipe registers the bare URL and bakes nothing; the user OAuths in-client; `remove` just deregisters (no AgentLinux-held token to log out — supersedes the roadmap's `claude mcp logout` step). **Modeling first:** this hosted endpoint has NO downloadable release (→ GA-date pin, like slack/linear) but DOES have an official Apache-2.0 repo (→ record `license: Apache-2.0`, like github/sentry) — version and license are independent axes.
 **Success Criteria** (what must be TRUE):
-  1. `agentlinux install jira-atlassian-mcp` registers the official hosted Atlassian Rovo MCP (remote-http, OAuth, cloud-only; no version pin) via the remote-http/OAuth path (no root, zero EACCES); it appears in `~/.claude.json`.
-  2. OAuth credentials are user-supplied via login — never baked; the cloud-only constraint is documented in the entry.
-  3. `agentlinux remove jira-atlassian-mcp` deregisters AND logs out symmetrically — no residue.
-  4. ≥1 bats @test (remote-http register → verify → deregister+logout) is green — TST-07 gate.
-**Plans**: TBD
+  1. `agentlinux install jira-atlassian-mcp` registers the bare `https://mcp.atlassian.com/v1/mcp/authv2` into every installed MCP-capable agent — no root, zero EACCES; it appears in each present agent's config. ✓
+  2. NO credential is baked (ADR-017): entry stores only the URL; `install` prints the in-client Atlassian-OAuth pointer + the cloud-only note; `requires_secret: true` doc flag, no `secret_env`; no Atlassian token (`ATATT`/`ATCTT`) in any config. ✓
+  3. `agentlinux remove jira-atlassian-mcp` deregisters symmetrically across all agents — no residue; idempotent re-remove. ✓
+  4. ≥1 bats @test (register bare URL → verify no-token fan-out → hosted-only recipe → deregister) is green — TST-07 gate. ✓ (`tests/bats/65-catalog-jira-atlassian-mcp.bats`)
+**Plans**: executed inline (recipe pair + catalog entry + bats 65 + docs); offline smoke green.
 
 ### Phase 44: spec-kit
 **Goal**: Make spec-kit (GitHub Spec Kit) installable + removable via the catalog, AND deliver the Python+uv-bootstrap enabler (ENABLE-03).
@@ -411,7 +412,7 @@ Plans:
 | 40. firecrawl-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 41. slack-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 42. linear-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
-| 43. jira-atlassian-mcp | 0/TBD | Not started | - |
+| 43. jira-atlassian-mcp | 1/1 | ✓ Complete (Docker pending) | 2026-07-14 |
 | 44. spec-kit 🔧 | 0/TBD | Not started | - |
 | 45. claude-flow | 0/TBD | Not started | - |
 | 46. bmad | 0/TBD | Not started | - |
