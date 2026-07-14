@@ -15,7 +15,10 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v claude && claude --version",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["agent", "anthropic"]
+      "tags": [
+        "agent",
+        "anthropic"
+      ]
     },
     {
       "id": "gsd",
@@ -31,7 +34,10 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v get-shit-done-cc",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["workflow", "productivity"]
+      "tags": [
+        "workflow",
+        "productivity"
+      ]
     },
     {
       "id": "playwright-cli",
@@ -47,7 +53,11 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v playwright-cli && playwright-cli --version",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["browser", "automation", "agent-skill"]
+      "tags": [
+        "browser",
+        "automation",
+        "agent-skill"
+      ]
     },
     {
       "id": "codex",
@@ -63,7 +73,11 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v codex && codex --version",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["agent", "openai", "coding-agent"]
+      "tags": [
+        "agent",
+        "openai",
+        "coding-agent"
+      ]
     },
     {
       "id": "gemini-cli",
@@ -79,7 +93,11 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v gemini && gemini --version",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["agent", "google", "coding-agent"]
+      "tags": [
+        "agent",
+        "google",
+        "coding-agent"
+      ]
     },
     {
       "id": "opencode",
@@ -95,7 +113,10 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v opencode && opencode --version",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["agent", "coding-agent"]
+      "tags": [
+        "agent",
+        "coding-agent"
+      ]
     },
     {
       "id": "qwen-code",
@@ -111,7 +132,11 @@
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v qwen && qwen --version",
       "preserve_paths_file": "preserve_paths.json",
-      "tags": ["agent", "qwen", "coding-agent"]
+      "tags": [
+        "agent",
+        "qwen",
+        "coding-agent"
+      ]
     },
     {
       "id": "ccusage",
@@ -126,7 +151,11 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v ccusage && ccusage --version",
-      "tags": ["workflow", "cost", "token"]
+      "tags": [
+        "workflow",
+        "cost",
+        "token"
+      ]
     },
     {
       "id": "rtk",
@@ -140,7 +169,11 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v rtk && rtk --version",
-      "tags": ["token", "workflow", "devops"]
+      "tags": [
+        "token",
+        "workflow",
+        "devops"
+      ]
     },
     {
       "id": "gh",
@@ -155,7 +188,11 @@
       "uninstall_recipe_path": "uninstall.sh",
       "preserve_paths_file": "preserve_paths.json",
       "post_install_verify": "command -v gh && gh --version",
-      "tags": ["devops", "git", "github"]
+      "tags": [
+        "devops",
+        "git",
+        "github"
+      ]
     },
     {
       "id": "glab",
@@ -170,7 +207,11 @@
       "uninstall_recipe_path": "uninstall.sh",
       "preserve_paths_file": "preserve_paths.json",
       "post_install_verify": "command -v glab && glab --version",
-      "tags": ["devops", "git", "gitlab"]
+      "tags": [
+        "devops",
+        "git",
+        "gitlab"
+      ]
     },
     {
       "id": "trivy",
@@ -184,7 +225,11 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v trivy && trivy --version",
-      "tags": ["devops", "security", "scanner"]
+      "tags": [
+        "devops",
+        "security",
+        "scanner"
+      ]
     },
     {
       "id": "gitleaks",
@@ -198,7 +243,11 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v gitleaks && gitleaks version",
-      "tags": ["devops", "security", "scanner"]
+      "tags": [
+        "devops",
+        "security",
+        "scanner"
+      ]
     },
     {
       "id": "sentry-cli",
@@ -213,7 +262,11 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "command -v sentry-cli && sentry-cli --version",
-      "tags": ["devops", "observability", "sentry"]
+      "tags": [
+        "devops",
+        "observability",
+        "sentry"
+      ]
     },
     {
       "id": "chrome-devtools-mcp",
@@ -227,7 +280,11 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "post_install_verify": "jq -e '.mcpServers[\"chrome-devtools-mcp\"]' /home/agent/.claude.json",
-      "tags": ["mcp", "browser", "devtools"]
+      "tags": [
+        "mcp",
+        "browser",
+        "devtools"
+      ]
     },
     {
       "id": "context7",
@@ -243,7 +300,11 @@
       "requires_secret": false,
       "secret_env": "CONTEXT7_API_KEY",
       "post_install_verify": "jq -e '.mcpServers[\"context7\"]' /home/agent/.claude.json",
-      "tags": ["mcp", "docs", "context"]
+      "tags": [
+        "mcp",
+        "docs",
+        "context"
+      ]
     },
     {
       "id": "github-mcp",
@@ -259,7 +320,11 @@
       "uninstall_recipe_path": "uninstall.sh",
       "requires_secret": true,
       "post_install_verify": "jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:github-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"github-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
-      "tags": ["mcp", "devops", "github"]
+      "tags": [
+        "mcp",
+        "devops",
+        "github"
+      ]
     },
     {
       "id": "sentry-mcp",
@@ -275,7 +340,31 @@
       "uninstall_recipe_path": "uninstall.sh",
       "requires_secret": true,
       "post_install_verify": "jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:sentry-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"sentry-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
-      "tags": ["mcp", "observability", "sentry"]
+      "tags": [
+        "mcp",
+        "observability",
+        "sentry"
+      ]
+    },
+    {
+      "id": "firecrawl-mcp",
+      "display_name": "Firecrawl MCP",
+      "description": "Firecrawl's hosted remote MCP server (web scrape, search, crawl, map, extract) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare KEYLESS remote-http endpoint — scrape/search/interact work out of the box with no signup; crawl/map/extract need a free personal key (Free plan: 1,000 credits/month, no card) added in-client via the key-in-URL-path. No credential stored by AgentLinux.",
+      "homepage": "https://github.com/firecrawl/firecrawl-mcp-server",
+      "license": "MIT",
+      "source_kind": "mcp",
+      "pinned_version": "3.22.3",
+      "endpoint_url": "https://mcp.firecrawl.dev/v2/mcp",
+      "compatibility_window": ">=3.22.3 <4.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": false,
+      "post_install_verify": "jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:firecrawl-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"firecrawl-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "scraping",
+        "firecrawl"
+      ]
     },
     {
       "id": "test-dummy",
@@ -286,7 +375,9 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "test_only": true,
-      "tags": ["test-only"]
+      "tags": [
+        "test-only"
+      ]
     }
   ]
 }

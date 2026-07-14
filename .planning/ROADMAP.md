@@ -33,7 +33,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [ ] **Phase 37: sentry-mcp** `[mcp]` - Sentry MCP (npx+token or hosted OAuth; FSL)
 - [ ] **Phase 38: gitlab-mcp** `[mcp]` - GitLab MCP registerable + deregisterable
 - [ ] **Phase 39: brave-search-mcp** `[mcp]` - DROPPED 2026-07-14 (Feb-2026 free tier removed; mandatory card + metered billing) — MCP-06 deferred
-- [ ] **Phase 40: firecrawl-mcp** `[mcp]` - Firecrawl MCP (pinned from npm) registerable + deregisterable
+- [x] **Phase 40: firecrawl-mcp** `[mcp]` - Firecrawl MCP registerable + deregisterable ✓ COMPLETE (hosted keyless bare-URL, ADR-017 thin installer; cleared the free-tier gate gitlab/brave failed)
 - [ ] **Phase 41: slack-mcp** `[mcp]` - Slack MCP (xoxp preferred; stealth-mode warned)
 - [ ] **Phase 42: linear-mcp** 🔧 `[mcp]` - Linear MCP + remote-http/OAuth handling enabler
 - [ ] **Phase 43: jira-atlassian-mcp** `[mcp]` - Atlassian Rovo MCP (remote-http OAuth, cloud-only)
@@ -260,17 +260,18 @@ Plans:
 **Machinery** (not shipped): `[mcp]` · `@brave/brave-search-mcp-server@2.0.85` (MIT) · stdio or self-host HTTP · `BRAVE_API_KEY` (paid/metered, card required — NOT free)
 **Plans**: n/a (dropped)
 
-### Phase 40: firecrawl-mcp
+### Phase 40: firecrawl-mcp ✓ COMPLETE
 **Goal**: Make firecrawl-mcp (Firecrawl MCP server) registerable + deregisterable via the catalog.
-**Depends on**: Phase 39 (ENABLE-02 MCP entry kind)
+**Depends on**: Phase 37 (ADR-017 thin-installer + credential-free remote-http helper)
 **Requirements**: MCP-07
-**Machinery**: `[mcp]` · pin `firecrawl-mcp@3.22.1` (**from npm**, NOT the stale GitHub tag) · npx + `FIRECRAWL_API_KEY`
+**Machinery**: `[mcp]` · **hosted remote-http** (ADR-017 prefer-hosted) · bare KEYLESS endpoint `https://mcp.firecrawl.dev/v2/mcp` · `pinned_version 3.22.3` (the validated upstream `firecrawl-mcp` release) · MIT
+**Source decision (2026-07-14)**: firecrawl **clears** the ADR-017 source-selection gate that gitlab (38) + brave (39) failed — official first-party MCP, MIT, and a **genuinely card-free recurring free tier** (Free plan: 1,000 credits/month, "no cost, no card"). Qualifies as "free first party = auto-GO." Roadmap's npx-stdio+`FIRECRAWL_API_KEY` plan **superseded**: Firecrawl offers an official hosted endpoint with a KEYLESS tier, so we register the bare keyless URL via the credential-free `al_mcp_register_http` helper (cross-agent fan-out, ADR-017), like sentry-mcp. Works out of the box; a personal key (or self-host) is the user's optional in-client upgrade.
 **Success Criteria** (what must be TRUE):
-  1. `agentlinux install firecrawl-mcp` registers the pinned `firecrawl-mcp@3.22.1` resolved **from npm** (NOT the stale GitHub tag) via `claude mcp add --scope user` (no root, zero EACCES); it appears in `~/.claude.json`.
-  2. The `FIRECRAWL_API_KEY` is NOT baked — `install` prints the post-install instruction.
-  3. `agentlinux remove firecrawl-mcp` deregisters symmetrically — no residue.
-  4. ≥1 bats @test (register at npm pin → verify → deregister) is green — TST-07 gate.
-**Plans**: TBD
+  1. `agentlinux install firecrawl-mcp` registers the bare keyless `https://mcp.firecrawl.dev/v2/mcp` into every installed MCP-capable agent (claude/codex/gemini/opencode/qwen) — no root, zero EACCES; it appears in each present agent's config. ✓
+  2. NO credential is baked (ADR-017): the entry stores only the URL; `install` prints the keyless / optional-key upgrade pointer; `requires_secret: false`, no `secret_env`. ✓
+  3. `agentlinux remove firecrawl-mcp` deregisters symmetrically across all agents — no residue; idempotent re-remove. ✓
+  4. ≥1 bats @test (register bare URL → verify no-credential fan-out → deregister) is green — TST-07 gate. ✓ (`tests/bats/62-catalog-firecrawl-mcp.bats`)
+**Plans**: executed inline (recipe pair + catalog entry + bats 62 + docs); offline smoke green.
 
 ### Phase 41: slack-mcp
 **Goal**: Make slack-mcp (Slack MCP server) registerable + deregisterable via the catalog.
@@ -406,7 +407,7 @@ Plans:
 | 37. sentry-mcp | 1/1 | Complete | 2026-07-13 |
 | 38. gitlab-mcp | 0/0 | Dropped | 2026-07-13 |
 | 39. brave-search-mcp | 0/0 | Dropped | 2026-07-14 |
-| 40. firecrawl-mcp | 0/TBD | Not started | - |
+| 40. firecrawl-mcp | 1/1 | ✓ Complete (Docker pending) | 2026-07-14 |
 | 41. slack-mcp | 0/TBD | Not started | - |
 | 42. linear-mcp 🔧 | 0/TBD | Not started | - |
 | 43. jira-atlassian-mcp | 0/TBD | Not started | - |
