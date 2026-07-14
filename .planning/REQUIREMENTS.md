@@ -14,7 +14,7 @@
 
 - [x] **ENABLE-01**: Catalog supports a **prebuilt-binary** entry kind — fetches a pinned release, verifies its checksum, installs the binary to `~/.local/bin` (agent-owned, no root, no `/usr/local` shim), and `remove` deletes the binary + its config/cache symmetrically.
 - [x] **ENABLE-02**: Catalog supports **MCP-server** entries — `install` registers via `claude mcp add --scope user` (npx-stdio and remote-http shapes) into every installed MCP-capable client; `remove` deregisters symmetrically. **Governing convention (ADR-017, locked 2026-07-13): MCP entries are THIN CLIENT-CONFIG INSTALLERS — register the BARE server (URL for remote; launch command for stdio-only), bake NO credential (no literal, no env-var reference, no header), and let the user authenticate IN-CLIENT (in-client OAuth for remote servers). Prefer the hosted/remote endpoint wherever one exists; stdio is a fallback for npx-only tools. `requires_secret` remains a documentation flag ("needs in-client auth"); `secret_env` is dropped from register-only entries. The install prints a one-line "authenticate in your client" pointer.** Supersedes the credential-injection approach in the first github-mcp cut (now retrofitted). *(Phase 34 delivers the npx-stdio shape + `source_kind: "mcp"` + the `requires_secret`/`secret_env` schema convention; the secret-instruction path is first exercised by Phase 35 (context7); the **remote-http shape + a shared cross-agent registration helper (fan-out into claude-code/codex/gemini-cli/opencode/qwen-code) landed early in Phase 36 (github-mcp)** — pulled forward from the tentative Phase 42 slot per the maintainer's cross-agent decision — and Phase 42 (linear-mcp) adds only the OAuth-login nuance on top.)*
-- [ ] **ENABLE-03**: Catalog supports **Python+uv** entries via a per-user `uv` bootstrap (`~/.local/bin`, no root); install via `uv tool`/`uvx`, with symmetric uninstall.
+- [x] **ENABLE-03**: Catalog supports **Python+uv** entries via a per-user `uv` bootstrap (`~/.local/bin`, no root); install via `uv tool`, with symmetric uninstall. Delivered by `plugin/catalog/lib/uv-bootstrap.sh` (checksum-verified static-musl uv via the ENABLE-01 helper; marker-gated managed-uv teardown; never clobbers a user-brought uv). Covered by `tests/bats/66-catalog-spec-kit.bats` (Docker-green 3/3).
 - [ ] **ENABLE-04**: Catalog supports **AI-assistant daemon** entries — `install` sets up a per-user background service; `remove` tears it down symmetrically (no stray daemon, unit, or state).
 - [x] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern. *(Phase 23 — codex `check_for_update_on_startup=false`)*
 - [ ] **ENABLE-06**: `agentlinux list` groups catalog entries by **category/tags** (coding-agent · mcp · devops · token/workflow · assistant).
@@ -69,7 +69,7 @@
 
 - [x] **WORK-01**: `agentlinux install ccusage` installs ccusage (npm; read-only cost reporter); symmetric remove.
 - [x] **WORK-02**: `agentlinux install rtk` installs RTK / Rust Token Killer (**prebuilt binary, source-pinned to `rtk-ai/rtk` — never `cargo install rtk`** = the crates.io "Rust Type Kit" collision); optional `rtk init` hook into `~/.claude` is opt-in with symmetric `--uninstall`; `remove` reverts binary + hook.
-- [ ] **WORK-03**: `agentlinux install spec-kit` installs GitHub Spec Kit (`specify-cli` via uv, ENABLE-03); symmetric remove (+ project `.specify/` documented as user-owned).
+- [x] **WORK-03**: `agentlinux install spec-kit` installs GitHub Spec Kit (`specify-cli` via uv from the git tag `v0.12.11`, ENABLE-03); symmetric remove (+ project `.specify/` preserved as user-owned). OPS-01 real op (`specify init` scaffolds a project) green. Covered by `tests/bats/66-catalog-spec-kit.bats` (Docker 3/3).
 - [ ] **WORK-04** *(DROPPED 2026-07-14 — deferred)*: claude-flow not shipped. Maintainer judged it too niche for the first-release cohort; the structured multi-agent-workflow need is covered by spec-kit (WORK-03) and GSD, both far more popular. Demand/prioritization drop, not a source-gate failure — `claude-flow@3.14.4` is npm + MIT + a clean per-user install fit. Cheaply revisitable via the ENABLE-07 growth-kit template.
 - [ ] **WORK-05** *(DROPPED 2026-07-14 — deferred)*: bmad not shipped. Same rationale as WORK-04 — spec-kit/GSD cover the spec-driven-workflow need and are far more popular. Demand drop, not a source-gate failure — `bmad-method@6.9.0` is npm + MIT. Revisitable via the ENABLE-07 growth-kit template.
 
@@ -163,8 +163,8 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | MCP-08 | Phase 41 | slack-mcp — official first-party hosted bare-URL (ADR-017); stealth-token plan superseded | ✓ Covered (Docker 2/2 green) |
 | MCP-09 | Phase 42 | linear-mcp — official first-party hosted bare-URL (ADR-017); free-tier confirmed | ✓ Covered (Docker 2/2 green) |
 | MCP-10 | Phase 43 | jira-atlassian-mcp — official first-party hosted bare-URL (ADR-017); free-tier confirmed; cloud-only | ✓ Covered (Docker 2/2 green) |
-| WORK-03 | Phase 44 | spec-kit 🔧 | Pending |
-| ENABLE-03 | Phase 44 | Python+uv bootstrap 🔧 | Pending |
+| WORK-03 | Phase 44 | spec-kit 🔧 | Complete (Docker 3/3) |
+| ENABLE-03 | Phase 44 | Python+uv bootstrap 🔧 | Complete (Docker 3/3) |
 | WORK-04 | Phase 45 | claude-flow — DROPPED (niche for first cohort; spec-kit/GSD cover the need) | Deferred |
 | WORK-05 | Phase 46 | bmad — DROPPED (niche for first cohort; spec-kit/GSD cover the need) | Deferred |
 | ASST-01 | Phase 47 | openclaw 🔧 | Pending |

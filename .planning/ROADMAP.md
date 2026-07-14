@@ -37,7 +37,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 41: slack-mcp** `[mcp]` - Slack MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.slack.com`, ADR-017 thin installer; supersedes the third-party stealth-token plan)
 - [x] **Phase 42: linear-mcp** `[mcp]` - Linear MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.linear.app`, ADR-017 thin installer; free-tier confirmed; OAuth enabler already shipped in 36/37)
 - [x] **Phase 43: jira-atlassian-mcp** `[mcp]` - Atlassian Rovo MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.atlassian.com`, ADR-017 thin installer; free-tier 500 calls/hr confirmed; cloud-only)
-- [ ] **Phase 44: spec-kit** 🔧 `[uv]` - GitHub Spec Kit + Python+uv-bootstrap enabler (ENABLE-03)
+- [x] **Phase 44: spec-kit** 🔧 `[uv]` - GitHub Spec Kit + Python+uv-bootstrap enabler (ENABLE-03) ✓ COMPLETE (Docker 3/3; uv bootstrap + git-tag `uv tool install`; pin corrected 0.11.9→v0.12.11)
 - [ ] **Phase 45: claude-flow** `[npm]` - DROPPED 2026-07-14 (maintainer: niche for the first-release cohort) — WORK-04 deferred
 - [ ] **Phase 46: bmad** `[npm]` - DROPPED 2026-07-14 (maintainer: spec-kit/GSD cover the need, far more popular) — WORK-05 deferred
 - [ ] **Phase 47: openclaw** 🔧 `[daemon]` - OpenClaw + AI-assistant daemon-lifecycle enabler (ENABLE-04)
@@ -316,14 +316,15 @@ Plans:
 **Goal**: Make spec-kit (GitHub Spec Kit) installable + removable via the catalog, AND deliver the Python+uv-bootstrap enabler (ENABLE-03).
 **Depends on**: Phase 43. First consumer of the Python+uv entry kind.
 **Requirements**: WORK-03, ENABLE-03
-**Machinery**: `[uv]` · 🔧 ENABLE-03 Python+uv bootstrap · pin `specify-cli@0.11.9` (via uv) · project `.specify/` documented as user-owned
+**Machinery**: `[uv]` · 🔧 ENABLE-03 Python+uv bootstrap · **source_kind `script`** (no new enum — the CLI runs script/binary/mcp recipes identically) · pin **`v0.12.11` git tag** (roadmap's `specify-cli@0.11.9` was stale + wrong shape — spec-kit installs `uv tool install specify-cli --from git+…@vX.Y.Z`, verified vs upstream README + a real smoke) · uv binary bootstrap pin `0.11.28` (static musl) · project `.specify/` user-owned · **git is a host prereq** (uv installs from a git ref; recipe preflights it)
+**Source decision (2026-07-14)**: **Auto-GO** — GitHub Spec Kit is an official first-party GitHub project, MIT, free, actively maintained. Free-first-party = no maintainer review needed. No credential dimension (offline/local dev tool).
 **Success Criteria** (what must be TRUE):
-  1. ENABLE-03: the catalog supports Python+uv entries — a per-user `uv` bootstraps into `~/.local/bin` (no root); install uses `uv tool`/`uvx`; uninstall is symmetric.
-  2. `agentlinux install spec-kit` installs `specify-cli@0.11.9` via uv as the agent user (no root, zero EACCES); `specify` resolves on PATH.
-  3. Project `.specify/` is documented as user-owned and is NOT removed by `agentlinux remove`.
-  4. `agentlinux remove spec-kit` uninstalls the uv tool symmetrically — no residue (user `.specify/` preserved); idempotent.
-  5. ≥1 bats @test (uv bootstrap → install → verify → remove) is green — TST-07 gate.
-**Plans**: TBD
+  1. ENABLE-03: the catalog supports Python+uv entries — a per-user `uv` bootstraps into `~/.local/bin` (no root); install uses `uv tool`; uninstall is symmetric. ✓
+  2. `agentlinux install spec-kit` installs `specify-cli` (git tag v0.12.11) via uv as the agent user (no root, zero EACCES); `specify` resolves at `~/.local/bin`. ✓
+  3. Project `.specify/` is user-owned and is NOT removed by `agentlinux remove`. ✓
+  4. `agentlinux remove spec-kit` uninstalls the uv tool symmetrically + tears down the AgentLinux-managed uv (marker-gated, only if no uv tools remain), never a user-brought uv; idempotent. ✓
+  5. ≥1 bats @test (uv bootstrap → install → OPS-01 `specify init` → symmetric remove) green — TST-07 gate. ✓ (`tests/bats/66-catalog-spec-kit.bats`, Docker 3/3)
+**Plans**: executed inline (uv-bootstrap helper + recipe pair + catalog entry + bats 66 + docs); real end-to-end smoke + Docker 3/3 green.
 
 ### Phase 45: claude-flow
 **Goal**: Make claude-flow (Claude-Flow) installable + removable via the catalog, with full-footprint symmetric remove.
@@ -405,7 +406,7 @@ Plans:
 | 41. slack-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 42. linear-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 43. jira-atlassian-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
-| 44. spec-kit 🔧 | 0/TBD | Not started | - |
+| 44. spec-kit 🔧 | 1/1 | ✓ Complete (Docker 3/3 green) | 2026-07-14 |
 | 45. claude-flow | 0/0 | Dropped | 2026-07-14 |
 | 46. bmad | 0/0 | Dropped | 2026-07-14 |
 | 47. openclaw 🔧 | 0/TBD | Not started | - |
