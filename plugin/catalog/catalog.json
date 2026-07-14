@@ -427,6 +427,22 @@
       ]
     },
     {
+      "id": "spec-kit",
+      "display_name": "GitHub Spec Kit",
+      "description": "Spec-Driven Development toolkit — the `specify` CLI scaffolds and manages executable specifications that drive AI coding agents. Bootstraps a per-user uv (no root) and installs the Python CLI from its pinned git tag; the project `.specify/` directory is user-owned and is never removed on uninstall.",
+      "homepage": "https://github.com/github/spec-kit",
+      "license": "MIT",
+      "source_kind": "script",
+      "pinned_version": "0.12.11",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v specify && specify --version",
+      "tags": [
+        "workflow",
+        "spec-driven"
+      ]
+    },
+    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",

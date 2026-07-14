@@ -95,6 +95,7 @@ RUN apt-get update && \
       bats locales sudo \
       dbus \
       jq \
+      git \
       curl \
       python3 \
       file \

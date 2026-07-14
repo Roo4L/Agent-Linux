@@ -59,8 +59,8 @@ shipped in every release tarball. It holds the real entries (the
 originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, gemini-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
-npm-distributed Sentry CLI; and the MCP servers chrome-devtools-mcp,
-context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp, slack-mcp, linear-mcp, and jira-atlassian-mcp) plus one `test_only` fixture exercised only by
+npm-distributed Sentry CLI; the MCP servers chrome-devtools-mcp,
+context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp, slack-mcp, linear-mcp, and jira-atlassian-mcp; and the uv-bootstrapped GitHub Spec Kit CLI spec-kit) plus one `test_only` fixture exercised only by
 bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
@@ -112,8 +112,11 @@ servers a coding agent talks to. The catalog's `source_kind` field names
 how an entry is installed, and it now understands four values:
 
 - `npm` — install the pinned package into the agent-owned npm prefix.
-- `script` — run the upstream's own install script (how Claude Code
-  installs).
+- `script` — run the recipe's own install logic. This covers both a
+  tool that ships its own installer (how Claude Code installs) and one
+  that needs a small bootstrap first — Spec Kit's recipe bootstraps a
+  per-user `uv` and then installs a git-pinned Python CLI (see "The uv
+  bootstrap" below).
 - `binary` — fetch a pinned release artifact, verify its checksum, and
   drop the binary into the agent's own `~/.local/bin`.
 - `mcp` — register a Model Context Protocol server into the coding
@@ -165,6 +168,39 @@ binary. The authenticated ones — `gh` and `glab` — delete the binary
 but *preserve* their auth config (`~/.config/gh`, `~/.config/glab`) on
 remove, the same way every other authenticated agent keeps its
 credentials; only a full agent-home purge wipes them.
+
+## The uv bootstrap: Python tools without a system Python
+
+AgentLinux provisions a Node.js runtime, not Python — but some of the
+best agent tooling is written in Python. GitHub Spec Kit is the first
+such tool, and it exposed a general need: install a pinned Python CLI
+per-user, with no root, no system Python, and a clean remove. The answer
+is [Astral's `uv`](https://github.com/astral-sh/uv) — a single static
+binary that both manages its own CPython and installs Python CLIs as
+isolated "tools." A second shared helper,
+`plugin/catalog/lib/uv-bootstrap.sh`, packages the pattern so any Python
+tool is again a catalog entry plus a thin recipe.
+
+The helper bootstraps `uv` itself through the *same* checksum-verified
+fetch the prebuilt-binary tools use (uv ships static musl builds and a
+combined checksum file), dropping it into the agent's own `~/.local/bin`.
+`uv tool install` then builds the CLI from its pinned upstream — Spec Kit
+installs from a git tag, `uv tool install specify-cli --from
+git+…@v0.12.11`, and `uv` downloads a managed CPython so the host needs
+none. Because that source is a git ref, `git` is the one host prerequisite
+(Spec Kit is a git-centric workflow tool anyway); the recipe checks for it
+and fails with a clear message rather than a cryptic build error. The
+installed `specify` lands on `~/.local/bin`, already on PATH.
+
+Two ownership rules keep remove honest. First, the helper never clobbers
+a `uv` the user brought — if `uv` is already on PATH it is reused, and
+only a `uv` AgentLinux installed itself (recorded by a marker file) is
+ever removed. Second, that managed `uv` is torn down only once no `uv`
+tools remain, so removing one Python tool never breaks another. And a
+project's `.specify/` directory — the user's actual spec-driven work —
+is outside the tool footprint entirely: `agentlinux remove spec-kit`
+uninstalls the CLI and, if it owns the last `uv`, the runtime, but never
+touches a `.specify/` anywhere.
 
 ## The MCP source kind
 
