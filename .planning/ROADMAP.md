@@ -347,6 +347,13 @@ Plans:
 **Depends on**: Phase 44 (npm machinery; Phases 45–46 dropped). First consumer of the AI-assistant daemon entry kind.
 **Requirements**: ASST-01, ENABLE-04
 **Machinery**: `[daemon]` · 🔧 ENABLE-04 AI-assistant daemon lifecycle · pin `openclaw@2026.6.10` (npm + per-user daemon) · self-updater coexistence per ENABLE-05
+**Source decision (2026-07-14)**: **GO (maintainer: build both ASST tools)**. openclaw = `openclaw/openclaw` (steipete), MIT, ~383k stars, self-hosted per-user daemon, BYO provider key, no paid backend — vetted per policy (daemon-class = not auto-GO, reviewed + approved). Node engines `>=22.19.0` satisfied by AgentLinux's Node 22 (latest v22.23.1).
+**De-risk research (2026-07-14, container probe — findings for the build):**
+  - Install: `npm install -g openclaw@2026.6.10` works as agent (agent npm prefix, no root, 297 pkgs, `openclaw` on PATH). Has a `postinstall` script (benign in probe).
+  - Daemon lifecycle commands: `openclaw daemon {install,start,stop,restart,status,uninstall}` (native launchd/systemd), `openclaw gateway …` (run gateway as a plain process — testable without systemd), `openclaw health` / `openclaw status`, `openclaw doctor`. State dir `~/.openclaw` (mode 0700).
+  - **Non-interactive + no-secret**: `openclaw onboard --non-interactive --accept-risk --auth-choice skip` sets up without baking any provider key (secrets NOT baked ✓).
+  - **KEY CONSTRAINT**: `openclaw daemon install` uses **systemd `--user`** (linger) — the **Docker harness masks `systemd-logind`** (no `/run/user`, no user bus), so the systemd-user daemon path is **NOT testable in Docker** → it is a **QEMU-gated behavior** (ADR-007). Docker bats must verify the daemon via the **process-level `openclaw gateway` + `openclaw health`** path; the systemd-user install/linger lifecycle gets a QEMU test.
+  - ENABLE-04 helper (proposed): `plugin/catalog/lib/daemon-lifecycle.sh` — enable-linger (agent sudo per ADR-012) + `openclaw daemon install/start`, a health-probe, and a symmetric `daemon uninstall` + `~/.openclaw` teardown + linger revert. Disable openclaw auto-update for ENABLE-05.
 **Success Criteria** (what must be TRUE):
   1. ENABLE-04: the catalog supports AI-assistant daemon entries — `install` sets up a per-user background service (no root); `remove` tears it down with no stray daemon, unit, or state.
   2. `agentlinux install openclaw` installs `openclaw@2026.6.10` (npm + per-user daemon) as the agent user (no root, zero EACCES); the daemon runs per-user.
@@ -360,8 +367,9 @@ Plans:
 **Depends on**: Phase 47 (ENABLE-04 AI-assistant daemon entry kind)
 **Requirements**: ASST-02
 **Machinery**: `[daemon]` · pin `2026.6.19` (curl installer + per-user daemon/gateway)
+**Source decision (2026-07-14)**: **GO (maintainer: build both ASST tools)**. Official = **`NousResearch/hermes-agent`** (Nous Research), open-source, ~214k stars, official curl installer `curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash` (installs uv + Python 3.11 + clones repo, no sudo), per-user daemon/gateway, BYO provider key. **Do NOT use the npm `hermes-agent`** (wyrtensi) — that is an UNOFFICIAL third-party bridge (v0.18.2), a different artifact. Supply-chain note: the official install is curl-pipe-bash; assess pinning/verification against AgentLinux's own installer bar (the curl-installer verifies sha256). Reuses ENABLE-04 from Phase 47.
 **Success Criteria** (what must be TRUE):
-  1. `agentlinux install hermes-agent` installs `hermes-agent` `2026.6.19` (curl installer + per-user daemon/gateway) as the agent user (no root, zero EACCES); the daemon/gateway runs per-user.
+  1. `agentlinux install hermes-agent` installs `hermes-agent` `2026.6.19` (official Nous Research curl installer + per-user daemon/gateway) as the agent user (no root, zero EACCES); the daemon/gateway runs per-user.
   2. Secrets are NOT baked — any gateway credentials supplied post-install.
   3. `agentlinux remove hermes-agent` tears down the daemon + gateway + state symmetrically — no residue; idempotent.
   4. ≥1 bats @test (install → daemon/gateway-up verify → remove → gone) is green — TST-07 gate.
