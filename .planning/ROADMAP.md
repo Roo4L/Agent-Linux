@@ -35,7 +35,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [ ] **Phase 39: brave-search-mcp** `[mcp]` - DROPPED 2026-07-14 (Feb-2026 free tier removed; mandatory card + metered billing) — MCP-06 deferred
 - [x] **Phase 40: firecrawl-mcp** `[mcp]` - Firecrawl MCP registerable + deregisterable ✓ COMPLETE (hosted keyless bare-URL, ADR-017 thin installer; cleared the free-tier gate gitlab/brave failed)
 - [x] **Phase 41: slack-mcp** `[mcp]` - Slack MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.slack.com`, ADR-017 thin installer; supersedes the third-party stealth-token plan)
-- [ ] **Phase 42: linear-mcp** 🔧 `[mcp]` - Linear MCP + remote-http/OAuth handling enabler
+- [x] **Phase 42: linear-mcp** `[mcp]` - Linear MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.linear.app`, ADR-017 thin installer; free-tier confirmed; OAuth enabler already shipped in 36/37)
 - [ ] **Phase 43: jira-atlassian-mcp** `[mcp]` - Atlassian Rovo MCP (remote-http OAuth, cloud-only)
 - [ ] **Phase 44: spec-kit** 🔧 `[uv]` - GitHub Spec Kit + Python+uv-bootstrap enabler (ENABLE-03)
 - [ ] **Phase 45: claude-flow** `[npm]` - Claude-Flow (full-footprint symmetric remove)
@@ -286,18 +286,18 @@ Plans:
   4. ≥1 bats @test (register bare URL → verify no-token fan-out → first-party-only recipe → deregister) is green — TST-07 gate. ✓ (`tests/bats/63-catalog-slack-mcp.bats`)
 **Plans**: executed inline (recipe pair + catalog entry + bats 63 + docs); offline smoke green.
 
-### Phase 42: linear-mcp
-**Goal**: Make linear-mcp (official Linear MCP) registerable + deregisterable via the catalog, AND deliver the remote-http/OAuth handling enabler.
-**Depends on**: Phase 41. First consumer of the remote-http + OAuth MCP shape (extends ENABLE-02).
+### Phase 42: linear-mcp ✓ COMPLETE
+**Goal**: Make linear-mcp (official Linear MCP) registerable + deregisterable via the catalog.
+**Depends on**: Phase 37 (ADR-017 thin-installer + credential-free remote-http helper)
 **Requirements**: MCP-09
-**Machinery**: `[mcp]` · 🔧 remote-http/OAuth handling · remote-http `https://mcp.linear.app/mcp` · OAuth via `claude mcp login --no-browser` · **no version pin** (hosted, rolling)
+**Machinery**: `[mcp]` · **official first-party hosted remote-http** · bare endpoint `https://mcp.linear.app/mcp` · `pinned_version 2025.5.1` (GA date; no downloadable release) · no package license (proprietary hosted service)
+**Source decision (2026-07-14)**: **Auto-GO** — Linear ships an official first-party hosted MCP (GA May 2025) at `https://mcp.linear.app/mcp` (Streamable HTTP, OAuth 2.1), and research **confirmed it is free-tier usable** (MCP rides on Linear's GraphQL API, a Free-plan core feature — NOT gated behind a paid plan, unlike the dropped gitlab endpoint; a pricing-table "MCP=Business" claim was verified to be a page-scrape hallucination). The roadmap's 🔧 "remote-http/OAuth **enabler**" is moot — that machinery shipped in Phase 36/37 (`al_mcp_register_http`, credential-free). Per **ADR-017** the recipe does NOT drive `claude mcp login`/`logout`: it registers the bare URL and bakes nothing; the user OAuths in-client; `remove` just deregisters (there is no AgentLinux-held token to log out).
 **Success Criteria** (what must be TRUE):
-  1. Remote-http/OAuth handling: catalog MCP entries support the remote-http shape with OAuth — `install` registers `https://mcp.linear.app/mcp` and drives `claude mcp login --no-browser`; `remove` deregisters AND runs `claude mcp logout`.
-  2. `agentlinux install linear-mcp` registers the official hosted Linear MCP (no version pin — hosted/rolling); it appears in `~/.claude.json`.
-  3. OAuth credentials are user-supplied via login — never baked.
-  4. `agentlinux remove linear-mcp` deregisters AND logs out — no residue, no lingering OAuth token.
-  5. ≥1 bats @test (remote-http register → verify → deregister+logout) is green — TST-07 gate.
-**Plans**: TBD
+  1. `agentlinux install linear-mcp` registers the bare `https://mcp.linear.app/mcp` into every installed MCP-capable agent — no root, zero EACCES; it appears in each present agent's config. ✓
+  2. NO credential is baked (ADR-017): entry stores only the URL; `install` prints the in-client Linear-OAuth pointer; `requires_secret: true` doc flag, no `secret_env`; no Linear token (`lin_api_`/`lin_oauth_`) in any config. ✓
+  3. `agentlinux remove linear-mcp` deregisters symmetrically across all agents — no residue; idempotent re-remove. ✓
+  4. ≥1 bats @test (register bare URL → verify no-token fan-out → hosted-only recipe → deregister) is green — TST-07 gate. ✓ (`tests/bats/64-catalog-linear-mcp.bats`)
+**Plans**: executed inline (recipe pair + catalog entry + bats 64 + docs); offline smoke green.
 
 ### Phase 43: jira-atlassian-mcp
 **Goal**: Make jira-atlassian-mcp (official Atlassian Rovo MCP) registerable + deregisterable via the catalog.
@@ -410,7 +410,7 @@ Plans:
 | 39. brave-search-mcp | 0/0 | Dropped | 2026-07-14 |
 | 40. firecrawl-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 41. slack-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
-| 42. linear-mcp 🔧 | 0/TBD | Not started | - |
+| 42. linear-mcp | 1/1 | ✓ Complete (Docker pending) | 2026-07-14 |
 | 43. jira-atlassian-mcp | 0/TBD | Not started | - |
 | 44. spec-kit 🔧 | 0/TBD | Not started | - |
 | 45. claude-flow | 0/TBD | Not started | - |

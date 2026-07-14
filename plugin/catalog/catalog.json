@@ -386,6 +386,25 @@
       ]
     },
     {
+      "id": "linear-mcp",
+      "display_name": "Linear MCP",
+      "description": "Linear's official hosted remote MCP server (issues, projects, cycles, comments) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (Linear OAuth on first use). Works on Linear's free plan — MCP is not gated behind a paid plan. No credential stored by AgentLinux.",
+      "homepage": "https://linear.app/docs/mcp",
+      "source_kind": "mcp",
+      "pinned_version": "2025.5.1",
+      "endpoint_url": "https://mcp.linear.app/mcp",
+      "compatibility_window": ">=2025.5.1",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:linear-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"linear-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "project-management",
+        "linear"
+      ]
+    },
+    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",
