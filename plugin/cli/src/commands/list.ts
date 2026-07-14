@@ -3,6 +3,7 @@
 // invalid catalog can still be listed. Installed version = the sentinel's
 // recorded version; no npm ls cross-check.
 
+import { deriveCategory } from "../catalog/category.js";
 import { loadCatalog } from "../catalog/loader.js";
 import { detectPresence } from "../detect.js";
 import { listSentinels } from "../state/sentinel.js";
@@ -12,6 +13,7 @@ import { classify } from "../version/classify.js";
 export interface ListOpts {
   json?: boolean;
   includeTest?: boolean;
+  byCategory?: boolean;
 }
 
 interface Row {
@@ -37,6 +39,12 @@ interface Row {
   sentinel_status?: "installed" | "reused" | "broken-after-remediate" | "reused-with-warning";
   // Carried to JSON verbatim; set only when sentinel_status === "reused-with-warning".
   decline_reason?: string;
+  // ENABLE-06: derived category (key + label + display order). In JSON always; text uses it
+  // for --by-category. category_order is carried so the grouped renderer sorts without
+  // re-importing the category table (keeps list a pure consumer of deriveCategory).
+  category: string;
+  category_label: string;
+  category_order: number;
 }
 
 function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
@@ -63,6 +71,7 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
       }
     }
     const reused = sentinel?.status === "reused";
+    const category = deriveCategory(entry);
     return {
       id: entry.id,
       display_name: entry.display_name,
@@ -77,34 +86,20 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
       present_path: presentPath,
       sentinel_status: sentinel?.status,
       decline_reason: sentinel?.decline_reason,
+      category: category.key,
+      category_label: category.label,
+      category_order: category.order,
     };
   });
 }
 
-export async function listCmd(opts: ListOpts): Promise<void> {
-  // Hot path: skip validation.
-  const catalog = await loadCatalog({ validate: false });
-  const sentinels = await listSentinels();
-
-  const visible = catalog.agents.filter((a) => opts.includeTest || !a.test_only);
-  const rows = buildRows(visible, sentinels);
-
-  if (opts.json) {
-    console.log(JSON.stringify(rows, null, 2));
-    return;
-  }
-
-  // Text table: grep-friendly, no color. Columns: NAME STATUS CURATED INSTALLED
-  // DESCRIPTION. The INSTALLED-column suffixes below are binding wording — bats
-  // greps the literal strings. Precedence: broken-after-remediate >
-  // reused-with-warning > reused > present (present only fires with no sentinel,
-  // so it never collides with the sentinel_status suffixes).
+// Render the padded columns for a set of rows (shared by the flat + grouped views). The
+// INSTALLED-column suffixes are binding wording — bats greps the literal strings.
+function renderTable(rows: Row[], lines: string[]): void {
   const REUSED_SUFFIX = " (reused — managed by agentlinux upgrade/remove)";
   const BROKEN_AFTER_REMEDIATE_SUFFIX = " (broken — half-uninstalled, manual recovery needed)";
   const reusedWithWarningSuffix = (reason: string) =>
     ` (reused — declined remediation: ${reason}; manual fix needed)`;
-  // Canonical present → adoptable; non-canonical present → migration candidate
-  // (e.g. claude installed via npm; AL-62). Both are "present", never not-installed.
   const presentManageSuffix = (id: string) =>
     ` (detected — run: agentlinux install ${id} to manage)`;
   const presentMigrateSuffix = (id: string, path: string) =>
@@ -128,6 +123,55 @@ export async function listCmd(opts: ListOpts): Promise<void> {
   const all = [header, ...data];
   const widths = header.map((_, i) => Math.max(...all.map((row) => row[i].length)));
   for (const row of all) {
-    console.log(row.map((c, i) => c.padEnd(widths[i])).join("  "));
+    lines.push(row.map((c, i) => c.padEnd(widths[i])).join("  "));
   }
+}
+
+export async function listCmd(opts: ListOpts): Promise<void> {
+  // Hot path: skip validation.
+  const catalog = await loadCatalog({ validate: false });
+  const sentinels = await listSentinels();
+
+  const visible = catalog.agents.filter((a) => opts.includeTest || !a.test_only);
+  const rows = buildRows(visible, sentinels);
+
+  if (opts.json) {
+    console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
+
+  // ENABLE-06: `--by-category` renders the same columns grouped under a category header
+  // (`## <label>`), categories in their canonical display order, entries sorted by id
+  // within each. The flat default (no flag) is UNCHANGED — the first line is still the
+  // NAME/STATUS/… header — so existing grep-the-table tooling keeps working.
+  const lines: string[] = [];
+  if (opts.byCategory) {
+    const groups = new Map<string, Row[]>();
+    for (const r of rows) {
+      const g = groups.get(r.category) ?? [];
+      g.push(r);
+      groups.set(r.category, g);
+    }
+    // Sort groups by the category's display order (carried on each row), ties by key.
+    const keys = [...groups.keys()].sort((a, b) => {
+      const oa = groups.get(a)?.[0]?.category_order ?? 100;
+      const ob = groups.get(b)?.[0]?.category_order ?? 100;
+      return oa - ob || a.localeCompare(b);
+    });
+    let first = true;
+    for (const key of keys) {
+      const g =
+        groups
+          .get(key)
+          ?.slice()
+          .sort((a, b) => a.id.localeCompare(b.id)) ?? [];
+      if (!first) lines.push("");
+      first = false;
+      lines.push(`## ${g[0]?.category_label ?? key}`);
+      renderTable(g, lines);
+    }
+  } else {
+    renderTable(rows, lines);
+  }
+  for (const line of lines) console.log(line);
 }

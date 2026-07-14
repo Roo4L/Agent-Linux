@@ -42,7 +42,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [ ] **Phase 46: bmad** `[npm]` - DROPPED 2026-07-14 (maintainer: spec-kit/GSD cover the need, far more popular) — WORK-05 deferred
 - [x] **Phase 47: openclaw** 🔧 `[daemon]` - OpenClaw + AI-assistant daemon-lifecycle enabler (ENABLE-04) ✓ COMPLETE (Docker 4/4; systemd-user QEMU-gated)
 - [x] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (official installer pinned to commit + per-user daemon/gateway, reuses ENABLE-04) ✓ COMPLETE (Docker 3/3; systemd-user QEMU-gated)
-- [ ] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
+- [x] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
 
 ## Phase Details
 
@@ -421,7 +421,7 @@ Plans:
 | 46. bmad | 0/0 | Dropped | 2026-07-14 |
 | 47. openclaw 🔧 | 1/1 | ✓ Complete (Docker 4/4 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 48. hermes-agent | 1/1 | ✓ Complete (Docker 3/3 green; systemd-user QEMU-gated) | 2026-07-14 |
-| 49. catalog growth kit | 0/TBD | Not started | - |
+| 49. catalog growth kit | 1/1 | ✓ Complete (Docker 4/4 green) | 2026-07-14 |
 
 ---
 

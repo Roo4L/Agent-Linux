@@ -39,6 +39,7 @@ program
   .command("list")
   .description("List catalog agents and their install status")
   .option("--include-test", "include test-only entries (hidden by default)")
+  .option("--by-category", "group entries by category (coding-agent, mcp, devops, …)")
   .option("--json", "machine-readable JSON array output")
   .action(async (opts) => {
     await listCmd(opts);

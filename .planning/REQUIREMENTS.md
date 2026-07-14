@@ -17,8 +17,8 @@
 - [x] **ENABLE-03**: Catalog supports **Python+uv** entries via a per-user `uv` bootstrap (`~/.local/bin`, no root); install via `uv tool`, with symmetric uninstall. Delivered by `plugin/catalog/lib/uv-bootstrap.sh` (checksum-verified static-musl uv via the ENABLE-01 helper; marker-gated managed-uv teardown; never clobbers a user-brought uv). Covered by `tests/bats/66-catalog-spec-kit.bats` (Docker-green 3/3).
 - [x] **ENABLE-04**: Catalog supports **AI-assistant daemon** entries — `install` sets up a per-user background service; `remove` tears it down symmetrically (no stray daemon, unit, or state).
 - [x] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern. *(Phase 23 — codex `check_for_update_on_startup=false`)*
-- [ ] **ENABLE-06**: `agentlinux list` groups catalog entries by **category/tags** (coding-agent · mcp · devops · token/workflow · assistant).
-- [ ] **ENABLE-07**: **Catalog growth kit** — a contributor recipe template + the selection-rubric doc are published so a new entry can be added without touching CLI source (extends CAT-03).
+- [x] **ENABLE-06**: `agentlinux list` groups catalog entries by **category/tags** (coding-agent · mcp · devops · token/workflow · assistant).
+- [x] **ENABLE-07**: **Catalog growth kit** — a contributor recipe template + the selection-rubric doc are published so a new entry can be added without touching CLI source (extends CAT-03).
 - [x] **ENABLE-08**: **Passive autoupdate freeze** — for catalog tools that *auto-install* updates in the background (not merely notify), the install recipe disables that passive self-update via the tool's own **launch-mode-independent** config, so the catalog pin is never silently replaced out of band. The **explicit, user-initiated** update path (`agentlinux upgrade`, the tool's own `upgrade` command, or an npm reinstall) must stay functional — only the passive path is frozen. Strengthens ENABLE-05 by distinguishing three updater classes: **auto-install ⇒ must freeze** — opencode (`~/.config/opencode/opencode.json` → `autoupdate:false`), gemini-cli + qwen-code (`settings.json` → `general.enableAutoUpdate:false`); **notify-only ⇒ no freeze needed** — codex (`check_for_update_on_startup=false` applied anyway as belt-and-braces per ENABLE-05); **no updater** — ccusage. Why it matters: a passive auto-install re-introduces the canonical AGT-02 hazard (and on a non-agent-owned prefix qwen-code's auto-update silently migrates the tool off npm onto a curl|bash binary). Empirically verified under AgentLinux: an interactive session auto-bumped gemini-cli N-1→latest with **no** freeze, and stayed pinned **with** the freeze; the explicit npm update still bumped with the freeze in place. *(Phases 24–26; codex Phase 23 via ENABLE-05.)*
 
 ### Cross-agent skill wiring (cross-cutting — applies to skill-provider entries)
@@ -170,7 +170,7 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | ASST-01 | Phase 47 | openclaw 🔧 | Complete (Docker 4/4, systemd-user QEMU-gated) |
 | ENABLE-04 | Phase 47 | AI-assistant daemon lifecycle 🔧 | Complete (Docker 4/4, systemd-user QEMU-gated) |
 | ASST-02 | Phase 48 | hermes-agent | Complete (Docker 3/3; systemd-user QEMU-gated) |
-| ENABLE-06 | Phase 49 | `list` category/tags UX | Pending |
-| ENABLE-07 | Phase 49 | catalog growth kit (template + rubric) | Pending |
+| ENABLE-06 | Phase 49 | `list` category/tags UX | Complete (Docker 4/4) |
+| ENABLE-07 | Phase 49 | catalog growth kit (template + rubric) | Complete (Docker 4/4) |
 
 **Coverage validation:** 7 ENABLE + 4 AGT (05-08) + 10 MCP (01-10) + 5 DEVT (01-05) + 5 WORK (01-05) + 2 ASST (01-02) = **33/33 requirements mapped to exactly one phase across phases 23–49**. No orphans, no duplicates.
