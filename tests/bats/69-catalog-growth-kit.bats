@@ -89,6 +89,14 @@ teardown() {
 }
 
 @test "ENABLE-07: the contributor template + rubric doc are published and valid" {
+  # This is a repo-CONTENT check (published docs + template recipes), not a runtime-install
+  # check. The Docker harness stages the whole repo at $SRC; the QEMU harness ships only
+  # tests/bats + packaging in-guest, so the source tree is absent there. Skip when it is not
+  # staged — the assertion is meaningful under Docker + pre-commit; QEMU verifies the runtime
+  # ENABLE-06/07 behavior (grouping + the template-only-add round trip) in the sibling @tests.
+  [[ -d "${SRC}/docs" && -d "${SRC}/plugin/catalog/agents/_template" ]] ||
+    skip "repo source tree not staged in-guest (published-artifacts check runs under Docker/pre-commit)"
+
   # The growth-kit deliverables exist.
   run test -f "${SRC}/docs/CATALOG-CONTRIBUTING.md"
   [[ "${status}" -eq 0 ]] || __fail "ENABLE-07" "docs/CATALOG-CONTRIBUTING.md published" "missing" "$LOG"
