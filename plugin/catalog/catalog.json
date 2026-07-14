@@ -443,6 +443,24 @@
       ]
     },
     {
+      "id": "openclaw",
+      "display_name": "OpenClaw",
+      "description": "Self-hosted personal-AI-assistant Gateway — a per-user background daemon that bridges your chat channels and coding agents to a provider of your choice. Installs via npm into the agent-owned prefix and runs as a per-user systemd service (no root); onboards without baking any provider key (BYO, added in-tool). The per-user state dir ~/.openclaw is user-owned and preserved on uninstall.",
+      "homepage": "https://github.com/openclaw/openclaw",
+      "license": "MIT",
+      "source_kind": "script",
+      "pinned_version": "2026.6.10",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "preserve_paths_file": "preserve_paths.json",
+      "requires_secret": true,
+      "post_install_verify": "command -v openclaw && openclaw --version",
+      "tags": [
+        "assistant",
+        "daemon"
+      ]
+    },
+    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",

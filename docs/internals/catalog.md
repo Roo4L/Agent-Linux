@@ -60,7 +60,10 @@ originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, gemini-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
 npm-distributed Sentry CLI; the MCP servers chrome-devtools-mcp,
-context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp, slack-mcp, linear-mcp, and jira-atlassian-mcp; and the uv-bootstrapped GitHub Spec Kit CLI spec-kit) plus one `test_only` fixture exercised only by
+context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp,
+slack-mcp, linear-mcp, and jira-atlassian-mcp; the uv-bootstrapped
+GitHub Spec Kit CLI spec-kit; and the per-user assistant daemon
+openclaw) plus one `test_only` fixture exercised only by
 bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
@@ -112,11 +115,12 @@ servers a coding agent talks to. The catalog's `source_kind` field names
 how an entry is installed, and it now understands four values:
 
 - `npm` — install the pinned package into the agent-owned npm prefix.
-- `script` — run the recipe's own install logic. This covers both a
-  tool that ships its own installer (how Claude Code installs) and one
-  that needs a small bootstrap first — Spec Kit's recipe bootstraps a
-  per-user `uv` and then installs a git-pinned Python CLI (see "The uv
-  bootstrap" below).
+- `script` — run the recipe's own install logic. This covers a tool
+  that ships its own installer (how Claude Code installs), one that
+  needs a small bootstrap first (Spec Kit's recipe bootstraps a per-user
+  `uv` and then installs a git-pinned Python CLI — see "The uv bootstrap"
+  below), and one that installs a background service (OpenClaw sets up a
+  per-user daemon — see "Per-user daemons" below).
 - `binary` — fetch a pinned release artifact, verify its checksum, and
   drop the binary into the agent's own `~/.local/bin`.
 - `mcp` — register a Model Context Protocol server into the coding
@@ -201,6 +205,40 @@ project's `.specify/` directory — the user's actual spec-driven work —
 is outside the tool footprint entirely: `agentlinux remove spec-kit`
 uninstalls the CLI and, if it owns the last `uv`, the runtime, but never
 touches a `.specify/` anywhere.
+
+## Per-user daemons: a background service with no root
+
+A few tools are not a CLI a user invokes but a *service* that runs in the
+background — a personal-AI-assistant gateway that stays up to bridge the
+user's chat channels and coding agents to a model provider. OpenClaw is
+the first, and it exposed a general need: bring up a long-lived per-user
+service with no root, keep it alive across logout, and tear it down on
+remove with nothing left running. A shared helper,
+`plugin/catalog/lib/daemon-lifecycle.sh`, packages that lifecycle so the
+next daemon tool is again a catalog entry plus a thin recipe.
+
+The service runs under the user's own systemd instance — no root, no
+system-wide unit. Two things make that reliable on a headless machine:
+`XDG_RUNTIME_DIR` has to point at the user bus, and *linger* has to be
+enabled so the user's systemd keeps running after the login session ends.
+The helper handles both, and it is ownership-aware the same way the `uv`
+bootstrap is: it enables linger only if it was off, records that it did,
+and on remove reverts linger only when it turned it on *and* no other
+AgentLinux daemon still needs it — so removing one daemon tool never cuts
+the ground out from under another. OpenClaw is bring-your-own-key: the
+install bakes no provider credential, and the user adds one in the tool
+afterward.
+
+Because a per-user systemd bus is not available everywhere — a plain
+container has none — the helper probes for it and the recipe adapts:
+where the user bus is present the daemon is installed and started; where
+it is absent the tool is still installed and configured, with a note on
+how to run it by hand. So `agentlinux install openclaw` succeeds on a
+real host and in a container alike. On remove the service and its unit
+are torn down completely, while the user's `~/.openclaw` state — the
+assistant's persona, its conversation history, and any key the user
+added — is preserved like every other authenticated agent's config; only
+a full agent-home purge wipes it.
 
 ## The MCP source kind
 

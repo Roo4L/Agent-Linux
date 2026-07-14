@@ -15,7 +15,7 @@
 - [x] **ENABLE-01**: Catalog supports a **prebuilt-binary** entry kind — fetches a pinned release, verifies its checksum, installs the binary to `~/.local/bin` (agent-owned, no root, no `/usr/local` shim), and `remove` deletes the binary + its config/cache symmetrically.
 - [x] **ENABLE-02**: Catalog supports **MCP-server** entries — `install` registers via `claude mcp add --scope user` (npx-stdio and remote-http shapes) into every installed MCP-capable client; `remove` deregisters symmetrically. **Governing convention (ADR-017, locked 2026-07-13): MCP entries are THIN CLIENT-CONFIG INSTALLERS — register the BARE server (URL for remote; launch command for stdio-only), bake NO credential (no literal, no env-var reference, no header), and let the user authenticate IN-CLIENT (in-client OAuth for remote servers). Prefer the hosted/remote endpoint wherever one exists; stdio is a fallback for npx-only tools. `requires_secret` remains a documentation flag ("needs in-client auth"); `secret_env` is dropped from register-only entries. The install prints a one-line "authenticate in your client" pointer.** Supersedes the credential-injection approach in the first github-mcp cut (now retrofitted). *(Phase 34 delivers the npx-stdio shape + `source_kind: "mcp"` + the `requires_secret`/`secret_env` schema convention; the secret-instruction path is first exercised by Phase 35 (context7); the **remote-http shape + a shared cross-agent registration helper (fan-out into claude-code/codex/gemini-cli/opencode/qwen-code) landed early in Phase 36 (github-mcp)** — pulled forward from the tentative Phase 42 slot per the maintainer's cross-agent decision — and Phase 42 (linear-mcp) adds only the OAuth-login nuance on top.)*
 - [x] **ENABLE-03**: Catalog supports **Python+uv** entries via a per-user `uv` bootstrap (`~/.local/bin`, no root); install via `uv tool`, with symmetric uninstall. Delivered by `plugin/catalog/lib/uv-bootstrap.sh` (checksum-verified static-musl uv via the ENABLE-01 helper; marker-gated managed-uv teardown; never clobbers a user-brought uv). Covered by `tests/bats/66-catalog-spec-kit.bats` (Docker-green 3/3).
-- [ ] **ENABLE-04**: Catalog supports **AI-assistant daemon** entries — `install` sets up a per-user background service; `remove` tears it down symmetrically (no stray daemon, unit, or state).
+- [x] **ENABLE-04**: Catalog supports **AI-assistant daemon** entries — `install` sets up a per-user background service; `remove` tears it down symmetrically (no stray daemon, unit, or state).
 - [x] **ENABLE-05**: **Self-updater coexistence** — for catalog tools that ship a built-in self-updater, AgentLinux's pinned version stays authoritative (in-app updater disabled or documented; the pin is not silently clobbered). Re-exercises the AGT-02 canonical concern. *(Phase 23 — codex `check_for_update_on_startup=false`)*
 - [ ] **ENABLE-06**: `agentlinux list` groups catalog entries by **category/tags** (coding-agent · mcp · devops · token/workflow · assistant).
 - [ ] **ENABLE-07**: **Catalog growth kit** — a contributor recipe template + the selection-rubric doc are published so a new entry can be added without touching CLI source (extends CAT-03).
@@ -75,7 +75,7 @@
 
 ### AI assistants (daemon-class, ENABLE-04)
 
-- [ ] **ASST-01**: `agentlinux install openclaw` installs OpenClaw (npm + per-user daemon); `remove` tears down the daemon + state symmetrically. Self-updater coexistence per ENABLE-05.
+- [x] **ASST-01**: `agentlinux install openclaw` installs OpenClaw (npm + per-user daemon); `remove` tears down the daemon + state symmetrically. Self-updater coexistence per ENABLE-05.
 - [ ] **ASST-02**: `agentlinux install hermes-agent` installs Hermes Agent (curl installer + per-user daemon/gateway); symmetric teardown.
 
 ---
@@ -105,7 +105,7 @@
 
 ## Appendix A — Pinned-version candidates (ADR-011; verified 2026-06-28)
 
-opencode `opencode-ai@1.17.11` · gemini-cli `@google/gemini-cli@0.49.0` · codex `@openai/codex@0.142.3` · qwen-code `@qwen-code/qwen-code@0.19.2` · ccusage `ccusage@20.0.14` · rtk `rtk-ai/rtk@0.42.4` (binary) · gh `2.95.0` · glab `1.105.0` · sentry-cli `@sentry/cli@3.6.0` · trivy `0.71.2` · gitleaks `8.30.1` · chrome-devtools-mcp `1.4.0` · context7 `@upstash/context7-mcp@3.2.2` · github-mcp `1.5.0` · sentry-mcp `@sentry/mcp-server@0.36.0` · gitlab-mcp `@zereight/mcp-gitlab@2.1.27` · brave-search-mcp `@brave/brave-search-mcp-server@2.0.85` · firecrawl-mcp `firecrawl-mcp@3.22.3` (hosted-remote; pin = validated release) · slack-mcp `mcp.slack.com` official hosted (pin GA date 2026.2.17) · linear-mcp `mcp.linear.app` official hosted (pin GA date 2025.5.1) · jira-atlassian-mcp `mcp.atlassian.com/v1/mcp/authv2` official hosted (pin GA date 2026.2.4, Apache-2.0) · spec-kit `specify-cli@0.11.9` · ~~claude-flow `claude-flow@3.14.4`~~ (DROPPED) · ~~bmad `bmad-method@6.9.0`~~ (DROPPED) · openclaw `openclaw@2026.6.10` · hermes-agent `2026.6.19` (curl).
+opencode `opencode-ai@1.17.11` · gemini-cli `@google/gemini-cli@0.49.0` · codex `@openai/codex@0.142.3` · qwen-code `@qwen-code/qwen-code@0.19.2` · ccusage `ccusage@20.0.14` · rtk `rtk-ai/rtk@0.42.4` (binary) · gh `2.95.0` · glab `1.105.0` · sentry-cli `@sentry/cli@3.6.0` · trivy `0.71.2` · gitleaks `8.30.1` · chrome-devtools-mcp `1.4.0` · context7 `@upstash/context7-mcp@3.2.2` · github-mcp `1.5.0` · sentry-mcp `@sentry/mcp-server@0.36.0` · gitlab-mcp `@zereight/mcp-gitlab@2.1.27` · brave-search-mcp `@brave/brave-search-mcp-server@2.0.85` · firecrawl-mcp `firecrawl-mcp@3.22.3` (hosted-remote; pin = validated release) · slack-mcp `mcp.slack.com` official hosted (pin GA date 2026.2.17) · linear-mcp `mcp.linear.app` official hosted (pin GA date 2025.5.1) · jira-atlassian-mcp `mcp.atlassian.com/v1/mcp/authv2` official hosted (pin GA date 2026.2.4, Apache-2.0) · spec-kit `specify-cli` git-tag v0.12.11 · ~~claude-flow `claude-flow@3.14.4`~~ (DROPPED) · ~~bmad `bmad-method@6.9.0`~~ (DROPPED) · openclaw `openclaw@2026.6.10` · hermes-agent `2026.6.19` (curl).
 
 ## Appendix B — License flags
 
@@ -167,8 +167,8 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | ENABLE-03 | Phase 44 | Python+uv bootstrap 🔧 | Complete (Docker 3/3) |
 | WORK-04 | Phase 45 | claude-flow — DROPPED (niche for first cohort; spec-kit/GSD cover the need) | Deferred |
 | WORK-05 | Phase 46 | bmad — DROPPED (niche for first cohort; spec-kit/GSD cover the need) | Deferred |
-| ASST-01 | Phase 47 | openclaw 🔧 | Pending |
-| ENABLE-04 | Phase 47 | AI-assistant daemon lifecycle 🔧 | Pending |
+| ASST-01 | Phase 47 | openclaw 🔧 | Complete (Docker 4/4, systemd-user QEMU-gated) |
+| ENABLE-04 | Phase 47 | AI-assistant daemon lifecycle 🔧 | Complete (Docker 4/4, systemd-user QEMU-gated) |
 | ASST-02 | Phase 48 | hermes-agent | Pending |
 | ENABLE-06 | Phase 49 | `list` category/tags UX | Pending |
 | ENABLE-07 | Phase 49 | catalog growth kit (template + rubric) | Pending |

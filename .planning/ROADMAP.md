@@ -360,7 +360,8 @@ Plans:
   3. Self-updater coexistence (ENABLE-05) holds — openclaw's pin stays authoritative; secrets are NOT baked.
   4. `agentlinux remove openclaw` tears down the daemon + state symmetrically — no stray unit/process/files; idempotent.
   5. ≥1 bats @test (install → daemon-up verify → remove → daemon-gone) is green — TST-07 gate.
-**Plans**: TBD
+**Status**: ✓ COMPLETE 2026-07-14 — Docker 4/4 green (ubuntu-24.04); ENABLE-04 helper `plugin/catalog/lib/daemon-lifecycle.sh` (linger + XDG + marker-gated revert) + openclaw recipe (`source_kind: script`, npm install + no-secret `onboard --auth-choice skip --skip-health` + `config patch` self-updater freeze `update.auto.enabled=false` + daemon lifecycle). Docker verifies the process-level `openclaw gateway run` path (credential-free HTTP-200 + `health ok:true`); the systemd-user daemon lifecycle self-gates with `skip` and runs under QEMU (ADR-007). `~/.openclaw` preserved on remove (CAT-04). Corrections vs research: config key is `update.auto.enabled` (not `autoUpdate`), written via `config patch --stdin`; onboard needs `--skip-health` for RC 0. AL-94 → Done.
+**Plans**: 1/1 (main-agent direct execution, milestone convention).
 
 ### Phase 48: hermes-agent
 **Goal**: Make hermes-agent (Hermes Agent) installable + removable via the catalog.
@@ -417,7 +418,7 @@ Plans:
 | 44. spec-kit 🔧 | 1/1 | ✓ Complete (Docker 3/3 green) | 2026-07-14 |
 | 45. claude-flow | 0/0 | Dropped | 2026-07-14 |
 | 46. bmad | 0/0 | Dropped | 2026-07-14 |
-| 47. openclaw 🔧 | 0/TBD | Not started | - |
+| 47. openclaw 🔧 | 1/1 | ✓ Complete (Docker 4/4 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 48. hermes-agent | 0/TBD | Not started | - |
 | 49. catalog growth kit | 0/TBD | Not started | - |
 
