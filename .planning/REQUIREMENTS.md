@@ -70,8 +70,8 @@
 - [x] **WORK-01**: `agentlinux install ccusage` installs ccusage (npm; read-only cost reporter); symmetric remove.
 - [x] **WORK-02**: `agentlinux install rtk` installs RTK / Rust Token Killer (**prebuilt binary, source-pinned to `rtk-ai/rtk` — never `cargo install rtk`** = the crates.io "Rust Type Kit" collision); optional `rtk init` hook into `~/.claude` is opt-in with symmetric `--uninstall`; `remove` reverts binary + hook.
 - [ ] **WORK-03**: `agentlinux install spec-kit` installs GitHub Spec Kit (`specify-cli` via uv, ENABLE-03); symmetric remove (+ project `.specify/` documented as user-owned).
-- [ ] **WORK-04**: `agentlinux install claude-flow` installs Claude-Flow (npm); `remove` cleans its full footprint (`.claude`/`.swarm`/`.hive-mind`, MCP regs, hooks) symmetrically.
-- [ ] **WORK-05**: `agentlinux install bmad` installs BMAD-METHOD (npm `bmad-method`); symmetric remove of installed agents/packs.
+- [ ] **WORK-04** *(DROPPED 2026-07-14 — deferred)*: claude-flow not shipped. Maintainer judged it too niche for the first-release cohort; the structured multi-agent-workflow need is covered by spec-kit (WORK-03) and GSD, both far more popular. Demand/prioritization drop, not a source-gate failure — `claude-flow@3.14.4` is npm + MIT + a clean per-user install fit. Cheaply revisitable via the ENABLE-07 growth-kit template.
+- [ ] **WORK-05** *(DROPPED 2026-07-14 — deferred)*: bmad not shipped. Same rationale as WORK-04 — spec-kit/GSD cover the spec-driven-workflow need and are far more popular. Demand drop, not a source-gate failure — `bmad-method@6.9.0` is npm + MIT. Revisitable via the ENABLE-07 growth-kit template.
 
 ### AI assistants (daemon-class, ENABLE-04)
 
@@ -105,7 +105,7 @@
 
 ## Appendix A — Pinned-version candidates (ADR-011; verified 2026-06-28)
 
-opencode `opencode-ai@1.17.11` · gemini-cli `@google/gemini-cli@0.49.0` · codex `@openai/codex@0.142.3` · qwen-code `@qwen-code/qwen-code@0.19.2` · ccusage `ccusage@20.0.14` · rtk `rtk-ai/rtk@0.42.4` (binary) · gh `2.95.0` · glab `1.105.0` · sentry-cli `@sentry/cli@3.6.0` · trivy `0.71.2` · gitleaks `8.30.1` · chrome-devtools-mcp `1.4.0` · context7 `@upstash/context7-mcp@3.2.2` · github-mcp `1.5.0` · sentry-mcp `@sentry/mcp-server@0.36.0` · gitlab-mcp `@zereight/mcp-gitlab@2.1.27` · brave-search-mcp `@brave/brave-search-mcp-server@2.0.85` · firecrawl-mcp `firecrawl-mcp@3.22.3` (hosted-remote; pin = validated release) · slack-mcp `mcp.slack.com` official hosted (pin GA date 2026.2.17) · linear-mcp `mcp.linear.app` official hosted (pin GA date 2025.5.1) · jira-atlassian-mcp `mcp.atlassian.com/v1/mcp/authv2` official hosted (pin GA date 2026.2.4, Apache-2.0) · spec-kit `specify-cli@0.11.9` · claude-flow `claude-flow@3.14.4` · bmad `bmad-method@6.9.0` · openclaw `openclaw@2026.6.10` · hermes-agent `2026.6.19` (curl).
+opencode `opencode-ai@1.17.11` · gemini-cli `@google/gemini-cli@0.49.0` · codex `@openai/codex@0.142.3` · qwen-code `@qwen-code/qwen-code@0.19.2` · ccusage `ccusage@20.0.14` · rtk `rtk-ai/rtk@0.42.4` (binary) · gh `2.95.0` · glab `1.105.0` · sentry-cli `@sentry/cli@3.6.0` · trivy `0.71.2` · gitleaks `8.30.1` · chrome-devtools-mcp `1.4.0` · context7 `@upstash/context7-mcp@3.2.2` · github-mcp `1.5.0` · sentry-mcp `@sentry/mcp-server@0.36.0` · gitlab-mcp `@zereight/mcp-gitlab@2.1.27` · brave-search-mcp `@brave/brave-search-mcp-server@2.0.85` · firecrawl-mcp `firecrawl-mcp@3.22.3` (hosted-remote; pin = validated release) · slack-mcp `mcp.slack.com` official hosted (pin GA date 2026.2.17) · linear-mcp `mcp.linear.app` official hosted (pin GA date 2025.5.1) · jira-atlassian-mcp `mcp.atlassian.com/v1/mcp/authv2` official hosted (pin GA date 2026.2.4, Apache-2.0) · spec-kit `specify-cli@0.11.9` · ~~claude-flow `claude-flow@3.14.4`~~ (DROPPED) · ~~bmad `bmad-method@6.9.0`~~ (DROPPED) · openclaw `openclaw@2026.6.10` · hermes-agent `2026.6.19` (curl).
 
 ## Appendix B — License flags
 
@@ -165,8 +165,8 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | MCP-10 | Phase 43 | jira-atlassian-mcp — official first-party hosted bare-URL (ADR-017); free-tier confirmed; cloud-only | ✓ Covered (Docker 2/2 green) |
 | WORK-03 | Phase 44 | spec-kit 🔧 | Pending |
 | ENABLE-03 | Phase 44 | Python+uv bootstrap 🔧 | Pending |
-| WORK-04 | Phase 45 | claude-flow | Pending |
-| WORK-05 | Phase 46 | bmad | Pending |
+| WORK-04 | Phase 45 | claude-flow — DROPPED (niche for first cohort; spec-kit/GSD cover the need) | Deferred |
+| WORK-05 | Phase 46 | bmad — DROPPED (niche for first cohort; spec-kit/GSD cover the need) | Deferred |
 | ASST-01 | Phase 47 | openclaw 🔧 | Pending |
 | ENABLE-04 | Phase 47 | AI-assistant daemon lifecycle 🔧 | Pending |
 | ASST-02 | Phase 48 | hermes-agent | Pending |

@@ -1,10 +1,10 @@
 # Roadmap
 
-**Current milestone:** 🚧 **v0.3.6 Catalog Expansion** — IN PROGRESS (phases **23–49**, one tool per phase; 26 new catalog entries + a categorization/growth-kit capstone). v0.3.4 Aware Installation Process **SHIPPED 2026-06-08** (final release v0.3.4, marked Latest).
+**Current milestone:** 🚧 **v0.3.6 Catalog Expansion** — IN PROGRESS (phases **23–49**, one tool per phase; **22 new catalog entries** shipping + a categorization/growth-kit capstone; 4 of the 26 originally-selected candidates dropped in-flight — gitlab/brave on the source-selection gate, claude-flow/bmad on first-cohort demand). v0.3.4 Aware Installation Process **SHIPPED 2026-06-08** (final release v0.3.4, marked Latest).
 
 ## Current Milestone: v0.3.6 Catalog Expansion
 
-**Milestone goal:** Grow the AgentLinux catalog from its 3 shipped entries (claude-code, gsd, playwright) by **26 of the most trusted/popular AI-agent-community tools** — *availability only* (CAT-02 holds: nothing installed by default) — so first-release users don't hit "I miss tool X." Tools were selected via a documented gates+scoring funnel (agent-relevance · clean per-user install + symmetric uninstall, no root, no `/usr/local` shim · free license · liveness ≤6mo release & ≤3mo commits · maturity).
+**Milestone goal:** Grow the AgentLinux catalog from its 3 shipped entries (claude-code, gsd, playwright) with the most trusted/popular AI-agent-community tools — *availability only* (CAT-02 holds: nothing installed by default) — so first-release users don't hit "I miss tool X." A documented gates+scoring funnel (agent-relevance · clean per-user install + symmetric uninstall, no root, no `/usr/local` shim · free license · liveness ≤6mo release & ≤3mo commits · maturity) shortlisted **26 candidates**; **22 ship** after 4 in-flight drops (gitlab/brave failed the source-selection free-tier gate; claude-flow/bmad dropped on first-cohort demand — spec-kit/GSD cover that need).
 
 **Structure (owner's always-shippable preference): ONE TOOL PER PHASE.** Each phase ends with exactly one working, tested, installable+removable catalog entry. The 4 machinery enablers are **folded into their first-consumer phase** (marked 🔧): those phases deliver both the enabler *and* a working tool. Every entry carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate; every tool is pinned per ADR-011 (pins in REQUIREMENTS.md Appendix A).
 
@@ -38,8 +38,8 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 42: linear-mcp** `[mcp]` - Linear MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.linear.app`, ADR-017 thin installer; free-tier confirmed; OAuth enabler already shipped in 36/37)
 - [x] **Phase 43: jira-atlassian-mcp** `[mcp]` - Atlassian Rovo MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.atlassian.com`, ADR-017 thin installer; free-tier 500 calls/hr confirmed; cloud-only)
 - [ ] **Phase 44: spec-kit** 🔧 `[uv]` - GitHub Spec Kit + Python+uv-bootstrap enabler (ENABLE-03)
-- [ ] **Phase 45: claude-flow** `[npm]` - Claude-Flow (full-footprint symmetric remove)
-- [ ] **Phase 46: bmad** `[npm]` - BMAD-METHOD installable + removable
+- [ ] **Phase 45: claude-flow** `[npm]` - DROPPED 2026-07-14 (maintainer: niche for the first-release cohort) — WORK-04 deferred
+- [ ] **Phase 46: bmad** `[npm]` - DROPPED 2026-07-14 (maintainer: spec-kit/GSD cover the need, far more popular) — WORK-05 deferred
 - [ ] **Phase 47: openclaw** 🔧 `[daemon]` - OpenClaw + AI-assistant daemon-lifecycle enabler (ENABLE-04)
 - [ ] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (curl + per-user daemon/gateway)
 - [ ] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
@@ -329,29 +329,21 @@ Plans:
 **Goal**: Make claude-flow (Claude-Flow) installable + removable via the catalog, with full-footprint symmetric remove.
 **Depends on**: Phase 44 (npm machinery)
 **Requirements**: WORK-04
-**Machinery**: `[npm]` · pin `claude-flow@3.14.4` · remove cleans `.claude`/`.swarm`/`.hive-mind`, MCP regs, hooks
-**Success Criteria** (what must be TRUE):
-  1. `agentlinux install claude-flow` installs `claude-flow@3.14.4` as the agent user (no root, zero EACCES); it resolves on PATH.
-  2. Secrets are NOT baked — provider auth supplied post-install.
-  3. `agentlinux remove claude-flow` cleans the FULL footprint symmetrically — `.claude`/`.swarm`/`.hive-mind`, MCP registrations, and hooks all gone, no residue; idempotent.
-  4. ≥1 bats @test (install → full-footprint remove, residue grep) is green — TST-07 gate.
-**Plans**: TBD
+**Status**: **DROPPED 2026-07-14 (maintainer decision).** Judged too niche for the first-release cohort — the structured multi-agent-workflow need is already covered by spec-kit (Phase 44) and GSD, both far more popular. This is a demand/prioritization drop, **not** a source-gate failure (unlike gitlab/brave): `claude-flow@3.14.4` is npm, MIT, and a clean per-user install fit. Revisitable later — cheaply addable via the Phase 49 growth-kit contributor template (ENABLE-07) without touching CLI source. WORK-04 deferred.
+**Machinery** (not shipped): `[npm]` · pin `claude-flow@3.14.4` · remove would clean `.claude`/`.swarm`/`.hive-mind`, MCP regs, hooks
+**Plans**: n/a (dropped)
 
 ### Phase 46: bmad
 **Goal**: Make bmad (BMAD-METHOD) installable + removable via the catalog.
 **Depends on**: Phase 45 (npm machinery)
 **Requirements**: WORK-05
-**Machinery**: `[npm]` · pin `bmad-method@6.9.0` · LICENSE shows GitHub `NOASSERTION` but is MIT (Appendix B) · remove of installed agents/packs symmetric
-**Success Criteria** (what must be TRUE):
-  1. `agentlinux install bmad` installs `bmad-method@6.9.0` as the agent user (no root, zero EACCES); it resolves on PATH.
-  2. `post_install_verify` passes — the pinned `6.9.0` is resolved.
-  3. `agentlinux remove bmad` removes the installed agents/packs symmetrically — no residue; idempotent.
-  4. ≥1 bats @test (install → verify → remove) is green — TST-07 gate.
-**Plans**: TBD
+**Status**: **DROPPED 2026-07-14 (maintainer decision).** Same rationale as Phase 45 — too niche for the first-release cohort; spec-kit (Phase 44) and GSD cover the spec-driven-workflow need and are far more popular. Demand/prioritization drop, **not** a source-gate failure: `bmad-method@6.9.0` is npm and MIT (GitHub shows `NOASSERTION`; MIT per Appendix B), a clean install fit. Revisitable via the Phase 49 growth-kit template (ENABLE-07) without CLI edits. WORK-05 deferred.
+**Machinery** (not shipped): `[npm]` · pin `bmad-method@6.9.0` · remove would be symmetric over installed agents/packs
+**Plans**: n/a (dropped)
 
 ### Phase 47: openclaw
 **Goal**: Make openclaw (OpenClaw) installable + removable via the catalog, AND deliver the AI-assistant daemon-lifecycle enabler (ENABLE-04).
-**Depends on**: Phase 46. First consumer of the AI-assistant daemon entry kind.
+**Depends on**: Phase 44 (npm machinery; Phases 45–46 dropped). First consumer of the AI-assistant daemon entry kind.
 **Requirements**: ASST-01, ENABLE-04
 **Machinery**: `[daemon]` · 🔧 ENABLE-04 AI-assistant daemon lifecycle · pin `openclaw@2026.6.10` (npm + per-user daemon) · self-updater coexistence per ENABLE-05
 **Success Criteria** (what must be TRUE):
@@ -376,14 +368,14 @@ Plans:
 
 ### Phase 49: catalog growth kit
 **Goal**: Deliver the `list` category/tags UX (ENABLE-06) and the catalog growth kit — a contributor recipe template + the selection-rubric doc (ENABLE-07). Milestone capstone — no new tool.
-**Depends on**: Phases 23–48 (needs the full 26-entry catalog to categorize and to validate template-only additions against)
+**Depends on**: Phases 23–48 (needs the full shipped catalog — 22 new entries after the gitlab/brave/claude-flow/bmad drops — to categorize and to validate template-only additions against)
 **Requirements**: ENABLE-06, ENABLE-07
 **Machinery**: `[meta]` · catalog-wide UX + contributor surface (extends CAT-03)
 **Success Criteria** (what must be TRUE):
-  1. ENABLE-06: `agentlinux list` groups catalog entries by category/tags (coding-agent · mcp · devops · token/workflow · assistant) — all 26 new entries appear under the correct category.
+  1. ENABLE-06: `agentlinux list` groups catalog entries by category/tags (coding-agent · mcp · devops · token/workflow · assistant) — all 22 new entries appear under the correct category.
   2. ENABLE-07: a contributor recipe template + the selection-rubric doc are published — a new catalog entry can be added without touching CLI source (extends CAT-03).
   3. The growth kit is exercised end-to-end: a sample entry added via the template alone passes validate-catalog + install/remove with zero TypeScript edits.
-  4. ≥1 bats @test covers `list` category grouping + the template-only-add path — TST-07 gate; milestone-close: all 26 catalog entries install → verify → remove green across the Docker + QEMU gates.
+  4. ≥1 bats @test covers `list` category grouping + the template-only-add path — TST-07 gate; milestone-close: all 22 new catalog entries install → verify → remove green across the Docker + QEMU gates.
 **Plans**: TBD
 
 ## Progress
@@ -414,8 +406,8 @@ Plans:
 | 42. linear-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 43. jira-atlassian-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
 | 44. spec-kit 🔧 | 0/TBD | Not started | - |
-| 45. claude-flow | 0/TBD | Not started | - |
-| 46. bmad | 0/TBD | Not started | - |
+| 45. claude-flow | 0/0 | Dropped | 2026-07-14 |
+| 46. bmad | 0/0 | Dropped | 2026-07-14 |
 | 47. openclaw 🔧 | 0/TBD | Not started | - |
 | 48. hermes-agent | 0/TBD | Not started | - |
 | 49. catalog growth kit | 0/TBD | Not started | - |
