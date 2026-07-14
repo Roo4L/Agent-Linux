@@ -57,7 +57,7 @@
         },
         "pinned_version": {
           "type": "string",
-          "description": "Exact semver pinned by this catalog release (CAT-04 / ADR-011)",
+          "description": "Exact semver pinned by this catalog release (CAT-04 / ADR-011). For a hosted remote-http MCP with no downloadable release (endpoint_url set, no upstream package), this instead carries the endpoint's GA date shaped as YYYY.M.D (e.g. 2026.2.17) — the validated-against marker, since the URL is the real stability contract.",
           "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
         },
         "version_constraint": {

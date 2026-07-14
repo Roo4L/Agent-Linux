@@ -34,7 +34,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [ ] **Phase 38: gitlab-mcp** `[mcp]` - GitLab MCP registerable + deregisterable
 - [ ] **Phase 39: brave-search-mcp** `[mcp]` - DROPPED 2026-07-14 (Feb-2026 free tier removed; mandatory card + metered billing) — MCP-06 deferred
 - [x] **Phase 40: firecrawl-mcp** `[mcp]` - Firecrawl MCP registerable + deregisterable ✓ COMPLETE (hosted keyless bare-URL, ADR-017 thin installer; cleared the free-tier gate gitlab/brave failed)
-- [ ] **Phase 41: slack-mcp** `[mcp]` - Slack MCP (xoxp preferred; stealth-mode warned)
+- [x] **Phase 41: slack-mcp** `[mcp]` - Slack MCP registerable + deregisterable ✓ COMPLETE (official first-party hosted `mcp.slack.com`, ADR-017 thin installer; supersedes the third-party stealth-token plan)
 - [ ] **Phase 42: linear-mcp** 🔧 `[mcp]` - Linear MCP + remote-http/OAuth handling enabler
 - [ ] **Phase 43: jira-atlassian-mcp** `[mcp]` - Atlassian Rovo MCP (remote-http OAuth, cloud-only)
 - [ ] **Phase 44: spec-kit** 🔧 `[uv]` - GitHub Spec Kit + Python+uv-bootstrap enabler (ENABLE-03)
@@ -273,17 +273,18 @@ Plans:
   4. ≥1 bats @test (register bare URL → verify no-credential fan-out → deregister) is green — TST-07 gate. ✓ (`tests/bats/62-catalog-firecrawl-mcp.bats`)
 **Plans**: executed inline (recipe pair + catalog entry + bats 62 + docs); offline smoke green.
 
-### Phase 41: slack-mcp
+### Phase 41: slack-mcp ✓ COMPLETE
 **Goal**: Make slack-mcp (Slack MCP server) registerable + deregisterable via the catalog.
-**Depends on**: Phase 40 (ENABLE-02 MCP entry kind)
+**Depends on**: Phase 37 (ADR-017 thin-installer + credential-free remote-http helper)
 **Requirements**: MCP-08
-**Machinery**: `[mcp]` · pin `slack-mcp-server@1.3.0` · npx + token · `xoxp` OAuth preferred; `xoxc/xoxd` stealth-mode admin-bypass warned
+**Machinery**: `[mcp]` · **official first-party hosted remote-http** · bare endpoint `https://mcp.slack.com/mcp` · `pinned_version 2026.2.17` (GA date; no downloadable release to pin) · no package license (proprietary hosted service)
+**Source decision (2026-07-14)**: The roadmap's plan (third-party `slack-mcp-server@1.3.0` npx + `xoxp`/stealth-token warning) is **superseded**. Research found that **Slack shipped an official first-party hosted MCP server (GA Feb 2026)** at `https://mcp.slack.com/mcp` — Streamable HTTP, Slack-brokered OAuth 2.0, **workspace-admin-governed by design**, and **free** for workspace members (no paywall — not a gitlab/brave repeat). This is a "free official first-party hosted endpoint" → **auto-GO**. Using it **sidesteps the korotovsky stealth-token (xoxc/xoxd) governance-bypass footgun entirely** — we ship the admin-governed official endpoint only. ADR-017-aligned: bare URL, no baked credential, user OAuths in-client (subject to admin approval).
 **Success Criteria** (what must be TRUE):
-  1. `agentlinux install slack-mcp` registers the pinned `slack-mcp-server@1.3.0` via `claude mcp add --scope user` (no root, zero EACCES); it appears in `~/.claude.json`.
-  2. The token is NOT baked — `install` prints the post-install instruction, prefers `xoxp` OAuth, and warns that `xoxc/xoxd` stealth-mode tokens bypass workspace admin controls.
-  3. `agentlinux remove slack-mcp` deregisters symmetrically — no residue.
-  4. ≥1 bats @test (register → verify → stealth-mode-warning present → deregister) is green — TST-07 gate.
-**Plans**: TBD
+  1. `agentlinux install slack-mcp` registers the bare `https://mcp.slack.com/mcp` into every installed MCP-capable agent — no root, zero EACCES; it appears in each present agent's config. ✓
+  2. NO credential is baked (ADR-017): the entry stores only the URL; `install` prints the in-client-auth pointer (Slack OAuth, admin-approved); `requires_secret: true` as a doc flag, no `secret_env`. NO Slack token (xoxb/xoxp/xoxc/xoxd) in any config. ✓
+  3. `agentlinux remove slack-mcp` deregisters symmetrically across all agents — no residue; idempotent re-remove. ✓
+  4. ≥1 bats @test (register bare URL → verify no-token fan-out → first-party-only recipe → deregister) is green — TST-07 gate. ✓ (`tests/bats/63-catalog-slack-mcp.bats`)
+**Plans**: executed inline (recipe pair + catalog entry + bats 63 + docs); offline smoke green.
 
 ### Phase 42: linear-mcp
 **Goal**: Make linear-mcp (official Linear MCP) registerable + deregisterable via the catalog, AND deliver the remote-http/OAuth handling enabler.
@@ -408,7 +409,7 @@ Plans:
 | 38. gitlab-mcp | 0/0 | Dropped | 2026-07-13 |
 | 39. brave-search-mcp | 0/0 | Dropped | 2026-07-14 |
 | 40. firecrawl-mcp | 1/1 | ✓ Complete (Docker 2/2 green) | 2026-07-14 |
-| 41. slack-mcp | 0/TBD | Not started | - |
+| 41. slack-mcp | 1/1 | ✓ Complete (Docker pending) | 2026-07-14 |
 | 42. linear-mcp 🔧 | 0/TBD | Not started | - |
 | 43. jira-atlassian-mcp | 0/TBD | Not started | - |
 | 44. spec-kit 🔧 | 0/TBD | Not started | - |

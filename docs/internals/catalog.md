@@ -60,7 +60,7 @@ originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, gemini-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
 npm-distributed Sentry CLI; and the MCP servers chrome-devtools-mcp,
-context7, and the hosted github-mcp, sentry-mcp, and firecrawl-mcp) plus one `test_only` fixture exercised only by
+context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp, and slack-mcp) plus one `test_only` fixture exercised only by
 bats. Pre-commit and CI both run the catalog
 through ajv; a malformed entry never reaches `master`, let alone a
 release.
@@ -209,14 +209,18 @@ a system Chrome works).
 ### Hosted (remote-http) servers, and registering into every agent
 
 Some MCP servers are not launched locally at all — they are hosted web
-services the agent talks to over HTTP. `github-mcp`, `sentry-mcp`, and
-`firecrawl-mcp` are three: they point at GitHub's, Sentry's, and
-Firecrawl's hosted endpoints (`https://api.githubcopilot.com/mcp/`,
-`https://mcp.sentry.dev/mcp`, `https://mcp.firecrawl.dev/v2/mcp`). A
+services the agent talks to over HTTP. `github-mcp`, `sentry-mcp`,
+`firecrawl-mcp`, and `slack-mcp` are four: they point at GitHub's,
+Sentry's, Firecrawl's, and Slack's hosted endpoints
+(`https://api.githubcopilot.com/mcp/`, `https://mcp.sentry.dev/mcp`,
+`https://mcp.firecrawl.dev/v2/mcp`, `https://mcp.slack.com/mcp`). A
 hosted service has no version number to pin, so the entry records the
 endpoint in `endpoint_url` and uses `pinned_version` to name the upstream
 server release the endpoint is validated against — the URL is the real
-stability contract.
+stability contract. When there is no downloadable release at all — Slack's
+MCP is a rolling first-party service with no package — `pinned_version`
+carries the endpoint's GA date instead, and the entry simply omits the
+`license` field a package would carry.
 
 Not every hosted endpoint requires signing in. `firecrawl-mcp` registers
 a **keyless** endpoint that works out of the box, so its `requires_secret`
@@ -228,6 +232,13 @@ payment; two candidates (a GitLab and a Brave Search server) were dropped
 because their "free" tiers turned out to require a paid plan or a
 mandatory payment card, which would have made the entry install to a
 dead end.
+
+Source choice also weighs governance. Where a vendor ships an official,
+admin-governed endpoint, that is preferred over a popular third-party
+server that authenticates by scraping a user's browser session tokens —
+`slack-mcp` registers Slack's own OAuth endpoint precisely so a workspace
+admin can see and revoke the integration, rather than a "stealth" server
+that bypasses admin approval entirely.
 
 Because an MCP server is useful to *any* coding agent, not just Claude
 Code, an entry registers into all of them. `github-mcp` fans its

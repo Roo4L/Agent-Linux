@@ -367,6 +367,25 @@
       ]
     },
     {
+      "id": "slack-mcp",
+      "display_name": "Slack MCP",
+      "description": "Slack's official hosted remote MCP server (channels, messages, search, users) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (Slack OAuth on first use, subject to workspace-admin approval). No credential stored by AgentLinux. Uses Slack's first-party admin-governed endpoint — NOT a third-party stealth-token server.",
+      "homepage": "https://docs.slack.dev/ai/slack-mcp-server/",
+      "source_kind": "mcp",
+      "pinned_version": "2026.2.17",
+      "endpoint_url": "https://mcp.slack.com/mcp",
+      "compatibility_window": ">=2026.2.17",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:slack-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"slack-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "communication",
+        "slack"
+      ]
+    },
+    {
       "id": "test-dummy",
       "display_name": "Test Dummy (CI-only)",
       "description": "Shell-based fixture for bats; never a real agent.",
