@@ -91,12 +91,17 @@ teardown() {
 @test "ENABLE-07: the contributor template + rubric doc are published and valid" {
   # This is a repo-CONTENT check (published docs + template recipes), not a runtime-install
   # check. `plugin/` (hence _template/) ships in the release tarball, but `docs/` does not,
-  # and the QEMU tests tarball carries only tests/bats + packaging — so `$SRC/docs` is absent
-  # in-guest. Skip on that (the sole missing piece); the assertion is meaningful under Docker
-  # (full-repo copy) + pre-commit, and QEMU covers the runtime ENABLE-06/07 behavior (grouping
-  # + the template-only-add round trip) in the sibling @tests.
-  [[ -d "${SRC}/docs" ]] ||
-    skip "docs/ not shipped in-guest (this published-artifacts check runs under Docker/pre-commit)"
+  # and the QEMU tests tarball carries only tests/bats + packaging — so the published docs are
+  # absent in-guest. Skip there; the assertion is meaningful under Docker (full-repo copy) +
+  # pre-commit, and QEMU covers the runtime ENABLE-06/07 behavior (grouping + the
+  # template-only-add round trip) in the sibling @tests.
+  #
+  # Gate on tests/docker/run.sh — a full-repo-only sentinel that QEMU never stages. Do NOT gate
+  # on "$SRC/docs" existing: the release-gate test 52 (capture_transcript_to) mkdir's a RELATIVE
+  # docs/audits/… path while bats' CWD is /opt/agentlinux-src, so a stray $SRC/docs appears
+  # in-guest whenever that CDN-gated test runs — an unreliable, order-dependent sentinel.
+  [[ -f "${SRC}/tests/docker/run.sh" ]] ||
+    skip "full repo not staged in-guest (QEMU ships only tests/bats + packaging; this published-artifacts check runs under Docker/pre-commit)"
 
   # The growth-kit deliverables exist.
   run test -f "${SRC}/docs/CATALOG-CONTRIBUTING.md"
