@@ -57,6 +57,30 @@ if ! printf '%s' "$version_line" | grep -q -F -- "${AGENTLINUX_PINNED_VERSION}";
   exit 1
 fi
 
+# Codex sandboxes command execution with bubblewrap (`bwrap`). It ships a
+# bundled copy but prefers a system one and otherwise nags on every launch:
+#   ⚠ Codex could not find bubblewrap on PATH. … Codex will use the bundled
+#     bubblewrap in the meantime.
+# Install the distro package so codex uses the system sandbox and the warning
+# stops. NON-FATAL: agent has NOPASSWD sudo (ADR-012), but a locked-down host
+# without apt/sudo still gets a working codex (bundled bwrap fallback), so a
+# failure here only logs — it never fails the install.
+ensure_bubblewrap() {
+  if command -v bwrap >/dev/null 2>&1; then
+    echo "codex: bubblewrap already present ($(command -v bwrap))"
+    return 0
+  fi
+  echo "codex: installing bubblewrap (codex's system sandbox) via apt"
+  if sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 \
+    && sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bubblewrap >/dev/null 2>&1; then
+    echo "codex: bubblewrap installed ($(command -v bwrap || echo bwrap))"
+  else
+    echo "codex install: could not install bubblewrap (no apt/sudo?); codex will use its bundled copy" >&2
+  fi
+}
+
+ensure_bubblewrap
+
 # ENABLE-05: disable codex's in-app startup update check so the catalog pin
 # stays authoritative and the agent is never nudged to self-update out of band.
 # Idempotent + non-destructive: only add the key when it is absent, and

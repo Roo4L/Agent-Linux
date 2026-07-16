@@ -77,8 +77,18 @@ fi
 ## paths or on partial-state recovery; what we actually care about is that
 ## the skill set ends up under each agent's config dir — verified below.
 agent_home="${AGENTLINUX_AGENT_HOME}"
-echo "gsd: wiring GSD skill set into all shipped agents via get-shit-done-cc --global --claude --opencode --gemini --codex --qwen"
-get-shit-done-cc --global --claude --opencode --gemini --codex --qwen \
+# NOTE: `--codex` is deliberately OMITTED. The pinned GSD bootstrapper's codex
+# writer appends an array-of-tables `[[hooks]]` block to ~/.codex/config.toml,
+# but codex 0.125+ expects `hooks` to be a table (`HooksToml` struct). The
+# result is that `codex` then fails to launch with:
+#   Error loading config.toml: invalid type: sequence, expected struct HooksToml in `hooks`
+# i.e. wiring GSD into codex BREAKS codex outright (upstream GSD×codex
+# incompatibility, not an AgentLinux bug). We wire the other four agents and
+# skip codex until GSD ships a codex-0.125-compatible writer — at which point
+# re-add `--codex` here + the codex assertion below + the codex sweep in
+# uninstall.sh, and bump the GSD pin. Dogfood-discovered (2026-07-16).
+echo "gsd: wiring GSD skill set into shipped agents via get-shit-done-cc --global --claude --opencode --gemini --qwen (codex skipped — see note)"
+get-shit-done-cc --global --claude --opencode --gemini --qwen \
   || echo "gsd install: bootstrapper exited non-zero (re-run / partial-state path); verifying wired dirs anyway" >&2
 
 # Sanity-check that the GSD skill/command surface landed for EACH shipped
@@ -102,7 +112,7 @@ _assert_wired() {
 _assert_wired "Claude Code" "${agent_home}/.claude/skills" -maxdepth 1 -type d -name 'gsd-*'
 _assert_wired "opencode" "${agent_home}/.config/opencode/command" -maxdepth 1 -type f -name 'gsd-*.md'
 _assert_wired "gemini-cli" "${agent_home}/.gemini/commands" -maxdepth 2 -type d -name 'gsd'
-_assert_wired "codex" "${agent_home}/.codex/skills" -maxdepth 1 -type d -name 'gsd-*'
 _assert_wired "qwen-code" "${agent_home}/.qwen/skills" -maxdepth 1 -type d -name 'gsd-*'
+# codex intentionally not asserted — see the --codex omission note above.
 
-echo "gsd: install complete (resolves at ${bin_path}; banner matches pin; skill set wired into Claude Code + opencode + gemini-cli + codex + qwen-code)"
+echo "gsd: install complete (resolves at ${bin_path}; banner matches pin; skill set wired into Claude Code + opencode + gemini-cli + qwen-code; codex skipped to avoid the codex-0.125 config.toml breakage)"

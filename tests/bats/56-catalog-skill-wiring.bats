@@ -56,24 +56,25 @@ _agent_test() {
   fi
 }
 
-@test "WIRE-01: install gsd wires GSD into ALL shipped coding agents, not just Claude Code" {
+@test "WIRE-01: install gsd wires GSD into the shipped coding agents (codex excluded — upstream config breakage)" {
   _reinstall gsd
 
-  # Each shipped agent gets GSD in its own native surface (Claude/codex/qwen use
-  # a skills/ dir, opencode a command/ dir, gemini a namespaced commands/gsd dir
+  # Each shipped agent gets GSD in its own native surface (Claude/qwen use a
+  # skills/ dir, opencode a command/ dir, gemini a namespaced commands/gsd dir
   # — the layouts observed for the pinned GSD; a pin bump re-validates here).
+  # codex is DELIBERATELY not wired: the pinned GSD's codex writer emits a
+  # config.toml `[[hooks]]` block that codex 0.125+ rejects, breaking codex
+  # launch — see gsd/install.sh and the codex-safety @test below.
   _agent_test "WIRE-01/gsd/claude" "gsd-* skills under /home/agent/.claude/skills" \
     "find /home/agent/.claude/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
   _agent_test "WIRE-01/gsd/opencode" "gsd-*.md commands under /home/agent/.config/opencode/command" \
     "find /home/agent/.config/opencode/command -maxdepth 1 -type f -name 'gsd-*.md' | grep -q ."
   _agent_test "WIRE-01/gsd/gemini" "gsd commands under /home/agent/.gemini/commands" \
     "find /home/agent/.gemini/commands -maxdepth 2 -type d -name 'gsd' | grep -q ."
-  _agent_test "WIRE-01/gsd/codex" "gsd-* skills under /home/agent/.codex/skills" \
-    "find /home/agent/.codex/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
   _agent_test "WIRE-01/gsd/qwen" "gsd-* skills under /home/agent/.qwen/skills" \
     "find /home/agent/.qwen/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
 
-  # Symmetric teardown: every wired surface is removed across ALL agents.
+  # Symmetric teardown: every wired surface is removed across the wired agents.
   _remove gsd
   _agent_test "WIRE-01/gsd/remove-claude" "no gsd-* under /home/agent/.claude/skills after remove" \
     "! find /home/agent/.claude/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
@@ -81,10 +82,35 @@ _agent_test() {
     "! find /home/agent/.config/opencode/command -maxdepth 1 -type f -name 'gsd-*.md' | grep -q ."
   _agent_test "WIRE-01/gsd/remove-gemini" "no gsd commands under /home/agent/.gemini/commands after remove" \
     "! find /home/agent/.gemini/commands -maxdepth 2 -type d -name 'gsd' | grep -q ."
-  _agent_test "WIRE-01/gsd/remove-codex" "no gsd-* under /home/agent/.codex/skills after remove" \
-    "! find /home/agent/.codex/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
   _agent_test "WIRE-01/gsd/remove-qwen" "no gsd-* under /home/agent/.qwen/skills after remove" \
     "! find /home/agent/.qwen/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
+}
+
+@test "WIRE-01: installing gsd does NOT break codex — config.toml stays codex-loadable" {
+  # Regression for the dogfood bug (2026-07-16): the pinned GSD, wired into codex
+  # via `--codex`, appended an array-of-tables `[[hooks]]` block to
+  # ~/.codex/config.toml, which codex 0.125+ rejects with
+  #   Error loading config.toml: invalid type: sequence, expected struct HooksToml in `hooks`
+  # so `codex` refused to launch. The fix drops `--codex` from gsd/install.sh.
+  # This @test is the acceptance contract: codex + gsd coinstalled, codex still
+  # launches, and no `[[hooks]]` block was written. Guards against a GSD pin bump
+  # silently re-introducing the breakage.
+  _reinstall codex
+  _install gsd
+
+  # codex config carries no array-of-tables hooks block.
+  _agent_test "WIRE-01/gsd/codex-safe-config" "no [[hooks]] in ~/.codex/config.toml after gsd install" \
+    "! grep -qE '^\\[\\[hooks\\]\\]' /home/agent/.codex/config.toml 2>/dev/null"
+
+  # And codex actually launches (config loads) — the user-visible symptom.
+  run sudo -u agent -H bash --login -c 'codex --version'
+  assert_exit_zero "WIRE-01/gsd/codex-launches"
+  if printf '%s' "${output}" | grep -qiE 'HooksToml|expected struct|invalid type'; then
+    __fail "WIRE-01" "codex --version launches cleanly after gsd install" "${output:-<empty>}" "$LOG"
+  fi
+
+  _remove gsd
+  _remove codex
 }
 
 @test "WIRE-01: install playwright-cli mirrors its skill into /home/agent/.agents/skills (codex/opencode scan path)" {

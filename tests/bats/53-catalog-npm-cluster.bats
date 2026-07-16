@@ -140,6 +140,13 @@ _npm_agent_lifecycle() {
     __fail "ENABLE-05" "codex --version is pinned ${pinned}" "${output:-<empty>}" "$LOG"
   fi
 
+  # (b2) codex install brings in the system bubblewrap sandbox so codex stops
+  # nagging about a missing `bwrap` on launch. The recipe step is non-fatal, but
+  # a standard AgentLinux host has agent NOPASSWD sudo + apt (ADR-012), so bwrap
+  # installs deterministically here.
+  run sudo -u agent -H bash --login -c 'command -v bwrap'
+  assert_exit_zero "ENABLE-05 (bubblewrap system sandbox installed)"
+
   # (c) CAT-04: ~/.codex (config + auth) survives a remove.
   run sudo -u agent -H bash --login -c 'agentlinux remove --force codex'
   assert_exit_zero "ENABLE-05 (remove)"

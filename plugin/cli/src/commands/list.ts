@@ -14,6 +14,9 @@ export interface ListOpts {
   json?: boolean;
   includeTest?: boolean;
   byCategory?: boolean;
+  // Off by default: descriptions are long and blow out the table width. Opt in
+  // with `--descriptions` for the human table; `--json` always carries them.
+  descriptions?: boolean;
 }
 
 interface Row {
@@ -95,7 +98,8 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
 
 // Render the padded columns for a set of rows (shared by the flat + grouped views). The
 // INSTALLED-column suffixes are binding wording — bats greps the literal strings.
-function renderTable(rows: Row[], lines: string[]): void {
+// DESCRIPTION column is opt-in (showDescriptions); see ListOpts.descriptions for why.
+function renderTable(rows: Row[], lines: string[], showDescriptions: boolean): void {
   const REUSED_SUFFIX = " (reused — managed by agentlinux upgrade/remove)";
   const BROKEN_AFTER_REMEDIATE_SUFFIX = " (broken — half-uninstalled, manual recovery needed)";
   const reusedWithWarningSuffix = (reason: string) =>
@@ -104,7 +108,9 @@ function renderTable(rows: Row[], lines: string[]): void {
     ` (detected — run: agentlinux install ${id} to manage)`;
   const presentMigrateSuffix = (id: string, path: string) =>
     ` (detected at ${path}, not the managed path — run: agentlinux install ${id} to migrate)`;
-  const header = ["NAME", "STATUS", "CURATED", "INSTALLED", "DESCRIPTION"];
+  const header = showDescriptions
+    ? ["NAME", "STATUS", "CURATED", "INSTALLED", "DESCRIPTION"]
+    : ["NAME", "STATUS", "CURATED", "INSTALLED"];
   const data = rows.map((r) => {
     let installed = r.installed;
     if (r.sentinel_status === "broken-after-remediate") {
@@ -118,12 +124,20 @@ function renderTable(rows: Row[], lines: string[]): void {
         ? `${r.installed}${presentManageSuffix(r.id)}`
         : `${r.installed}${presentMigrateSuffix(r.id, r.present_path ?? "a non-canonical path")}`;
     }
-    return [r.id, r.status, r.curated, installed, r.description];
+    const base = [r.id, r.status, r.curated, installed];
+    return showDescriptions ? [...base, r.description] : base;
   });
   const all = [header, ...data];
   const widths = header.map((_, i) => Math.max(...all.map((row) => row[i].length)));
+  // trimEnd so the final column carries no trailing pad (esp. without DESCRIPTION,
+  // where INSTALLED becomes the last column).
   for (const row of all) {
-    lines.push(row.map((c, i) => c.padEnd(widths[i])).join("  "));
+    lines.push(
+      row
+        .map((c, i) => c.padEnd(widths[i]))
+        .join("  ")
+        .trimEnd(),
+    );
   }
 }
 
@@ -168,10 +182,10 @@ export async function listCmd(opts: ListOpts): Promise<void> {
       if (!first) lines.push("");
       first = false;
       lines.push(`## ${g[0]?.category_label ?? key}`);
-      renderTable(g, lines);
+      renderTable(g, lines, opts.descriptions ?? false);
     }
   } else {
-    renderTable(rows, lines);
+    renderTable(rows, lines, opts.descriptions ?? false);
   }
   for (const line of lines) console.log(line);
 }

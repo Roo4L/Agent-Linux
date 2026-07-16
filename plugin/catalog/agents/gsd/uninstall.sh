@@ -40,12 +40,13 @@ _rm_path() {
 echo "gsd: removing get-shit-done-cc"
 
 # Step 1: ask the bootstrapper to undo what install.sh wired into every agent.
-# Mirrors the install path's `--global --claude --opencode --gemini --codex
-# --qwen` invocation (WIRE-01). Failure is non-fatal — the bootstrapper may be
-# a future version that drops a flag, or the user may have already removed bits
-# manually; the defensive cleanup below catches whatever remains.
+# Mirrors the install path's `--global --claude --opencode --gemini --qwen`
+# invocation (WIRE-01; codex omitted — see gsd/install.sh). Failure is non-fatal
+# — the bootstrapper may be a future version that drops a flag, or the user may
+# have already removed bits manually; the defensive cleanup below catches
+# whatever remains (including codex leftovers from a pre-fix install).
 if command -v get-shit-done-cc >/dev/null 2>&1; then
-  get-shit-done-cc --global --claude --opencode --gemini --codex --qwen --uninstall \
+  get-shit-done-cc --global --claude --opencode --gemini --qwen --uninstall \
     || echo "gsd uninstall: bootstrapper --uninstall returned non-zero (continuing)" >&2
 fi
 
@@ -79,6 +80,10 @@ _sweep "${H}/.config/opencode" -maxdepth 1 -type d -name 'get-shit-done'
 # namespacing by a future GSD pin is torn down symmetrically, not orphaned.
 _sweep "${H}/.gemini/commands" -maxdepth 2 -type d -name 'gsd'
 _sweep "${H}/.gemini" -maxdepth 1 -type d -name 'get-shit-done'
+# codex is no longer wired on install, but keep these sweeps to clean up
+# leftovers from a pre-fix install (they target gsd-*/get-shit-done only, never
+# config.toml — recovering a codex broken by the old --codex wiring is a manual
+# edit of ~/.codex/config.toml).
 _sweep "${H}/.codex/skills" -maxdepth 1 -type d -name 'gsd-*'
 _sweep "${H}/.codex" -maxdepth 1 -type d -name 'get-shit-done'
 _sweep "${H}/.qwen/skills" -maxdepth 1 -type d -name 'gsd-*'
