@@ -1,138 +1,223 @@
 ---
 name: qa-testing
-description: Run a scoped, time-boxed integration-QA session against AgentLinux deliverables and co-installed catalog tools.
+description: Run black-box, user-oriented QA against AgentLinux catalog packages and realistic co-install workflows.
 ---
 
-# AgentLinux QA Testing
+# AgentLinux catalog-package QA
 
-Use this skill at milestone close, release-candidate review, or on demand for a
-specific release, milestone, or phase. It is a judgment-driven integration
-session, not a replacement for the bats, Docker, or QEMU gates. It is the
-reusable workflow for the Phase 50 `TST-08` integration-QA contract.
+Use this skill for a curious, evidence-driven QA session against the installed
+AgentLinux product. The subject is the catalog packages and the workflows users
+build with them. It is not a GSD-file audit, a repository-quality audit, a
+replacement for the behavior suite, or a claim that the host can run QEMU.
 
-## Inputs and session record
+The campaign is observation-only: reproduce behavior, analyze it, preserve
+redacted evidence, classify findings, and hand them back for later follow-up.
+Keep product, recipe, test, and documentation changes out of the discovery
+campaign.
 
-Start with the unit under test: a phase, milestone, release candidate, or
-explicit feature diff. Set these optional environment controls when useful:
+## Invocation and defaults
 
-- `QA_ROUND_MINUTES` — duration of one bug-hunting round; default `20`.
-- `QA_QUIET_ROUNDS` — consecutive rounds with zero new bugs required to stop;
-  default `2`.
+At invocation, state in free-form text:
 
-Create a report before testing and update it during the session. Every finding
-uses this schema:
+- the unit or package scope (release candidate, milestone, package, or workflow);
+- any Ubuntu distribution or workflow focus;
+- credentials already authorized for this session and their intended minimal use;
+- optional changes to the default productive window or clean-idea threshold.
+
+The normal stop defaults are **30 minutes of productive QA activity** and the
+**latest 10 distinct completed test ideas** with no newly discovered issue.
+These are agent-orchestrated conditions, not environment variables, a scripted
+timer, or a round counter. A free-form invocation may request different
+thresholds; record the override in the report and apply it consistently.
+
+## Scope and inventory
+
+The included catalog inventory is:
+
+`claude-code`, `gsd`, `playwright-cli`, `codex`, `gemini-cli`, `opencode`,
+`qwen-code`, `ccusage`, `rtk`, `gh`, `glab`, `trivy`, `gitleaks`, `sentry-cli`,
+`chrome-devtools-mcp`, `context7`, `github-mcp`, `sentry-mcp`, `firecrawl-mcp`,
+`slack-mcp`, `linear-mcp`, `jira-atlassian-mcp`, and `spec-kit`.
+
+The explicit exclusions are:
+
+- `openclaw` — its primary systemd service is unavailable in the requested
+  Docker environment;
+- `hermes-agent` — its primary systemd service is unavailable in that Docker
+  environment;
+- `test-dummy` — a fixture, not a product package.
+
+The two daemon exclusions are coverage boundaries, not passing results. Do not
+start a fake daemon or infer systemd/QEMU behavior from Docker. QEMU remains
+the authority for those paths.
+
+Derive the scenario ledger from `plugin/catalog/catalog.json` at session start.
+Do not silently omit an included entry because its operation is inconvenient.
+
+## Per-package evidence contract
+
+For every included package, record one materially distinct lifecycle idea with:
+
+1. fresh-container install through the user-facing AgentLinux path;
+2. canonical command, version, path, agent ownership, and absence of a forbidden
+   `/usr/local/bin/` wrapper shim;
+3. a realistic primary operation beyond `--help` or `--version`;
+4. removal, post-removal residue, preserved user content, sibling state, and an
+   idempotent second removal where meaningful.
+
+Record the exact distro/container, package pin, install order, operation, output
+artifact, productive interval, novelty result, finding ID, and cleanup result.
+Use fresh disposable containers for order-sensitive ideas. Set
+`TERM=xterm-256color`, keep ANSI/color enabled where relevant, and capture both
+an 80-column default terminal and a wider documented geometry for at least one
+real PTY flow. Gate input on observed prompts and distinguish live work from an
+apparent freeze.
+
+Category-specific operation examples:
+
+- coding agents: an authenticated tiny prompt and, where relevant, a genuine PTY
+  prompt/streaming exchange;
+- `gsd`: create or inspect a temporary user workflow and exercise its installed
+  skill/command surfaces;
+- `playwright-cli`: launch a local page and perform a meaningful interaction;
+- `ccusage`: parse a seeded local usage record and inspect the reported result;
+- `spec-kit`: scaffold a temporary project and inspect the generated workflow;
+- `rtk`: run representative commands through its hook/rewire flow and inspect
+  the resulting command behavior;
+- `trivy` and `gitleaks`: scan a small fixture with both a finding and an empty or
+  malformed input case;
+- `gh`, `glab`, and `sentry-cli`: perform the smallest useful read-only operation
+  with the authorized account;
+- MCP entries: register the server, verify it is visible to a compatible client,
+  and make a keyless or authenticated read-only tool call as the service allows.
+
+Help/version output can establish identity, but never establishes operational
+coverage by itself.
+
+## Workflow combinations
+
+Choose combinations from real shared workflows rather than an arbitrary pairwise
+matrix. At minimum cover:
+
+- coding-agent consumers with `gsd` and `playwright-cli`, including provider-first
+  and consumer-first installation where the shared skill/config surface matters;
+- every compatible cross-agent MCP fan-out provider against each compatible
+  installed coding agent (`claude-code`, `codex`, `gemini-cli`, `opencode`, and
+  `qwen-code` as applicable), in both installation orders;
+- repeated MCP reconciliation, duplicate registration, remove-one-keep-sibling,
+  unrelated user-config preservation, and clean final removal;
+- `rtk` with the installed coding-agent fleet, unrelated hook entries, repeated
+  wiring, and sibling-preserving removal;
+- one realistic npm-plus-binary-plus-workflow composition, checking PATH,
+  ownership, configuration, update-like behavior, and cleanup together.
+
+For a shared surface, add a retry after failed or interrupted progress, repeated
+install/reinstall or upgrade-like behavior, empty/malformed input, and partial
+cleanup. Add these only where the state transition can expose a user-visible
+defect; do not inflate coverage with meaningless pairs.
+
+## Credential checkpoint and blocking
+
+Before package operations, inventory the credential classes required by the
+selected real scenarios and ask the user for runtime authorization. Likely
+classes are:
+
+- model/provider access for authenticated coding-agent prompts;
+- GitHub and GitLab read-only access;
+- Sentry read-only access;
+- Slack, Linear, and Atlassian/Rovo MCP access;
+- any other provider or account that a selected operation explicitly requires.
+
+Ask only for the classes needed by the chosen ideas and explain the minimal
+operation. Never request secrets be committed, written to a recipe, pasted into
+the report, or copied into a persistent fixture. Inject authorized values only at
+runtime and redact command output, transcripts, screenshots, and config diffs.
+Record only credential class plus requested/provided/blocked status.
+
+If the user does not provide a needed credential, mark the affected idea
+`blocked` and stop that path. Continue only with genuinely independent local or
+keyless ideas; a help/version launch is not a substitute. If a package requests
+an unexpected credential, pause that idea, record the unexpected requirement as a
+block, and ask the user before continuing it. Do not silently downgrade coverage.
+
+## Finding and novelty rules
+
+Each finding records:
 
 | Field | Required content |
 |---|---|
 | ID | Stable finding identifier |
 | Severity | blocker, high, medium, low, or observation |
-| Scope | `direct` or `adjacent` |
-| Repro | Minimal repeatable steps, including install order and invocation mode |
-| Evidence | Command output, transcript path, screenshot, or config diff (never secrets) |
-| Disposition | Fixed inline, deferred to decimal phase, filed as ticket, or hand-off |
-| Residual risk | What remains unproven after the disposition |
+| Scope | direct package defect or adjacent workflow impact |
+| Affected surface | package(s), workflow, distro, and install order |
+| Reproduction | exact repeatable user-facing steps |
+| Evidence | redacted output, transcript, config diff, or artifact path |
+| First seen | test-idea ID and productive interval |
+| Classification | known reproduction or newly discovered/reproducible issue |
+| Disposition | deferred follow-up, ticket/phase handback, or maintainer decision |
+| Residual risk | what remains unproven |
 
-## Pillar 1 — Scoped coverage
+Only a newly reproducible issue is new. Reproducing an already-known issue does
+not reset the stop measures and counts clean for new-issue discovery; link its
+existing finding and preserve the additional evidence. Expected negative behavior
+is clean when it matches the contract. A blocked or incomplete idea counts as
+neither clean nor productive while the block prevents progress.
 
-Derive the test scope from three sources:
+## Productive stop gate
 
-1. `git diff` and the files touched by the unit under test.
-2. The roadmap goal and success criteria for that phase or milestone.
-3. Requirement IDs and their downstream consumers in `REQUIREMENTS.md`.
+Maintain two auditable records throughout the session:
 
-Put direct deliverables in the heavy bucket: exercise them repeatedly with
-different orders, partial states, malformed inputs, retries, and human-style
-flows. Put adjacent or possibly impacted surfaces in the lighter bucket: run a
-small sanity pass to detect regressions without pretending to re-run every
-isolated gate. Record both buckets in the report.
+1. an activity log with active execution, observation, analysis, and reproduction
+   intervals; and
+2. an idea ledger where each materially different user-facing hypothesis ends as
+   `clean`, `known`, `new`, `blocked`, or `incomplete`.
 
-## Pillar 2 — Regression-to-zero stop condition
+Productive time excludes chat idle time, waiting for user input, usage-limit
+pauses, and external blocks that prevent QA work. A long-running install or
+operation contributes active time while it runs, but contributes one clean idea
+only after it completes cleanly. A newly discovered reproducible issue resets
+both measures. Continue until both the configured productive-time threshold and
+the configured latest-clean-idea threshold hold since the latest new issue. If
+the gate is not met, hand back the unmet arithmetic instead of declaring success.
 
-Do not stop merely because a checklist is complete. Run creative bug-hunting
-rounds for `QA_ROUND_MINUTES` minutes. A round that finds one or more *new*
-reproducible bugs resets the quiet-round counter to zero. A quiet round
-increments it. Stop when `QA_QUIET_ROUNDS` consecutive rounds are quiet and
-write `done from my side` with the count and duration in the report. If a
-maintainer takes over first, write an explicit hand-off with the remaining
-quiet-round count and open risks.
+## Handback template
 
-Use the loop as a goal-directed search: after each finding, explore nearby
-states and likely regressions before moving on. A duplicate symptom is not a
-new bug, but it must be linked to the original finding.
-
-## Pillar 3 — Representative TUI session
-
-At least one session must show what a real user sees:
-
-- Allocate a **real interactive PTY**. Do not use a captured pipe as the only
-  evidence; pipes can make prompts look like a frozen script.
-- Set `TERM=xterm-256color`, keep color/ANSI enabled, and use default geometry
-  that exercises approximately 80-column behavior. Repeat the most important
-  flow at a documented wider geometry (for example 120 columns).
-- Observe prompts, redraws, live/streaming output, and background work. Record
-  the terminal dimensions, TERM, color setting, command, and whether apparent
-  freezes resolved while work continued.
-- Reuse `tests/bats/helpers/tty-driver.py` or the interactive session in
-  `tests/docker/rc-sandbox.sh`; preserve its prompt-sentinel and timeout
-  behavior instead of inventing a pipe-based substitute.
-
-## Co-install integration matrix
-
-Use fresh disposable environments for each order-sensitive scenario. At
-minimum, drive these combinations in both relevant install orders:
-
-1. `gsd` + `codex`: verify both commands, PATH ownership, version/pin behavior,
-   and skill/config coexistence.
-2. A coding agent + a fan-out MCP provider, such as `codex` + `github-mcp`:
-   verify registration into the installed agent set, then install the second
-   coding agent and verify reverse-trigger reconciliation produces the same
-   final set.
-3. A `[bin]` + `[npm]` + `[daemon]` mix, such as `rtk` + `gsd` + `openclaw`:
-   verify agent-owned paths, config isolation, no `/usr/local` shim, and the
-   daemon/config path. Docker may be unable to prove per-user systemd; mark
-   that part QEMU-gated rather than calling it green.
-
-For each combination, remove one member while a sibling remains installed,
-then remove the rest. Assert the sibling still resolves, its config remains,
-and the removed tool leaves no cross-tool residue. Also run `list` and
-`list --by-category` at the default terminal width and inspect both text and
-JSON forms where applicable.
-
-## Credentials, harness boundaries, and handback
-
-Credentials are runtime-only. Pass them through the environment of the smoke
-process; never write values into a recipe, catalog, image, skill, report, or
-command transcript. A missing credential is a clean skip, and the report names
-the skipped provider without recording its value.
-
-Use Docker for fast disposable co-install, CLI, wiring, and UX checks. Docker
-does not reproduce every systemd-user/logind behavior. The QEMU harness is the
-release-level authority for daemon lifecycle and other VM-only paths. Report
-which invocation modes were covered (interactive login, non-interactive shell,
-SSH, cron/systemd, sudo-user variants as applicable) and which were not.
-
-## Required handback
-
-End every session with a Markdown report containing:
+End with a report containing:
 
 ```markdown
 ## Session outcome
 - Unit under test:
-- Stop signal: done from my side after N quiet rounds | maintainer hand-off
-- Harnesses and dates:
+- Thresholds and free-form overrides:
+- Stop arithmetic since the latest new issue:
+- Productive result: active minutes / excluded intervals / latest clean ideas:
+
+## Scenario ledger
+| Idea | Packages | Distro | Install order | Operation | Credential class | Active interval | Novelty | Finding | Cleanup | Evidence |
+|---|---|---|---|---|---|---|---|---|---|---|
 
 ## Findings
-| ID | Severity | Scope | Repro | Evidence | Disposition | Residual risk |
-|---|---|---|---|---|---|---|
+| ID | Severity | Scope | Affected surface | Reproduction | Evidence | First seen | Classification | Disposition | Residual risk |
+|---|---|---|---|---|---|---|---|---|---|
+
+## Known-issue links
+- Finding and additional reproductions:
+
+## Blocked ideas and credentials
+- Credential class, requested/provided/blocked status, affected idea IDs:
+- Unexpected credential requests and user checkpoints:
+
+## Exclusions
+- `openclaw`: Docker has no usable primary systemd service.
+- `hermes-agent`: Docker has no usable primary systemd service.
+- `test-dummy`: fixture, not a product package.
 
 ## Coverage limits
-- Combinations and install orders:
-- Invocation modes:
-- Credentialed paths run/skipped:
-- Docker coverage:
-- QEMU coverage:
-- Explicitly not tested:
+- Docker distros and fresh-container boundaries:
+- QEMU/systemd paths not covered:
+- PTY setup: TERM, geometry, ANSI/color, prompt gating, live output:
+- Invocation modes and workflows not exercised:
+- Residue, sibling-preservation, and `/usr/local` checks:
 ```
 
-Route every finding to an inline fix, a decimal phase, an AL ticket, or an
-explicit maintainer hand-off. The report must not claim “tested everything.”
+Never claim that unexecuted credentialed operations, excluded daemon services,
+or QEMU-only behavior passed.

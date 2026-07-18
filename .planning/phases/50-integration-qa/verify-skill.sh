@@ -1,36 +1,43 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)
-SKILL="$ROOT/.claude/skills/qa-testing/SKILL.md"
-LINK="$ROOT/.codex/skills/qa-testing"
+skill=.claude/skills/qa-testing/SKILL.md
+codex_link=.codex/skills/qa-testing
 
-test -s "$SKILL"
-grep -q 'qa-testing' "$ROOT/CLAUDE.md"
-grep -q 'qa-testing' "$ROOT/AGENTS.md"
-test -L "$LINK"
-test "$(readlink "$LINK")" = "../../.claude/skills/qa-testing"
+test -s "$skill"
+rg -qF '.claude/skills/qa-testing/' CLAUDE.md
+test -L "$codex_link"
+test "$(readlink "$codex_link")" = '../../.claude/skills/qa-testing'
 
-for needle in \
-  'Scoped' \
-  'Regression-to-zero' \
-  'real interactive PTY' \
-  'TERM=xterm-256color' \
-  '80-column' \
-  'QA_ROUND_MINUTES' \
-  'QA_QUIET_ROUNDS' \
-  'Coverage limits' \
-  'direct' \
-  'adjacent' \
-  'QEMU' \
-  'TST-08'; do
-  grep -qF "$needle" "$SKILL"
+for name in claude-code gsd playwright-cli codex gemini-cli opencode qwen-code \
+  ccusage rtk gh glab trivy gitleaks sentry-cli chrome-devtools-mcp context7 \
+  github-mcp sentry-mcp firecrawl-mcp slack-mcp linear-mcp jira-atlassian-mcp \
+  spec-kit openclaw hermes-agent test-dummy; do
+  rg -qF "\`$name\`" "$skill"
 done
 
-if grep -Eq '(OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY)=' "$SKILL"; then
-  printf 'qa-testing skill contains a credential-looking assignment\n' >&2
+rg -qF '30 minutes' "$skill"
+rg -qF 'latest 10' "$skill"
+rg -qF 'productive' "$skill"
+rg -qF 'known' "$skill"
+rg -qF 'new' "$skill"
+rg -qF 'blocked' "$skill"
+rg -qF 'observation-only' "$skill"
+rg -qF 'Coverage limits' "$skill"
+rg -qF 'TERM=xterm-256color' "$skill"
+rg -qF '80-column' "$skill"
+rg -qF 'QEMU' "$skill"
+rg -qF 'runtime' "$skill"
+rg -qF 'redact' "$skill"
+
+if rg -n 'QA_ROUND_MINUTES|QA_QUIET_ROUNDS|fixed round|fix.*during.*sweep' "$skill"; then
+  echo 'obsolete round or inline-fix language found' >&2
+  exit 1
+fi
+if rg -n '(OPENAI_API_KEY|ANTHROPIC_API_KEY|GEMINI_API_KEY|GH_TOKEN|SENTRY_AUTH_TOKEN)=' "$skill"; then
+  echo 'credential-looking assignment found' >&2
   exit 1
 fi
 
-bash -n "${BASH_SOURCE[0]}"
-printf 'qa-testing skill self-check: PASS\n'
+bash -n "$0"
+echo 'qa-testing skill self-check: PASS'
