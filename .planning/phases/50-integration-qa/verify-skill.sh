@@ -13,13 +13,16 @@ rg -qF '.claude/skills/qa-testing/' CLAUDE.md
 test -L "$codex_link"
 test "$(readlink "$codex_link")" = '../../.claude/skills/qa-testing'
 
-for name in $(node - <<'NODE'
+catalog_ids=$(
+  node <<'NODE'
 const catalog = require('./plugin/catalog/catalog.json');
 for (const entry of catalog.agents) console.log(entry.id);
 NODE
-); do
+)
+while IFS= read -r name; do
+  [[ -n "$name" ]] || continue
   rg -qF "\`$name\`" "$skill"
-done
+done <<<"$catalog_ids"
 
 node - <<'NODE'
 const catalog = require('./plugin/catalog/catalog.json');
