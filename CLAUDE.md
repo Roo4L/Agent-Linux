@@ -64,6 +64,11 @@ that allows the review-reminder hook) nudges Claude to invoke the skill before
 stopping. Skip for research-only / Q&A / `.planning/`-only sessions — request
 stop again to pass through.
 
+## Project skills
+
+- `.claude/skills/qa-testing/` — reusable scoped integration-QA workflow with a
+  regression-to-zero stop rule and representative PTY/TUI session.
+
 ---
 *Last updated: 2026-07-18 — split shared context into `AGENTS.md`; this file now
 carries Claude-Code-specific mechanics only.*

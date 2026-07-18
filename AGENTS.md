@@ -109,7 +109,7 @@ bash tests/harness/run.sh                  # Run harness meta-tests (Phase 1)
   `.claude/skills/behavior-test-contract/`, `.claude/skills/catalog-schema/`,
   `.claude/skills/dev-docs/`, `.claude/skills/planning-workflow/`,
   `.claude/skills/qemu-harness/`, `.claude/skills/review/`,
-  `.claude/skills/workspace-cleanup/`
+  `.claude/skills/qa-testing/`, `.claude/skills/workspace-cleanup/`
 
 ---
 *Last updated: 2026-07-18 — added Codex CLI support alongside Claude Code.*
