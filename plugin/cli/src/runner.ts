@@ -117,5 +117,5 @@ export async function dispatchRecipe(
     ...(args.extraEnv ?? {}),
   };
 
-  return dispatcher("agent", ["bash", args.recipePath], { env, stream: args.stream ?? false });
+  return dispatcher(user, ["bash", args.recipePath], { env, stream: args.stream ?? false });
 }
