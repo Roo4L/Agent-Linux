@@ -90,14 +90,39 @@ packages.
 - Fixes and follow-up routing happen after the QA report is complete, through
   later implementation work or explicitly approved issue/phase artifacts.
 
+### Regression-to-zero stop rule
+- Do not use a fixed round counter as the completion criterion. The QA agent
+  stops only when both conditions hold since the latest new finding:
+  1. at least 30 minutes of productive QA activity have elapsed; and
+  2. the latest 10 distinct test ideas have completed without surfacing a new
+     issue.
+- A test idea is a materially different user-facing hypothesis or scenario,
+  not an individual shell command. A long-running install or operation counts
+  toward productive time while it is genuinely executing, but counts as one
+  clean idea only after it completes.
+- Productive time includes running/observing tests and analyzing their results.
+  It excludes chat idle time, usage-limit pauses, waiting for user input, and
+  external blocks that prevent QA work from continuing.
+- A newly discovered, reproducible issue resets both the productive-time timer
+  and the consecutive-clean-idea count.
+- Reproducing an issue already known to the session does not reset either
+  counter and does count as clean for the purpose of discovering *new* issues;
+  it may still be linked as additional evidence. An expected negative result
+  also counts as clean when the observed behavior matches the contract.
+- A blocked or incomplete test idea does not count as clean and does not
+  advance the timer while the block prevents productive QA.
+- The defaults may be overridden through free-form instructions when invoking
+  the skill (for example, requesting a longer active window or more clean
+  ideas). The workflow is agent-orchestrated; it does not require an
+  environment-variable or scripted timer interface.
+
 ### the agent's Discretion
 - Choose concrete workflow scenarios and package orderings using the above
   principles.
 - Choose the smallest safe fixture and runtime duration for each operation.
 - Decide when a repeated symptom is a duplicate of an existing finding.
-- Apply the regression-to-zero loop to the package-level findings: newly
-  reproducible bugs reset the quiet-round count; quiet rounds end the session
-  only after the report is complete.
+- Keep an explicit activity/idea log so the stop decision is auditable and
+  does not mistake external waiting for productive QA.
 
 </decisions>
 
