@@ -26,7 +26,7 @@ created: 2026-07-18
 - **After every task commit:** Run `bash .planning/phases/50-integration-qa/verify-skill.sh`
 - **After every plan wave:** Run the full suite command above, plus the targeted disposable Docker scenarios in the QA report.
 - **Before `$gsd-verify-work`:** The skill self-check, CLI tests, harness tests, and the recorded integration sweep must be green or explicitly handed back with limits.
-- **Max feedback latency:** 60 seconds for static checks; the report records longer Docker/PT​​Y/QEMU runs.
+- **Max feedback latency:** 60 seconds for static checks; the report records longer Docker/PTY/QEMU runs.
 
 ## Per-Task Verification Map
 
