@@ -3,7 +3,7 @@ phase: 28
 slug: rtk
 status: ready
 nyquist_compliant: true
-wave_0_complete: false
+wave_0_complete: true
 created: 2026-06-30
 ---
 
@@ -31,9 +31,11 @@ created: 2026-06-30
 | ENABLE-01 | `remove` deletes binary + `~/.config/rtk` + `~/.local/share/rtk`; idempotent second remove | integration (bats) | same file | 0 |
 | ENABLE-01 | tampered/mismatched checksum aborts BEFORE extract (negative test on a local tampered copy) | integration (bats) | same file | 0 |
 | WORK-02 | `rtk --version` reports the pin `0.42.4` | integration (bats) | same file | 0 |
-| WORK-02 | opt-in: install does NOT mutate `~/.claude`; after manual `rtk init -g` the hook exists; `remove` reverts it (no orphan hook) | integration (bats) | same file | 0 |
+| WORK-02 | ~~opt-in: install does NOT mutate `~/.claude`~~ **SUPERSEDED — see note below**; after `rtk init -g` the hook exists; `remove` reverts it (no orphan hook) | integration (bats) | same file | 0 |
 | ENABLE-01 (schema) | catalog validates with `source_kind: "binary"`; `types.ts` union compiles + round-trips | unit (node:test) | `cd plugin/cli && pnpm test` | extend |
 | OPS-01 | real offline op (`rtk gain` / `rtk ls <tmpdir>`) runs as the agent user, sensible output | integration (bats) | same file | 0 |
+
+> **⚠ Post-phase supersession (2026-07-18, dogfood batch 2 / WIRE-02 / AL-102):** the WORK-02 "opt-in — install does NOT mutate `~/.claude`" behavior above is **no longer current**. rtk is now a cross-agent proxy that **auto-wires on install** into every present coding agent (`~/.claude/RTK.md`, `~/.codex/RTK.md`, gemini/opencode), with a reverse-trigger for agents installed later, and symmetric unwire on remove. The authoritative contract is **WIRE-02** in `REQUIREMENTS.md`, verified by `tests/bats/70-catalog-cross-wire.bats` (not this file's opt-in assertion). A QA sweep must validate rtk against WIRE-02, **not** the struck-through opt-in row.
 
 ## Sampling Rate
 
@@ -43,7 +45,7 @@ created: 2026-06-30
 
 ## Wave 0 Gaps
 
-- [ ] `tests/bats/57-catalog-binary.bats` — ENABLE-01 + WORK-02 + OPS-01 lifecycle; modelled on `tests/bats/53-catalog-npm-cluster.bats` (jq-derived pin from the provisioned catalog, six-invocation-mode PATH discipline, `__fail` four-line diagnostics, `assert_no_eacces`).
-- [ ] Negative checksum test — install once (real network), then a recipe path pointing at a deliberately-wrong/corrupted LOCAL copy; assert non-zero exit + "verification failed" + binary NOT replaced. One real download only; tamper check stays offline → green in Docker.
-- [ ] Extend `plugin/cli/test/` schema/loader unit test: `source_kind: "binary"` validates and a binary entry round-trips through `loadCatalog`.
-- [ ] No framework install needed — bats + node:test already present.
+- [x] `tests/bats/57-catalog-binary.bats` — ENABLE-01 + WORK-02 + OPS-01 lifecycle; modelled on `tests/bats/53-catalog-npm-cluster.bats` (jq-derived pin from the provisioned catalog, six-invocation-mode PATH discipline, `__fail` four-line diagnostics, `assert_no_eacces`). *(Landed: 4 @tests, Docker-green Ubuntu 24.04.)*
+- [x] Negative checksum test — install once (real network), then a recipe path pointing at a deliberately-wrong/corrupted LOCAL copy; assert non-zero exit + "verification failed" + binary NOT replaced. One real download only; tamper check stays offline → green in Docker. *(Landed via the offline `file://` wrong-hash fixture in 57-catalog-binary.bats.)*
+- [x] Extend `plugin/cli/test/` schema/loader unit test: `source_kind: "binary"` validates and a binary entry round-trips through `loadCatalog`. *(Landed in Plan 28-01: enum + union + fixture.)*
+- [x] No framework install needed — bats + node:test already present.

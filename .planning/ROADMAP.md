@@ -400,7 +400,7 @@ Plans:
 | 25. opencode | 0/TBD | Not started | - |
 | 26. qwen-code | 0/TBD | Not started | - |
 | 27. ccusage | 0/TBD | Not started | - |
-| 28. rtk 🔧 | 3/4 | In Progress|  |
+| 28. rtk 🔧 | 4/4 | Complete | 2026-06-30 |
 | 29. gh | 1/1 | Complete | 2026-07-02 |
 | 30. glab | 1/1 | Complete | 2026-07-02 |
 | 31. trivy | 1/1 | Complete | 2026-07-02 |
