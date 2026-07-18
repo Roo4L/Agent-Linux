@@ -1,67 +1,66 @@
 ---
 phase: 50
 slug: integration-qa
-status: verifying
+status: draft
 nyquist_compliant: false
-wave_0_complete: true
+wave_0_complete: false
 created: 2026-07-18
 ---
 
 # Phase 50 — Validation Strategy
 
-> Per-phase validation contract for the reusable QA workflow and its recorded integration sweep.
+> Per-phase validation contract for the reusable package-QA workflow and its evidence-led integration sweep.
 
 ## Test Infrastructure
 
 | Property | Value |
 |----------|-------|
-| **Framework** | shell assertions, Markdown checks, existing pnpm/node:test, Docker harness, real PTY helper |
-| **Config file** | `plugin/cli/package.json`, `tests/docker/rc-sandbox.sh`, `tests/bats/helpers/tty-driver.py` |
+| **Framework** | shell assertions, Markdown checks, catalog metadata parsing, disposable Docker, genuine PTY |
+| **Config file** | `plugin/catalog/catalog.json`, `tests/docker/rc-sandbox.sh`, `tests/docker/run-smoke.sh`, `tests/bats/helpers/tty-driver.py` |
 | **Quick run command** | `bash .planning/phases/50-integration-qa/verify-skill.sh` |
-| **Full suite command** | `bash .planning/phases/50-integration-qa/verify-skill.sh && (cd plugin/cli && pnpm test) && bash tests/harness/run.sh` |
-| **Estimated runtime** | quick <10s; existing CLI/harness suite varies by host; Docker/QEMU sessions are separately recorded |
+| **Full suite command** | The Phase 50 QA skill's scenario ledger executed in fresh Ubuntu 24.04 RC containers, followed by targeted Ubuntu 22.04 and 26.04 ideas; this is intentionally not `tests/docker/run.sh`. |
+| **Estimated runtime** | Static checks <10s; package ideas vary; stop requires 30 productive minutes and 10 latest clean-by-novelty ideas. |
 
 ## Sampling Rate
 
-- **After every task commit:** Run `bash .planning/phases/50-integration-qa/verify-skill.sh`
-- **After every plan wave:** Run the full suite command above, plus the targeted disposable Docker scenarios in the QA report.
-- **Before `$gsd-verify-work`:** The skill self-check, CLI tests, harness tests, and the recorded integration sweep must be green or explicitly handed back with limits.
-- **Max feedback latency:** 60 seconds for static checks; the report records longer Docker/PTY/QEMU runs.
+- **After each skill/report task:** Run `bash .planning/phases/50-integration-qa/verify-skill.sh` and the relevant ledger/schema check.
+- **After each QA wave:** Persist the current ledger and finding records; run a fresh-container cleanup check for the scenarios in that wave.
+- **Before `$gsd-verify-work`:** The skill contract, catalog inventory reconciliation, report evidence, and stop-rule arithmetic must be reviewable. No source fix is required or permitted as part of the QA run.
+- **Max feedback latency:** 60 seconds for static/ledger checks; long-running package operations are measured as productive activity and recorded.
 
 ## Per-Task Verification Map
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 50-01-01 | 01 | 1 | TST-08 | T-50-01 | Skill is discoverable from the canonical Claude project skill directory and contains no secret values | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 0 | ✅ pass |
-| 50-01-02 | 01 | 1 | TST-08 | T-50-02 | PTY, TERM, width, color, live-output, quiet-round, and handback rules are present | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 0 | ✅ pass |
-| 50-02-01 | 02 | 1 | TST-08 | T-50-03 | Existing CLI unit and harness tests remain green after the skill registration/docs changes | regression | `(cd plugin/cli && pnpm test) && bash tests/harness/run.sh` | ✅ | ⚠ partial — host fixture and legacy planning path |
-| 50-03-01 | 03 | 1 | TST-08 | T-50-04 | Co-install findings are recorded with direct/adjacent scope, severity, repro, disposition, and Docker/QEMU limits | integration/report | `test -s .planning/phases/50-integration-qa/50-QA-REPORT.md && grep -q 'Coverage limits' .planning/phases/50-integration-qa/50-QA-REPORT.md` | ✅ | ✅ pass |
+| 50-01-01 | 01 | 1 | TST-08 | T-50-01 | Skill is discoverable, observation-only, credential-aware, and uses the productive stop rule | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 1 | ⬜ pending |
+| 50-01-02 | 01 | 1 | TST-08 | T-50-02 | Ledger inventory equals all catalog entries except `openclaw`, `hermes-agent`, and `test-dummy` | static | `node` catalog/ledger comparison command documented in the plan | Wave 1 | ⬜ pending |
+| 50-02-01 | 02 | 2 | TST-08 / OPS-01 | T-50-03 | Included packages install, operate beyond help/version, and remove cleanly in fresh Ubuntu 24.04 containers | disposable integration | Scenario-ledger commands and post-remove assertions | Wave 2 | ⬜ pending |
+| 50-03-01 | 03 | 2 | TST-08 | T-50-04 | Workflow-based co-install permutations converge, preserve siblings/unrelated config, and leave no forbidden shims | disposable integration | Fresh-container scenario commands recorded per idea | Wave 2 | ⬜ pending |
+| 50-04-01 | 04 | 3 | TST-08 | T-50-05 | Targeted Ubuntu 22.04/26.04 checks and a genuine PTY session are recorded without overclaiming daemon coverage | manual/integration | PTY driver plus targeted Docker ideas | Wave 3 | ⬜ pending |
+| 50-05-01 | 05 | 4 | TST-08 | T-50-06 | Report proves productive-time and latest-10 clean-by-novelty stop arithmetic, or records an explicit block | report verification | `test -s .planning/phases/50-integration-qa/50-QA-REPORT.md` plus report consistency checks | Wave 4 | ⬜ pending |
 
 ## Wave 0 Requirements
 
-- [x] Existing `tests/bats/helpers/tty-driver.py` and Docker harnesses cover the phase's execution primitives.
-- [x] Static self-check script is created with the skill in Wave 1 before integration execution.
-- [x] No new unit-test framework or catalog fixture is required; this phase validates a workflow and a report.
+- [ ] A deterministic self-check for the revised skill contract.
+- [ ] A catalog-to-ledger comparison that detects omitted or silently newly included entries.
+- [x] Existing Docker RC and PTY primitives are available; no new test framework is needed.
 
 ## Manual-Only Verifications
 
 | Behavior | Requirement | Why Manual | Test Instructions |
 |----------|-------------|------------|-------------------|
-| Representative terminal UX and live/background output | TST-08 | A transcript cannot prove the observer saw the real terminal geometry and streaming behavior | Run the skill's PTY session at default ~80 columns and the documented wider geometry with `TERM=xterm-256color`; record observed prompts, ANSI, live output, and any apparent freeze. |
-| Per-user systemd daemon behavior | TST-08 | Docker masks the user systemd/logind path | Run the applicable openclaw/hermes scenarios in the QEMU harness when available; otherwise mark them QEMU-gated and do not claim coverage. |
-| Human-style creative exploration | TST-08 | Bug-arrival-rate and usability judgments require an observer | Run configurable time-box rounds, reset after each new bug, and record two quiet default rounds or an explicit maintainer hand-off. |
+| Realistic package operations and creative edge cases | TST-08 / OPS-01 | The high-value behavior is user observation across many tools and cannot be reduced to static text checks | Execute the ledger in fresh containers; run category-specific operations, lifecycle permutations, and cleanup; record exact commands and redacted evidence. |
+| Credentialed operation | TST-08 / OPS-01 | Credentials are supplied by the user at runtime and must not enter fixtures/reports | Ask for the inventory's credentials before the relevant ideas; if an unexpected credential is requested, mark the idea blocked and ask rather than skipping. |
+| Genuine terminal UX | TST-08 | PTY geometry, ANSI, live output, and apparent freezes require observation through a real terminal | Use `TERM=xterm-256color`, color enabled, default 80 columns plus a wider case; capture redacted output and timing. |
+| Productive stop decision | TST-08 | Productive activity and novelty are session observations, not wall-clock chat time | Log active intervals only; reset both measures for each new reproducible issue; stop only when active time ≥30 minutes and the latest 10 distinct ideas are clean for new-issue discovery. |
+| Systemd daemon behavior | TST-08 | Docker does not provide the requested systemd service environment | Keep `openclaw` and `hermes-agent` excluded from this campaign and state the boundary; do not infer a pass. |
 
 ## Validation Sign-Off
 
-Execution evidence is recorded in `50-QA-REPORT.md`; the verification checklist
-in `50-VERIFICATION.md` remains intentionally open for the AGT-06, QEMU, local
-unit-fixture, and legacy planning-source follow-ups.
-
-- [ ] All tasks have automated verification or an explicit manual-only row
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [x] Wave 0 covers the existing PTY/Docker infrastructure references
-- [x] No watch-mode flags
-- [x] Feedback latency target is explicit
-- [ ] `nyquist_compliant: true` set in frontmatter
+- [ ] All plan tasks have automated evidence or an explicit manual-only row
+- [ ] Catalog inventory is reconciled before execution
+- [ ] No source fixes are made while findings are being gathered
+- [ ] The final report contains the ledger, findings, blocked ideas, exclusions, active-time log, and stop arithmetic
+- [ ] `nyquist_compliant: true` set after execution evidence is complete
 
 **Approval:** pending
