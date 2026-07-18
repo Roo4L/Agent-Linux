@@ -12,18 +12,21 @@ separate, future product feature.
 
 ## Install
 
-Codex is a Node CLI. Install it into the agent-owned npm prefix — **no sudo**, per
-the AgentLinux ownership model (see the "Never `sudo npm install -g`" rule in
-`AGENTS.md`):
+Use the **standalone installer** — it drops an agent-owned, self-updating build
+under `~/.codex/` with a launcher in `~/.local/bin` (no sudo):
 
 ```bash
-npm install -g @openai/codex     # lands in ~/.npm-global/bin/codex
+curl -fsSL https://chatgpt.com/codex/install.sh | sh
 codex --version                  # -> codex-cli <version> (0.144.x as of 2026-07)
 ```
 
-The standalone installer (`curl -fsSL https://chatgpt.com/codex/install.sh | sh`)
-also works; the npm route is preferred here because it matches how AgentLinux
-installs its other Node agents.
+Prefer this over `npm install -g @openai/codex`. The npm package works for basic
+interactive/`exec` use, but the **remote-control daemon** (driving a session from
+your phone — see below) requires the standalone build: it self-updates the
+app-server from the fixed managed path `~/.codex/packages/standalone/current/`,
+which the npm install does not provide. Running both at once also puts two
+`codex` binaries on `PATH` — pick one. If you started with npm,
+`npm uninstall -g @openai/codex` first, then run the standalone installer.
 
 ## Authenticate
 
@@ -109,6 +112,25 @@ codex review
 and use the file-type → concern mapping in `AGENTS.md` > "Review Loop" as a
 checklist. The review Stop-hook reminder points Codex at exactly this.
 
+## Remote control (drive Codex from your phone)
+
+Codex can be steered from the ChatGPT mobile app while the work runs on this host
+(your phone is a control surface, not a second Codex). This is experimental and
+**requires the standalone install** (see Install) — the daemon self-updates the
+app-server from the managed `~/.codex/packages/standalone/current/` path, which
+the npm package does not provide.
+
+```bash
+codex remote-control start     # start the app-server daemon (remote control enabled)
+codex remote-control pair      # print a short-lived pairing code for your phone
+codex remote-control stop      # tear it down
+```
+
+Pair the phone from the ChatGPT app; pairing is tied to your ChatGPT account, so
+run `codex login` first if you authenticate with an API key. There is no
+per-session "always on" flag — keep the daemon running (e.g. a `systemctl --user`
+service that runs `codex remote-control start`) to make every session reachable.
+
 ## Optional: MCP for session-tracking
 
 The `session-tracker` skill writes to Jira (project AL) through the Atlassian MCP
@@ -135,6 +157,9 @@ sections. Left untouched: `.claude/agents/`, `.claude/hooks/`,
 - `codex doctor` — diagnoses install, auth, config parse, sandbox.
 - `codex debug prompt-input "hi"` — prints the model-visible prompt; confirm
   `AGENTS.md` content and the skill list appear.
-- If `codex doctor` reports the running package root differs from the npm global
-  root, your shell's `npm` prefix disagrees with where `codex` is installed — fix
-  `PATH` / `npm config get prefix` so both point at `~/.npm-global`.
+- Prefer the standalone install (`codex doctor` shows `install method: standalone`);
+  it self-manages updates and is required for remote control. If you instead use
+  the npm package and `codex doctor` reports the running package root differs from
+  the npm global root, your shell's `npm` prefix disagrees with where `codex` is
+  installed — fix `PATH` / `npm config get prefix` so both point at `~/.npm-global`,
+  or switch to the standalone installer.
