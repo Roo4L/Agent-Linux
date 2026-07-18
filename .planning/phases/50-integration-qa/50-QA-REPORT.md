@@ -1,83 +1,72 @@
 # Phase 50 Integration QA Report
 
 Date: 2026-07-18
-Status: partial — human follow-up required
+Status: credential checkpoint — package operations not started
 
 ## Scope
 
-This sweep exercised the restored Phase 50 contract against the current
-catalog-expanded tree. The disposable install used Ubuntu 24.04, the real
-curl-pipe-bash installer, the staged release artifact `v0.3.5-qa1`, and the
-agent-owned install user. The selected combinations were:
+This is an observation-only black-box QA campaign against the installed
+AgentLinux catalog packages and realistic co-install workflows. It uses fresh
+Docker release-candidate environments, with full included-package coverage
+planned for Ubuntu 24.04 and targeted checks planned for Ubuntu 22.04 and
+26.04. It does not audit GSD files or the repository harness and does not claim
+QEMU capability.
 
-- GSD + Codex, followed by Claude Code installation.
-- GitHub MCP before and after the second coding agent, verifying fan-out and
-  removal without credential material.
-- RTK binary + npm-installed coding agents, including reverse-trigger wiring.
-- RTK cleanup across Gemini CLI and OpenCode, including consumer-before-provider removal.
-- OpenClaw npm/daemon-class installation, with the Docker systemd limitation
-  recorded explicitly.
-- Provider/consumer removal order: Codex removed before RTK.
+Included package ideas will cover all 23 real entries: claude-code, gsd,
+playwright-cli, codex, gemini-cli, opencode, qwen-code, ccusage, rtk, gh, glab,
+trivy, gitleaks, sentry-cli, chrome-devtools-mcp, context7, github-mcp,
+sentry-mcp, firecrawl-mcp, slack-mcp, linear-mcp, jira-atlassian-mcp, and
+spec-kit.
 
-The sweep used direct scope for the restored skill and adjacent scope for
-installer, catalog, CLI, wiring, and harness interactions. The bounded session
-used two quiet rounds after fixes; each repeated the skill self-check, shell
-syntax check, and diff check with no new finding.
+Explicit exclusions are openclaw and hermes-agent because their primary
+systemd services are unavailable in the requested Docker environment, plus
+test-dummy because it is a fixture rather than a product package.
 
-## Results
+## Credential matrix and checkpoint
 
-| Surface | Result | Evidence |
-| --- | --- | --- |
-| Reusable QA skill | PASS | `verify-skill.sh` passed in both quiet rounds; registered in `CLAUDE.md` and `.codex/skills/qa-testing`. |
-| Real PTY | PASS | `tests/bats/helpers/tty-driver.py` reported `pty-columns=80`, `TERM=xterm-256color`, and live ANSI output. |
-| CLI unit tests | 201/202 pass | One file-level failure is caused by the host's existing `/home/agent/.local/bin/claude`, which invalidates a fixture's clean-host assumption. |
-| Harness meta-tests | 112/113 pass | Pre-commit smoke passed. The remaining failure is the legacy `.planning/research/SUMMARY.md` path expected by HRN-05. |
-| Docker behavior suite | 336/337 pass | Latest `bash tests/docker/run.sh ubuntu-24.04`; AGT-06 is the only failure, and WIRE-02 tests 334–337 all pass. |
-| Fresh RC install | PASS | SHA256 verification, extraction, provisioning, CLI staging, and 25-entry catalog sanity check passed. |
-| GSD + Codex | PASS | Both version checks passed; GSD wired Claude/OpenCode/Gemini/Qwen and deliberately left Codex config loadable. |
-| MCP fan-out | PASS | GitHub MCP registered in Codex, then Claude after Claude installation; removal left no registration residue. |
-| RTK ordering | PASS after fix | Removing Codex before RTK now removes the preserved Codex RTK hook. |
-| RTK Gemini/OpenCode ordering | PASS after fix | Fresh RC sandbox preserved both consumer artifacts after agent removal, then RTK removed both. |
-| Binary + npm + daemon | PASS within Docker limits | RTK and OpenClaw installed in agent-owned paths; OpenClaw config froze updates and preserved state. |
-| QEMU/systemd-user | NOT RUN | `qemu-system-x86_64` is not installed in this environment. |
+Only credential class and status are recorded here; no secret values are stored.
+`requested` means the user checkpoint has been raised and the status is awaiting
+runtime authorization. Credential-dependent ideas remain blocked until their
+real operation is authorized and exercised.
 
-## Findings and disposition
+| Credential class | Status | Affected idea IDs | Minimal operation |
+|---|---|---|---|
+| Claude/model provider | requested | AGT-01, WF-01, MCP-01..08 | Tiny authenticated prompt or client-visible MCP read-only call |
+| OpenAI/Codex account with usable quota | requested | AGT-02, WF-01, MCP-01..08 | Tiny Codex prompt and MCP client visibility/read-only call |
+| Google/Gemini access | requested | AGT-03, WF-01, MCP-01..08 | Tiny Gemini prompt and MCP client visibility/read-only call |
+| OpenCode provider | requested | AGT-04, WF-01, MCP-01..08 | Tiny OpenCode prompt and MCP client visibility/read-only call |
+| Qwen provider | requested | AGT-05, WF-01, MCP-01..08 | Tiny Qwen prompt and MCP client visibility/read-only call |
+| GitHub read-only account/token or OAuth | requested | DEV-01, MCP-02, WF-02 | Read-only repository/API query and GitHub MCP read-only tool |
+| GitLab read-only account/token | requested | DEV-02 | Read-only project/API query |
+| Sentry read-only account/token or OAuth | requested | DEV-05, MCP-03 | Read-only project/release query and Sentry MCP tool |
+| Slack workspace OAuth/access | requested | MCP-06 | Read-only channel/workspace query |
+| Linear workspace OAuth/access | requested | MCP-07 | Read-only issue/project query |
+| Atlassian Cloud/Jira OAuth/access | requested | MCP-08 | Read-only Jira/Confluence query |
+| Context7 API key | not required for keyless idea | MCP-04 | Keyless documentation lookup; optional key not requested |
+| Firecrawl API key | not required for keyless idea | MCP-05 | Keyless scrape/search operation; key-gated tools are separate |
+| Local browser runtime | not a credential | BROWSER-01, MCP-01 | Local page/Chrome DevTools operation |
 
-### Fixed in this phase
+User action required: provide or authorize only the credential classes above
+that should be tested, through runtime injection into the disposable test
+environment. Do not paste secret values into this report or commit them. If a
+class is unavailable, its affected ideas will be marked `blocked`, not clean.
+An unexpected credential request will create a new blocked record and pause that
+path for another user checkpoint.
 
-1. `plugin/cli/src/runner.ts` dispatched every recipe as `agent`, ignoring the
-   configured install user. The dispatcher now uses the resolved user. The
-   configured-user behavior test passed in the full Docker suite.
-2. `plugin/catalog/lib/rtk-wire.sh` only unwired targets whose agent binary was
-   still present. Removing a consumer first therefore left RTK-owned files in
-   the preserved consumer config. Unwire now also recognizes RTK-owned Codex,
-   Gemini CLI, and OpenCode artifacts; the WIRE-02 behavior test covers the
-   ordering contract, and the disposable RC sandbox confirms the Gemini/OpenCode
-   path against the rebuilt release artifact.
+## Current activity and stop gate
 
-### Open follow-ups
-
-1. AGT-06 remains red in the Docker suite: Playwright Chromium reports missing
-   shared libraries (`libglib-2.0.so.0`, `libnss3.so`, X11/GTK/ALSA-related
-   libraries, and others). This is a release-gate environment/package issue,
-   not a Phase 50 harness false positive.
-2. The host-only `plugin/cli/test/install.test.ts` brownfield fixture is not
-   isolated from a real `/home/agent/.local/bin/claude`. Run it in a clean
-   environment or make the canonical-path probe injectable before calling the
-   local unit suite green.
-3. Re-running the installed RC over a populated sandbox registered a GSD
-   path-mismatch bail and exited 65 without remediation consent. This is an
-   adjacent rerun/convergence issue and needs a deliberate installer decision.
-4. The harness still expects the pre-archive `.planning/research/SUMMARY.md`
-   location, while the durable copy now lives under
-   `.planning/milestones/v0.3.0-research/SUMMARY.md`.
-5. Docker correctly skipped OpenClaw's per-user systemd daemon; QEMU is still
-   required for the daemon liveness and real systemd-user acceptance criteria.
+No package operation has started. Productive time: 0 minutes. Clean-idea
+sequence: 0. The default stop gate is 30 minutes of productive activity plus
+the latest 10 distinct completed ideas without a newly discovered issue since
+the latest finding. User waiting time is excluded from both measures.
 
 ## Coverage limits
 
-The Docker run covered the six invocation modes and full catalog behavior, but
-it cannot prove per-user systemd services. No provider credentials were used,
-so model-backed creative/interactive agent prompts remain out of scope. The
-QEMU release-gate sweep, Chromium shared-library remediation, and the legacy
-planning-source path are the remaining human follow-up items.
+- Credentialed model, VCS, Sentry, Slack, Linear, and Atlassian operations are
+  blocked pending runtime authorization.
+- Docker cannot prove per-user systemd daemon behavior; openclaw and
+  hermes-agent are excluded rather than passed.
+- QEMU coverage is outside this Docker campaign and will not be inferred from
+  host capabilities.
+- Findings will be documented and routed after discovery; the campaign will
+  not modify product source, recipes, tests, or documentation in response.
