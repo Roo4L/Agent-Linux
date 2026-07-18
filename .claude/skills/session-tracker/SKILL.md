@@ -1,6 +1,6 @@
 ---
 name: session-tracker
-description: Track Claude Code work sessions in AL Jira (copiedwonder.atlassian.net) — propose tracking structure at session start, create Tasks/Subtasks for deliverables, and keep status in sync as work moves through In Progress / In Review / Done. Trigger at the start of a session that will produce a concrete deliverable (PR/MR, doc, decision artifact, ticket in another project), or mid-session when an already-tracked AL issue needs a status transition (PR opened, review bounced, blocked, merged). Do not trigger for research-only or Q&A sessions.
+description: Track agent work sessions (Claude Code, Codex) in AL Jira (copiedwonder.atlassian.net) — propose tracking structure at session start, create Tasks/Subtasks for deliverables, and keep status in sync as work moves through In Progress / In Review / Done. Trigger at the start of a session that will produce a concrete deliverable (PR/MR, doc, decision artifact, ticket in another project), or mid-session when an already-tracked AL issue needs a status transition (PR opened, review bounced, blocked, merged). Do not trigger for research-only or Q&A sessions.
 ---
 
 # Session Tracker

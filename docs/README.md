@@ -9,6 +9,8 @@ review summary), it goes here.
 - `HARNESS.md` — authoritative project harness spec (project layout,
   documentation routing, systems-access inventory, review loop, skills,
   contributor checklist).
+- `codex.md` — driving this repo with OpenAI Codex CLI (install, the
+  `AGENTS.md` / `CLAUDE.md` split, skills, Stop hooks).
 - `decisions/` — Architecture Decision Records (ADRs). New ADRs land as
   decisions resolve.
 - `research/v0.3.0/` — v0.3.0 research outputs (STACK, FEATURES, ARCHITECTURE,

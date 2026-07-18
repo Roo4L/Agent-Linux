@@ -395,11 +395,20 @@ Project-scoped skills that encode AgentLinux-specific knowledge:
 
 **Scope rule:** If a skill references AgentLinux-specific patterns (installer internals, catalog schema, bats helpers, plugin layout), it's project-scoped. Generic tool interactions (Context7 usage, gh CLI patterns, GSD commands) stay global.
 
+### 5.3 Cross-agent (Codex CLI)
+
+`SKILL.md` is a cross-agent standard, so the same project skills serve both Claude Code and Codex CLI. Codex discovers project skills from `.codex/skills/`, which holds symlinks back to the canonical `.claude/skills/*` — one source, zero drift. Codex reads project context from the root `AGENTS.md` (Claude Code imports the same file via `@AGENTS.md` in `CLAUDE.md`), and fires the same two end-of-session reminders via Stop hooks declared in `.codex/config.toml` (backed by scripts in `.codex/hooks/`). See `docs/codex.md` for the full Codex setup, and §6 for the `AGENTS.md` / `CLAUDE.md` split.
+
 ---
 
-## 6. CLAUDE.md
+## 6. CLAUDE.md (+ AGENTS.md)
 
-The project currently has no CLAUDE.md at the repo root. Every agent session starts without project context. This file must be under 150 lines and contain only what agents cannot infer from reading code:
+> **Update (2026-07-18):** the repo now has both a root `CLAUDE.md` and a shared
+> `AGENTS.md` (see the note at the end of this section). The original guidance
+> below described the CLAUDE.md this section prescribed, written before either
+> file existed; it still captures what belongs in the shared context.
+
+This section originally noted the project had no CLAUDE.md at the repo root — every agent session started without project context. The context file must be under 150 lines and contain only what agents cannot infer from reading code:
 
 - **Project identity:** "AgentLinux v0.3.0 — installable Ubuntu plugin. Provisions an agent user with correctly-owned Node.js runtime + a registry CLI for installing agent tools. Pivoted from custom distro (v0.2.0) on 2026-04-18."
 - **Where things live:** `plugin/` for shippable code; `tests/bats/` for the behavior contract; `docs/` for reference; `.planning/` for GSD workflow state.
@@ -420,6 +429,8 @@ The project currently has no CLAUDE.md at the repo root. Every agent session sta
 - **Pointers:** `@.planning/ROADMAP.md`, `@.planning/REQUIREMENTS.md`, `@docs/HARNESS.md` (this file), `@docs/research/v0.3.0/SUMMARY.md`, relevant skills (§5).
 
 Everything else — installer internals, schema details, historical v0.2.0 lessons — stays in skills and docs where it loads on demand.
+
+**Shared context lives in `AGENTS.md`.** To serve both Claude Code and Codex CLI from one source, the agent-neutral context above lives in the root `AGENTS.md`. `CLAUDE.md` starts with `@AGENTS.md` and then adds only Claude-Code-specific mechanics (the reviewer-subagent dispatch table, `/review` skill, Stop-hook backstops). Codex reads `AGENTS.md` natively. Keep `AGENTS.md` agent-neutral; keep tool-specific mechanics in each tool's own file. See `docs/codex.md`.
 
 ---
 

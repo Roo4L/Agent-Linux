@@ -96,3 +96,21 @@ __pycache__/
 .pnpm-store/
 .yarn/cache/
 .yarn/install-state.gz
+
+# Codex CLI: the committed harness under .codex/ is config.toml, hooks/, and
+# skills/ (symlinks to .claude/skills/). Codex keeps session state, auth, and
+# caches under ~/.codex — not the project — but ignore any transient/local
+# Codex artifacts that could land in-project. Do NOT blanket-ignore .codex/,
+# which would drop the committed files above.
+.codex/*.log
+.codex/log/
+.codex/tmp/
+.codex/cache/
+.codex/sessions/
+.codex/history*
+.codex/config.local.toml
+# Defence in depth: Codex keeps auth in ~/.codex, but never commit a project-local
+# token if someone runs with CODEX_HOME=.codex or a future project-scoped auth.
+.codex/auth.json
+.codex/*.pem
+.codex/*.key
