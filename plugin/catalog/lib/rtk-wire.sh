@@ -40,6 +40,10 @@ _al_rtk_claude_present() { command -v claude >/dev/null 2>&1; }
 _al_rtk_codex_present() { command -v codex >/dev/null 2>&1; }
 _al_rtk_gemini_present() { command -v gemini >/dev/null 2>&1; }
 _al_rtk_opencode_present() { command -v opencode >/dev/null 2>&1; }
+_al_rtk_gemini_artifact_present() {
+  grep -qF -- '# RTK - Rust Token Killer' \
+    "${1}/.gemini/GEMINI.md" 2>/dev/null
+}
 
 # al_rtk_wire — fan `rtk init` out to every supported agent present now. Sets
 # AL_RTK_TARGETS to the space-separated wired-agent list. Always returns 0
@@ -79,7 +83,7 @@ al_rtk_wire() {
 
   if _al_rtk_gemini_present; then
     if rtk init -g --gemini --auto-patch >/dev/null 2>&1 \
-      && grep -qi rtk "${home}/.gemini/GEMINI.md" 2>/dev/null; then
+      && _al_rtk_gemini_artifact_present "$home"; then
       AL_RTK_TARGETS+="gemini-cli "
       echo "rtk: wired into gemini-cli (~/.gemini/GEMINI.md)"
     else
@@ -127,7 +131,7 @@ al_rtk_unwire() {
   if _al_rtk_codex_present || [[ -f "${home}/.codex/RTK.md" ]]; then
     rtk init -g --codex --uninstall </dev/null >/dev/null 2>&1 || true
   fi
-  if _al_rtk_gemini_present || grep -qi rtk "${home}/.gemini/GEMINI.md" 2>/dev/null; then
+  if _al_rtk_gemini_present || _al_rtk_gemini_artifact_present "$home"; then
     rtk init -g --gemini --uninstall --auto-patch >/dev/null 2>&1 || true
   fi
   if _al_rtk_opencode_present || [[ -f "${home}/.config/opencode/plugins/rtk.ts" ]]; then

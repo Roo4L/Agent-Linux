@@ -128,4 +128,18 @@ _agent_test() {
     "! grep -qi rtk /home/agent/.gemini/GEMINI.md 2>/dev/null"
   _agent_test "WIRE-02/order/opencode-clean" "rtk removes the stale OpenCode plugin" \
     "! test -e /home/agent/.config/opencode/plugins/rtk.ts"
+
+  # A preserved user-owned GEMINI.md may mention rtk without containing the
+  # RTK-owned marker. Removing the provider must leave that content intact.
+  _install gemini-cli
+  _install rtk
+  run sudo -u agent -H bash --login -c "agentlinux remove --force gemini-cli"
+  assert_exit_zero "WIRE-02 (remove Gemini before rtk, preservation case)"
+  run sudo -u agent -H bash --login -c \
+    "printf '%s\\n' '# User instructions: rtk is a preference' > /home/agent/.gemini/GEMINI.md"
+  assert_exit_zero "WIRE-02 (seed user-owned Gemini instructions)"
+  run sudo -u agent -H bash --login -c "agentlinux remove --force rtk"
+  assert_exit_zero "WIRE-02 (preserve user-owned Gemini instructions)"
+  _agent_test "WIRE-02/order/gemini-preserve" "user-owned Gemini instructions survive rtk removal" \
+    "test -f /home/agent/.gemini/GEMINI.md && grep -qF 'User instructions: rtk is a preference' /home/agent/.gemini/GEMINI.md"
 }
