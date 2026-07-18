@@ -25,6 +25,44 @@ permissions:
   contents: read
 
 jobs:
+  # Detect whether this push/PR touches actual AgentLinux code (installer,
+  # tests, packaging, CLI, or CI config) vs. dev-only files (docs/, .claude/,
+  # .codex/, AGENTS.md, CLAUDE.md, .planning/). The expensive jobs below
+  # (bats-docker matrix, cli-unit) read `code` and skip their costly *steps*
+  # when it is 'false' — the jobs still run and report green in seconds, so the
+  # required checks (bats-docker (ubuntu-22.04/24.04), cli-unit) always report
+  # success and the merge gate stays intact. We gate steps rather than the whole
+  # job on purpose: a matrix job skipped by a job-level `if:` can leave its
+  # per-arm required contexts unreported and block the PR forever — the same
+  # trap as trigger-level paths-ignore. Website files (index.html, assets/**, …)
+  # are already excluded at the trigger level and covered by pr-preview.yml.
+  # pre-commit + gitleaks stay ungated so lint and full-history secret scanning
+  # run on every change, docs included.
+  changes:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      # dorny/paths-filter reads changed files from the PR files API on
+      # pull_request events; without pull-requests: read the call can 403
+      # (same reason the gitleaks job below requests it).
+      pull-requests: read
+    outputs:
+      code: ${{ steps.filter.outputs.code }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            code:
+              - 'plugin/**'
+              - 'packaging/**'
+              - 'tests/**'
+              - 'scripts/**'
+              - '.github/workflows/**'
+              - '.pre-commit-config.yaml'
+              - '.gitleaks.toml'
+
   pre-commit:
     runs-on: ubuntu-24.04
     steps:
@@ -49,16 +87,22 @@ jobs:
         run: pre-commit run --all-files --show-diff-on-failure
 
   cli-unit:
+    needs: changes
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-      - name: Skip if plugin/cli has no source yet
+      - name: Skip if no AgentLinux code changed or plugin/cli has no source yet
         id: guard
+        env:
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if compgen -G "plugin/cli/test/*.test.*" > /dev/null || compgen -G "plugin/cli/test/**/*.test.*" > /dev/null; then
+          if [ "$CODE_CHANGED" != "true" ]; then
+            echo "has_tests=false" >> "$GITHUB_OUTPUT"
+            echo "No AgentLinux code changed — skipping CLI tests (dev-only change)"
+          elif compgen -G "plugin/cli/test/*.test.*" > /dev/null || compgen -G "plugin/cli/test/**/*.test.*" > /dev/null; then
             echo "has_tests=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_tests=false" >> "$GITHUB_OUTPUT"
@@ -112,6 +156,7 @@ jobs:
           GITLEAKS_ENABLE_SUMMARY: true
 
   bats-docker:
+    needs: changes
     runs-on: ubuntu-24.04
     # Phase 20 made almalinux-9 a hard PR gate (EL9 257/257 green); Phase 22
     # (REL-01) makes the release gate hard. No arm is experimental here anymore,
@@ -145,10 +190,15 @@ jobs:
       # tests/bats/*.bats files the guard falls through to the real run. If a
       # future revert removes the bats suite the job short-circuits rather
       # than fails opaquely in Docker.
-      - name: Skip if no bats suite yet
+      - name: Skip if no AgentLinux code changed or no bats suite yet
         id: guard
+        env:
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if compgen -G "tests/bats/*.bats" > /dev/null; then
+          if [ "$CODE_CHANGED" != "true" ]; then
+            echo "has_bats=false" >> "$GITHUB_OUTPUT"
+            echo "No AgentLinux code changed — skipping Docker bats matrix (dev-only change)"
+          elif compgen -G "tests/bats/*.bats" > /dev/null; then
             echo "has_bats=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_bats=false" >> "$GITHUB_OUTPUT"
