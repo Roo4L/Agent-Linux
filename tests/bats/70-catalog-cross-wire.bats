@@ -125,7 +125,7 @@ _agent_test() {
   run sudo -u agent -H bash --login -c "agentlinux remove --force rtk"
   assert_exit_zero "WIRE-02 (remove rtk after Gemini and OpenCode)"
   _agent_test "WIRE-02/order/gemini-clean" "rtk removes the stale Gemini hook" \
-    "! grep -qi rtk /home/agent/.gemini/GEMINI.md 2>/dev/null"
+    "! test -e /home/agent/.gemini/hooks/rtk-hook-gemini.sh"
   _agent_test "WIRE-02/order/opencode-clean" "rtk removes the stale OpenCode plugin" \
     "! test -e /home/agent/.config/opencode/plugins/rtk.ts"
 
