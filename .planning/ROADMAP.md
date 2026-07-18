@@ -395,11 +395,11 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 23. codex 🔧 | 0/TBD | Not started | - |
-| 24. gemini-cli | 0/TBD | Not started | - |
-| 25. opencode | 0/TBD | Not started | - |
-| 26. qwen-code | 0/TBD | Not started | - |
-| 27. ccusage | 0/TBD | Not started | - |
+| 23. codex 🔧 | 1/1 | Complete | 2026-06-29 |
+| 24. gemini-cli | 1/1 | Complete | 2026-06-29 |
+| 25. opencode | 1/1 | Complete | 2026-06-29 |
+| 26. qwen-code | 1/1 | Complete | 2026-06-29 |
+| 27. ccusage | 1/1 | Complete | 2026-06-29 |
 | 28. rtk 🔧 | 4/4 | Complete | 2026-06-30 |
 | 29. gh | 1/1 | Complete | 2026-07-02 |
 | 30. glab | 1/1 | Complete | 2026-07-02 |
