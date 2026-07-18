@@ -52,15 +52,21 @@ start a fake daemon or infer systemd/QEMU behavior from Docker. QEMU remains
 the authority for those paths.
 
 Derive the scenario ledger from `plugin/catalog/catalog.json` at session start.
-Do not silently omit an included entry because its operation is inconvenient.
+Compare every catalog ID with the three explicit exclusions and the ledger. The
+listed 23-entry inventory is the current expected snapshot; if the catalog has
+changed, stop and reconcile the scope before testing. Do not silently omit an
+included entry because its operation is inconvenient.
 
 ## Per-package evidence contract
 
-For every included package, record one materially distinct lifecycle idea with:
+For every included package, record one materially distinct lifecycle idea with
+evidence appropriate to its catalog `source_kind`:
 
 1. fresh-container install through the user-facing AgentLinux path;
-2. canonical command, version, path, agent ownership, and absence of a forbidden
-   `/usr/local/bin/` wrapper shim;
+2. for npm, script, and binary entries: canonical command, version, path, agent
+   ownership, and absence of a forbidden `/usr/local/bin/` wrapper shim; for MCP
+   entries: registration endpoint/command, owning client config, registration
+   scope, and absence of credential leakage or stale registration;
 3. a realistic primary operation beyond `--help` or `--version`;
 4. removal, post-removal residue, preserved user content, sibling state, and an
    idempotent second removal where meaningful.
@@ -70,8 +76,11 @@ artifact, productive interval, novelty result, finding ID, and cleanup result.
 Use fresh disposable containers for order-sensitive ideas. Set
 `TERM=xterm-256color`, keep ANSI/color enabled where relevant, and capture both
 an 80-column default terminal and a wider documented geometry for at least one
-real PTY flow. Gate input on observed prompts and distinguish live work from an
-apparent freeze.
+real PTY flow. Allocate it with `tests/bats/helpers/tty-driver.py` or the
+interactive session in `tests/docker/rc-sandbox.sh`; preserve their observed
+prompt sentinels and timeout bounds. Gate input on observed prompts and
+distinguish live work from an apparent freeze. A pipe transcript alone is not
+PTY evidence.
 
 Category-specific operation examples:
 
@@ -104,6 +113,10 @@ matrix. At minimum cover:
 - every compatible cross-agent MCP fan-out provider against each compatible
   installed coding agent (`claude-code`, `codex`, `gemini-cli`, `opencode`, and
   `qwen-code` as applicable), in both installation orders;
+- the catalog/list UX after representative installs: `agentlinux list`,
+  `agentlinux list --by-category`, and their `--json` forms; inspect default and
+  wide terminal output, category grouping, status/version text, and machine-
+  readable fields;
 - repeated MCP reconciliation, duplicate registration, remove-one-keep-sibling,
   unrelated user-config preservation, and clean final removal;
 - `rtk` with the installed coding-agent fleet, unrelated hook entries, repeated
