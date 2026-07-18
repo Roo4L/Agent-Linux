@@ -88,3 +88,20 @@ _agent_test() {
   _remove rtk
   _remove codex
 }
+
+@test "WIRE-02: removing an agent before rtk still removes the preserved RTK hook" {
+  # Consumer FIRST, provider SECOND: removing the consumer preserves its
+  # config, so the provider's later uninstall must clean the RTK-owned files
+  # without relying on the consumer binary still being present.
+  _install codex
+  _install rtk
+  run sudo -u agent -H bash --login -c "agentlinux remove --force codex"
+  assert_exit_zero "WIRE-02 (remove codex before rtk)"
+  _agent_test "WIRE-02/order/codex" "codex config is preserved before provider removal" \
+    "test -f /home/agent/.codex/RTK.md"
+
+  run sudo -u agent -H bash --login -c "agentlinux remove --force rtk"
+  assert_exit_zero "WIRE-02 (remove rtk after codex)"
+  _agent_test "WIRE-02/order/rtk" "rtk removes the stale codex hook" \
+    "! test -e /home/agent/.codex/RTK.md"
+}

@@ -1,7 +1,7 @@
 ---
 phase: 50
 slug: integration-qa
-status: draft
+status: verifying
 nyquist_compliant: false
 wave_0_complete: true
 created: 2026-07-18
@@ -32,10 +32,10 @@ created: 2026-07-18
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 50-01-01 | 01 | 1 | TST-08 | T-50-01 | Skill is discoverable from the canonical Claude project skill directory and contains no secret values | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 0 | ⬜ pending |
-| 50-01-02 | 01 | 1 | TST-08 | T-50-02 | PTY, TERM, width, color, live-output, quiet-round, and handback rules are present | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 0 | ⬜ pending |
-| 50-02-01 | 02 | 1 | TST-08 | T-50-03 | Existing CLI unit and harness tests remain green after the skill registration/docs changes | regression | `(cd plugin/cli && pnpm test) && bash tests/harness/run.sh` | ✅ | ⬜ pending |
-| 50-03-01 | 03 | 1 | TST-08 | T-50-04 | Co-install findings are recorded with direct/adjacent scope, severity, repro, disposition, and Docker/QEMU limits | integration/report | `test -s .planning/phases/50-integration-qa/50-QA-REPORT.md && grep -q 'Coverage limits' .planning/phases/50-integration-qa/50-QA-REPORT.md` | Wave 0 | ⬜ pending |
+| 50-01-01 | 01 | 1 | TST-08 | T-50-01 | Skill is discoverable from the canonical Claude project skill directory and contains no secret values | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 0 | ✅ pass |
+| 50-01-02 | 01 | 1 | TST-08 | T-50-02 | PTY, TERM, width, color, live-output, quiet-round, and handback rules are present | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 0 | ✅ pass |
+| 50-02-01 | 02 | 1 | TST-08 | T-50-03 | Existing CLI unit and harness tests remain green after the skill registration/docs changes | regression | `(cd plugin/cli && pnpm test) && bash tests/harness/run.sh` | ✅ | ⚠ partial — host fixture and legacy planning path |
+| 50-03-01 | 03 | 1 | TST-08 | T-50-04 | Co-install findings are recorded with direct/adjacent scope, severity, repro, disposition, and Docker/QEMU limits | integration/report | `test -s .planning/phases/50-integration-qa/50-QA-REPORT.md && grep -q 'Coverage limits' .planning/phases/50-integration-qa/50-QA-REPORT.md` | ✅ | ✅ pass |
 
 ## Wave 0 Requirements
 
@@ -52,6 +52,10 @@ created: 2026-07-18
 | Human-style creative exploration | TST-08 | Bug-arrival-rate and usability judgments require an observer | Run configurable time-box rounds, reset after each new bug, and record two quiet default rounds or an explicit maintainer hand-off. |
 
 ## Validation Sign-Off
+
+Execution evidence is recorded in `50-QA-REPORT.md`; the verification checklist
+in `50-VERIFICATION.md` remains intentionally open for the AGT-06, QEMU, local
+unit-fixture, and legacy planning-source follow-ups.
 
 - [ ] All tasks have automated verification or an explicit manual-only row
 - [ ] Sampling continuity: no 3 consecutive tasks without automated verify

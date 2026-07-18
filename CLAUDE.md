@@ -8,6 +8,11 @@ The shared, agent-neutral project context lives in `@AGENTS.md` above. This file
 adds only the **Claude-Code-specific** mechanics. Codex CLI is supported
 alongside Claude Code — see `docs/codex.md`.
 
+AgentLinux v0.3.0 is an installable Ubuntu plugin. The durable phase plan lives
+in `.planning/ROADMAP.md`; the authoritative harness contract is `docs/HARNESS.md`.
+Never use `sudo npm install -g`; recipes install packages as the configured
+install user with `sudo -u <user> -H npm install -g` when privilege is needed.
+
 ## Review Loop — Claude Code reviewer dispatch
 
 Run the review loop (per `AGENTS.md` > "Review Loop" and `@docs/HARNESS.md` §4)

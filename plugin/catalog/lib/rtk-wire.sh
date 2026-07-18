@@ -111,15 +111,20 @@ al_rtk_wire() {
   return 0
 }
 
-# al_rtk_unwire — revert rtk's wiring from every supported agent present. Uses
-# rtk's own `--uninstall` (which needs the binary), so callers run it BEFORE
-# deleting the rtk binary. Best-effort; always returns 0.
+# al_rtk_unwire — revert rtk's wiring from every supported agent present (or
+# from an agent whose RTK-owned artifact remains after that agent was removed).
+# Uses rtk's own `--uninstall` (which needs the rtk binary), so callers run it
+# BEFORE deleting the rtk binary. Best-effort; always returns 0. The artifact
+# checks close an order-dependent gap: a provider removed after its consumer
+# must still clean the consumer's preserved config.
 al_rtk_unwire() {
   _al_rtk_present || return 0
-  if _al_rtk_claude_present; then
+  local home
+  home=$(_al_rtk_home)
+  if _al_rtk_claude_present || [[ -f "${home}/.claude/RTK.md" ]]; then
     rtk init -g --uninstall --auto-patch >/dev/null 2>&1 || true
   fi
-  if _al_rtk_codex_present; then
+  if _al_rtk_codex_present || [[ -f "${home}/.codex/RTK.md" ]]; then
     rtk init -g --codex --uninstall </dev/null >/dev/null 2>&1 || true
   fi
   if _al_rtk_gemini_present; then
