@@ -1,6 +1,6 @@
 ---
 name: workspace-cleanup
-description: Use at the end of a worktree session — before the user deletes the worktree — to catch stray changes outside the feature scope (`.planning/` GSD files, `.claude/skills/`, `.claude/agents/`, `.claude/settings*.json`, hooks, user memories), decide where they belong (feature PR vs side commit vs main worktree), push, open or update the PR, merge after user approval, and refresh the main worktree from origin. Never deletes the worktree itself — the user handles that.
+description: Use at the end of a worktree session — before the user deletes the worktree — to catch stray changes outside the feature scope (`.planning/` GSD files, `.claude/` and `.codex/` config — skills, agents, settings/config, hooks — and user memories), decide where they belong (feature PR vs side commit vs main worktree), push, open or update the PR, merge after user approval, and refresh the main worktree from origin. Never deletes the worktree itself — the user handles that.
 ---
 
 # /workspace-cleanup — End-of-Session Worktree Cleanup
@@ -17,7 +17,7 @@ Triggered at the end of a feature session inside a git worktree, before the user
 
 ## What this skill never does
 
-- **Never deletes the worktree.** The user removes it after exiting the Claude Code session.
+- **Never deletes the worktree.** The user removes it after exiting the agent session.
 - **Never force-pushes to `master`.** Infra changes that go straight to `master` are normal commits with `git push origin master`.
 - **Never merges without explicit user confirmation.** Surface the PR URL + merge plan, ask, then merge.
 - **Never drops uncommitted changes.** If a file was modified but isn't going anywhere, stop and ask.
@@ -54,7 +54,7 @@ Classify each path into one of three buckets. Default rules — adjust per user 
 | `.planning/` durable (`MILESTONES.md`, `PROJECT.md`, `ROADMAP.md`, `RETROSPECTIVE.md`, `STATE.md`, `config.json`, `milestones/`, `research/`, `todos/`) | **feature** — rides with the PR | The durable GSD record. Commit it on the branch with the rest of the work (after the `planning-workflow` close-out sets `STATE.md` `status: complete`). |
 | `.planning/` intermediate (loose `phases/`, `quick/`, `quick-archive/`, in-flight `REQUIREMENTS.md`) | **strip before merge** | Must NOT reach `master`. Run the `planning-workflow` close-out (`/gsd-complete-milestone`, or `git rm` the loose dirs) so the branch is gate-clean. Never route these to `master`. |
 | `.planning/` transient (`.continue-here.md`, `HANDOFF.json`, `tmp/`, `reports/`, `.active-skill`, `.phase-manifest.json`) | **ignore** | `.gitignore`d — never staged. |
-| `.claude/skills/**`, `.claude/agents/**`, `.claude/settings*.json`, `.claude/hooks/**` | **infra** | Tooling improvements made mid-session — should land on `master` separately so every worktree picks them up. |
+| `.claude/skills/**`, `.claude/agents/**`, `.claude/settings*.json`, `.claude/hooks/**`, `.codex/skills/**`, `.codex/hooks/**`, `.codex/config.toml` | **infra** | Tooling improvements made mid-session — should land on `master` separately so every worktree picks them up. |
 | `.claude/worktrees/**` | **ignore** | Other worktrees' state — never include. |
 | `~/.claude/projects/-home-agent-agent-linux/memory/**` | **local-only** | Lives in `$HOME`, not in the repo, already shared across worktrees. Mention it; do not commit it. |
 
@@ -145,7 +145,7 @@ Print a short summary:
 - Infra commits (if any) pushed straight to `master`
 - Memory files touched (informational, no action)
 - Main worktree state (`master` at SHA, clean / dirty)
-- Reminder: **worktree at `<path>` is preserved — remove it manually when you exit Claude Code.**
+- Reminder: **worktree at `<path>` is preserved — remove it manually when you exit the agent session.**
 
 ## Edge cases
 

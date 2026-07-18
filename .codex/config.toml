@@ -1,0 +1,21 @@
+# Codex CLI — project-level configuration for AgentLinux.
+#
+# Loaded when this project is trusted (`codex` prompts once on first run in the
+# repo). Additive to your user-level ~/.codex/config.toml — this file only wires
+# the end-of-session reminder Stop hooks. See docs/codex.md for setup, auth, and
+# optional MCP (Atlassian for session-tracker).
+#
+# These mirror the Claude Code Stop-hook reminders in .claude/settings.json with
+# their own scripts (see docs/codex.md for why they are kept separate).
+
+# Reminder: run the review loop on changed files before finishing.
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = 'bash "$(git rev-parse --show-toplevel)/.codex/hooks/review-reminder.sh"'
+
+# Reminder: keep the linked Jira ticket in sync (session-tracker).
+[[hooks.Stop]]
+[[hooks.Stop.hooks]]
+type = "command"
+command = 'bash "$(git rev-parse --show-toplevel)/.codex/hooks/session-tracker-reminder.sh"'
