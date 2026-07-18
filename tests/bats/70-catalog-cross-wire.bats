@@ -138,8 +138,13 @@ _agent_test() {
   run sudo -u agent -H bash --login -c \
     "printf '%s\\n' '# User instructions: rtk is a preference' > /home/agent/.gemini/GEMINI.md"
   assert_exit_zero "WIRE-02 (seed user-owned Gemini instructions)"
+  run sudo -u agent -H bash --login -c \
+    "printf '%s\\n' '{\"hooks\":{\"BeforeTool\":[{\"matcher\":\"run_shell_command\",\"hooks\":[{\"type\":\"command\",\"command\":\"/home/agent/user-hook.sh\"},{\"type\":\"command\",\"command\":\"/home/agent/.gemini/hooks/rtk-hook-gemini.sh\"}]}]}}' > /home/agent/.gemini/settings.json"
+  assert_exit_zero "WIRE-02 (seed mixed Gemini hooks)"
   run sudo -u agent -H bash --login -c "agentlinux remove --force rtk"
   assert_exit_zero "WIRE-02 (preserve user-owned Gemini instructions)"
   _agent_test "WIRE-02/order/gemini-preserve" "user-owned Gemini instructions survive rtk removal" \
     "test -f /home/agent/.gemini/GEMINI.md && grep -qF 'User instructions: rtk is a preference' /home/agent/.gemini/GEMINI.md"
+  _agent_test "WIRE-02/order/gemini-hook-preserve" "non-RTK Gemini hook survives rtk removal" \
+    "grep -qF '/home/agent/user-hook.sh' /home/agent/.gemini/settings.json && ! grep -qF 'rtk-hook-gemini' /home/agent/.gemini/settings.json"
 }

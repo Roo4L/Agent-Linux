@@ -70,12 +70,26 @@ try {
 }
 const before = settings?.hooks?.BeforeTool;
 if (!Array.isArray(before)) process.exit(0);
-const kept = before.filter((entry) => {
-  const command = entry?.hooks?.[0]?.command;
-  return typeof command !== "string" || !command.includes("rtk-hook-gemini");
-});
-if (kept.length === before.length) process.exit(0);
-if (kept.length === 0) delete settings.hooks.BeforeTool;
+const kept = [];
+let changed = false;
+for (const entry of before) {
+  if (!Array.isArray(entry?.hooks) || entry.hooks.length === 0) {
+    kept.push(entry);
+    continue;
+  }
+  const hooks = entry.hooks.filter((hook) => {
+    const command = hook?.command;
+    return typeof command !== "string" || !command.includes("rtk-hook-gemini");
+  });
+  if (hooks.length !== entry.hooks.length) changed = true;
+  if (hooks.length > 0) kept.push({ ...entry, hooks });
+}
+if (!changed) process.exit(0);
+if (kept.length === 0) {
+  delete settings.hooks.BeforeTool;
+} else {
+  settings.hooks.BeforeTool = kept;
+}
 const mode = fs.statSync(file).mode & 0o777;
 const tmp = `${file}.agentlinux.tmp`;
 fs.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, { mode });
