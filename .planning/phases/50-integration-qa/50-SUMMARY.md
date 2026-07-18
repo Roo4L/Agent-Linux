@@ -1,17 +1,32 @@
 # Phase 50 Summary
 
-Phase 50 restored the lost integration-QA specification and began its
-execution. It now has a reusable Claude Code QA skill, deterministic
-self-check, real PTY guidance, a disposable Ubuntu 24.04 RC sweep, and a
-written triage report.
+Phase 50 restored the lost integration-QA specification and executed an
+observation-only black-box campaign against all 23 included catalog entries.
+The campaign used a fresh Ubuntu 24.04 release-candidate container plus
+targeted Ubuntu 22.04 and 26.04 checks, realistic package operations, PTY
+checks, co-install workflows, provider/consumer ordering, and removal
+preservation checks.
 
-The sweep found and fixed two integration defect classes: recipe dispatch now
-honors the configured install user, and RTK removal cleans preserved consumer
-artifacts even when Codex, Gemini CLI, or OpenCode was removed first. The new
-WIRE-02 behavior coverage and rebuilt-release RC scenario pass.
+The earlier F-006 stop claim was invalidated by a saved Gemini run that was
+mistakenly classified clean despite a visible invalid-stream error. Three
+confirmed new findings, one unconfirmed Gemini observation, two known-issue
+reproductions, and two expected prerequisite blocks are now recorded:
+Firecrawl's keyless live behavior, OpenCode GitHub MCP OAuth compatibility, and
+Playwright's zero exit status for invalid targets; Gemini's invalid stream
+observation; the documented Spec Kit `git` prerequisite and Chrome prerequisite;
+and the known Playwright browser-library and GSD/Codex configuration issues.
+The expected prerequisite blocks and known issues were neither new nor clean.
+The Gemini observation was not reproduced in two later authorized retries and
+did not reset the gate. The available-scope stop gate was re-earned
+after the observation with 33 minutes 12 seconds of listed productive activity
+and 10 distinct clean ideas.
+No product fixes were made;
+findings are routed to proposed Phase 50.2–50.5 follow-up destinations in the
+report, pending maintainer approval.
 
-The phase remains partial. AGT-06 lacks Chromium shared libraries in the Docker
-image; QEMU systemd-user coverage was unavailable; one local unit fixture is
-host-path sensitive; and the harness expects an archived planning path that no
-longer exists. See `50-QA-REPORT.md` and `50-VERIFICATION.md` for exact
-evidence and follow-up scope.
+Qwen's real prompt is paused until `OPENAI_BASE_URL` and `OPENAI_MODEL` are
+provided. GitLab, Sentry, and in-client GitHub/Slack/Linear/Atlassian OAuth
+operations are also explicitly blocked, while openclaw and hermes-agent are
+excluded because Docker lacks their required systemd services. See
+`50-QA-REPORT.md`, `50-SCENARIO-LEDGER.md`, and `50-VERIFICATION.md` for the
+evidence and exact residual scope.

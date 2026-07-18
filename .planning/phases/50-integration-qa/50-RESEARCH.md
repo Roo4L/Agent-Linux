@@ -47,12 +47,12 @@ Secrets must be injected only at runtime, never committed, embedded in fixtures,
 
 ### Productive stop protocol
 
-The reusable skill and report must use defaults of **30 minutes of productive QA activity** and **10 latest distinct test ideas without a new issue**. These are not script environment variables and not a fixed rounds counter; a user may override them in free-form text when invoking the skill.
+The reusable skill and report must use defaults of **30 minutes of productive QA activity** and **10 latest distinct ideas classified clean for new-issue discovery**. These are not script environment variables and not a fixed rounds counter; a user may override them in free-form text when invoking the skill.
 
 - Productive time is active execution, observation, result analysis, and issue reproduction. Chat idle time, usage-limit pauses, user-input waiting, and external blocks do not count.
 - A long-running test contributes productive time while it is executing, but contributes one clean idea only when it completes without surfacing a new issue.
 - A newly reproducible issue resets both the productive timer and the consecutive clean-by-novelty sequence.
-- Reproducing an already-known issue does not reset either measure and counts as clean for discovery; link it to the existing finding instead of creating a duplicate.
+- Reproducing an already-known issue does not reset either measure and does not count as clean; link it to the existing finding instead of creating a duplicate. The clean counter measures new-issue discovery, not merely test completion.
 - An expected negative result is clean when it matches the contract. A blocked or incomplete idea is neither clean nor productive while blocked.
 - Stop only after both thresholds are true since the latest new finding. A report must show active intervals, test-idea IDs, novelty classification, resets, and the final stop decision.
 
@@ -70,7 +70,7 @@ The reusable skill and report must use defaults of **30 minutes of productive QA
 
 - The skill is discoverable from `CLAUDE.md`, has one canonical `.claude/skills/qa-testing/SKILL.md`, and is linked for Codex according to project convention.
 - The skill names the 23 included entries, the three exclusions, realistic operations beyond help/version, credential blocking, workflow-based co-install coverage, and the exact productive-stop semantics.
-- The QA report is an evidence ledger, not a pass-by-checklist assertion: every attempted idea has a clean/new-known/blocked/incomplete classification, and every new issue has reproducible evidence and a disposition.
+- The QA report is an evidence ledger, not a pass-by-checklist assertion: every attempted idea has a clean/known/new/observation/blocked/incomplete classification, and every new issue has reproducible evidence and a disposition.
 - The report distinguishes active productive time from waiting/blocked time and proves the final 30-minute + latest-10 clean-by-novelty stop decision, or explains why execution is blocked before it can be reached.
 - Removal and co-install observations verify sibling preservation, unrelated-config preservation, path/ownership behavior, and absence of forbidden `/usr/local` shims for included packages.
 

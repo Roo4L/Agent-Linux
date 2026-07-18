@@ -94,8 +94,8 @@ packages.
 - Do not use a fixed round counter as the completion criterion. The QA agent
   stops only when both conditions hold since the latest new finding:
   1. at least 30 minutes of productive QA activity have elapsed; and
-  2. the latest 10 distinct test ideas have completed without surfacing a new
-     issue.
+  2. the latest 10 distinct test ideas are classified clean for new-issue
+     discovery; known, blocked, incomplete, and new ideas do not satisfy it.
 - A test idea is a materially different user-facing hypothesis or scenario,
   not an individual shell command. A long-running install or operation counts
   toward productive time while it is genuinely executing, but counts as one
@@ -105,10 +105,14 @@ packages.
   external blocks that prevent QA work from continuing.
 - A newly discovered, reproducible issue resets both the productive-time timer
   and the consecutive-clean-idea count.
+- An unconfirmed observation is retained for follow-up but is neither a
+  confirmed new finding nor a clean idea, and does not reset either measure
+  until reproduced.
 - Reproducing an issue already known to the session does not reset either
-  counter and does count as clean for the purpose of discovering *new* issues;
-  it may still be linked as additional evidence. An expected negative result
-  also counts as clean when the observed behavior matches the contract.
+  counter and does not count as clean. The clean-idea counter measures whether
+  recent ideas discovered anything new, so known-issue replays are neither new
+  nor clean; link them as additional evidence. An expected negative result
+  counts as clean when the observed behavior matches the contract.
 - A blocked or incomplete test idea does not count as clean and does not
   advance the timer while the block prevents productive QA.
 - The defaults may be overridden through free-form instructions when invoking
@@ -153,7 +157,7 @@ packages.
 
 ### QA workflow and harness
 - `.claude/skills/qa-testing/SKILL.md` — scoped QA workflow, finding schema,
-  time-boxed rounds, and coverage handback.
+  productive-time/latest-10 stop rule, and coverage handback.
 - `tests/docker/rc-sandbox.sh` — disposable Docker release-candidate setup.
 - `tests/bats/helpers/tty-driver.py` — reusable PTY interaction primitive when
   a package workflow genuinely needs a terminal.

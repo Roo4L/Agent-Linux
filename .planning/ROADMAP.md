@@ -43,7 +43,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 47: openclaw** 🔧 `[daemon]` - OpenClaw + AI-assistant daemon-lifecycle enabler (ENABLE-04) ✓ COMPLETE (Docker 4/4; systemd-user QEMU-gated)
 - [x] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (official installer pinned to commit + per-user daemon/gateway, reuses ENABLE-04) ✓ COMPLETE (Docker 3/3; systemd-user QEMU-gated)
 - [x] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
-- [ ] **Phase 50: integration QA** 🧪 `[qa]` - build the reusable `qa-testing` skill (scoped · time-boxed regression-to-zero stop condition · representative TUI session) AND run it as the milestone-close integration sweep across the co-installed catalog
+- [ ] **Phase 50: integration QA** 🧪 `[qa]` - build the reusable `qa-testing` skill (scoped · productive-time/latest-10 regression-to-zero stop condition · representative TUI session) AND run it as the milestone-close integration sweep across the co-installed catalog
 
 ## Phase Details
 
@@ -398,10 +398,10 @@ Plans:
 **Success Criteria** (what must be TRUE):
   1. **The skill exists and is self-sufficient.** `.claude/skills/qa-testing/SKILL.md` instructs Claude Code to run an on-demand QA session with three codified pillars:
      - **(a) Scoped.** QA scope is derived from what the unit-under-test (release / milestone / phase) *touched*: the direct deliverables get heavy, creative, varied exercise; adjacent/possibly-impacted surfaces get a lighter sanity pass. The skill explains how to derive that scope (diff, roadmap, requirement IDs).
-     - **(b) Regression-to-zero stop condition.** Instead of a fixed checklist, testing proceeds in time-boxed rounds (a configurable box — default ~20–30 min); a round that surfaces ≥1 new bug resets the clock; N consecutive boxes with zero *new* bugs = "done from my side." Reuses the `/gsd-goal`-style loop where practical. Planning/notes are encouraged but the stop signal is bug-arrival-rate, not checklist completion.
+     - **(b) Regression-to-zero stop condition.** Instead of a fixed checklist, testing continues until both at least 30 minutes of productive QA activity and the latest 10 distinct test ideas are classified clean for new-issue discovery since the latest finding. Productive time excludes chat idle, usage-limit pauses, user-input waits, and external blocks. Known-issue replays are neither new nor clean; blocked ideas do not advance the gate. Free-form invocation text may override the defaults. Planning/notes are encouraged, but the stop signal is bug-arrival-rate plus active-work duration, not checklist completion.
      - **(c) Representative TUI session.** The skill mandates a setup that faithfully reproduces what a real user sees — a real interactive PTY (not a captured pipe that makes interactive prompts render as a frozen script), default terminal geometry (~80-col width behavior + a documented wider case), color/ANSI on, and observation of live/streaming output vs apparent freezes while work happens in the background. Documents *how* to stand this session up reliably (which harness — e.g. `tests/docker/rc-sandbox.sh` or a PTY wrapper — env, TERM, width).
   2. **Co-installed integration is actually exercised.** At least the high-traffic combinations are driven together (e.g. two coding agents such as gsd + codex; a coding agent + ≥1 MCP server across the cross-agent fan-out; a `[bin]` + `[npm]` + `[daemon]` mix) — verifying no install-order dependence, no config/PATH clobbering, symmetric `remove` with a co-installed sibling still present, and no cross-tool residue. (Extends the order-independence concern already tracked from the v0.3.6 dogfood feedback.)
-  3. **The run happened and is recorded.** A QA session was actually run against the feature-complete catalog; findings are captured as a triaged report (bug · severity · repro · scope-bucket direct/adjacent), each routed to an outcome: fixed inline, or filed as a decimal phase / AL ticket. The session reached its stop condition (consecutive quiet boxes) or an explicit maintainer hand-off.
+  3. **The run happened and is recorded.** A QA session was actually run against the feature-complete catalog; findings are captured as a triaged report (bug · severity · repro · scope-bucket direct/adjacent), each routed to an outcome: fixed inline, or filed as a decimal phase / AL ticket. The session reached its stop condition (30 productive minutes plus the latest 10 clean-by-novelty ideas) or an explicit maintainer hand-off.
   4. **Handback is honest about limits.** The report states what was and was NOT covered (which combinations, which invocation modes, Docker-vs-QEMU reachability) so the maintainer's own final pass is scoped — no silent "tested everything" claim.
   5. Skill is registered where the other project skills live (CLAUDE.md skills list + `.claude/skills/`), so it is invocable on demand for future milestones, not one-shot scaffolding. ≥1 lightweight self-check that the skill is discoverable/loads (TST-07-style gate, adapted — this phase ships a workflow, not a catalog recipe).
 
@@ -440,7 +440,7 @@ Plans:
 | 47. openclaw 🔧 | 1/1 | ✓ Complete (Docker 4/4 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 48. hermes-agent | 1/1 | ✓ Complete (Docker 3/3 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 49. catalog growth kit | 1/1 | ✓ Complete (Docker 4/4 green) | 2026-07-14 |
-| 50. integration QA | 0/TBD | Not started | - |
+| 50. integration QA | 1/1 | In progress (available-scope gate met; credential and follow-up handoff pending) | 2026-07-18 |
 
 ---
 

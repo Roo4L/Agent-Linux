@@ -72,7 +72,8 @@ stop again to pass through.
 ## Project skills
 
 - `.claude/skills/qa-testing/` — reusable scoped integration-QA workflow with a
-  regression-to-zero stop rule and representative PTY/TUI session.
+  productive-time/latest-10 regression-to-zero stop rule and representative
+  PTY/TUI session.
 
 ---
 *Last updated: 2026-07-18 — split shared context into `AGENTS.md`; this file now

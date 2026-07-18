@@ -25,10 +25,12 @@ At invocation, state in free-form text:
 - optional changes to the default productive window or clean-idea threshold.
 
 The normal stop defaults are **30 minutes of productive QA activity** and the
-**latest 10 distinct completed test ideas** with no newly discovered issue.
-These are agent-orchestrated conditions, not environment variables, a scripted
-timer, or a round counter. A free-form invocation may request different
-thresholds; record the override in the report and apply it consistently.
+**latest 10 distinct ideas classified clean for new-issue discovery**. None of
+those ten may be `known`, `blocked`, `incomplete`, or `new`; a new issue resets
+the sequence. These are agent-orchestrated conditions, not environment
+variables, a scripted timer, or a round counter. A free-form invocation may
+request different thresholds; record the override in the report and apply it
+consistently.
 
 ## Scope and inventory
 
@@ -166,15 +168,19 @@ Each finding records:
 | Reproduction | exact repeatable user-facing steps |
 | Evidence | redacted output, transcript, config diff, or artifact path |
 | First seen | test-idea ID and productive interval |
-| Classification | known reproduction or newly discovered/reproducible issue |
+| Classification | known reproduction, newly discovered/reproducible issue, or unconfirmed observation |
 | Disposition | deferred follow-up, ticket/phase handback, or maintainer decision |
 | Residual risk | what remains unproven |
 
-Only a newly reproducible issue is new. Reproducing an already-known issue does
-not reset the stop measures and counts clean for new-issue discovery; link its
-existing finding and preserve the additional evidence. Expected negative behavior
-is clean when it matches the contract. A blocked or incomplete idea counts as
-neither clean nor productive while the block prevents progress.
+Only a newly reproducible issue is new. An unconfirmed observation is retained
+for follow-up, but is neither a confirmed new finding nor a clean idea until it
+is reproduced. Reproducing an already-known issue does
+not reset the stop measures and does not count as a clean idea; link its existing
+finding and preserve the additional evidence. The clean-idea counter measures
+whether recent ideas discovered anything new, so known-issue replays are neither
+new nor clean. Expected negative behavior is clean when it matches the contract.
+A blocked or incomplete idea counts as neither clean nor productive while the
+block prevents progress.
 
 ## Productive stop gate
 
@@ -183,15 +189,17 @@ Maintain two auditable records throughout the session:
 1. an activity log with active execution, observation, analysis, and reproduction
    intervals; and
 2. an idea ledger where each materially different user-facing hypothesis ends as
-   `clean`, `known`, `new`, `blocked`, or `incomplete`.
+   `clean`, `known`, `new`, `observation`, `blocked`, or `incomplete`.
 
 Productive time excludes chat idle time, waiting for user input, usage-limit
 pauses, and external blocks that prevent QA work. A long-running install or
 operation contributes active time while it runs, but contributes one clean idea
 only after it completes cleanly. A newly discovered reproducible issue resets
-both measures. Continue until both the configured productive-time threshold and
-the configured latest-clean-idea threshold hold since the latest new issue. If
-the gate is not met, hand back the unmet arithmetic instead of declaring success.
+both measures. An unconfirmed `observation` is retained for follow-up, counts as
+neither `new` nor `clean`, and does not reset the gate until reproduced. Continue
+until both the configured productive-time threshold and the configured
+latest-clean-idea threshold hold since the latest new issue. If the gate is not
+met, hand back the unmet arithmetic instead of declaring success.
 
 ## Handback template
 
