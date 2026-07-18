@@ -16,7 +16,8 @@ Status: partial — human follow-up required
 - [x] GSD + Codex, MCP fan-out, RTK + npm agents, OpenClaw config, and sibling
   removal order were exercised.
 - [x] The configured install-user dispatch defect and RTK stale-hook defect
-  were fixed and covered by tests.
+  were fixed and covered by tests; the rebuilt RC also confirms Gemini CLI and
+  OpenCode consumer-before-provider cleanup.
 - [x] QA evidence and triage are recorded in `50-QA-REPORT.md`.
 - [ ] Docker behavior suite is fully green: AGT-06 still lacks Chromium shared
   libraries.

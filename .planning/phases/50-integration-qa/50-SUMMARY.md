@@ -5,9 +5,10 @@ execution. It now has a reusable Claude Code QA skill, deterministic
 self-check, real PTY guidance, a disposable Ubuntu 24.04 RC sweep, and a
 written triage report.
 
-The sweep found and fixed two integration defects: recipe dispatch now honors
-the configured install user, and RTK removal cleans preserved Codex artifacts
-even when Codex was removed first. The new WIRE-02 behavior test passes.
+The sweep found and fixed two integration defect classes: recipe dispatch now
+honors the configured install user, and RTK removal cleans preserved consumer
+artifacts even when Codex, Gemini CLI, or OpenCode was removed first. The new
+WIRE-02 behavior coverage and rebuilt-release RC scenario pass.
 
 The phase remains partial. AGT-06 lacks Chromium shared libraries in the Docker
 image; QEMU systemd-user coverage was unavailable; one local unit fixture is
