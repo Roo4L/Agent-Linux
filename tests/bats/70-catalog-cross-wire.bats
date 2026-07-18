@@ -34,6 +34,7 @@ teardown() {
   _remove rtk
   _remove codex
   _remove gemini-cli
+  _remove opencode
 }
 
 _agent_test() {
@@ -104,4 +105,27 @@ _agent_test() {
   assert_exit_zero "WIRE-02 (remove rtk after codex)"
   _agent_test "WIRE-02/order/rtk" "rtk removes the stale codex hook" \
     "! test -e /home/agent/.codex/RTK.md"
+}
+
+@test "WIRE-02: removing Gemini and OpenCode before rtk removes both preserved hooks" {
+  # The same consumer-before-provider order must converge for every supported
+  # RTK integration, not just Codex.
+  _install gemini-cli
+  _install opencode
+  _install rtk
+  run sudo -u agent -H bash --login -c "agentlinux remove --force gemini-cli"
+  assert_exit_zero "WIRE-02 (remove gemini before rtk)"
+  run sudo -u agent -H bash --login -c "agentlinux remove --force opencode"
+  assert_exit_zero "WIRE-02 (remove opencode before rtk)"
+  _agent_test "WIRE-02/order/gemini" "Gemini config is preserved before provider removal" \
+    "grep -qi rtk /home/agent/.gemini/GEMINI.md"
+  _agent_test "WIRE-02/order/opencode" "OpenCode RTK plugin is preserved before provider removal" \
+    "test -f /home/agent/.config/opencode/plugins/rtk.ts"
+
+  run sudo -u agent -H bash --login -c "agentlinux remove --force rtk"
+  assert_exit_zero "WIRE-02 (remove rtk after Gemini and OpenCode)"
+  _agent_test "WIRE-02/order/gemini-clean" "rtk removes the stale Gemini hook" \
+    "! grep -qi rtk /home/agent/.gemini/GEMINI.md 2>/dev/null"
+  _agent_test "WIRE-02/order/opencode-clean" "rtk removes the stale OpenCode plugin" \
+    "! test -e /home/agent/.config/opencode/plugins/rtk.ts"
 }

@@ -127,10 +127,10 @@ al_rtk_unwire() {
   if _al_rtk_codex_present || [[ -f "${home}/.codex/RTK.md" ]]; then
     rtk init -g --codex --uninstall </dev/null >/dev/null 2>&1 || true
   fi
-  if _al_rtk_gemini_present; then
+  if _al_rtk_gemini_present || grep -qi rtk "${home}/.gemini/GEMINI.md" 2>/dev/null; then
     rtk init -g --gemini --uninstall --auto-patch >/dev/null 2>&1 || true
   fi
-  if _al_rtk_opencode_present; then
+  if _al_rtk_opencode_present || [[ -f "${home}/.config/opencode/plugins/rtk.ts" ]]; then
     rtk init -g --opencode --uninstall --auto-patch >/dev/null 2>&1 || true
   fi
   return 0
