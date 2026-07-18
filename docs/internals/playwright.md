@@ -82,6 +82,16 @@ is what lets that step run mid-install without stalling a long-running,
 non-interactive agent loop on a `[sudo] password for agent:` prompt it can
 never answer.
 
+Playwright's own bootstrapper only knows about Claude Code, but the
+skill it drops is portable, so AgentLinux mirrors it into the cross-tool
+`~/.agents/skills/` directory that both Codex and opencode scan for
+user-level skills (opencode also reads `~/.claude/skills/` directly).
+That one extra copy is what surfaces Playwright inside Codex and
+opencode too, not just Claude Code. Gemini CLI and Qwen Code have no
+comparable skill host — only prompt-style commands — so Playwright is
+not wired into them. The mirror is a derived copy, refreshed on every
+(re)install and removed on uninstall.
+
 ## Worked example
 
 ```
@@ -89,11 +99,10 @@ $ agentlinux install playwright-cli
 playwright-cli: installing @playwright/cli@0.1.11
 playwright-cli: CLI at /home/agent/.npm-global/bin/playwright-cli, version 0.1.11
 playwright-cli: wiring Claude Code skill via 'playwright-cli install --skills'
-... downloading Chromium into ~/.cache/ms-playwright ...
-playwright-cli: installing Chromium browser-launch dependencies
-... installing browser deps via the host's sudoers drop-in ...
+... apt-installing browser deps via the host's sudoers drop-in ...
+playwright-cli: mirrored skill into /home/agent/.agents/skills/playwright-cli (codex/opencode ~/.agents/skills scan)
 playwright-cli: install complete (binary at /home/agent/.npm-global/bin/playwright-cli;
-     skill wired into /home/agent/.claude/skills/playwright-cli; Chromium browser-launch deps installed)
+     skill wired into /home/agent/.claude/skills/playwright-cli + /home/agent/.agents/skills)
 
 $ sudo -u agent -H bash --login -c 'playwright-cli open about:blank'
 ### Page

@@ -31,6 +31,24 @@ function resolveFixturesDir(): string {
 }
 const FIXTURES = resolveFixturesDir();
 
+// Pin the validator to the REPO's plugin/catalog/schema.json — the source of
+// truth this suite exercises — rather than whatever may be staged under
+// /opt/agentlinux/catalog/<ver>/ on the build host. getValidator() consults
+// AGENTLINUX_CATALOG_DIR before its production default, so setting it here at
+// module load (before any getValidator() call) keeps the schema tests hermetic
+// regardless of an ambient AgentLinux install on the test machine.
+function resolveRepoCatalogDir(): string {
+  for (let depth = 0; depth <= 6; depth++) {
+    const up = Array(depth).fill("..");
+    const candidate = join(HERE, ...up, "catalog", "schema.json");
+    if (existsSync(candidate)) return dirname(candidate);
+    const pluginSide = join(HERE, ...up, "plugin", "catalog", "schema.json");
+    if (existsSync(pluginSide)) return dirname(pluginSide);
+  }
+  throw new Error(`cannot locate plugin/catalog/schema.json from ${HERE}`);
+}
+process.env.AGENTLINUX_CATALOG_DIR = resolveRepoCatalogDir();
+
 function loadFixture(name: string): unknown {
   return JSON.parse(readFileSync(join(FIXTURES, name), "utf8"));
 }
@@ -75,6 +93,118 @@ describe("ajv catalog schema (CAT-03 / CAT-04)", () => {
     const allowed =
       (enumErr?.params as { allowedValues?: string[] } | undefined)?.allowedValues ?? [];
     assert.ok(allowed.includes("npm") && allowed.includes("script"));
+    // ENABLE-01: "binary" is now a first-class dispatchable source_kind.
+    assert.ok(allowed.includes("binary"), `expected "binary" among allowed; got ${allowed}`);
+    // ENABLE-02: "mcp" is a first-class dispatchable source_kind.
+    assert.ok(allowed.includes("mcp"), `expected "mcp" among allowed; got ${allowed}`);
+  });
+
+  test("accepts well-formed catalog with a binary entry", async () => {
+    const validate = await getValidator();
+    const catalog = loadFixture("catalog-binary.json");
+    const ok = validate(catalog);
+    assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
+  });
+
+  test("ENABLE-02: accepts MCP entries — keyless and with the secret convention", async () => {
+    const validate = await getValidator();
+    const catalog = loadFixture("catalog-mcp.json");
+    const ok = validate(catalog);
+    assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
+  });
+
+  test("ENABLE-02: secret_env must be an UPPER_SNAKE env-var name", async () => {
+    const validate = await getValidator();
+    const bad = {
+      version: "0.3.0",
+      agents: [
+        {
+          id: "bad-mcp",
+          display_name: "Bad MCP",
+          description: "secret_env with a lowercase name",
+          source_kind: "mcp",
+          pinned_version: "1.0.0",
+          requires_secret: true,
+          secret_env: "lowercase-key",
+          install_recipe_path: "install.sh",
+          uninstall_recipe_path: "uninstall.sh",
+        },
+      ],
+    };
+    assert.equal(validate(bad), false);
+    const errs = validate.errors ?? [];
+    assert.ok(
+      errs.some((e) => e.keyword === "pattern" && e.instancePath.endsWith("/secret_env")),
+      `expected keyword=pattern on /secret_env; got ${JSON.stringify(errs)}`,
+    );
+  });
+
+  test("ENABLE-02: an MCP entry needs no npm_package_name", async () => {
+    const validate = await getValidator();
+    const good = {
+      version: "0.3.0",
+      agents: [
+        {
+          id: "keyless-mcp",
+          display_name: "Keyless MCP",
+          description: "mcp source_kind does not trigger the npm allOf clause",
+          source_kind: "mcp",
+          pinned_version: "1.4.0",
+          install_recipe_path: "install.sh",
+          uninstall_recipe_path: "uninstall.sh",
+        },
+      ],
+    };
+    const ok = validate(good);
+    assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
+  });
+
+  test("ENABLE-02 remote-http: accepts an mcp entry with an https endpoint_url + requires_secret", async () => {
+    const validate = await getValidator();
+    const good = {
+      version: "0.3.0",
+      agents: [
+        {
+          id: "remote-mcp",
+          display_name: "Remote MCP",
+          description: "github-mcp shape: hosted remote-http endpoint + mandatory secret",
+          source_kind: "mcp",
+          pinned_version: "1.5.0",
+          endpoint_url: "https://api.githubcopilot.com/mcp/",
+          requires_secret: true,
+          secret_env: "GITHUB_MCP_PAT",
+          install_recipe_path: "install.sh",
+          uninstall_recipe_path: "uninstall.sh",
+        },
+      ],
+    };
+    const ok = validate(good);
+    assert.equal(ok, true, `unexpected errors: ${JSON.stringify(validate.errors)}`);
+  });
+
+  test("ENABLE-02 remote-http: endpoint_url must be https", async () => {
+    const validate = await getValidator();
+    const bad = {
+      version: "0.3.0",
+      agents: [
+        {
+          id: "insecure-mcp",
+          display_name: "Insecure MCP",
+          description: "endpoint_url over http is rejected",
+          source_kind: "mcp",
+          pinned_version: "1.5.0",
+          endpoint_url: "http://api.githubcopilot.com/mcp/",
+          install_recipe_path: "install.sh",
+          uninstall_recipe_path: "uninstall.sh",
+        },
+      ],
+    };
+    assert.equal(validate(bad), false);
+    const errs = validate.errors ?? [];
+    assert.ok(
+      errs.some((e) => e.keyword === "pattern" && e.instancePath.endsWith("/endpoint_url")),
+      `expected keyword=pattern on /endpoint_url; got ${JSON.stringify(errs)}`,
+    );
   });
 
   test("accepts well-formed catalog with mixed npm + script entries", async () => {

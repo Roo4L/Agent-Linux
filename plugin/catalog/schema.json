@@ -35,14 +35,29 @@
         "description": { "type": "string", "minLength": 1 },
         "homepage": { "type": "string", "format": "uri" },
         "license": { "type": "string" },
-        "source_kind": { "type": "string", "enum": ["npm", "script"] },
+        "source_kind": { "type": "string", "enum": ["npm", "script", "binary", "mcp"] },
         "npm_package_name": {
           "type": "string",
           "pattern": "^(@[a-z0-9-]+/)?[a-z0-9][a-z0-9_-]*$"
         },
+        "requires_secret": {
+          "type": "boolean",
+          "description": "ENABLE-02: true when this entry needs a credential to function. Declarative metadata — the recipe prints the post-install instruction; the secret is never baked into the recipe/snapshot. Introduced for MCP-server entries but usable by any source_kind that needs a post-install credential. Absent → no secret required."
+        },
+        "secret_env": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "ENABLE-02: name of the environment variable that carries this entry's credential (e.g. CONTEXT7_API_KEY). Set when a secret is used at all — required or optional. The user supplies it post-install; it is never baked."
+        },
+        "endpoint_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "ENABLE-02 remote-http: the pinned HTTPS endpoint of a hosted remote MCP server (e.g. https://api.githubcopilot.com/mcp/). A hosted MCP is a rolling service with no semver — the URL is its stability contract, and pinned_version names the curated upstream server release the endpoint is validated against. Absent for npm/script/binary and stdio-mcp entries."
+        },
         "pinned_version": {
           "type": "string",
-          "description": "Exact semver pinned by this catalog release (CAT-04 / ADR-011)",
+          "description": "Exact semver pinned by this catalog release (CAT-04 / ADR-011). For a hosted remote-http MCP with no downloadable release (endpoint_url set, no upstream package), this instead carries the endpoint's GA date shaped as YYYY.M.D (e.g. 2026.2.17) — the validated-against marker, since the URL is the real stability contract.",
           "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
         },
         "version_constraint": {
@@ -61,6 +76,11 @@
         "uninstall_recipe_path": {
           "type": "string",
           "pattern": "^[a-z0-9_./-]+\\.sh$"
+        },
+        "rewire_recipe_path": {
+          "type": "string",
+          "pattern": "^[a-z0-9_./-]+\\.sh$",
+          "description": "WIRE-02: optional re-wire recipe for a cross-agent provider (rtk, a fan-out MCP server). The CLI re-runs it after a later coding-agent install so the provider fans out into the new agent (install-order-independence) without reinstalling the provider. Absent for non-providers."
         },
         "post_install_verify": {
           "type": "string",

@@ -53,6 +53,7 @@ RUN apt-get update && \
       dbus \
       expect \
       jq \
+      git \
       curl \
       python3 \
       file \

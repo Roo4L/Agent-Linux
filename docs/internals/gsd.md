@@ -29,11 +29,16 @@ operator's machine.
 
 GSD also expects a follow-on bootstrap step that no thin wrapper can
 discover automatically: after the npm install, the binary is on PATH but
-Claude Code does not yet see any `/gsd-*` slash commands or skills.
+no coding agent yet sees any `/gsd-*` slash commands or skills.
 GSD's bootstrapper has to be invoked once to copy its skill set into
-`~/.claude/skills/`. Operators who skipped that step on the first GSD
-release reported "I installed it and Claude Code doesn't see it" —
-technically correct, intent-wise wrong.
+each agent's own config directory. Operators who skipped that step on
+the first GSD release reported "I installed it and my agent doesn't see
+it" — technically correct, intent-wise wrong.
+
+GSD's bootstrapper is multi-runtime — the same install can light up
+Claude Code, opencode, Gemini CLI, Codex, and Qwen Code, each in that
+tool's own command/skill format. So "install GSD" should mean GSD shows
+up in *every* coding agent the machine has, not just one.
 
 ## What AgentLinux does
 
@@ -50,10 +55,18 @@ full Docker + QEMU matrix before the tag shipped. After the install,
 the recipe asserts the help banner contains `v<pinned>` so a mispin or
 upstream-channel drift fails the install rather than silently writing
 a sentinel for the wrong version. The recipe then runs the GSD
-bootstrapper (`get-shit-done-cc --global --claude`) which copies the
-skill set into `~/.claude/skills/gsd-*/` — so the user's intent
-("install GSD") is satisfied end-to-end, not just in the
-binary-on-PATH technical sense.
+bootstrapper for every coding agent AgentLinux ships
+(`get-shit-done-cc --global --claude --opencode --gemini --codex
+--qwen`), which copies the skill set into each agent's own config
+directory — Claude Code, Codex, and Qwen Code under a `skills/` tree,
+opencode under a `command/` directory, Gemini CLI under a namespaced
+`commands/` directory — and asserts the GSD surface actually landed for
+each one. GSD owns the per-tool format conversion; AgentLinux just
+invokes it and verifies the result, so the user's intent ("install
+GSD") is satisfied across the whole agent fleet, not just in the
+binary-on-PATH technical sense. The wiring is written unconditionally,
+so a coding agent installed *after* GSD still finds the skill set
+already present.
 
 `agentlinux upgrade` later compares installed, curated, and (with
 `--check-upstream`) upstream-latest, and surfaces the three divergence
@@ -68,9 +81,14 @@ silently overwriting.
 ```
 $ agentlinux install gsd
 gsd: installing get-shit-done-cc@1.37.1
-gsd: wiring GSD skill set into ~/.claude/ via get-shit-done-cc --global --claude
+gsd: wiring GSD skill set into all shipped agents via get-shit-done-cc --global --claude --opencode --gemini --codex --qwen
+gsd: wired into Claude Code (/home/agent/.claude/skills)
+gsd: wired into opencode (/home/agent/.config/opencode/command)
+gsd: wired into gemini-cli (/home/agent/.gemini/commands)
+gsd: wired into codex (/home/agent/.codex/skills)
+gsd: wired into qwen-code (/home/agent/.qwen/skills)
 gsd: install complete (resolves at /home/agent/.npm-global/bin/get-shit-done-cc;
-     banner matches pin; skill set wired into /home/agent/.claude/skills/gsd-*)
+     banner matches pin; skill set wired into Claude Code + opencode + gemini-cli + codex + qwen-code)
 
 $ sudo -u agent get-shit-done-cc --help | head -1
 Get Shit Done v1.37.1

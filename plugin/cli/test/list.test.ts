@@ -92,9 +92,24 @@ describe("listCmd — text + JSON + test_only filter", () => {
       cap.restore();
     }
     const joined = cap.lines.join("\n");
-    assert.match(joined, /^NAME\s+STATUS\s+CURATED\s+INSTALLED\s+DESCRIPTION/);
+    // Default table drops DESCRIPTION (dogfood feedback: it blew the width out).
+    assert.match(joined, /^NAME\s+STATUS\s+CURATED\s+INSTALLED\s*$/m);
+    assert.doesNotMatch(joined, /^NAME\s+STATUS\s+CURATED\s+INSTALLED\s+DESCRIPTION/);
     assert.match(joined, /real-agent/);
+    assert.doesNotMatch(joined, /real-fixture/); // description text absent by default
     assert.doesNotMatch(joined, /test-dummy/);
+  });
+
+  test("--descriptions restores the DESCRIPTION column", async () => {
+    const cap = captureStdout();
+    try {
+      await listCmd({ descriptions: true });
+    } finally {
+      cap.restore();
+    }
+    const joined = cap.lines.join("\n");
+    assert.match(joined, /^NAME\s+STATUS\s+CURATED\s+INSTALLED\s+DESCRIPTION/);
+    assert.match(joined, /real-fixture/); // description text present with the flag
   });
 
   test("--include-test reveals test-only entries", async () => {

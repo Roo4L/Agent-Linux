@@ -1,0 +1,6 @@
+{
+  "preserve_paths": [
+    "~/.codex/"
+  ],
+  "comment": "Codex per-user config (config.toml, incl. the ENABLE-05 update-check knob) and stored auth credentials. Survives REMEDIATE-04 uninstall+reinstall per CAT-04."
+}

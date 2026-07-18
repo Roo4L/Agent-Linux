@@ -49,12 +49,16 @@ export async function removeCmd(
   }
 
   const recipePath = join(catalog.catalogDir, "agents", entry.id, entry.uninstall_recipe_path);
+  // #2 (dogfood): stream the uninstall recipe live — remove has the same
+  // silent-freeze problem as install (some uninstalls re-run agent CLIs).
+  console.log(`▸ removing ${entry.id}…`);
   const result = await dispatchRecipe(
     {
       entry,
       recipePath,
       version: sentinel.version,
       catalogDir: catalog.catalogDir,
+      stream: true,
     },
     dispatcher,
   );
@@ -64,7 +68,7 @@ export async function removeCmd(
     if (result.stderr) console.error(result.stderr);
     process.exit(result.exitCode);
   }
-  if (result.stdout) console.log(result.stdout.trimEnd());
+  if (!result.streamed && result.stdout) console.log(result.stdout.trimEnd());
 
   await deleteSentinel(entry.id);
   console.log(`${entry.id}: removed`);

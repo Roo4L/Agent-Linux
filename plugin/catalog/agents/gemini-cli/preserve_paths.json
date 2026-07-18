@@ -1,0 +1,6 @@
+{
+  "preserve_paths": [
+    "~/.gemini/"
+  ],
+  "comment": "Gemini CLI per-user settings and cached OAuth credentials. Survives REMEDIATE-04 uninstall+reinstall per CAT-04."
+}

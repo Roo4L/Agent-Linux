@@ -18,6 +18,7 @@ set -euo pipefail
 # without privilege escalation (RT-02 keystone, ADR-004).
 
 : "${AGENTLINUX_PINNED_VERSION:?AGENTLINUX_PINNED_VERSION not set}"
+: "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 
 echo "gsd: installing get-shit-done-cc@${AGENTLINUX_PINNED_VERSION}"
 
@@ -48,11 +49,23 @@ if ! printf '%s' "$banner" | grep -q -F "v${AGENTLINUX_PINNED_VERSION}"; then
 fi
 
 ## get-shit-done-cc is the BOOTSTRAPPER, not the slash-commands themselves.
-## After npm install the binary lives on PATH but Claude Code does not yet
-## see any /gsd-* commands or skills. The bootstrapper has to be invoked
-## with --global --claude to copy the GSD skill set into ~/.claude/skills/
+## After npm install the binary lives on PATH but no coding agent yet sees
+## any /gsd-* commands or skills. The bootstrapper has to be invoked with
+## per-runtime flags to copy the GSD skill set into each agent's config dir
 ## (122+ skill dirs, hooks, statusline, settings) — that is what makes
-## /gsd-* commands surface inside Claude Code.
+## /gsd-* commands surface inside the agent.
+##
+## WIRE-01 (cross-agent skill wiring): GSD is a skill PROVIDER, and its
+## bootstrapper is natively multi-runtime — `--claude --opencode --gemini
+## --codex --qwen` each install GSD into that tool's own config dir, with GSD
+## owning the per-tool format conversion (Claude skills, opencode `command/`
+## markdown, gemini namespaced `commands/gsd/`, codex/qwen `skills/`). So we
+## wire GSD into EVERY coding agent AgentLinux ships, not just Claude Code.
+## The flags are passed UNCONDITIONALLY (independent of which agents are
+## installed right now): GSD writes each tool's config dir regardless, so the
+## wiring is install-order-independent — a codex/opencode/gemini/qwen installed
+## later already finds the GSD skill set present. Removal is symmetric in
+## uninstall.sh.
 ##
 ## Discovered by dogfood: a fresh AgentLinux + `agentlinux install gsd`
 ## left ~/.claude/skills/gsd-* empty, so the user ran Claude Code and saw
@@ -62,18 +75,44 @@ fi
 ## Wrap the bootstrapper non-fatally so the recipe stays idempotent on
 ## re-runs / `--force`. Upstream may exit non-zero on "already installed"
 ## paths or on partial-state recovery; what we actually care about is that
-## the skill set ends up under ~/.claude/skills/ — verified below.
-echo "gsd: wiring GSD skill set into ~/.claude/ via get-shit-done-cc --global --claude"
-get-shit-done-cc --global --claude \
-  || echo "gsd install: bootstrapper exited non-zero (re-run / partial-state path); verifying skill dirs anyway" >&2
+## the skill set ends up under each agent's config dir — verified below.
+agent_home="${AGENTLINUX_AGENT_HOME}"
+# NOTE: `--codex` is deliberately OMITTED. The pinned GSD bootstrapper's codex
+# writer appends an array-of-tables `[[hooks]]` block to ~/.codex/config.toml,
+# but codex 0.125+ expects `hooks` to be a table (`HooksToml` struct). The
+# result is that `codex` then fails to launch with:
+#   Error loading config.toml: invalid type: sequence, expected struct HooksToml in `hooks`
+# i.e. wiring GSD into codex BREAKS codex outright (upstream GSD×codex
+# incompatibility, not an AgentLinux bug). We wire the other four agents and
+# skip codex until GSD ships a codex-0.125-compatible writer — at which point
+# re-add `--codex` here + the codex assertion below + the codex sweep in
+# uninstall.sh, and bump the GSD pin. Dogfood-discovered (2026-07-16).
+echo "gsd: wiring GSD skill set into shipped agents via get-shit-done-cc --global --claude --opencode --gemini --qwen (codex skipped — see note)"
+get-shit-done-cc --global --claude --opencode --gemini --qwen \
+  || echo "gsd install: bootstrapper exited non-zero (re-run / partial-state path); verifying wired dirs anyway" >&2
 
-# Sanity-check that at least one gsd-* skill dir landed where Claude Code
-# looks. Without this assertion a regression to "binary on PATH but
-# bootstrapper never copied skills" would silently slip through.
-skill_dir="${AGENTLINUX_AGENT_HOME:-/home/agent}/.claude/skills"
-if ! find "$skill_dir" -maxdepth 1 -type d -name 'gsd-*' -print -quit 2>/dev/null | grep -q .; then
-  printf 'gsd install: no gsd-* skill dirs under %s after bootstrapper run\n' "$skill_dir" >&2
-  exit 1
-fi
+# Sanity-check that the GSD skill/command surface landed for EACH shipped
+# agent. Without these assertions a regression to "binary on PATH but
+# bootstrapper never wired an agent" would silently slip through. Paths are the
+# per-tool surfaces observed for the pinned GSD (Claude/codex/qwen use a
+# `skills/` dir, opencode a `command/` dir, gemini a namespaced `commands/gsd`
+# dir); a GSD pin bump re-validates them. Each check is FATAL — WIRE-01 is the
+# contract that installing GSD lights up every agent.
+# _assert_wired <label> <find-root> <find-args...>
+_assert_wired() {
+  local label=$1 root=$2
+  shift 2
+  if ! find "$root" "$@" -print -quit 2>/dev/null | grep -q .; then
+    printf 'gsd install: WIRE-01 — no GSD content for %s under %s after bootstrapper run\n' "$label" "$root" >&2
+    exit 1
+  fi
+  echo "gsd: wired into ${label} (${root})"
+}
 
-echo "gsd: install complete (resolves at ${bin_path}; banner matches pin; skill set wired into ${skill_dir}/gsd-*)"
+_assert_wired "Claude Code" "${agent_home}/.claude/skills" -maxdepth 1 -type d -name 'gsd-*'
+_assert_wired "opencode" "${agent_home}/.config/opencode/command" -maxdepth 1 -type f -name 'gsd-*.md'
+_assert_wired "gemini-cli" "${agent_home}/.gemini/commands" -maxdepth 2 -type d -name 'gsd'
+_assert_wired "qwen-code" "${agent_home}/.qwen/skills" -maxdepth 1 -type d -name 'gsd-*'
+# codex intentionally not asserted — see the --codex omission note above.
+
+echo "gsd: install complete (resolves at ${bin_path}; banner matches pin; skill set wired into Claude Code + opencode + gemini-cli + qwen-code; codex skipped to avoid the codex-0.125 config.toml breakage)"
