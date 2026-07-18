@@ -43,16 +43,23 @@ The CLI exposes six verbs:
 
 - `agentlinux list` — render the catalog as a table (or JSON), with
   per-agent status: `not-installed`, `present`, `synced`,
-  `override-ahead`, `override-behind`. `present` is the honest-status
-  case: a tool the host already has but that AgentLinux has not recorded —
-  it reads `present` with its detected version, never `not-installed`, so a
-  brownfield host's existing tools are never mislabelled as absent. The
-  hint depends on *where* the tool lives: at the managed (canonical) path
-  it says "run install to manage" (adoptable); at a non-canonical path —
-  e.g. Claude Code installed via npm at `~/.npm-global/bin/claude` instead
-  of the native `~/.local/bin/claude` — it names the detected path and says
-  "run install to migrate", because that install is a migration candidate,
-  not blessed as-is. Hides `test_only` entries unless `--include-test`.
+  `override-ahead`, `override-behind`, `drift-undeclared`. `present` is the
+  honest-status case: a tool the host already has but that AgentLinux has not
+  recorded — it reads `present` with its detected version, never
+  `not-installed`, so a brownfield host's existing tools are never
+  mislabelled as absent. The hint depends on *where* the tool lives: at the
+  managed (canonical) path it says "run install to manage" (adoptable); at a
+  non-canonical path — e.g. Claude Code installed via npm at
+  `~/.npm-global/bin/claude` instead of the native `~/.local/bin/claude` — it
+  names the detected path and says "run install to migrate", because that
+  install is a migration candidate, not blessed as-is. `list` also tells the
+  truth when a tool self-updated behind AgentLinux's back: rather than trust
+  the version it recorded at install time, it probes the *real* on-disk
+  version, so an agent that ran its own updater (`codex update`, a stray
+  `npm i -g`) reads `drift-undeclared` with the actual version and a
+  "self-updated from `<recorded>` — run: agentlinux upgrade to reconcile"
+  pointer, not a false "synced". Hides `test_only` entries unless
+  `--include-test`.
 - `agentlinux install <name>` — load the catalog, find the entry,
   inject `AGENTLINUX_PINNED_VERSION` and the agent-user environment,
   and dispatch the entry's `install_recipe_path` (typically

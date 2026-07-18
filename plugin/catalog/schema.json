@@ -77,6 +77,11 @@
           "type": "string",
           "pattern": "^[a-z0-9_./-]+\\.sh$"
         },
+        "rewire_recipe_path": {
+          "type": "string",
+          "pattern": "^[a-z0-9_./-]+\\.sh$",
+          "description": "WIRE-02: optional re-wire recipe for a cross-agent provider (rtk, a fan-out MCP server). The CLI re-runs it after a later coding-agent install so the provider fans out into the new agent (install-order-independence) without reinstalling the provider. Absent for non-providers."
+        },
         "post_install_verify": {
           "type": "string",
           "description": "Optional shell one-liner for smoke-test"

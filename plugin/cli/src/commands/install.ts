@@ -13,6 +13,7 @@ import { join } from "node:path";
 import semver from "semver";
 import { loadCatalog } from "../catalog/loader.js";
 import { tryRemediate, tryReuse } from "../detect.js";
+import { reconcileCrossWiring } from "../rewire.js";
 import { type Dispatcher, dispatchRecipe } from "../runner.js";
 import { readSentinel, writeSentinel } from "../state/sentinel.js";
 import { decideVersion } from "../version/classify.js";
@@ -207,12 +208,15 @@ export async function installCmd(
     // else the pin). On failure we're half-uninstalled — write a
     // broken-after-remediate sentinel as a forensic trail + exit 1.
     const installPath = join(catalog.catalogDir, "agents", entry.id, entry.install_recipe_path);
+    const useStream = !opts.json;
+    if (useStream) console.log(`▸ reinstalling ${entry.id} ${installVersion}…`);
     const installResult = await dispatchRecipe(
       {
         entry,
         recipePath: installPath,
         version: installVersion,
         catalogDir: catalog.catalogDir,
+        stream: useStream,
       },
       dispatcher,
     );
@@ -234,7 +238,9 @@ export async function installCmd(
       if (installResult.stderr) console.error(installResult.stderr);
       process.exit(1); // runtime
     }
-    if (installResult.stdout) console.log(installResult.stdout.trimEnd());
+    if (!installResult.streamed && installResult.stdout) {
+      console.log(installResult.stdout.trimEnd());
+    }
 
     // Step 3: success — status=installed sentinel + remediated_at trail. A
     // migration that preserved the user's version records source="override".
@@ -251,6 +257,9 @@ export async function installCmd(
     console.log(
       `[REMEDIATE-04] ${entry.id}: ${isMigration ? "migrated to native" : "reinstalled"} at ${installVersion} (${installSource})`,
     );
+
+    // #4: same cross-agent reconcile as the normal-install success path.
+    await reconcileCrossWiring(entry.id, catalog, dispatcher);
     return;
   }
 
@@ -265,12 +274,19 @@ export async function installCmd(
   }
 
   const recipePath = join(catalog.catalogDir, "agents", entry.id, entry.install_recipe_path);
+  // #2 (dogfood): stream the recipe live so a minute-long install shows progress
+  // instead of a silent freeze. Buffered under --json so machine output stays
+  // clean (recipe chatter would corrupt a JSON consumer). The pre-dispatch line
+  // gives immediate feedback before the recipe's first echo.
+  const useStream = !opts.json;
+  if (useStream) console.log(`▸ installing ${entry.id} ${decision.version}…`);
   const result = await dispatchRecipe(
     {
       entry,
       recipePath,
       version: decision.version,
       catalogDir: catalog.catalogDir,
+      stream: useStream,
     },
     dispatcher,
   );
@@ -280,7 +296,8 @@ export async function installCmd(
     if (result.stderr) console.error(result.stderr);
     process.exit(result.exitCode);
   }
-  if (result.stdout) console.log(result.stdout.trimEnd());
+  // Streamed output is already on screen; only re-print for the buffered path.
+  if (!result.streamed && result.stdout) console.log(result.stdout.trimEnd());
 
   await writeSentinel({
     id: entry.id,
@@ -292,4 +309,10 @@ export async function installCmd(
   });
 
   console.log(`${entry.id}: installed ${decision.version} (${decision.source})`);
+
+  // #4 (dogfood): cross-agent wiring must converge regardless of install order.
+  // Installing a coding agent re-fans-out every installed provider (rtk, MCP
+  // servers) so they wire into the new agent too. Best-effort — never fails the
+  // install that already succeeded.
+  await reconcileCrossWiring(entry.id, catalog, dispatcher);
 }

@@ -31,6 +31,13 @@ export interface CatalogEntry {
   compatibility_window?: string; // REUSE-03 semver range: adopt a detected install whose version satisfies this
   install_recipe_path: string; // e.g. 'install.sh'
   uninstall_recipe_path: string; // e.g. 'uninstall.sh'
+  // WIRE-02 (#4 dogfood): optional lightweight re-wire recipe for a cross-agent
+  // PROVIDER (rtk, a fan-out MCP server). After ANY coding agent is installed,
+  // the CLI re-runs each installed provider's rewire recipe so the provider fans
+  // out into the now-present agent too — WITHOUT reinstalling the provider —
+  // making cross-agent wiring converge regardless of install order. Absent for
+  // non-providers (an agent, a standalone CLI).
+  rewire_recipe_path?: string;
   post_install_verify?: string;
   // CAT-04: optional sibling-file pointer (e.g. 'preserve_paths.json'). When
   // set, the loader normalizes the listed paths into `preserve_paths`, which

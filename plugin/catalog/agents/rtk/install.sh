@@ -14,10 +14,14 @@ set -euo pipefail
 # hardcoded here. Release tags are v-prefixed (v<pin>); the binary reports the
 # bare <pin>, which the helper's version-lock assert checks.
 #
-# OPT-IN hook (WORK-02): install does NOT run the rtk hook initializer. Auto-
-# mutating ~/.claude without consent would break the opt-in contract, so the
-# recipe only PRINTS the instruction for the user to wire rtk into Claude Code
-# themselves.
+# Cross-agent auto-wiring (WIRE-02, #4 dogfood): install fans rtk's `init` hook
+# out to EVERY installed coding agent (claude-code, codex, gemini-cli, opencode;
+# qwen-code has no rtk target). And the CLI's post-install reconcile re-runs
+# rtk's rewire.sh whenever an agent is installed LATER, so rtk ends up wired into
+# the same set regardless of install order. This supersedes the earlier opt-in
+# stance (WORK-02): the maintainer's dogfood feedback is that installing rtk
+# should wire the whole fleet, not just print an instruction. The wiring is
+# best-effort (see lib/rtk-wire.sh) — a per-agent hiccup never fails the install.
 
 : "${AGENTLINUX_PINNED_VERSION:?AGENTLINUX_PINNED_VERSION not set}"
 : "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}"
@@ -46,4 +50,12 @@ al_pb_install "$base" "$asset" "$checksums" "$bin_in_archive" "$bin_name" "$dest
 }
 
 echo "rtk: installed at ${dest}/rtk"
-echo "rtk: OPTIONAL — to wire rtk into Claude Code, run:  rtk init -g"
+
+# WIRE-02: auto-wire rtk into every installed coding agent. `hash -r` so the
+# just-installed binary resolves on PATH for the wire step (dest is on the
+# AgentLinux PATH). The reconcile in the CLI (plugin/cli/src/rewire.ts) handles
+# agents installed later via rtk's rewire.sh.
+hash -r
+# shellcheck source=../../lib/rtk-wire.sh
+source "${AGENTLINUX_CATALOG_DIR}/lib/rtk-wire.sh"
+al_rtk_wire

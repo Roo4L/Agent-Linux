@@ -27,6 +27,10 @@
   - **GSD** (`get-shit-done-cc`, a natively multi-runtime bootstrapper): wired into Claude Code, opencode (`~/.config/opencode/command/gsd-*.md`), gemini-cli (`~/.gemini/commands/gsd/`), codex (`~/.codex/skills/gsd-*`), qwen-code (`~/.qwen/skills/gsd-*`) — GSD owns the per-tool format conversion.
   - **playwright-cli**: skill mirrored into the cross-tool `~/.agents/skills/playwright-cli/` (the scan path **both** codex and opencode honor); opencode additionally reads `~/.claude/skills/` natively. gemini-cli + qwen-code: **N/A** (prompt-command host only — a multi-file skill with a `references/` tree does not round-trip to a single command prompt).
 
+- [x] **WIRE-02**: A catalog entry that wires a **cross-agent proxy/service into each agent's own config** — as opposed to WIRE-01's skill/command files — must converge to the **same wired set regardless of install order**, in **both** directions: (a) installing the *provider* fans its wiring out to every coding agent present *then*; (b) installing a coding agent *later* re-wires every already-installed provider into the *new* agent. Direction (b) is the gap WIRE-01's unconditional-write trick cannot cover here, because these providers edit each agent's *live* config (which needs the agent present) rather than dropping a file. Mechanism: the provider declares `rewire_recipe_path`, and the CLI's post-install reconcile (`plugin/cli/src/rewire.ts`) re-runs each installed provider's rewire recipe after a coding agent is installed. All wiring is **best-effort** (a per-agent hiccup never fails the triggering install) and torn down symmetrically on `remove`. Current providers:
+  - **rtk**: `rtk init` hook fanned out to claude-code (`~/.claude/RTK.md` + settings.json hook), codex (`~/.codex/RTK.md` + `AGENTS.md`), gemini-cli (`~/.gemini/GEMINI.md`), opencode (`~/.config/opencode/plugins/rtk.ts`). qwen-code: **N/A** (rtk ships no qwen target). Helper: `plugin/catalog/lib/rtk-wire.sh`; reverse-trigger recipe: `agents/rtk/rewire.sh`.
+  - **fan-out MCP servers** (github-mcp, linear-mcp, jira-atlassian-mcp, sentry-mcp, firecrawl-mcp, slack-mcp): the bare remote-http registration (`plugin/catalog/lib/mcp-register.sh`) re-registers into a later-installed agent via the same reconcile (`rewire_recipe_path` = the idempotent `install.sh`). Claude-only MCP entries (chrome-devtools-mcp, context7) declare no rewire — they only ever target Claude Code.
+
 ### Operational verification (cross-cutting — applies to every catalog entry)
 
 - [ ] **OPS-01**: Beyond install / `post_install_verify` / symmetric remove, **every catalog entry ships a minimal real-operation smoke test** that exercises the tool's primary function under AgentLinux, as the agent user — proving the tool actually *operates correctly*, not merely that its binary resolves. Rules:
@@ -145,6 +149,7 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | WORK-01 | Phase 27 | ccusage | Done |
 | ENABLE-08 | Phases 24–26 | passive autoupdate freeze (opencode/gemini-cli/qwen-code) 🔧 | Done |
 | WIRE-01 | Phases 24–27 (retrofit) | cross-agent skill wiring (GSD + playwright-cli → all shipped agents) 🔧 | Done |
+| WIRE-02 | Dogfood retrofit | cross-agent proxy/service wiring order-independence (rtk + fan-out MCP; reverse-trigger reconcile) 🔧 | Done |
 | WORK-02 | Phase 28 | rtk 🔧 | Done |
 | ENABLE-01 | Phase 28 | prebuilt-binary installer 🔧 | Done |
 | DEVT-01 | Phase 29 | gh | Done |

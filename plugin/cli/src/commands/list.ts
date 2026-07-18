@@ -1,7 +1,9 @@
 // plugin/cli/src/commands/list.ts — `agentlinux list` implementation (CLI-02).
 // Hot path: skips ajv validation (install/upgrade validate) so a partially
-// invalid catalog can still be listed. Installed version = the sentinel's
-// recorded version; no npm ls cross-check.
+// invalid catalog can still be listed. Installed version = the REAL on-disk
+// version (probeInstalledVersion) for npm entries, falling back to the sentinel's
+// recorded version otherwise — so an out-of-band self-update reads as drift, not
+// a stale "synced" (#6 dogfood).
 
 import { deriveCategory } from "../catalog/category.js";
 import { loadCatalog } from "../catalog/loader.js";
@@ -9,6 +11,7 @@ import { detectPresence } from "../detect.js";
 import { listSentinels } from "../state/sentinel.js";
 import type { CatalogEntry, Sentinel, Status } from "../types.js";
 import { classify } from "../version/classify.js";
+import { probeInstalledVersion } from "../version/probe.js";
 
 export interface ListOpts {
   json?: boolean;
@@ -24,7 +27,14 @@ interface Row {
   display_name: string;
   status: Status;
   curated: string; // entry.pinned_version
-  installed: string; // sentinel?.version ?? '-'
+  installed: string; // probed real version ?? sentinel?.version ?? '-'
+  // #6: the version the sentinel RECORDED at install time. Carried so the text
+  // renderer can show "<real> (self-updated from <recorded>)" on drift, and JSON
+  // consumers can compare recorded-vs-actual. Null when not installed.
+  sentinel_version: string | null;
+  // #6: true when the probed on-disk version differs from the recorded sentinel
+  // version (i.e. classify() returned drift-undeclared for an out-of-band update).
+  drifted: boolean;
   description: string;
   source: Sentinel["source"] | "-";
   // REUSE-03: a "reused" sentinel means AgentLinux manages the adopted binary
@@ -54,7 +64,11 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
   const bySentinel = new Map(sentinels.map((s) => [s.id, s]));
   return entries.map((entry) => {
     const sentinel = bySentinel.get(entry.id) ?? null;
-    let installed = sentinel?.version ?? null;
+    // #6: probe the REAL on-disk version (npm entries) so an out-of-band
+    // self-update surfaces as drift instead of a stale "synced". Fall back to the
+    // recorded sentinel version when unprobeable (non-npm kind, package absent).
+    const sentinelVersion = sentinel?.version ?? null;
+    let installed = sentinel ? (probeInstalledVersion(entry) ?? sentinelVersion) : null;
     let status = classify({ entry, sentinel, installed });
     // AL-61 presence overlay: classify() returns "not-installed" whenever no
     // sentinel exists, even for tools the host already has. Reconcile against the
@@ -81,6 +95,9 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
       status,
       curated: entry.pinned_version,
       installed: installed ?? "-",
+      sentinel_version: sentinelVersion,
+      // drift-undeclared is exactly "probed real version ≠ recorded sentinel".
+      drifted: status === "drift-undeclared",
       description: entry.description,
       source: sentinel?.source ?? "-",
       reused,
@@ -104,6 +121,10 @@ function renderTable(rows: Row[], lines: string[], showDescriptions: boolean): v
   const BROKEN_AFTER_REMEDIATE_SUFFIX = " (broken — half-uninstalled, manual recovery needed)";
   const reusedWithWarningSuffix = (reason: string) =>
     ` (reused — declined remediation: ${reason}; manual fix needed)`;
+  // #6: on drift, the INSTALLED column shows the real version + where it diverged
+  // from the recorded pin and how to reconcile.
+  const driftSuffix = (recorded: string) =>
+    ` (self-updated from ${recorded} — run: agentlinux upgrade to reconcile)`;
   const presentManageSuffix = (id: string) =>
     ` (detected — run: agentlinux install ${id} to manage)`;
   const presentMigrateSuffix = (id: string, path: string) =>
@@ -119,6 +140,8 @@ function renderTable(rows: Row[], lines: string[], showDescriptions: boolean): v
       installed = `${r.installed}${reusedWithWarningSuffix(r.decline_reason ?? "unknown")}`;
     } else if (r.reused) {
       installed = `${r.installed}${REUSED_SUFFIX}`;
+    } else if (r.drifted && r.sentinel_version) {
+      installed = `${r.installed}${driftSuffix(r.sentinel_version)}`;
     } else if (r.present) {
       installed = r.present_canonical
         ? `${r.installed}${presentManageSuffix(r.id)}`

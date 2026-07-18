@@ -14,6 +14,7 @@ set -euo pipefail
 # install exits 0 (idempotent — ENABLE-01).
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
+: "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}"
 
 echo "rtk: removing rtk"
 
@@ -24,13 +25,14 @@ echo "rtk: removing rtk"
 hook_was_present=0
 [[ -e "${AGENTLINUX_AGENT_HOME}/.claude/RTK.md" ]] && hook_was_present=1
 
-# 1. Revert the opt-in Claude Code hook BEFORE deleting the binary. No-op if the
-#    user never ran `rtk init` (the binary simply reverts an absent hook).
-#    `--auto-patch` makes the revert non-interactive (install advertises the bare
-#    `rtk init -g`; the asymmetry is intentional — uninstall must never block on a
-#    prompt, so don't "fix" it to match install).
+# 1. Revert rtk's wiring from EVERY agent it was wired into (WIRE-02) BEFORE
+#    deleting the binary — rtk's own `--uninstall` needs the binary to run. This
+#    mirrors al_rtk_wire's fan-out; each step is a no-op if that agent was never
+#    wired. Non-interactive throughout (see lib/rtk-wire.sh).
 if command -v rtk >/dev/null 2>&1; then
-  rtk init --uninstall -g --auto-patch >/dev/null 2>&1 || true
+  # shellcheck source=../../lib/rtk-wire.sh
+  source "${AGENTLINUX_CATALOG_DIR}/lib/rtk-wire.sh"
+  al_rtk_unwire
 fi
 
 # 2. Delete the binary.

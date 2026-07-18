@@ -160,7 +160,7 @@
     {
       "id": "rtk",
       "display_name": "RTK (Rust Token Killer)",
-      "description": "Token-optimizing CLI proxy that filters/summarizes command output before it reaches the LLM context. Optional `rtk init` wires a Claude Code hook (opt-in).",
+      "description": "Token-optimizing CLI proxy that filters/summarizes command output before it reaches the LLM context. Installing it auto-wires rtk's hook into every installed coding agent (Claude Code, Codex, Gemini CLI, OpenCode); an agent installed later gets wired automatically too, and remove unwires all of them.",
       "homepage": "https://github.com/rtk-ai/rtk",
       "license": "MIT",
       "source_kind": "binary",
@@ -173,7 +173,8 @@
         "token",
         "workflow",
         "devops"
-      ]
+      ],
+      "rewire_recipe_path": "rewire.sh"
     },
     {
       "id": "gh",
@@ -324,7 +325,8 @@
         "mcp",
         "devops",
         "github"
-      ]
+      ],
+      "rewire_recipe_path": "install.sh"
     },
     {
       "id": "sentry-mcp",
@@ -344,7 +346,8 @@
         "mcp",
         "observability",
         "sentry"
-      ]
+      ],
+      "rewire_recipe_path": "install.sh"
     },
     {
       "id": "firecrawl-mcp",
@@ -364,7 +367,8 @@
         "mcp",
         "scraping",
         "firecrawl"
-      ]
+      ],
+      "rewire_recipe_path": "install.sh"
     },
     {
       "id": "slack-mcp",
@@ -383,7 +387,8 @@
         "mcp",
         "communication",
         "slack"
-      ]
+      ],
+      "rewire_recipe_path": "install.sh"
     },
     {
       "id": "linear-mcp",
@@ -402,7 +407,8 @@
         "mcp",
         "project-management",
         "linear"
-      ]
+      ],
+      "rewire_recipe_path": "install.sh"
     },
     {
       "id": "jira-atlassian-mcp",
@@ -424,7 +430,8 @@
         "atlassian",
         "jira",
         "confluence"
-      ]
+      ],
+      "rewire_recipe_path": "install.sh"
     },
     {
       "id": "spec-kit",

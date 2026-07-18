@@ -35,19 +35,26 @@ export interface DispatchArgs {
   version: string; // decideVersion().version
   catalogDir: string; // Catalog.catalogDir
   extraEnv?: Record<string, string>;
+  // #2 (dogfood): stream the recipe's stdout/stderr live (install/remove, the
+  // long interactive paths). Buffered when unset — the DI test dispatchers and
+  // reconcile/rewire callers never stream.
+  stream?: boolean;
 }
 
 export interface DispatchResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+  // Set by the streaming dispatcher when output was already teed to the console;
+  // command layers key off it to skip re-printing the captured stdout.
+  streamed?: boolean;
 }
 
 // Dispatcher signature — the test injection seam; mirrors asUser()'s shape.
 export type Dispatcher = (
   user: string,
   argv: string[],
-  opts: { env: Record<string, string> },
+  opts: { env: Record<string, string>; stream?: boolean },
 ) => Promise<DispatchResult>;
 
 export async function dispatchRecipe(
@@ -73,5 +80,5 @@ export async function dispatchRecipe(
     ...(args.extraEnv ?? {}),
   };
 
-  return dispatcher("agent", ["bash", args.recipePath], { env });
+  return dispatcher("agent", ["bash", args.recipePath], { env, stream: args.stream ?? false });
 }

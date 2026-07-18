@@ -162,10 +162,14 @@ rather than `github.com` entirely — which is why the recipe, not the
 helper, supplies the release base URL. Every one of them is a handful
 of lines over the same helper.
 
-`rtk`'s optional Claude Code hook is strictly opt-in — installing `rtk`
-never writes to `~/.claude` on its own; a user runs `rtk init`
-themselves if they want it, and `agentlinux remove rtk` reverts that
-hook along with the binary and rtk's own config and cache. The other
+`rtk` is a cross-agent proxy, so installing it wires its `rtk init`
+hook into every coding agent already present — Claude Code, Codex,
+Gemini CLI, and OpenCode each get the hook written into their own
+config (Qwen has no rtk target). And because wiring a live config needs
+the agent present, installing a coding agent *later* re-runs rtk's
+wiring into the newcomer, so the wired set is the same regardless of
+install order. `agentlinux remove rtk` unwires all of them before
+deleting the binary and rtk's own config and cache. The other
 binary tools remove just as symmetrically: `remove trivy` clears the
 binary and `~/.cache/trivy`, `remove gitleaks` (stateless) just the
 binary. The authenticated ones — `gh` and `glab` — delete the binary
@@ -349,9 +353,16 @@ use. This keeps AgentLinux out of the credential business entirely (there
 is no secret to leak, by construction) and avoids coupling each entry to
 a tool-specific auth scheme. `requires_secret` stays on the entry as a
 documentation flag — "this server needs you to sign in" — but AgentLinux
-never carries the secret. An agent installed *after* the server does not
-automatically receive the registration; re-running the install fans it
-out again.
+never carries the secret. And the fan-out is **install-order-independent**:
+an agent installed *after* the server is wired up automatically too. Because
+a registration lives in the agent's *live* config (unlike a skill file that
+can be dropped ahead of time), the CLI closes the gap from the other side —
+after any coding agent is installed, it re-runs each installed provider's
+registration so the newcomer receives it. A provider opts into this by
+naming a `rewire_recipe_path` in its catalog entry; the fan-out MCP servers
+point it at their own idempotent `install.sh`. So whether you add the server
+or the agent first, you end up with the same wiring — the same guarantee
+`rtk` gets for its hook.
 
 ## Worked example
 
