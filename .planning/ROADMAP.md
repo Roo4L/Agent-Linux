@@ -1,12 +1,12 @@
 # Roadmap
 
-**Current milestone:** 🚧 **v0.3.6 Catalog Expansion** — IN PROGRESS (phases **23–49**, one tool per phase; **22 new catalog entries** shipping + a categorization/growth-kit capstone; 4 of the 26 originally-selected candidates dropped in-flight — gitlab/brave on the source-selection gate, claude-flow/bmad on first-cohort demand). v0.3.4 Aware Installation Process **SHIPPED 2026-06-08** (final release v0.3.4, marked Latest).
+**Current milestone:** 🚧 **v0.3.6 Catalog Expansion** — IN PROGRESS (phases **23–50**; **23–48** are one-tool-per-phase catalog entries, **49** the categorization/growth-kit capstone, **50** the integration-QA capstone; **22 new catalog entries** shipping; 4 of the 26 originally-selected candidates dropped in-flight — gitlab/brave on the source-selection gate, claude-flow/bmad on first-cohort demand). v0.3.4 Aware Installation Process **SHIPPED 2026-06-08** (final release v0.3.4, marked Latest).
 
 ## Current Milestone: v0.3.6 Catalog Expansion
 
 **Milestone goal:** Grow the AgentLinux catalog from its 3 shipped entries (claude-code, gsd, playwright) with the most trusted/popular AI-agent-community tools — *availability only* (CAT-02 holds: nothing installed by default) — so first-release users don't hit "I miss tool X." A documented gates+scoring funnel (agent-relevance · clean per-user install + symmetric uninstall, no root, no `/usr/local` shim · free license · liveness ≤6mo release & ≤3mo commits · maturity) shortlisted **26 candidates**; **22 ship** after 4 in-flight drops (gitlab/brave failed the source-selection free-tier gate; claude-flow/bmad dropped on first-cohort demand — spec-kit/GSD cover that need).
 
-**Structure (owner's always-shippable preference): ONE TOOL PER PHASE.** Each phase ends with exactly one working, tested, installable+removable catalog entry. The 4 machinery enablers are **folded into their first-consumer phase** (marked 🔧): those phases deliver both the enabler *and* a working tool. Every entry carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate; every tool is pinned per ADR-011 (pins in REQUIREMENTS.md Appendix A).
+**Structure (owner's always-shippable preference): ONE TOOL PER PHASE.** Each catalog phase ends with exactly one working, tested, installable+removable catalog entry. Phase 50 is the milestone-close integration-QA capstone and intentionally ships workflow machinery plus a recorded sweep, not a catalog entry. The 4 machinery enablers are **folded into their first-consumer phase** (marked 🔧): those phases deliver both the enabler *and* a working tool. Every entry carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate; every tool is pinned per ADR-011 (pins in REQUIREMENTS.md Appendix A).
 
 **Machinery tags:** `[npm]` global install via `as_user` (per-user npm prefix; pre-existing since v0.3.0) · `[bin]` prebuilt-binary fetch+checksum → `~/.local/bin` (ENABLE-01) · `[mcp]` `claude mcp add/remove --scope user` (ENABLE-02) · `[uv]` per-user `uv` bootstrap (ENABLE-03) · `[daemon]` per-user background service (ENABLE-04) · `[meta]` catalog-wide UX/contributor work.
 
@@ -43,6 +43,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 47: openclaw** 🔧 `[daemon]` - OpenClaw + AI-assistant daemon-lifecycle enabler (ENABLE-04) ✓ COMPLETE (Docker 4/4; systemd-user QEMU-gated)
 - [x] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (official installer pinned to commit + per-user daemon/gateway, reuses ENABLE-04) ✓ COMPLETE (Docker 3/3; systemd-user QEMU-gated)
 - [x] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
+- [ ] **Phase 50: integration QA** 🧪 `[qa]` - build the reusable `qa-testing` skill (scoped · time-boxed regression-to-zero stop condition · representative TUI session) AND run it as the milestone-close integration sweep across the co-installed catalog
 
 ## Phase Details
 
@@ -389,9 +390,26 @@ Plans:
   4. ≥1 bats @test covers `list` category grouping + the template-only-add path — TST-07 gate; milestone-close: all 22 new catalog entries install → verify → remove green across the Docker + QEMU gates.
 **Plans**: TBD
 
+### Phase 50: integration QA
+**Goal**: Deliver a **reusable `qa-testing` Claude Code skill** (the primary artifact — invokable on demand at any future milestone close), then **run it** as this milestone's final integration sweep. The bats/Docker/QEMU gates prove each entry works *in isolation*; this phase hunts the bugs those gates structurally can't see — **emergent problems when the shipped tools are installed together and driven like a human would drive them** (e.g. gsd + codex + an MCP server co-installed; cross-agent MCP fan-out collisions; PATH/config clobbering; `list`/`install`/`remove` UX and TUI rendering at a default terminal). Not a fixed test list — an open-ended, judgment-driven QA session that runs until it stops finding bugs. Milestone verification capstone; no new catalog entry.
+**Depends on**: Phases 23–49 (needs the full co-installable shipped catalog to exercise together; runs after the catalog is feature-complete)
+**Requirements**: TST-08 (new — reusable QA-session skill + milestone-close integration sweep); exercises the full AGT/MCP/DEVT/WORK/ASST/ENABLE surface end-to-end
+**Machinery**: `[qa]` · new `.claude/skills/qa-testing/` skill · representative-TUI test session (real PTY, default width, color, live I/O) · findings triaged to fixes (trivial → fix inline) or new decimal phases / AL tickets (deeper)
+**Success Criteria** (what must be TRUE):
+  1. **The skill exists and is self-sufficient.** `.claude/skills/qa-testing/SKILL.md` instructs Claude Code to run an on-demand QA session with three codified pillars:
+     - **(a) Scoped.** QA scope is derived from what the unit-under-test (release / milestone / phase) *touched*: the direct deliverables get heavy, creative, varied exercise; adjacent/possibly-impacted surfaces get a lighter sanity pass. The skill explains how to derive that scope (diff, roadmap, requirement IDs).
+     - **(b) Regression-to-zero stop condition.** Instead of a fixed checklist, testing proceeds in time-boxed rounds (a configurable box — default ~20–30 min); a round that surfaces ≥1 new bug resets the clock; N consecutive boxes with zero *new* bugs = "done from my side." Reuses the `/gsd-goal`-style loop where practical. Planning/notes are encouraged but the stop signal is bug-arrival-rate, not checklist completion.
+     - **(c) Representative TUI session.** The skill mandates a setup that faithfully reproduces what a real user sees — a real interactive PTY (not a captured pipe that makes interactive prompts render as a frozen script), default terminal geometry (~80-col width behavior + a documented wider case), color/ANSI on, and observation of live/streaming output vs apparent freezes while work happens in the background. Documents *how* to stand this session up reliably (which harness — e.g. `tests/docker/rc-sandbox.sh` or a PTY wrapper — env, TERM, width).
+  2. **Co-installed integration is actually exercised.** At least the high-traffic combinations are driven together (e.g. two coding agents such as gsd + codex; a coding agent + ≥1 MCP server across the cross-agent fan-out; a `[bin]` + `[npm]` + `[daemon]` mix) — verifying no install-order dependence, no config/PATH clobbering, symmetric `remove` with a co-installed sibling still present, and no cross-tool residue. (Extends the order-independence concern already tracked from the v0.3.6 dogfood feedback.)
+  3. **The run happened and is recorded.** A QA session was actually run against the feature-complete catalog; findings are captured as a triaged report (bug · severity · repro · scope-bucket direct/adjacent), each routed to an outcome: fixed inline, or filed as a decimal phase / AL ticket. The session reached its stop condition (consecutive quiet boxes) or an explicit maintainer hand-off.
+  4. **Handback is honest about limits.** The report states what was and was NOT covered (which combinations, which invocation modes, Docker-vs-QEMU reachability) so the maintainer's own final pass is scoped — no silent "tested everything" claim.
+  5. Skill is registered where the other project skills live (CLAUDE.md skills list + `.claude/skills/`), so it is invocable on demand for future milestones, not one-shot scaffolding. ≥1 lightweight self-check that the skill is discoverable/loads (TST-07-style gate, adapted — this phase ships a workflow, not a catalog recipe).
+
+**Plans**: TBD
+
 ## Progress
 
-**Execution Order:** Phases execute strictly in numeric order: 23 → 24 → … → 49.
+**Execution Order:** Phases execute strictly in numeric order: 23 → 24 → … → 49 → 50 (integration-QA capstone).
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -422,6 +440,7 @@ Plans:
 | 47. openclaw 🔧 | 1/1 | ✓ Complete (Docker 4/4 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 48. hermes-agent | 1/1 | ✓ Complete (Docker 3/3 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 49. catalog growth kit | 1/1 | ✓ Complete (Docker 4/4 green) | 2026-07-14 |
+| 50. integration QA | 0/TBD | Not started | - |
 
 ---
 

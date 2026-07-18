@@ -4,7 +4,7 @@
 
 **Selection method:** gates+scoring funnel (agent-relevance · clean per-user install + symmetric uninstall, no root, no `/usr/local` shim · free license · liveness ≤6mo release & ≤3mo commits · maturity), then owner curation. Research + audit trail: `.planning/research/v0.3.6/` (to be migrated from session scratchpad).
 
-**Contract:** every requirement below carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate, **plus an OPS-01 operational smoke that runs the tool in a real (minimal) scenario** — "installs cleanly" is necessary but not sufficient. Each tool is pinned per ADR-011 (pins in Appendix A). Credentials needed for operational smokes are catalogued in Appendix C. One tool per phase (phases 23–49).
+**Contract:** every requirement below carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate, **plus an OPS-01 operational smoke that runs the tool in a real (minimal) scenario** — "installs cleanly" is necessary but not sufficient. Each tool is pinned per ADR-011 (pins in Appendix A). Credentials needed for operational smokes are catalogued in Appendix C. Catalog entries occupy phases 23–49; Phase 50 is the integration-QA capstone.
 
 ---
 
@@ -40,6 +40,16 @@
   - **No-auth tools run unconditionally** against seeded/local data (e.g. ccusage parses a seeded `~/.claude` usage record and prints a cost table; offline scanners scan a fixture).
   - **Phase-close gate (extends TST-07):** a phase is *done* only once its OPS-01 smoke has been run + passed at least once with the relevant credential, recorded in the phase SUMMARY.
   - Minimal real scenario by category: **coding-agent CLI** → one tiny non-interactive prompt, assert a sensible model reply; **MCP server** → register, confirm it appears live (`claude mcp list` / a trivial tool call), deregister; **DevOps CLI** → one real read-only/offline op (e.g. `trivy fs`/`gitleaks detect` on a fixture; `gh api` / `glab` a read with a token); **token/workflow** → one real local op (ccusage on seeded usage; spec-kit scaffolds a temp project; etc.); **AI-assistant daemon** → start → health/ping → stop.
+
+### Integration QA (milestone-close capstone — Phase 50)
+
+- [ ] **TST-08**: The milestone ships a **reusable `qa-testing` Claude Code skill** (`.claude/skills/qa-testing/`) AND is subjected to an **integration-QA sweep** driven by that skill against the feature-complete, co-installed catalog. The per-entry TST-07/OPS-01 gates prove each tool *in isolation*; TST-08 targets what isolation gates structurally miss — **emergent problems when tools are installed together and driven like a real user drives them** (multiple coding agents co-installed, cross-agent MCP fan-out collisions, install-order dependence, PATH/config clobbering, TUI/UX defects). Contract:
+  - **Reusable skill, not one-shot scaffolding** — the skill is invocable on demand at any future milestone close and is registered alongside the other project skills (CLAUDE.md skills list + `.claude/skills/`).
+  - **Scoped** — QA scope derives from what the unit-under-test *touched*: direct deliverables get heavy, varied, creative exercise; adjacent/possibly-impacted surfaces get a lighter sanity pass. The skill documents how to derive scope (diff, roadmap, requirement IDs).
+  - **Regression-to-zero stop condition** — testing runs in time-boxed rounds (configurable box, default ~20–30 min); a round that surfaces ≥1 *new* bug resets the clock; N consecutive quiet boxes = "done from my side." The stop signal is bug-arrival-rate, not checklist completion (a `/gsd-goal`-style loop where practical); planning/notes encouraged but not the completion criterion.
+  - **Representative TUI session** — QA runs against a faithful reproduction of the real user experience: a genuine interactive PTY (never a captured pipe that renders interactive prompts as a frozen script), default terminal geometry (~80-col behavior + a documented wider case), color/ANSI on, and observation of live/streaming output vs apparent freezes. The skill documents how to stand this session up reliably (harness, TERM, width, env).
+  - **Co-install coverage** — at minimum the high-traffic combinations are driven together (two coding agents, a coding agent + ≥1 MCP server across the fan-out, a `[bin]`+`[npm]`+`[daemon]` mix), asserting order-independence, no clobbering, symmetric `remove` with a sibling still present, and no cross-tool residue.
+  - **Recorded + honest handback** — findings are captured as a triaged report (bug · severity · repro · direct/adjacent bucket), each routed to an outcome (fixed inline, or filed as a decimal phase / AL ticket); the report states what was and was NOT covered so the maintainer's own final pass is scoped (no silent "tested everything").
 
 ### Coding-agent CLIs (npm)
 
@@ -177,5 +187,6 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | ASST-02 | Phase 48 | hermes-agent | Complete (Docker 3/3; systemd-user QEMU-gated) |
 | ENABLE-06 | Phase 49 | `list` category/tags UX | Complete (Docker 4/4) |
 | ENABLE-07 | Phase 49 | catalog growth kit (template + rubric) | Complete (Docker 4/4) |
+| TST-08 | Phase 50 | reusable QA-testing skill + milestone-close integration sweep | Pending |
 
-**Coverage validation:** 7 ENABLE + 4 AGT (05-08) + 10 MCP (01-10) + 5 DEVT (01-05) + 5 WORK (01-05) + 2 ASST (01-02) = **33/33 requirements mapped to exactly one phase across phases 23–49**. No orphans, no duplicates.
+**Coverage validation:** 7 ENABLE + 4 AGT (05-08) + 10 MCP (01-10) + 5 DEVT (01-05) + 5 WORK (01-05) + 2 ASST (01-02) + 1 QA (TST-08) = **34/34 requirements mapped to exactly one phase across phases 23–50**. No orphans, no duplicates.
