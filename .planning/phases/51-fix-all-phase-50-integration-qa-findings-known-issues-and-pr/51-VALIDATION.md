@@ -37,11 +37,11 @@ created: 2026-07-19
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 51-01-01 | 01 | 1 | MCP-03 / MCP-07 | T-51-01 | Runtime-only credentials; no token in catalog/config artifacts | integration | targeted MCP Bats + redacted OAuth/API-key diagnostics | ✅ | ⬜ pending |
-| 51-01-02 | 01 | 1 | MCP-03 | T-51-02 | OpenCode OAuth failure is observable and repaired without skipping fan-out | integration | `opencode mcp debug github-mcp` in disposable RC fixture + live authorized check | ✅ | ⬜ pending |
-| 51-02-01 | 02 | 1 | WIRE-01 / OPS-01 | T-51-03 | Failed Playwright target returns nonzero; valid action remains zero | behavior | targeted Playwright Bats/CLI regression | ✅ | ⬜ pending |
-| 51-02-02 | 02 | 1 | MCP-01 / WORK-03 | T-51-04 | git, Chrome, and browser libraries are installed or fail with explicit escalation | integration | fresh Ubuntu 22.04/24.04/26.04 Docker checks | ✅ | ⬜ pending |
-| 51-03-01 | 03 | 2 | WIRE-01 / AGT-07 | T-51-05 | Open GSD installs at an exact pin and wires Codex without invalid TOML | behavior | GSD/Codex cross-wire Bats + `codex exec` fixture | ✅ | ⬜ pending |
+| 51-01-01 | 01 | 1 | MCP-03 / MCP-07 / OPS-01 | T-51-01 | Runtime-only credentials; Firecrawl auth contract and OpenCode OAuth root cause are redacted and explicit | integration | `51-OAUTH-DIAGNOSTICS.md` + targeted MCP Bats | ✅ | ⬜ pending |
+| 51-01-02 | 01 | 1 | MCP-03 / MCP-07 | T-51-02 | Firecrawl guidance is truthful and five-client registration remains credential-free/symmetric | behavior | `tests/bats/60-catalog-github-mcp.bats tests/bats/62-catalog-firecrawl-mcp.bats tests/bats/71-phase51-hosted-mcp.bats` | ✅ | ⬜ pending |
+| 51-02-01 | 02 | 1 | WIRE-01 / OPS-01 | T-51-03 | Failed Playwright target returns nonzero; valid action remains zero | behavior | `tests/bats/72-phase51-prerequisites.bats` + local fixture | ✅ | ⬜ pending |
+| 51-02-02 | 02 | 1 | MCP-01 / WORK-03 / OPS-01 | T-51-04 | git, Chrome, and browser libraries are installed or fail with explicit escalation | integration | fresh Ubuntu 22.04/24.04/26.04 Docker checks | ✅ | ⬜ pending |
+| 51-03-01 | 03 | 2 | WIRE-01 / AGT-01 / AGT-04 / OPS-01 | T-51-05 | Open GSD installs at an exact pin and wires Codex without invalid TOML | behavior | `tests/bats/73-phase51-gsd-codex.bats` + CLI unit tests | ✅ | ⬜ pending |
 | 51-04-01 | 04 | 3 | TST-08 / OPS-01 | T-51-06 | Follow-up QA records all affected workflows, limits, and new findings honestly | integration | `./tests/docker/run.sh ubuntu-24.04` + QA report audit | ✅ | ⬜ pending |
 
 *The planner may refine task IDs while preserving coverage of every approved decision and the Phase 51 exit gate.*
@@ -50,7 +50,7 @@ created: 2026-07-19
 
 ## Wave 0 Requirements
 
-- [ ] Add or extend targeted Bats fixtures for Firecrawl/OpenCode OAuth, Playwright status, dependency ownership/escalation, and Open GSD/Codex wiring before implementation tasks rely on them.
+- [ ] Add or extend targeted Bats fixtures: `tests/bats/71-phase51-hosted-mcp.bats`, `tests/bats/72-phase51-prerequisites.bats`, and `tests/bats/73-phase51-gsd-codex.bats` for Firecrawl/OpenCode OAuth metadata, Playwright status, dependency ownership/escalation, and Open GSD/Codex wiring before implementation tasks rely on them.
 - [ ] Add any disposable RC fixture scripts needed for clean temporary homes, redacted credentials, and deterministic cleanup.
 
 ---
