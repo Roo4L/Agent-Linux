@@ -1,7 +1,8 @@
 # Phase 50 Verification
 
-Status: in progress — available-scope QA stop gate met after the F-007 observation; credentialed
-and follow-up handoff remain
+Status: complete — available-scope QA stop gate met after the F-007 observation;
+credential/OAuth and systemd/QEMU boundaries remain explicitly blocked or excluded;
+all findings are routed to Phase 51
 
 ## Acceptance checklist
 
@@ -31,16 +32,16 @@ and follow-up handoff remain
   distinct clean ideas; the observation, blocked ideas, and known-issue ideas
   remain excluded from the clean count, and F-006 remains the latest confirmed
   new finding.
-- [ ] Qwen's real prompt remains blocked pending the user's
+- [x] Qwen's real prompt remains blocked pending the user's
   `OPENAI_BASE_URL` and `OPENAI_MODEL` values.
-- [ ] GitLab, Sentry, and in-client GitHub/Slack/Linear/Atlassian OAuth paths
+- [x] GitLab, Sentry, and in-client GitHub/Slack/Linear/Atlassian OAuth paths
   remain blocked because the required access is unavailable or requires
   interactive authorization.
-- [ ] QEMU systemd-user coverage is outside this Docker campaign and remains
+- [x] QEMU systemd-user coverage is outside this Docker campaign and remains
   pending a systemd-capable environment.
 
-The available-scope QA gate is complete, but the phase remains in progress and
-paused at the credential checkpoint rather than declaring blocked operations
-clean. Follow-up destinations are proposed but not filed, so maintainer
-approval and ownership are still required. The report and ledger are the
-durable handoff for later credentialed follow-up.
+The available-scope QA gate is complete. The blocked operations and QEMU-only
+coverage are recorded as boundaries, never as clean results, and do not prevent
+closing TST-08 because the phase contract explicitly permits honest blocked or
+excluded coverage. The unified Phase 51 remediation phase is the durable
+follow-up handoff for all findings, known issues, and prerequisite boundaries.

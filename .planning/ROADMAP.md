@@ -43,7 +43,7 @@ Execution is strictly sequential (23 → 51); each phase ships independently. �
 - [x] **Phase 47: openclaw** 🔧 `[daemon]` - OpenClaw + AI-assistant daemon-lifecycle enabler (ENABLE-04) ✓ COMPLETE (Docker 4/4; systemd-user QEMU-gated)
 - [x] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (official installer pinned to commit + per-user daemon/gateway, reuses ENABLE-04) ✓ COMPLETE (Docker 3/3; systemd-user QEMU-gated)
 - [x] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
-- [ ] **Phase 50: integration QA** 🧪 `[qa]` - build the reusable `qa-testing` skill (scoped · productive-time/latest-10 regression-to-zero stop condition · representative TUI session) AND run it as the milestone-close integration sweep across the co-installed catalog
+- [x] **Phase 50: integration QA** 🧪 `[qa]` - build the reusable `qa-testing` skill (scoped · productive-time/latest-10 regression-to-zero stop condition · representative TUI session) AND run it as the milestone-close integration sweep across the co-installed catalog ✓ COMPLETE (2026-07-19; available-scope gate met; residual credential/OAuth/systemd boundaries documented; findings routed to Phase 51)
 - [ ] **Phase 51: unified integration-QA remediation** 🛠️ `[fix]` - fix all Phase 50 confirmed findings, known issues, and prerequisite boundaries; add regression coverage, re-run affected package workflows, and repeat the `qa-testing` sweep
 
 ## Phase Details
@@ -393,6 +393,7 @@ Plans:
 
 ### Phase 50: integration QA
 **Goal**: Deliver a **reusable `qa-testing` Claude Code skill** (the primary artifact — invokable on demand at any future milestone close), then **run it** as this milestone's final integration sweep. The bats/Docker/QEMU gates prove each entry works *in isolation*; this phase hunts the bugs those gates structurally can't see — **emergent problems when the shipped tools are installed together and driven like a human would drive them** (e.g. gsd + codex + an MCP server co-installed; cross-agent MCP fan-out collisions; PATH/config clobbering; `list`/`install`/`remove` UX and TUI rendering at a default terminal). Not a fixed test list — an open-ended, judgment-driven QA session that runs until it stops finding bugs. Milestone verification capstone; no new catalog entry.
+**Status**: ✓ COMPLETE 2026-07-19 — available-scope stop gate met (33m12s productive activity and 10 latest clean ideas after the latest confirmed finding); residual credential/OAuth and systemd/QEMU boundaries are explicitly documented; all findings and known issues are routed to Phase 51.
 **Depends on**: Phases 23–49 (needs the full co-installable shipped catalog to exercise together; runs after the catalog is feature-complete)
 **Requirements**: TST-08 (new — reusable QA-session skill + milestone-close integration sweep); exercises the full AGT/MCP/DEVT/WORK/ASST/ENABLE surface end-to-end
 **Machinery**: `[qa]` · new `.claude/skills/qa-testing/` skill · representative-TUI test session (real PTY, default width, color, live I/O) · findings triaged to fixes (trivial → fix inline) or new decimal phases / AL tickets (deeper)
@@ -410,7 +411,7 @@ Plans:
 
 ## Progress
 
-**Execution Order:** Phases execute strictly in numeric order: 23 → 24 → … → 49 → 50 (integration-QA capstone).
+**Execution Order:** Phases execute strictly in numeric order: 23 → 24 → … → 49 → 50 (integration-QA capstone) → 51 (unified remediation).
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
@@ -441,7 +442,7 @@ Plans:
 | 47. openclaw 🔧 | 1/1 | ✓ Complete (Docker 4/4 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 48. hermes-agent | 1/1 | ✓ Complete (Docker 3/3 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 49. catalog growth kit | 1/1 | ✓ Complete (Docker 4/4 green) | 2026-07-14 |
-| 50. integration QA | 1/1 | In progress (available-scope gate met; credential and follow-up handoff pending) | 2026-07-18 |
+| 50. integration QA | 1/1 | ✓ Complete (available-scope gate met; residual credential/OAuth/systemd boundaries documented; findings routed to Phase 51) | 2026-07-19 |
 | 51. unified integration-QA remediation | 0/TBD | Not started | 2026-07-19 |
 
 ### Phase 51: Fix all Phase 50 integration-QA findings, known issues, and prerequisite boundaries

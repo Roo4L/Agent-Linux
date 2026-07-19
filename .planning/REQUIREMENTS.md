@@ -43,7 +43,7 @@
 
 ### Integration QA (milestone-close capstone — Phase 50)
 
-- [ ] **TST-08**: The milestone ships a **reusable `qa-testing` Claude Code skill** (`.claude/skills/qa-testing/`) AND is subjected to an **integration-QA sweep** driven by that skill against the feature-complete, co-installed catalog. The per-entry TST-07/OPS-01 gates prove each tool *in isolation*; TST-08 targets what isolation gates structurally miss — **emergent problems when tools are installed together and driven like a real user drives them** (multiple coding agents co-installed, cross-agent MCP fan-out collisions, install-order dependence, PATH/config clobbering, TUI/UX defects). Contract:
+- [x] **TST-08**: The milestone ships a **reusable `qa-testing` Claude Code skill** (`.claude/skills/qa-testing/`) AND is subjected to an **integration-QA sweep** driven by that skill against the feature-complete, co-installed catalog. The per-entry TST-07/OPS-01 gates prove each tool *in isolation*; TST-08 targets what isolation gates structurally miss — **emergent problems when tools are installed together and driven like a real user drives them** (multiple coding agents co-installed, cross-agent MCP fan-out collisions, install-order dependence, PATH/config clobbering, TUI/UX defects). Contract:
   - **Reusable skill, not one-shot scaffolding** — the skill is invocable on demand at any future milestone close and is registered alongside the other project skills (CLAUDE.md skills list + `.claude/skills/`).
   - **Scoped** — QA scope derives from what the unit-under-test *touched*: direct deliverables get heavy, varied, creative exercise; adjacent/possibly-impacted surfaces get a lighter sanity pass. The skill documents how to derive scope (diff, roadmap, requirement IDs).
   - **Regression-to-zero stop condition** — testing continues until both at least 30 minutes of productive QA activity and the latest 10 distinct test ideas are classified **clean for new-issue discovery** since the latest finding. Productive time excludes chat idle, usage-limit pauses, user-input waits, and external blocks; known-issue replays are neither new nor clean, and blocked ideas do not advance the gate. Free-form invocation text may override the defaults. The stop signal is bug-arrival-rate plus active-work duration, not checklist completion; planning/notes are encouraged but not the completion criterion.
@@ -187,6 +187,6 @@ Each v0.3.6 requirement maps to exactly one phase (phases 23–49). 🔧 = enabl
 | ASST-02 | Phase 48 | hermes-agent | Complete (Docker 3/3; systemd-user QEMU-gated) |
 | ENABLE-06 | Phase 49 | `list` category/tags UX | Complete (Docker 4/4) |
 | ENABLE-07 | Phase 49 | catalog growth kit (template + rubric) | Complete (Docker 4/4) |
-| TST-08 | Phase 50 | reusable QA-testing skill + milestone-close integration sweep | Pending |
+| TST-08 | Phase 50 | reusable QA-testing skill + milestone-close integration sweep | Complete (available-scope gate met; blocked credentials and systemd/QEMU boundaries documented; findings routed to Phase 51) |
 
 **Coverage validation:** 7 ENABLE + 4 AGT (05-08) + 10 MCP (01-10) + 5 DEVT (01-05) + 5 WORK (01-05) + 2 ASST (01-02) + 1 QA (TST-08) = **34/34 requirements mapped to exactly one phase across phases 23–50**. No orphans, no duplicates.

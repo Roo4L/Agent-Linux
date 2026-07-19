@@ -1,9 +1,9 @@
 ---
 phase: 50
 slug: integration-qa
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-18
 ---
 
@@ -32,17 +32,17 @@ created: 2026-07-18
 
 | Task ID | Plan | Wave | Requirement | Threat Ref | Secure Behavior | Test Type | Automated Command | File Exists | Status |
 |---------|------|------|-------------|------------|-----------------|-----------|-------------------|-------------|--------|
-| 50-01-01 | 01 | 1 | TST-08 | T-50-01 | Skill is discoverable, observation-only, credential-aware, and uses the productive stop rule | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 1 | ⬜ pending |
-| 50-01-02 | 01 | 1 | TST-08 | T-50-02 | Ledger inventory equals all catalog entries except `openclaw`, `hermes-agent`, and `test-dummy` | static | `node` catalog/ledger comparison command documented in the plan | Wave 1 | ⬜ pending |
-| 50-02-01 | 02 | 2 | TST-08 / OPS-01 | T-50-03 | Included packages install, operate beyond help/version, and remove cleanly in fresh Ubuntu 24.04 containers | disposable integration | Scenario-ledger commands and post-remove assertions | Wave 2 | ⬜ pending |
-| 50-03-01 | 03 | 2 | TST-08 | T-50-04 | Workflow-based co-install permutations converge, preserve siblings/unrelated config, and leave no forbidden shims | disposable integration | Fresh-container scenario commands recorded per idea | Wave 2 | ⬜ pending |
-| 50-04-01 | 04 | 3 | TST-08 | T-50-05 | Targeted Ubuntu 22.04/26.04 checks and a genuine PTY session are recorded without overclaiming daemon coverage | manual/integration | PTY driver plus targeted Docker ideas | Wave 3 | ⬜ pending |
-| 50-05-01 | 05 | 4 | TST-08 | T-50-06 | Report proves productive-time and latest-10 clean-by-novelty stop arithmetic, or records an explicit block | report verification | `test -s .planning/phases/50-integration-qa/50-QA-REPORT.md` plus report consistency checks | Wave 4 | ⬜ pending |
+| 50-01-01 | 01 | 1 | TST-08 | T-50-01 | Skill is discoverable, observation-only, credential-aware, and uses the productive stop rule | static | `bash .planning/phases/50-integration-qa/verify-skill.sh` | Wave 1 | ✅ complete |
+| 50-01-02 | 01 | 1 | TST-08 | T-50-02 | Ledger inventory equals all catalog entries except `openclaw`, `hermes-agent`, and `test-dummy` | static | `node` catalog/ledger comparison command documented in the plan | Wave 1 | ✅ complete |
+| 50-02-01 | 02 | 2 | TST-08 / OPS-01 | T-50-03 | Included packages install, operate beyond help/version, and remove cleanly in fresh Ubuntu 24.04 containers | disposable integration | Scenario-ledger commands and post-remove assertions | Wave 2 | ✅ complete |
+| 50-03-01 | 03 | 2 | TST-08 | T-50-04 | Workflow-based co-install permutations converge, preserve siblings/unrelated config, and leave no forbidden shims | disposable integration | Fresh-container scenario commands recorded per idea | Wave 2 | ✅ complete |
+| 50-04-01 | 04 | 3 | TST-08 | T-50-05 | Targeted Ubuntu 22.04/26.04 checks and a genuine PTY session are recorded without overclaiming daemon coverage | manual/integration | PTY driver plus targeted Docker ideas | Wave 3 | ✅ complete |
+| 50-05-01 | 05 | 4 | TST-08 | T-50-06 | Report proves productive-time and latest-10 clean-by-novelty stop arithmetic, or records an explicit block | report verification | `test -s .planning/phases/50-integration-qa/50-QA-REPORT.md` plus report consistency checks | Wave 4 | ✅ complete |
 
 ## Wave 0 Requirements
 
-- [ ] A deterministic self-check for the revised skill contract.
-- [ ] A catalog-to-ledger comparison that detects omitted or silently newly included entries.
+- [x] A deterministic self-check for the revised skill contract.
+- [x] A catalog-to-ledger comparison that detects omitted or silently newly included entries.
 - [x] Existing Docker RC and PTY primitives are available; no new test framework is needed.
 
 ## Manual-Only Verifications
@@ -57,10 +57,10 @@ created: 2026-07-18
 
 ## Validation Sign-Off
 
-- [ ] All plan tasks have automated evidence or an explicit manual-only row
-- [ ] Catalog inventory is reconciled before execution
-- [ ] No source fixes are made while findings are being gathered
-- [ ] The final report contains the ledger, findings, blocked ideas, exclusions, active-time log, and stop arithmetic
-- [ ] `nyquist_compliant: true` set after execution evidence is complete
+- [x] All plan tasks have automated evidence or an explicit manual-only row
+- [x] Catalog inventory is reconciled before execution
+- [x] No source fixes are made while findings are being gathered
+- [x] The final report contains the ledger, findings, blocked ideas, exclusions, active-time log, and stop arithmetic
+- [x] `nyquist_compliant: true` set after execution evidence is complete
 
-**Approval:** pending
+**Approval:** Complete — available-scope QA gate met; blocked and excluded coverage is explicitly recorded; findings routed to Phase 51.

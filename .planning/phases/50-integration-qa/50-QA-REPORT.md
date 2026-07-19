@@ -1,7 +1,7 @@
 # Phase 50 Integration QA Report
 
 Date: 2026-07-18
-Status: available-scope stop gate met — 3 confirmed new findings and 1 unconfirmed observation recorded; two known issues and two expected boundary blocks recorded; Qwen and unavailable OAuth paths remain blocked; observation-only, no product fix
+Status: complete — available-scope stop gate met; 3 confirmed new findings and 1 unconfirmed observation recorded; two known issues and two expected boundary blocks recorded; Qwen and unavailable OAuth paths remain blocked; observation-only, no product fix
 
 ## Scope
 
@@ -127,17 +127,16 @@ clean.
 
 ## Follow-up routing
 
-The QA run did not implement fixes or file Jira tickets. The destinations below
-are proposed maintainer handoff IDs, not filed follow-ups; therefore this phase
-leaves the follow-up handoff incomplete pending maintainer approval. No finding
-is silently treated as resolved.
+The QA run did not implement fixes or file Jira tickets. The approved unified
+Phase 51 remediation phase is the follow-up handoff; no finding is silently
+treated as resolved.
 
-| Finding(s) | Proposed destination | Follow-up scope |
+| Finding(s) | Destination | Follow-up scope |
 |---|---|---|
-| F-004 | Phase 50.2 | Browser/MCP discovery and live endpoint contract |
-| F-005 | Phase 50.3 | Hosted-MCP OAuth compatibility |
-| F-006 | Phase 50.4 | Playwright action error-status propagation |
-| F-007 (observation) | Phase 50.5 | Gemini intermittent stream/error investigation |
+| F-004 | Phase 51 | Browser/MCP discovery and live endpoint contract |
+| F-005 | Phase 51 | Hosted-MCP OAuth compatibility |
+| F-006 | Phase 51 | Playwright action error-status propagation |
+| F-007 (observation) | Phase 51 | Gemini intermittent stream/error investigation |
 
 ## Expected boundary observations
 
