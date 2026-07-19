@@ -2,16 +2,15 @@
 gsd_state_version: 1.0
 milestone: v0.3.6
 milestone_name: Catalog Expansion
-status: executing
-stopped_at: /gsd-autonomous --from 47 RANGE COMPLETE (47→49, all three shipped Docker-green). **Phase 49 (catalog growth kit capstone) COMPLETE + Docker-green 4/4** (2026-07-14, commit `1dd5dd9`, AL-96 Done) — ENABLE-06 `agentlinux list --by-category` (new `plugin/cli/src/catalog/category.ts` tag-precedence `deriveCategory`; grouped view; flat default unchanged for backward-compat) + ENABLE-07 growth kit (`docs/CATALOG-CONTRIBUTING.md` rubric + `plugin/catalog/agents/_template/` recipe skeletons; a template-only-add installs+removes with ZERO TS edits via the AGENTLINUX_CATALOG_DIR seam). 9-reviewer loop clean. **MILESTONE v0.3.6 PHASES ALL DONE** (23–49; 22 new catalog entries shipped, 4 dropped: gitlab/brave on the free-tier gate, claude-flow/bmad on first-cohort demand). **REMAINING = release gate (maintainer/CI):** the combined all-22-entries run + the QEMU suite (fresh cloud images, systemd/logind — where the daemon phases 47/48 systemd-user lifecycle runs, ADR-007) + the milestone lifecycle (audit→complete→cleanup→release tarball+.sha256) + merge of branch `worktree-extend-apps-list` to master. Each entry is Docker-green per-phase; QEMU is not runnable in the dev container. **Session commits (this run): `91be580` (P47 openclaw+ENABLE-04), `f806126` (P48 hermes-agent), `1dd5dd9` (P49 growth kit).** ---- PRIOR: **Phase 47 (openclaw) COMPLETE + Docker-green 4/4** (2026-07-14) — delivered **ENABLE-04 AI-assistant daemon lifecycle** (`plugin/catalog/lib/daemon-lifecycle.sh`: XDG_RUNTIME_DIR + marker-gated linger enable/revert + `al_daemon_user_systemd_available` Docker-vs-real probe; reused by Phase 48 hermes-agent) + openclaw catalog entry (`source_kind: script`, pin `2026.6.10`, MIT, requires_secret true, preserve_paths ~/.openclaw). Recipe: npm install as agent → version-lock → no-secret `onboard --auth-choice skip --skip-health` → ENABLE-05 self-updater freeze via `openclaw config patch --stdin` (`update.auto.enabled=false`) → daemon install/start ONLY where a user systemd bus exists (container degrades gracefully). **Docker gate** verifies the process-level `openclaw gateway run` path — credential-free `curl` HTTP-200 + `openclaw health --json` ok:true (OPS-01); **systemd-user daemon lifecycle self-gates with `skip` and runs under QEMU** (ADR-007, full bats re-runs in-guest). `~/.openclaw` (token+persona+sessions+creds) preserved on remove per CAT-04; --purge wipes. **Pin/mechanic corrections vs research:** self-updater key is `update.auto.enabled` (NOT `autoUpdate`), set via `config patch` (validated write; `config set` on a bad key is schema-rejected); onboard needs `--skip-health` to return 0 headless. 10-reviewer loop clean (no CRIT/HIGH); fixes: jq-based health assert, PID/parent-PID gateway reap (a `pkill -f "…gateway run"` self-killed the test shell — replaced), surfaced the config-patch failure, prose polish. AL-94 → Done. NEXT: **Phase 48 hermes-agent** (official NousResearch curl installer + per-user daemon/gateway, reuses ENABLE-04; AL-95) → **Phase 49 growth-kit capstone** (ENABLE-06 list + ENABLE-07 template; AL-96) → milestone lifecycle audit→complete→cleanup. ---- PRIOR: /gsd-autonomous --from 36 --to 43 RANGE COMPLETE. Phase 43 jira-atlassian-mcp COMPLETE + Docker-green (official Atlassian Rovo hosted bare-URL, ADR-017; free-tier 500/hr confirmed; cloud-only); AL-90 Done. Range outcome: 40/41/42/43 shipped (firecrawl/slack/linear/jira MCPs), 38/39 dropped on the free-tier gate (gitlab/brave), 36/37 shipped earlier. Catalog 19→23 entries. THEN 2026-07-14: Phases 45 (claude-flow) + 46 (bmad) DROPPED (maintainer decision — niche for the first-release cohort; spec-kit/GSD cover the structured-workflow need, far more popular; WORK-04/05 deferred, revisitable via ENABLE-07 growth-kit template). Milestone now ships 22 new entries (26 shortlisted − gitlab/brave/claude-flow/bmad). Remaining shippable phases: 44 spec-kit, 47 openclaw, 48 hermes-agent, 49 growth-kit capstone. Resuming via /gsd-autonomous --from 44 (44→49, skipping dropped 45/46). THEN 2026-07-14: **Phase 44 (spec-kit) COMPLETE + Docker-green 3/3** — ENABLE-03 Python+uv bootstrap (uv-bootstrap.sh helper: checksum-verified static-musl uv, marker-gated managed teardown) + spec-kit script-kind entry (git-tag `uv tool install`, pin corrected 0.11.9→v0.12.11); OPS-01 `specify init` real op green; AL-91 → Done. THEN Phase 47/48 source review done — maintainer chose **BUILD BOTH** ASST daemon tools (openclaw + hermes-agent; both free/MIT/popular/reputable). Deep de-risk research on **Phase 47 openclaw** complete (container probe): install works as agent (npm prefix, Node 22 OK); daemon cmds `openclaw daemon install/start/stop/status/uninstall` + `openclaw gateway` (process-level) + `openclaw health`; non-interactive no-secret setup `openclaw onboard --non-interactive --accept-risk --auth-choice skip`; state `~/.openclaw`. **KEY CONSTRAINT: openclaw daemon = systemd --user, which the Docker harness can't run (logind masked) → QEMU-gated (ADR-007); Docker bats must use the process-level gateway+health path.** CHECKPOINT: Phase 47 (ENABLE-04 daemon lifecycle) is a large arch phase needing careful build + a QEMU gate — deferred to a fresh focused session. Resume: `/gsd-autonomous --from 47` (build ENABLE-04 daemon-lifecycle helper + openclaw recipe → 48 hermes-agent → 49 capstone). Full research in ROADMAP Phase 47 detail + [[project_v0_3_6_catalog_expansion]].
-last_updated: "2026-07-19T00:00:00.000Z"
-last_activity: 2026-07-19
-current_phase: 51
+status: verifying
+stopped_at: Phase 51 context gathered
+last_updated: "2026-07-19T04:34:52.111Z"
+last_activity: 2026-07-11
 progress:
-  total_phases: 28
-  completed_phases: 0
-  total_plans: 7
-  completed_plans: 8
+  total_phases: 30
+  completed_phases: 2
+  total_plans: 8
+  completed_plans: 14
   percent: 100
 ---
 
@@ -438,6 +437,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-06-30T18:59:33.908Z
-Stopped at: Completed 28-03-PLAN.md
-Resume file: None
+Last session: 2026-07-19T04:34:52.101Z
+Stopped at: Phase 51 context gathered
+Resume file: .planning/phases/51-fix-all-phase-50-integration-qa-findings-known-issues-and-pr/51-CONTEXT.md
