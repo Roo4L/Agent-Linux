@@ -11,11 +11,9 @@ a fresh box) and **Stability** (the curated toolchain holds compatible
 across upstream churn). See [docs/VISION.md](docs/VISION.md) for the
 full framing. Pillar 1 is what v0.3.0 already shipped — contributions
 landing in the agent-user / runtime / catalog surface area are welcome
-today. Pillar 2 is early-stage — the supply-chain monitoring + curated
-catalog admission sub-concern (Phase 14 verdict, folded into Pillar 2)
-locks at v0.3.3, but the mechanism work lands later (v0.6+). Pillar-2
-contributions are welcome with the heads-up that the framing locked in
-v0.3.3 and the implementation primitives ship in a later milestone.
+today. Pillar 2 is early-stage — the supply-chain monitoring and curated
+catalog admission work is intentionally staged for a later milestone. Pillar-2
+contributions are welcome with that sequencing in mind.
 
 ## Quick start
 
@@ -52,17 +50,12 @@ loop), and §5 (skill convention).
 ## Review loop
 
 Before requesting review, run the project's review loop on changed files per
-`docs/HARNESS.md` §4. Reviewers applied by file type:
-
-- Bash → `bash-engineer`, `security-engineer`, `qa-engineer`
-- TS/JS → `node-engineer`, `security-engineer`, `qa-engineer`
-- Bats → `qa-engineer`, `behavior-coverage-auditor`
-- Catalog recipes → `catalog-auditor`, `security-engineer`
-- Docs → `technical-writer`, `fact-checker`
-
-You don't have to use the same automated reviewers we do — manual review of
-the same dimensions (correctness, security, test coverage, behavior-spec
-alignment) is fine.
+the shared [`$review` skill](.claude/skills/review/SKILL.md). It maps changed
+file types to portable reviewer roles; use your coding-agent host's native
+subagent mechanism with the skill's read-only contract. Manual review of the
+same dimensions (correctness, security, test coverage, behavior-spec
+alignment) is an acceptable limited fallback when native subagents are not
+available, but do not substitute another agent's CLI.
 
 ## Conventions
 

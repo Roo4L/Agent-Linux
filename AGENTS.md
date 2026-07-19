@@ -27,7 +27,8 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
 - `packaging/` — curl-pipe-bash installer + optional fpm .deb wrapper
 - `docs/` — reference documentation (`HARNESS.md`, `codex.md`, `decisions/`, `research/`, `proposals/`, `reviews/`)
 - `.planning/` — GSD workflow state (PLAN.md, STATE.md, ROADMAP.md) — not documentation
-- `.claude/agents/` — project-scoped review subagents (Claude Code)
+- `.claude/agents/` — portable project-scoped reviewer role prompts used by the
+  shared `$review` skill (kept here for Claude Code compatibility)
 - `.claude/skills/` — project-scoped skills (canonical copy; Codex loads the same
   skills via symlinks under `.codex/skills/`)
 - `.github/workflows/` — CI (test, nightly-qemu, nightly-mutation, release)
@@ -64,17 +65,22 @@ the remaining comments are not actionable. Reviewer-invoking hooks are rejected;
 the loop is triggered by this instruction (primary) plus a one-shot reminder hook
 (backstop) — see ADR-010 (refined 2026-05-02).
 
-How each agent runs the loop:
+How each host runs the loop:
 
-- **Claude Code** spawns the project-scoped reviewer subagents matched by file
-  type via the `/review` skill. The full file-type → reviewer dispatch table
-  lives in `CLAUDE.md`.
-- **Codex** runs `codex review` for a built-in review pass, using the same
-  file-type → concern mapping as its checklist. (Codex has no equivalent to the
-  project reviewer subagents; the deep multi-agent loop is Claude Code's.)
+- The shared `$review` skill owns the file-type → reviewer-role dispatch table
+  and feedback loop.
+- Claude Code and Codex each use their own native subagent mechanism to run the
+  same portable reviewer roles. Claude Code spawns the `.claude/agents/` roles;
+  Codex spawns them via its `multi_agent` feature's `spawn_agent` tool,
+  resolving each `agent_type` from `.codex/agents/*.toml` (generated from
+  `.claude/agents/` by `scripts/sync-codex-agents.sh`). Codex must not invoke the Claude CLI, and the
+  built-in `codex review` command is optional—not a substitute for `$review`.
+- If a host exposes no subagent mechanism, the main agent may run the role
+  rubrics itself and must report that the multi-agent pass was unavailable;
+  silently switching to another agent's CLI is not an acceptable fallback.
 
-Before opening an MR, run a self-review pass to strip AI slop — the
-`pre-delivery-cleanup` skill (Claude Code) or `codex review` (Codex).
+Before opening an MR, run a self-review pass to strip AI slop through the
+project `$review` skill; use the host's native reviewer mechanism.
 
 ## Session Tracking
 

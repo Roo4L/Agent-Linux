@@ -1,128 +1,180 @@
 ---
 name: review
-description: Runs the AgentLinux review feedback loop on changed files before declaring a task complete. Spawns project-scoped subagents (bash-engineer, node-engineer, security-engineer, qa-engineer, behavior-coverage-auditor, catalog-auditor, ai-deslop) in parallel, aggregates free-form feedback, and re-runs until remaining comments are not actionable. Triggered by CLAUDE.md review-loop instruction (ADR-010) — not a Stop hook. Invoke after any substantive change to plugin/, tests/, or docs/.
+description: Runs the AgentLinux review feedback loop on changed files before declaring a task complete. Dispatches portable project-scoped reviewer roles through the host agent's native subagent facility (Claude Code, Codex, or another supported host), aggregates free-form feedback, and iterates until remaining comments are not actionable. Invoke after substantive changes to plugin/, tests/, packaging/, or docs/.
 ---
 
-# /review — AgentLinux Review Feedback Loop
+# AgentLinux Review Feedback Loop
 
-The backpressure mechanism that keeps the bash installer, Node CLI, bats suite, and catalog honest. At the end of every non-trivial task, the main agent spawns the right reviewer subagents in parallel, reads their feedback, triages (fix / skip / stop), and iterates until the remaining comments are not actionable.
+This is an agent-neutral workflow. A reviewer is a role and a rubric, not a
+specific CLI. The host agent dispatches the matching roles, reads their
+feedback, owns triage, and repeats the relevant passes after valid fixes.
 
-Authoritative spec: `docs/HARNESS.md` §4. This skill is the operational runbook.
+## When to use
 
-## When to use this skill
+Use after any non-trivial change to:
 
-Use it at the end of every task where the agent modified code, tests, or reference documentation. Skip it for:
+- `plugin/` or `packaging/`
+- `tests/`
+- durable `docs/`
+- project instructions, skills, hooks, or reviewer-role definitions
+- the end of every phase (always run `behavior-coverage-auditor` for TST-07)
 
-- Typo fixes and formatting-only changes
-- Pure `.planning/` edits (PLAN.md, STATE.md, ROADMAP.md — GSD workflow state does not go through content review)
-- `.planning/notes/` scratch files
+Skip typo/formatting-only changes, `.planning/` workflow state, and
+`.planning/notes/` scratch files unless the task also changes a reviewable
+surface.
 
-Use it always for:
+## Loop
 
-- Anything under `plugin/` (installer, CLI, catalog recipes)
-- Anything under `tests/` (bats, docker, qemu, harness)
-- Anything under `docs/` worth preserving (ADRs, HARNESS, research, proposals)
-- Packaging (`packaging/curl-installer/install.sh`, `.deb` builder)
-- **End of every phase** — always spawn `behavior-coverage-auditor` regardless of what changed (TST-07 gate).
-
-## The loop
-
-```
-Main agent completes task
-  │
-  ├─ Look at what was produced (bash, TS, bats, docs, catalog recipes, or mix)
-  │
-  ├─ Spawn appropriate review subagents in parallel (see Dispatch rules below)
-  │
-  ├─ Collect free-form summaries from each reviewer
-  │
-  ├─ Triage each comment:
-  │     ├── valid + actionable → fix
-  │     ├── irrelevant / already addressed / contradictory → skip
-  │     └── out of scope for current task → log to deferred-items.md
-  │
-  ├─ Apply valid fixes
-  │
-  ├─ Re-spawn reviewers (only those whose domain was touched by the fix)
-  │
-  └─ Stop when remaining comments are not actionable
+```text
+Main agent identifies changed files
+  -> dispatch matching reviewer roles in parallel, read-only
+  -> collect free-form findings
+  -> triage: fix / skip / defer
+  -> re-dispatch roles whose domain changed
+  -> stop when remaining comments are not actionable
 ```
 
-No artificial iteration cap. Main agent owns the triage decision — reviewers are advisors, not gatekeepers.
+Inspect both tracked and untracked changes. `git diff --name-only` alone omits
+untracked files; combine it with `git status --short` or an equivalent
+worktree inventory.
 
-## Dispatch rules
+## Dispatch
 
-Map changed files to subagents. The main agent inspects `git diff --name-only` (or equivalent) and spawns the intersection set.
+The table maps file patterns to portable reviewer roles. Dispatch the
+intersection of the changed-file set and the table; do not invoke every role
+for every change.
 
-| Changed file pattern | Subagents to spawn |
-|----------------------|--------------------|
-| `^plugin/(bin\|lib\|provisioner)/.+\.sh$` | bash-engineer + security-engineer + qa-engineer + ai-deslop |
-| `^packaging/curl-installer/.+\.sh$` | bash-engineer + security-engineer + ai-deslop (always — trust-critical surface) |
-| `^plugin/cli/(src\|test\|scripts)/.+\.(ts\|mjs\|js)$` | node-engineer + security-engineer + qa-engineer + ai-deslop |
-| `^plugin/cli/(package\.json\|tsconfig\.json\|biome\.json\|stryker\.config\.json)$` | node-engineer |
-| `^tests/bats/.+\.bats$` | qa-engineer + behavior-coverage-auditor (the spec is the spec — no ai-deslop) |
-| `^tests/bats/helpers/.+$` | qa-engineer + bash-engineer + ai-deslop (helpers are bash) |
-| `^tests/(docker\|qemu\|harness)/.+$` | qa-engineer + bash-engineer + ai-deslop |
-| `^plugin/catalog/(agents/.+/.+\.(sh\|json)\|catalog\.json\|schema\.json)$` | catalog-auditor + security-engineer + ai-deslop (+ bash-engineer if install.sh/remove.sh) |
-| `^docs/.+\.md$` (excluding ADRs and research summaries) | global `review-documentation` + `fact-checker` (if available) + ai-deslop |
-| `^docs/decisions/.+\.md$` and `^docs/research/.+/SUMMARY\.md$` | global `review-documentation` + `fact-checker` (load-bearing prose — no ai-deslop) |
-| `^\.planning/REQUIREMENTS\.md$` | behavior-coverage-auditor (IDs may have drifted from tests) |
-| **End-of-phase close** | behavior-coverage-auditor (always, TST-07 gate) |
+| Changed file pattern | Reviewer roles |
+|---|---|
+| `^plugin/(bin|lib|provisioner)/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor` |
+| `^plugin/catalog/lib/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor` |
+| `^packaging/curl-installer/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop` |
+| `^plugin/cli/(src|test|scripts)/.+\.(ts|mjs|js)$` | `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor` |
+| `^plugin/cli/(package\.json|tsconfig\.json|biome\.json|stryker\.config\.json)$` | `node-engineer` |
+| `^tests/bats/.+\.bats$` | `qa-engineer`, `behavior-coverage-auditor` |
+| `^tests/bats/helpers/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop` |
+| `^tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop` |
+| `^plugin/catalog/(agents/.+/.+\.(sh|json)|catalog\.json|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor` (add `bash-engineer` for shell recipes) |
+| `^plugin/catalog/agents/.+/.+\.(js|mjs|ts)$` | `node-engineer`, `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor` |
+| `^docs/.+\.md$` (not ADRs/research summaries) | `technical-writer`, `fact-checker`, `ai-deslop` |
+| `^docs/decisions/.+\.md$` or `^docs/research/.+/SUMMARY\.md$` | `technical-writer`, `fact-checker` |
+| `^(AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md)$` | `technical-writer`, `fact-checker` (add `external-audience-auditor` for contributor/public copy) |
+| `^README\.md$` | `technical-writer`, `fact-checker`, `ai-deslop`, `external-audience-auditor` |
+| `^\.(claude|codex)/(hooks|skills)/.+$` | `technical-writer`, `fact-checker`, `ai-deslop` (add `bash-engineer` and `security-engineer` for hooks) |
+| `^\.claude/agents/.+\.md$` | `technical-writer`, `fact-checker`, `ai-deslop` (add the role's domain reviewer when its rubric changes) |
+| `^\.planning/REQUIREMENTS\.md$` | `behavior-coverage-auditor` |
+| phase close | `behavior-coverage-auditor` always |
 
-Parallelism note: when multiple subagents are dispatched, spawn them as independent Task-tool invocations in a single tool block so they run in parallel. Aggregate after all return.
+For externally-facing copy, also dispatch `external-audience-auditor`.
+This includes top-level README/contribution copy, `docs/internals/`,
+`docs/HARNESS.md`, `docs/STABILITY-MODEL.md`, release notes, and user-visible
+packaging strings. Skip it for `.planning/`, ADRs, research, internal source
+comments, and other explicitly internal material.
 
-## Triage rules (main agent keeps authority)
+## Host dispatch contract
 
-- **Fix** — the reviewer flags a concrete, verifiable issue:
-  - shellcheck warning
-  - missing idempotency primitive (`echo >> file` instead of `ensure_line_in_file`)
-  - uncovered requirement ID (BHV/RT/AGT/CLI/CAT/INST)
-  - sudoers drop-in with mode ≠ 0440
-  - `sudo npm install -g` anywhere (instant fix, no debate)
-  - `/usr/local/bin/<tool>` shim pointing at agent-owned binary
-  - test with only exit-code assertion
-- **Skip** — the reviewer asks for a stylistic change that:
-  - contradicts another reviewer's suggestion
-  - is already addressed elsewhere in the change
-  - is a preference without a concrete failure mode
-- **Stop** — remaining comments are:
-  - stylistic preference
-  - out of the current task's scope (log to `deferred-items.md` in the phase dir)
-  - would require more work than the current plan allocates
+Use the host agent's native subagent mechanism and run independent reviewers in
+parallel when possible. The dispatch record must include the changed-file
+allowlist, the reviewer role, and a read-only capability profile:
 
-The main agent is the decider. Reviewers produce input; the main agent ships.
+- allow reading/searching and safe deterministic checks;
+- deny editing, patching, deleting, committing, pushing, opening PRs, Jira
+  writes, package installation, and other external state changes;
+- permit shell only for checks that do not mutate the repository or external
+  systems, preferably in a disposable temporary directory.
 
-## Trigger mechanism
+- **Claude Code:** dispatch the named roles through its native project-agent
+  mechanism (the `.claude/agents/*.md` role registry).
+- **Codex:** dispatch the same roles through Codex's native multi-agent feature
+  (`multi_agent`). Call `spawn_agent` once per matched role with `agent_type`
+  set to the role name (e.g. `bash-engineer`); run independent roles as parallel
+  spawns and collect their results. Codex resolves those `agent_type` values
+  from `.codex/agents/*.toml`, which `scripts/sync-codex-agents.sh` generates
+  from `.claude/agents/` with `sandbox_mode = "read-only"` (see `docs/codex.md`
+  for the generator, the `--check` gate, and the older-schema fallback).
+  Do not invoke the Claude CLI, and
+  do not substitute the built-in `codex review` command for this project skill.
+- **Other hosts:** use their native subagent mechanism and preserve the same
+  role names, scopes, and read-only contract.
 
-**This loop is triggered by the CLAUDE.md review-loop instruction** (see CLAUDE.md §Review Loop). Not a Stop hook. Per **ADR-010** (`docs/decisions/010-review-loop-via-claude-md.md`):
+The canonical role prompts live under `.claude/agents/` for repository
+compatibility. They are portable review contracts, not instructions to launch
+Claude Code. For role `R`, resolve the repository root and load
+`.claude/agents/R.md` as reviewer context (Codex reads the projected
+`.codex/agents/R.toml` instead), then pass the changed-file allowlist plus the
+read-only profile to the host's native subagent call. A host may expose the
+same roles through another registry, but must not fork the rubrics or silently
+substitute another agent's CLI.
 
-- Stop hooks fire on every stop — user interrupts, context limits, errors — not just task completion. Subjective LLM review in a Stop hook wastes tokens and confuses the user when they hit Ctrl+C.
-- CLAUDE.md instruction is the Anthropic-recommended pattern and matches the ELS-OS reference and Spotify's Honk architecture.
-- A future lightweight Stop hook may still run **deterministic** checks (pre-commit, CLI unit tests on changed `plugin/cli/` files) per `docs/HARNESS.md` §4.4 — not subjective LLM review.
+The read-only capability profile overrides any broader tool declaration in a
+role prompt. Hosts must select an explorer/read-only subagent where available,
+or explicitly deny write-capable tools before dispatch. A reviewer prompt that
+says it may rewrite or edit does not override this contract.
 
-## Relation to TST-07
+Reviewers are read-only: they may inspect files and run safe deterministic
+checks, but must not edit, commit, open a PR, alter Jira, or invoke this skill
+recursively. If the host cannot enforce the read-only profile, the main agent
+must not dispatch that reviewer with write-capable tools. If the host exposes
+no usable subagent facility, the main agent may run the role rubrics itself and
+must report a limited pass rather than silently switching to another agent's
+CLI.
 
-`behavior-coverage-auditor` is the acceptance gate for every phase from Phase 2 onward. **TST-07 requires it to run at the end of every phase.** This skill explicitly lists that requirement so the main agent does not forget to spawn it at phase-close.
+Every review run records one result per dispatched role: `completed`,
+`skipped` with rationale, `unavailable`, or `failed`. An unavailable or failed
+`behavior-coverage-auditor` means the TST-07 gate is not GREEN.
 
-At phase close:
+## Reviewer output
 
-1. Spawn `behavior-coverage-auditor` unconditionally.
-2. Read the report. Look for the `TST-07 gate: RED|GREEN` line at the bottom.
-3. If RED — uncovered BHV/RT/AGT/CLI/CAT/INST requirements exist — add tests or document the deferral with an ADR before closing the phase.
-4. If GREEN — phase can close; auditor output goes in `docs/reviews/phase-NN-coverage.md` if worth preserving.
+Each reviewer returns a free-form summary containing:
 
-## Reviewer principles (reminder)
+- concrete findings with `path:line` citations and a failure mode;
+- suggested verification or fix where useful;
+- clean observations and limitations.
 
-Copy-of-truth from `docs/HARNESS.md` §4.3:
+The main agent reads all results before editing. Reviewers are advisors, not
+gatekeepers.
 
-1. **Free-form output.** Reviewers produce a summary with comments, action points, and observations. No rigid BLOCK/FLAG/PASS structure — the main agent interprets relevance and severity.
-2. **Scoped context.** Each reviewer loads only the files relevant to its review, not the full conversation history.
-3. **Main agent owns triage.** Decides what to fix, what to skip, when the output is good enough.
+## Triage
 
-## Related
+- **Fix:** concrete, verifiable problems such as shellcheck warnings, missing
+  idempotency, swallowed errors, uncovered requirement IDs, unsafe privilege
+  boundaries, `sudo npm install -g`, schema failures, asymmetric uninstall, or
+  `/usr/local/bin/` shims to agent-owned binaries.
+- **Skip:** stylistic preferences, duplicate advice, already-addressed points,
+  or comments without a concrete failure mode.
+- **Defer:** valid work outside the current task; record it in the phase's
+  `deferred-items.md` when appropriate.
 
-- `docs/HARNESS.md` §4 — authoritative spec
-- `docs/decisions/010-review-loop-via-claude-md.md` — trigger mechanism rationale (ADR-010)
-- `.claude/agents/{bash-engineer,node-engineer,security-engineer,qa-engineer,behavior-coverage-auditor,catalog-auditor,ai-deslop}.md` — the seven subagents this skill dispatches
-- Global `pre-delivery-cleanup` skill — pre-MR self-deslop pass that pairs with `ai-deslop`
-- `CLAUDE.md` §Review Loop — the instruction that triggers this skill
+After a valid fix, re-dispatch only the roles whose review domain changed.
+Completion requires every finding to be fixed, explicitly skipped with a
+rationale, or recorded as deferred in the phase artifact. The canonical
+deferred record is `.planning/phases/<phase>/deferred-items.md`; if that phase
+directory is not in scope, record the item in the task's durable change log or
+Jira issue with at least: finding, file/line, reason for deferral, owner or
+follow-up phase, and re-check condition. Continue until no untriaged actionable
+findings remain; there is no artificial iteration cap.
+
+## TST-07 phase gate
+
+At phase close, run `behavior-coverage-auditor` unconditionally. It must map
+every requirement ID and requirement family present in
+`.planning/REQUIREMENTS.md`—including newly added families, not only the
+original `BHV`, `RT`, `AGT`, `CLI`, `CAT`, and `INST` prefixes—to appropriate
+behavior-test, harness, smoke, or artifact evidence. Extract canonical IDs
+from requirement declaration lines/headings and traceability entries, not from
+incidental prose. Ignore references such as `ADR-###`, version numbers, and
+examples that are not declared requirements.
+
+- `TST-07 gate: RED`: add coverage or document a deliberate deferral before
+  closing the phase.
+- `TST-07 gate: GREEN`: the phase may close; preserve the report when useful.
+
+## References
+
+- `docs/HARNESS.md` §4 — high-level project review contract
+- `AGENTS.md` — shared project instructions
+- `CLAUDE.md` — Claude Code host adapter
+- `docs/codex.md` — Codex host adapter
+- `.claude/agents/` — canonical portable reviewer role prompts
+- `.codex/agents/` — Codex-format projection of those roles (generated by
+  `scripts/sync-codex-agents.sh`)

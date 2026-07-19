@@ -94,3 +94,9 @@ repos:
         language: system
         files: ^(tests/bats/helpers/tty-driver\.py|plugin/lib/prompt\.sh)$
         pass_filenames: false
+      - id: sync-codex-agents
+        name: Check .codex/agents/ is in sync with .claude/agents/ reviewer roles
+        entry: scripts/sync-codex-agents.sh --check
+        language: system
+        files: ^(\.claude/agents/[^/]+\.md|\.codex/agents/[^/]+\.toml|scripts/sync-codex-agents\.sh)$
+        pass_filenames: false
