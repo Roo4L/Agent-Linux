@@ -44,7 +44,7 @@ Execution is strictly sequential (23 → 51); each phase ships independently. �
 - [x] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (official installer pinned to commit + per-user daemon/gateway, reuses ENABLE-04) ✓ COMPLETE (Docker 3/3; systemd-user QEMU-gated)
 - [x] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
 - [ ] **Phase 50: integration QA** 🧪 `[qa]` - build the reusable `qa-testing` skill (scoped · productive-time/latest-10 regression-to-zero stop condition · representative TUI session) AND run it as the milestone-close integration sweep across the co-installed catalog
-- [ ] **Phase 51: unified integration-QA remediation** 🛠️ `[fix]` - fix all Phase 50 confirmed findings, known issues, and prerequisite boundaries; add regression coverage and re-run affected package workflows
+- [ ] **Phase 51: unified integration-QA remediation** 🛠️ `[fix]` - fix all Phase 50 confirmed findings, known issues, and prerequisite boundaries; add regression coverage, re-run affected package workflows, and repeat the `qa-testing` sweep
 
 ## Phase Details
 
@@ -450,6 +450,8 @@ Plans:
 **Requirements**: TBD
 **Depends on:** Phase 50
 **Plans:** 0 plans
+
+**Exit gate:** After remediation and targeted regression checks are complete, run the `qa-testing` workflow again across the Phase 50 in-scope packages and representative workflows—not only the fixed paths. Record whether each known issue is resolved, any remaining blockers, and every newly discovered problem. Phase 51 is not complete until this follow-up QA sweep and its findings are recorded; `openclaw` and `hermes-agent` remain excluded unless a systemd-capable test environment becomes available.
 
 Plans:
 - [ ] TBD (run /gsd-plan-phase 51 to break down)
