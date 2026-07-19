@@ -1,12 +1,12 @@
 # Roadmap
 
-**Current milestone:** 🚧 **v0.3.6 Catalog Expansion** — IN PROGRESS (phases **23–50**; **23–48** are one-tool-per-phase catalog entries, **49** the categorization/growth-kit capstone, **50** the integration-QA capstone; **22 new catalog entries** shipping; 4 of the 26 originally-selected candidates dropped in-flight — gitlab/brave on the source-selection gate, claude-flow/bmad on first-cohort demand). v0.3.4 Aware Installation Process **SHIPPED 2026-06-08** (final release v0.3.4, marked Latest).
+**Current milestone:** 🚧 **v0.3.6 Catalog Expansion** — IN PROGRESS (phases **23–51**; **23–48** are one-tool-per-phase catalog entries, **49** the categorization/growth-kit capstone, **50** the integration-QA capstone, and **51** the unified QA-remediation follow-up; **22 new catalog entries** shipping; 4 of the 26 originally-selected candidates dropped in-flight — gitlab/brave on the source-selection gate, claude-flow/bmad on first-cohort demand). v0.3.4 Aware Installation Process **SHIPPED 2026-06-08** (final release v0.3.4, marked Latest).
 
 ## Current Milestone: v0.3.6 Catalog Expansion
 
 **Milestone goal:** Grow the AgentLinux catalog from its 3 shipped entries (claude-code, gsd, playwright) with the most trusted/popular AI-agent-community tools — *availability only* (CAT-02 holds: nothing installed by default) — so first-release users don't hit "I miss tool X." A documented gates+scoring funnel (agent-relevance · clean per-user install + symmetric uninstall, no root, no `/usr/local` shim · free license · liveness ≤6mo release & ≤3mo commits · maturity) shortlisted **26 candidates**; **22 ship** after 4 in-flight drops (gitlab/brave failed the source-selection free-tier gate; claude-flow/bmad dropped on first-cohort demand — spec-kit/GSD cover that need).
 
-**Structure (owner's always-shippable preference): ONE TOOL PER PHASE.** Each catalog phase ends with exactly one working, tested, installable+removable catalog entry. Phase 50 is the milestone-close integration-QA capstone and intentionally ships workflow machinery plus a recorded sweep, not a catalog entry. The 4 machinery enablers are **folded into their first-consumer phase** (marked 🔧): those phases deliver both the enabler *and* a working tool. Every entry carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate; every tool is pinned per ADR-011 (pins in REQUIREMENTS.md Appendix A).
+**Structure (owner's always-shippable preference): ONE TOOL PER PHASE.** Each catalog phase ends with exactly one working, tested, installable+removable catalog entry. Phase 50 is the milestone-close integration-QA capstone and intentionally ships workflow machinery plus a recorded sweep, not a catalog entry. Phase 51 is the unified remediation follow-up for Phase 50's package findings and does not add a catalog entry. The 4 machinery enablers are **folded into their first-consumer phase** (marked 🔧): those phases deliver both the enabler *and* a working tool. Every entry carries ≥1 bats @test (catalog `install` → `post_install_verify` → symmetric `remove`, no residue) per the project's TST-07 phase-close gate; every tool is pinned per ADR-011 (pins in REQUIREMENTS.md Appendix A).
 
 **Machinery tags:** `[npm]` global install via `as_user` (per-user npm prefix; pre-existing since v0.3.0) · `[bin]` prebuilt-binary fetch+checksum → `~/.local/bin` (ENABLE-01) · `[mcp]` `claude mcp add/remove --scope user` (ENABLE-02) · `[uv]` per-user `uv` bootstrap (ENABLE-03) · `[daemon]` per-user background service (ENABLE-04) · `[meta]` catalog-wide UX/contributor work.
 
@@ -14,7 +14,7 @@
 
 ### Phases
 
-Execution is strictly sequential (23 → 49); each phase ships independently. 🔧 = also delivers a folded machinery enabler.
+Execution is strictly sequential (23 → 51); each phase ships independently. 🔧 = also delivers a folded machinery enabler.
 
 - [x] **Phase 23: codex** 🔧 `[npm]` - OpenAI Codex CLI + self-updater-coexistence enabler (ENABLE-05) ✓ COMPLETE
 - [x] **Phase 24: gemini-cli** `[npm]` - Google Gemini CLI installable + removable ✓ COMPLETE
@@ -44,6 +44,7 @@ Execution is strictly sequential (23 → 49); each phase ships independently. �
 - [x] **Phase 48: hermes-agent** `[daemon]` - Hermes Agent (official installer pinned to commit + per-user daemon/gateway, reuses ENABLE-04) ✓ COMPLETE (Docker 3/3; systemd-user QEMU-gated)
 - [x] **Phase 49: catalog growth kit** `[meta]` - `list` category/tags UX (ENABLE-06) + contributor template & selection-rubric doc (ENABLE-07)
 - [ ] **Phase 50: integration QA** 🧪 `[qa]` - build the reusable `qa-testing` skill (scoped · productive-time/latest-10 regression-to-zero stop condition · representative TUI session) AND run it as the milestone-close integration sweep across the co-installed catalog
+- [ ] **Phase 51: unified integration-QA remediation** 🛠️ `[fix]` - fix all Phase 50 confirmed findings, known issues, and prerequisite boundaries; add regression coverage and re-run affected package workflows
 
 ## Phase Details
 
@@ -441,6 +442,17 @@ Plans:
 | 48. hermes-agent | 1/1 | ✓ Complete (Docker 3/3 green; systemd-user QEMU-gated) | 2026-07-14 |
 | 49. catalog growth kit | 1/1 | ✓ Complete (Docker 4/4 green) | 2026-07-14 |
 | 50. integration QA | 1/1 | In progress (available-scope gate met; credential and follow-up handoff pending) | 2026-07-18 |
+| 51. unified integration-QA remediation | 0/TBD | Not started | 2026-07-19 |
+
+### Phase 51: Fix all Phase 50 integration-QA findings, known issues, and prerequisite boundaries
+
+**Goal:** Fix every actionable issue recorded by Phase 50, including the Firecrawl keyless-auth, OpenCode GitHub MCP OAuth, and Playwright invalid-target findings; the unconfirmed Gemini stream observation; the GSD/Codex configuration and Playwright runtime-library known issues; and the Spec Kit `git` and Chrome runtime prerequisite boundaries. Add regression coverage and revalidate the affected user workflows.
+**Requirements**: TBD
+**Depends on:** Phase 50
+**Plans:** 0 plans
+
+Plans:
+- [ ] TBD (run /gsd-plan-phase 51 to break down)
 
 ---
 
