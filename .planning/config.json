@@ -1,4 +1,5 @@
 {
+  "runtime": "codex",
   "mode": "yolo",
   "granularity": "coarse",
   "parallelization": true,

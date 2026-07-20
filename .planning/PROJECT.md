@@ -2,7 +2,7 @@
 
 ## What This Is
 
-AgentLinux is an **installable extension for Linux distributions** that turns a user's existing system into an agent-ready environment. Instead of shipping a whole distro, AgentLinux installs on top of popular distros (Ubuntu first; Fedora / CentOS / Alma / Arch later) and provisions a dedicated agent user, a correctly-owned Node.js runtime, a default agent (e.g. Claude Code), and a curated registry for installing additional agents.
+AgentLinux is an **installable extension for Linux distributions** that turns a user's existing system into an agent-ready environment. Instead of shipping a whole distro, AgentLinux installs on top of popular distros (Ubuntu first; Fedora / CentOS / Alma / Arch later) and provisions a dedicated agent user, a correctly-owned Node.js runtime, and a curated registry for installing additional agents. Users opt into catalog agents explicitly.
 
 The project also maintains a landing page at **agentlinux.org** for validation and subscriber collection.
 
@@ -25,7 +25,7 @@ An agent can be dropped into any supported Linux system and *just work* — a de
 **Goal:** Grow the catalog from 3 entries to 26 of the most trusted/popular AI-agent-community tools (availability only — CAT-02 holds; nothing installed by default), so first-release users don't hit "I miss tool X."
 
 **Target features:**
-- Coding-agent CLIs (4): opencode, gemini-cli, codex, qwen-code
+- Coding-agent CLIs (4): opencode, antigravity-cli, codex, qwen-code
 - MCP servers (10): chrome-devtools, context7, github, sentry, gitlab, brave-search, firecrawl, slack, linear, jira-atlassian
 - DevOps/git CLIs (5): gh, glab, sentry-cli, trivy, gitleaks
 - Token/workflow tools (5): ccusage, rtk, spec-kit, claude-flow, BMAD
