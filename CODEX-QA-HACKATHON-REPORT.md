@@ -169,7 +169,8 @@ Codex observed, why it matters, and its disposition.
   teardown error) then reported "uninstall complete"; the executable and npm
   namespace were gone, but `$HOME/.cache/ms-playwright` still held **~394 MB** of
   Chromium/FFmpeg artifacts.
-- **Why it matters:** Violates the symmetric-uninstall contract (CLI-04) and
+- **Why it matters:** Violates the symmetric-uninstall contract (a `remove`
+  should reclaim everything an `install` created) and
   makes repeated install/remove cycles silently consume agent-owned disk. Good
   showcase for "the tool says it cleaned up; the disk says otherwise."
 
@@ -231,12 +232,12 @@ corrected, rather than silently passed — honest QA accounting.
 
 ## 5. Data sources & methodology
 
-**Sources.**
-1. GSD phase artifacts under `.planning/phases/{50,51,52}-*/` — QA reports,
-   scenario ledgers, redacted evidence, summaries, verifications.
-2. Codex chat traces in `~/.codex/sessions/2026/07/{18,19}/` (146 rollout
-   `.jsonl` transcripts).
-3. Git history of the `.planning/phases/50/51` commits.
+**Sources** (all in the author's local development workspace — the raw planning
+artifacts and Codex transcripts are not part of the public repository):
+1. GSD planning artifacts for the three phases — QA reports, scenario ledgers,
+   redacted evidence, summaries, verifications.
+2. Codex chat traces (146 rollout `.jsonl` session transcripts from 2026-07-18/19).
+3. Git history of the phase-50/51/52 commits.
 
 **Bug count.** Distinct finding IDs across the ledgers: F-004, F-005, F-006,
 F-007 (Phase 50) and F52-001, F52-002 (Phase 52), plus K-001/K-002 known
@@ -256,9 +257,9 @@ subagents aren't double-counted. Phase attribution by UTC window (Phase 50 =
 07-18; Phase 51 = 07-19 before 16:00; Phase 52 = 07-19 16:00 → 07-20). This
 yields ~8.8 h (P50) + ~8.4 h (P51) + ~2.3 h (P52) = ~19.5 h active. The
 "hands-on execution only" figure instead unions just the discrete QA
-sub-run transcripts, excluding the always-open interactive orchestrator loops
-(`$gsd-autonomous --only 50`, `$gsd-discuss-phase 51`, and the Phase 52 loop),
-giving ~3 h (P50) + ~2.3 h (P52) ≈ ~5 h.
+sub-run transcripts, excluding the always-open interactive planning and
+orchestration loops that ran alongside each phase, giving ~3 h (P50) +
+~2.3 h (P52) ≈ ~5 h.
 
 **Honesty notes.** The campaigns were observation-only (no product source
 changed during QA); blocked credential/OAuth paths were recorded as blocked, not

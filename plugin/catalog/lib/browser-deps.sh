@@ -83,6 +83,14 @@ al_browser_ensure_chrome() {
   # package path. A suffix-less temporary download is rejected by apt-get.
   tmp=$(mktemp "${AGENTLINUX_AGENT_HOME:-${HOME}}/.chrome-agentlinux.XXXXXX.${package_suffix}")
   trap 'rm -f -- "$tmp"' RETURN
+  # Accepted, documented trust edge: Google publishes only a rolling
+  # `..._current_...` Chrome package (no per-version URL, no published SHA), so
+  # there is no stable digest to pin against. Trust rests on Google's HTTPS +
+  # the official dl.google.com origin — the same model Playwright uses to fetch
+  # its browser builds. AgentLinux does NOT bake or cache a checksum here; do
+  # not "harden" this into a hardcoded SHA that would break on the next Chrome
+  # release. Version-pinned assets (e.g. the Antigravity archive) ARE SHA-512
+  # verified — this exception is specific to the rolling Chrome channel.
   case "$family" in
     debian)
       curl -fsSL https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -o "$tmp" || {
