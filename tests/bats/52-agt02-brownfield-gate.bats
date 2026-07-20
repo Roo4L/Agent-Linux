@@ -128,7 +128,7 @@ teardown_file() {
   sudo -u agent -H test -x /home/agent/.npm-global/bin/claude
 
   # Artifact 5: gsd + playwright-cli at canonical npm-global path.
-  sudo -u agent -H test -x /home/agent/.npm-global/bin/get-shit-done-cc
+  sudo -u agent -H test -x /home/agent/.npm-global/bin/gsd-core
   sudo -u agent -H test -x /home/agent/.npm-global/bin/playwright-cli
 
   # Pre-existing user-data marker survives setup (CAT-04 fixture seed).

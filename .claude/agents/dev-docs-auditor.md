@@ -14,7 +14,8 @@ Project-scoped review subagent for the `docs/internals/` developer documentation
 - Any change under `plugin/lib/*.sh` (logging, idempotency, as_user, distro detection).
 - Any change under `plugin/provisioner/*.sh` (agent user, sudoers drop-in, Node.js, PATH wiring, registry CLI).
 - Any change under `plugin/cli/src/**` (the registry CLI source).
-- Any change under `plugin/catalog/{schema,catalog}.json` or `plugin/catalog/agents/<name>/{install,remove}.sh` or `plugin/catalog/agents/<name>/recipe.json`.
+- Any change under `plugin/catalog/{schema,catalog}.json` or `plugin/catalog/agents/<name>/{install,uninstall}.sh`.
+- Any change under `plugin/catalog/lib/` (shared catalog recipe helpers).
 - Any change under `packaging/curl-installer/install.sh`.
 - When a **new top-level component surface lands** under `plugin/` (a new provisioner, a new CLI command class, a new catalog backend) — the matching `docs/internals/<component>.md` should ship in the same PR.
 

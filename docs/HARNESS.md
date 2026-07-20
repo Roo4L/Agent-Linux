@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document specifies the project structure, tooling, and review processes required to run AgentLinux v0.3.0 development primarily through Claude Code agents. Goal: agents run longer, produce better results, and ship faster — while humans retain decision authority over irreversible actions (releases, destructive migrations, schema breaks).
+This document specifies the project structure, tooling, and review processes required to run AgentLinux v0.3.0 development through supported coding-agent hosts, including Claude Code and Codex. Goal: agents run longer, produce better results, and ship faster — while humans retain decision authority over irreversible actions (releases, destructive migrations, schema breaks).
 
 **Scope:** Project organization, code quality infrastructure, documentation structure, and the automated review feedback loop. Not the installer design itself (that's `.planning/REQUIREMENTS.md` + `.planning/ROADMAP.md`).
 
@@ -20,7 +20,8 @@ The repo root is a **workspace** — an umbrella for the plugin code, distributi
 
 ```
 agent-linux/                            # Workspace root
-├── CLAUDE.md                           # Project identity + critical rules (< 150 lines)
+├── AGENTS.md                           # Shared project context and critical rules
+├── CLAUDE.md                           # Claude Code host adapter (< 150 lines)
 ├── README.md                           # User-facing README
 ├── plugin/                             # The installable plugin — bash installer + Node CLI
 │   ├── bin/
@@ -40,29 +41,24 @@ agent-linux/                            # Workspace root
 │   │   ├── tsconfig.json
 │   │   ├── src/
 │   │   │   ├── index.ts                # Entry — Commander.js setup
-│   │   │   ├── commands/               # list / install / remove / info / doctor
+│   │   │   ├── commands/               # list / adopt / install / remove / upgrade / pin
 │   │   │   ├── catalog.ts              # JSON Schema-validated catalog reader
 │   │   │   └── runner.ts               # Dispatches to catalog/agents/<name>/install.sh
 │   │   └── test/                       # node:test unit tests for the CLI
 │   └── catalog/                        # Agent recipe catalog
 │       ├── schema.json                 # JSON Schema 2020-12 contract
-│       ├── catalog.json                # Embedded agent list (claude-code, gsd, chrome-devtools-mcp)
+│       ├── catalog.json                # Curated catalog entries (none installed by default)
 │       └── agents/
 │           ├── claude-code/install.sh
 │           ├── gsd/install.sh
-│           └── playwright/install.sh           # Browser-access tool for agents (replaces chrome-devtools-mcp)
+│           └── playwright-cli/install.sh         # Browser-access tool for agents
 ├── packaging/                          # Distribution wrappers
 │   ├── curl-installer/
 │   │   └── install.sh                  # SHA256-verified downloader; execs plugin/bin/agentlinux-install
 │   └── deb/                            # Optional fpm wrapper for .deb distribution
 ├── tests/                              # Behavior-contract test suite (primary v0.3.0 deliverable)
-│   ├── bats/                           # Bats assertions (black-box, run inside target env)
-│   │   ├── 10-installer.bats           # INST-XX coverage
-│   │   ├── 20-agent-user.bats          # BHV-XX coverage
-│   │   ├── 30-runtime.bats             # RT-XX coverage
-│   │   ├── 40-agent-tools.bats         # AGT-XX (incl. canonical self-update test)
-│   │   ├── 50-registry-cli.bats        # CLI-XX + CAT-XX
-│   │   └── helpers/
+│   ├── bats/                           # Behavior-contract files (IDs in test names)
+│   │   └── helpers/                    # Shared assertions and fixtures
 │   ├── docker/                         # Fast CI harness — Dockerfile per Ubuntu version
 │   │   ├── Dockerfile.ubuntu-22.04
 │   │   ├── Dockerfile.ubuntu-24.04
@@ -84,7 +80,7 @@ agent-linux/                            # Workspace root
 │   └── reviews/                        # Review-loop outputs worth preserving
 ├── .planning/                          # GSD operational state (not reference material)
 ├── .claude/                            # Claude Code project config
-│   ├── agents/                         # Project-scoped review subagents (§4)
+│   ├── agents/                         # Portable reviewer role prompts (§4)
 │   ├── skills/                         # Project-scoped skills (§5)
 │   └── settings.json
 ├── .github/
@@ -265,7 +261,8 @@ Decisions to seed immediately (already captured in `.planning/PROJECT.md` Key De
 - ADR-007: Docker (fast) + QEMU (release gate) test harness; Docker-only is disqualified
 - ADR-008: Commander.js for the registry CLI
 - ADR-009: Snap is structurally disqualified as a distribution mechanism
-- ADR-010: Review loop triggered by CLAUDE.md instruction, not a Stop hook
+- ADR-010: Review loop triggered by shared project instructions, not by a
+  reviewer-invoking Stop hook; one-shot reminder hooks are allowed
 
 As new decisions resolve during execution, each gets a new ADR. PROJECT.md's Key Decisions table continues to exist but becomes a one-line index pointing to the authoritative ADR file.
 
@@ -281,7 +278,7 @@ External systems that agents interact with during AgentLinux development. Compar
 | npm registry (read) | `npm view` via CLI during catalog research | Full | — |
 | Anthropic Claude Code docs | `WebFetch` + Context7 | Full | — |
 | Playwright (browser-access tool for agents) | `npm view playwright` + Playwright docs | Full | — |
-| GSD npm package | Local GSD install + `npm view get-shit-done-cc` | Full | — |
+| Open GSD npm package | Local Open GSD install + `npm view @opengsd/gsd-core` | Full | — |
 | Ubuntu cloud images (QEMU test harness) | Cloud-images.ubuntu.com download + QEMU local | Partial | **P1:** cache downloaded images, boot helper skill |
 | Docker Hub (ubuntu:22.04, ubuntu:24.04, ubuntu:26.04) | `docker pull` via GH Actions | Full | — |
 | agentlinux.org (website + releases host) | GitHub Pages deploy via Actions | Full | — |
@@ -304,12 +301,8 @@ Main agent completes task
   │
   ├─ Look at what was produced (bash, TS, bats, docs, or mix)
   │
-  ├─ Spawn appropriate review subagents in parallel:
-  │   ├── Bash code → bash-engineer, security-engineer, qa-engineer
-  │   ├── TS/JS code → node-engineer, security-engineer, qa-engineer
-  │   ├── Bats tests → qa-engineer, behavior-coverage-auditor
-  │   ├── Docs (ADRs, HARNESS, research) → technical-writer, fact-checker
-  │   └── Catalog recipes → catalog-auditor, security-engineer
+  ├─ Dispatch the reviewer roles mapped by the shared `.claude/skills/review/SKILL.md`
+  │   through the host agent's native subagent mechanism
   │
   ├─ Each reviewer returns a free-form summary (comments, action points, observations)
   │
@@ -325,32 +318,19 @@ Main agent completes task
 
 Main agent owns the triage decision. Reviewers provide input — they don't dictate what's blocking. No artificial iteration cap.
 
-### 4.2 Review Subagents
+### 4.2 Reviewer roles
 
-**Existing global reviewers (already available):**
+The shared `.claude/skills/review/SKILL.md` is the authoritative role registry,
+file-pattern dispatch table, read-only contract, and triage procedure. The
+portable role prompts are currently stored under `.claude/agents/` for
+repository compatibility; Claude Code and Codex load the same prompts through
+their native subagent mechanisms. This document intentionally does not repeat
+the mapping, so the two hosts cannot drift.
 
-| Agent | Review Focus |
-|-------|--------------|
-| `review-quality` | General code quality, correctness, simplicity |
-| `review-implementation` | Does the implementation achieve the stated goal |
-| `review-testing` | Test coverage gaps, fake-test detection, edge cases |
-| `review-simplification` | Over-engineering detection |
-| `review-documentation` | Missing doc updates for changed code |
-
-**New project-scoped reviewers to create (`.claude/agents/`):**
-
-| Agent | Review Focus |
-|-------|--------------|
-| `bash-engineer` | shellcheck compliance, idempotency primitives usage, POSIX-vs-bash correctness, quoting, error propagation (`set -euo pipefail`), trap patterns, no `curl | sh` inside scripts without SHA verification |
-| `node-engineer` | Commander.js idiom compliance, TypeScript strict-mode compatibility, no implicit `any`, error handling without swallowing, `process.exit` used only at top-level, no `console.log` in library code |
-| `security-engineer` | `sudo` grants, file modes (0440 for sudoers), `eval`/`xargs -I {}`/word-splitting risks, curl-pipe-bash safety (SHA verification, `main(){};main` wrapping), input sanitization in catalog recipes, secret leakage in logs |
-| `qa-engineer` | Coverage of every BHV/RT/AGT/CLI/CAT/INST requirement, edge cases (pre-existing user, pre-existing Node, partial prior install, dirty/clean Docker environment), non-interactive shell paths (cron, systemd, sudo-u, non-interactive SSH), assertion quality |
-| `behavior-coverage-auditor` | Cross-check: every `BHV-XX`, `RT-XX`, etc. in REQUIREMENTS.md maps to at least one bats test; flag requirements without coverage |
-| `catalog-auditor` | Catalog entries validate against schema; install.sh uses `as_user` helpers; no `sudo npm install -g` anywhere; uninstall path exists and is symmetric to install |
-| `technical-writer` | Doc clarity, conciseness, actionability, self-sufficiency (can a new reader follow without asking questions) |
-| `fact-checker` | Verify claims against upstream sources (Anthropic docs, npm registry, Ubuntu manpages, Context7) |
-
-These agents are general-purpose — they can be used for review (read-only context) or for other tasks where they may need broader tools. The review loop spawns them with read-only access; other contexts may grant them write access as appropriate. Their definitions should not hardcode tool restrictions.
+Every reviewer receives a changed-file allowlist and an enforced read-only
+capability profile. Read/search and safe deterministic checks are allowed;
+editing, commits, pushes, PR creation, Jira writes, package installation, and
+other external mutations are denied.
 
 ### 4.3 Reviewer Principles
 
@@ -360,16 +340,26 @@ These agents are general-purpose — they can be used for review (read-only cont
 
 ### 4.4 How It's Triggered
 
-**Primary mechanism: CLAUDE.md instruction.** A rule in CLAUDE.md tells the agent to run the review loop before reporting any task complete. High-signal, reliable, and the Anthropic-recommended pattern.
+**Primary mechanism: host project instructions.** `AGENTS.md` and the host-specific
+guidance tell the agent to run the shared review skill before reporting any task
+complete. Each host uses its native subagent mechanism; the skill itself does
+not call a particular agent CLI.
 
-**Why not a Stop hook?** Stop hooks fire on every stop — user interrupts, context limits, errors — not just task completion. Putting subjective LLM review in a Stop hook wastes tokens and confuses the user when they hit Ctrl+C. The ELS-OS reference concluded the same; so does Spotify's Honk architecture. Stop hooks are for deterministic checks only.
+**Why not a reviewer-invoking Stop hook?** Stop hooks fire on every stop — user
+interrupts, context limits, and errors — not just task completion. Putting
+subjective LLM review in a Stop hook wastes tokens and confuses the user when
+they hit Ctrl+C. The ELS-OS reference concluded the same; so does Spotify's
+Honk architecture. The current Claude and Codex hooks are reminder-only and
+never dispatch reviewers or run deterministic checks.
 
-**Safety net: Stop hook for deterministic checks only.** A lightweight Stop hook runs pre-commit (shellcheck, shfmt, biome, catalog-schema-validate) and the unit tests for any changed `plugin/cli/` files. If they fail, the stop is blocked and the agent must fix them. Fast, deterministic, appropriate for the Stop path.
+Deterministic lint/test hooks remain a future improvement, not current behavior.
 
 **Implementation path:**
 
-1. First: add the review instruction to CLAUDE.md and document the convention in a `/review` skill.
-2. Later: add the deterministic Stop hook once `plugin/cli/` has biome config and unit tests set up.
+1. Keep the review instruction in shared project context and the workflow in
+   the shared `/review` skill.
+2. If deterministic Stop-hook checks are added later, document them separately
+   and keep subjective reviewer dispatch out of the hook.
 
 ---
 
@@ -378,7 +368,7 @@ These agents are general-purpose — they can be used for review (read-only cont
 ### 5.1 Current State
 
 ```
-.claude/skills/                 (project-scoped — empty / to be populated)
+.claude/skills/                 (project-scoped skills, including shared review)
 ~/.claude/skills/               (global — existing GSD skills, /review, etc.)
 ```
 
@@ -430,7 +420,7 @@ This section originally noted the project had no CLAUDE.md at the repo root — 
 
 Everything else — installer internals, schema details, historical v0.2.0 lessons — stays in skills and docs where it loads on demand.
 
-**Shared context lives in `AGENTS.md`.** To serve both Claude Code and Codex CLI from one source, the agent-neutral context above lives in the root `AGENTS.md`. `CLAUDE.md` starts with `@AGENTS.md` and then adds only Claude-Code-specific mechanics (the reviewer-subagent dispatch table, `/review` skill, Stop-hook backstops). Codex reads `AGENTS.md` natively. Keep `AGENTS.md` agent-neutral; keep tool-specific mechanics in each tool's own file. See `docs/codex.md`.
+**Shared context lives in `AGENTS.md`.** To serve both Claude Code and Codex CLI from one source, the agent-neutral context above lives in the root `AGENTS.md`. `CLAUDE.md` starts with `@AGENTS.md` and adds only Claude-Code-specific host mechanics. Codex reads `AGENTS.md` natively and uses its own host adapter. Keep the review workflow and role mapping in the shared `/review` skill; keep only dispatch mechanics in each tool's own file. See `docs/codex.md`.
 
 ---
 
@@ -443,7 +433,7 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 - [ ] Create directory skeleton: `plugin/`, `tests/`, `packaging/`, `docs/` (structure only, empty files or READMEs)
 - [ ] Create `plugin/cli/package.json`, `plugin/cli/tsconfig.json`, `plugin/cli/biome.json` — Commander.js + node:test baseline, no real CLI code yet
 - [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, biome, catalog-schema-validate; run `pre-commit install`
-- [ ] Create `CLAUDE.md` (< 150 lines) per §6
+- [x] Create `CLAUDE.md` (< 150 lines) per §6
 - [ ] Create `docs/README.md` index + `docs/decisions/000-template.md` ADR template
 - [ ] Move `.planning/research/` → `docs/research/v0.3.0/` (and archive v0.2.0 research already sitting in `.planning/milestones/v0.2.0-research/` into `docs/research/v0.2.0/`)
 - [ ] Seed ADR-001 through ADR-010 from the list in §2.3
@@ -453,13 +443,15 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 
 ### Phase B: Review Infrastructure
 
-- [ ] Write `bash-engineer` agent definition (`.claude/agents/bash-engineer.md`)
-- [ ] Write `node-engineer` agent definition
-- [ ] Write `security-engineer` agent definition
-- [ ] Write `qa-engineer` agent definition
-- [ ] Write `behavior-coverage-auditor` agent definition
-- [ ] Write `catalog-auditor` agent definition
-- [ ] Create `/review` skill (`.claude/skills/review/SKILL.md`) documenting the review-loop convention
+- [x] Write portable `bash-engineer` role definition (`.claude/agents/bash-engineer.md`)
+- [x] Write portable `node-engineer` role definition
+- [x] Write portable `security-engineer` role definition
+- [x] Write portable `qa-engineer` role definition
+- [x] Write portable `behavior-coverage-auditor` role definition
+- [x] Write portable `catalog-auditor` role definition
+- [x] Write portable `ai-deslop`, `dev-docs-auditor`, `technical-writer`,
+  `fact-checker`, and `external-audience-auditor` role definitions
+- [x] Create the shared `/review` skill (`.claude/skills/review/SKILL.md`, symlinked for Codex) documenting the review-loop convention
 - [ ] Verify the loop on a dry-run: a trivial change to a sample bash script spawns `bash-engineer` + `security-engineer`, returns feedback, main agent triages
 
 ### Phase C: Skill Seeding

@@ -12,8 +12,8 @@ catalog itself) is wiring underneath.
 
 A fleet of agents, each with its own install command and update story,
 becomes unmemorable fast. Claude Code installs via Anthropic's native
-`claude.ai/install.sh`; GSD installs via `npm install -g get-shit-done-cc`
-plus a `--global --claude` bootstrapper; Playwright installs via
+`claude.ai/install.sh`; Open GSD installs via `npm install -g @opengsd/gsd-core`
+plus a multi-runtime bootstrapper; Playwright installs via
 `npm install -g @playwright/cli` plus a `--skills` bootstrapper that
 needs apt-layer browser deps. The naive alternative is a `README.md`
 listing per-agent install commands and hoping operators copy-paste them
@@ -44,16 +44,23 @@ The CLI exposes six verbs:
 
 - `agentlinux list` — render the catalog as a table (or JSON), with
   per-agent status: `not-installed`, `present`, `synced`,
-  `override-ahead`, `override-behind`. `present` is the honest-status
-  case: a tool the host already has but that AgentLinux has not recorded —
-  it reads `present` with its detected version, never `not-installed`, so a
-  brownfield host's existing tools are never mislabelled as absent. The
-  hint depends on *where* the tool lives: at the managed (canonical) path
-  it says "run install to manage" (adoptable); at a non-canonical path —
-  e.g. Claude Code installed via npm at `~/.npm-global/bin/claude` instead
-  of the native `~/.local/bin/claude` — it names the detected path and says
-  "run install to migrate", because that install is a migration candidate,
-  not blessed as-is. Hides `test_only` entries unless `--include-test`.
+  `override-ahead`, `override-behind`, `drift-undeclared`. `present` is the
+  honest-status case: a tool the host already has but that AgentLinux has not
+  recorded — it reads `present` with its detected version, never
+  `not-installed`, so a brownfield host's existing tools are never
+  mislabelled as absent. The hint depends on *where* the tool lives: at the
+  managed (canonical) path it says "run install to manage" (adoptable); at a
+  non-canonical path — e.g. Claude Code installed via npm at
+  `~/.npm-global/bin/claude` instead of the native `~/.local/bin/claude` — it
+  names the detected path and says "run install to migrate", because that
+  install is a migration candidate, not blessed as-is. `list` also tells the
+  truth when a tool self-updated behind AgentLinux's back: rather than trust
+  the version it recorded at install time, it probes the *real* on-disk
+  version, so an agent that ran its own updater (`codex update`, a stray
+  `npm i -g`) reads `drift-undeclared` with the actual version and a
+  "self-updated from `<recorded>` — run: agentlinux upgrade to reconcile"
+  pointer, not a false "synced". Hides `test_only` entries unless
+  `--include-test`.
 - `agentlinux install <name>` — load the catalog, find the entry,
   inject `AGENTLINUX_PINNED_VERSION` and the install-user environment,
   and dispatch the entry's `install_recipe_path` (typically
@@ -79,6 +86,13 @@ The CLI exposes six verbs:
   brownfield host's `present` tools into managed `reused` entries. "No
   agent installed by default" still holds — adopt only records what
   detection already found.
+
+After a coding agent install succeeds, the CLI also makes a best-effort
+cross-agent reconciliation pass for installed providers that declare a
+`rewire_recipe_path`. That pass includes Antigravity in the supported coding
+agent set, so hosted MCP registrations can be applied to its native config
+when it is installed after the provider. A failed reconciliation is reported
+without turning the already-successful agent install into a failure.
 - `agentlinux remove <name>` — the symmetric inverse: dispatch the
   entry's `uninstall_recipe_path` and delete the sentinel. `--force`
   succeeds even when nothing is installed (idempotent).
@@ -129,8 +143,8 @@ auditor to review.
 $ agentlinux list
 NAME           STATUS         CURATED   INSTALLED  DESCRIPTION
 claude-code    synced         2.1.98    2.1.98 (reused — managed by agentlinux ...
-gsd            synced         1.37.1    1.37.1 (reused — managed by agentlinux ...
-playwright-cli not-installed  0.1.11    -          Microsoft's token-efficient ...
+gsd            synced         1.7.0     1.7.0 (reused — managed by agentlinux ...
+playwright-cli not-installed  0.1.17    -          Microsoft's token-efficient ...
 
 # A tool the host has but that AgentLinux has not recorded yet reads `present`,
 # not `not-installed` — and adopt records it (no download, no reinstall):
@@ -141,7 +155,7 @@ $ agentlinux adopt claude-code
 
 $ agentlinux upgrade
   claude-code     installed=2.1.98  curated=2.1.98  state=synced
-  gsd             installed=1.37.1  curated=1.37.1  state=synced
+  gsd             installed=1.7.0  curated=1.7.0  state=synced
   playwright-cli  not-installed
 ```
 

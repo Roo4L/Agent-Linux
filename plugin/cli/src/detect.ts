@@ -15,18 +15,17 @@ import type { CatalogEntry } from "./types.js";
 // npm-global variant (that's PATH-MISMATCH territory for REMEDIATE-04).
 export const CANONICAL_PATHS: Record<string, string> = {
   "claude-code": "/home/agent/.local/bin/claude",
-  gsd: "/home/agent/.npm-global/bin/get-shit-done-cc",
+  gsd: "/home/agent/.npm-global/bin/gsd-core",
   "playwright-cli": "/home/agent/.npm-global/bin/playwright-cli",
 };
 
-// GSD's second canonical presence — the deployed-system VERSION file. `npm
-// install -g get-shit-done-cc` leaves a bootstrapper binary at CANONICAL_PATHS,
-// but the upstream `npx get-shit-done-cc` install path deploys the GSD system
-// (gsd-* skills + this VERSION file) WITHOUT a persistent binary. detect/agents.sh
-// reports gsd at this path when the binary is absent, and it counts as canonical
-// for REUSE. MUST stay byte-identical to REUSE_GSD_SYSTEM_PATH in
+// GSD's second canonical presence — the deployed-system VERSION file. The Open
+// GSD installer writes its runtime under `~/.claude/gsd-core`; this path is the
+// fallback when a package-native binary is absent. detect/agents.sh reports gsd
+// at this path when the binary is absent, and it counts as canonical for REUSE.
+// MUST stay byte-identical to REUSE_GSD_SYSTEM_PATH in
 // plugin/lib/reuse/agents.sh.
-export const GSD_SYSTEM_PATH = "/home/agent/.claude/get-shit-done/VERSION";
+export const GSD_SYSTEM_PATH = "/home/agent/.claude/gsd-core/VERSION";
 
 // A detected agent is "at canonical" when its path is the catalog canonical OR,
 // for gsd only, the deployed-system VERSION file (gsd's dual presence).

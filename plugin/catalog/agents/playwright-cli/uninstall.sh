@@ -46,18 +46,30 @@ if command -v playwright-cli >/dev/null 2>&1; then
     || echo "playwright-cli uninstall: bootstrapper teardown returned non-zero (continuing)" >&2
 fi
 
+# npm does not remove an AgentLinux-owned status adapter that replaced its bin
+# symlink, so remove that exact prefix-local file before uninstalling the npm
+# package. No system-wide or /usr/local path is touched.
+playwright_bin="$(npm prefix -g)/bin/playwright-cli"
+if [[ -f "$playwright_bin" ]] && head -1 "$playwright_bin" | grep -q '^#!/usr/bin/env node$'; then
+  rm -f -- "$playwright_bin"
+fi
+
 # Step 2: defensive removal of the playwright-cli skill dirs under
 # ~/.claude/skills/. The match is anchored on `playwright-cli` so an unrelated
 # user-authored dir isn't collateral damage. Looping (not find -exec) so each
 # entry runs through _should_remove; these dirs aren't in the preserve set, so
-# rm proceeds.
+# rm proceeds. The same pass removes the Codex/OpenCode mirror created by
+# install.sh.
+# WIRE-01: also tear down the cross-agent mirror under ~/.agents/skills/
+# (codex/opencode shared skill scan path) that install.sh created. Same
+# `playwright-cli`-anchored match + preserve gate as the ~/.claude/skills sweep.
 while IFS= read -r -d '' skill_dir; do
   if _should_remove "$skill_dir"; then
     rm -rf -- "$skill_dir" || true
   else
     echo "playwright-cli uninstall: preserving ${skill_dir} (AGENTLINUX_PRESERVE_PATHS)"
   fi
-done < <(find "${AGENTLINUX_AGENT_HOME}/.claude/skills" -maxdepth 1 -type d -name 'playwright-cli*' -print0 2>/dev/null)
+done < <(find "${AGENTLINUX_AGENT_HOME}/.claude/skills" "${AGENTLINUX_AGENT_HOME}/.agents/skills" -maxdepth 1 -type d -name 'playwright-cli*' -print0 2>/dev/null)
 
 # Step 3: npm uninstall -g. Idempotent on missing package.
 npm uninstall -g @playwright/cli --no-fund --no-audit >/dev/null 2>&1 || true

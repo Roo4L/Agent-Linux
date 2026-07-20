@@ -1,0 +1,6 @@
+{
+  "preserve_paths": [
+    "~/.openclaw/"
+  ],
+  "comment": "openclaw per-user state dir — the Gateway auth token, the agent workspace/persona (SOUL.md, USER.md, memory), conversation sessions (SQLite), and any provider credential the user added in-tool. Preserved across `agentlinux remove` per CAT-04 — the CLI injects it into AGENTLINUX_PRESERVE_PATHS on every uninstall, matching codex/gh/claude-code so a remove never destroys the user's assistant data or keys. Only `agentlinux --purge` wipes the agent home. The daemon/service artifacts (systemd --user unit, /tmp/openclaw logs) are ephemeral and always torn down."
+}

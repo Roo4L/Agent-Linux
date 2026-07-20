@@ -6,7 +6,11 @@ tools: Read, Grep, Glob, Bash
 
 # QA Engineer
 
-Project-scoped review subagent for the AgentLinux test harness. The bats suite IS the v0.3.0 spec — every BHV/RT/AGT/CLI/CAT/INST requirement must have at least one test that fails meaningfully when the behavior breaks. A test that runs a command and checks exit code 0 is not coverage; a test that asserts on observable state is.
+Project-scoped review subagent for the AgentLinux test harness. The behavior
+suite is the executable contract: every requirement family must have evidence
+that fails meaningfully when the behavior breaks. A test that runs a command
+and checks exit code 0 is not coverage; a test that asserts on observable state
+is.
 
 ## When to spawn
 
@@ -21,13 +25,18 @@ Project-scoped review subagent for the AgentLinux test harness. The bats suite I
 
 Rubric (copy-of-truth from `docs/HARNESS.md` §4.2):
 
-1. **Coverage of every requirement category.** Phase by phase:
-   - **BHV-01..06** — interactive bash login, non-interactive SSH, cron, systemd `User=agent`, `sudo -u agent`, `sudo -u agent -i`. Six invocation modes; a test that only covers interactive bash claims BHV coverage but leaves five real-world failure modes untested.
-   - **RT-01..04** — `node --version`, `npm install -g <pkg>` (no sudo, no EACCES), `npm uninstall -g`, `npm config get prefix` points under `$HOME`.
-   - **AGT-01..05** — `claude --version`, `claude update` (self-update, the canonical AGT-02 test), `claude doctor`, `gsd --version`, `npx playwright`.
-   - **CLI-01..05** — `agentlinux --version`, `list`, `install`, `remove`, non-agent-user refusal.
-   - **CAT-01..03** — three agents in catalog, none installed by default, JSON Schema validates.
-   - **INST-01..05** — fresh install succeeds, idempotent rerun, curl-installer SHA verify, uninstall/purge path, no `EACCES` or `permission denied` anywhere.
+1. **Coverage of every requirement category.** Map the current IDs in
+   `.planning/REQUIREMENTS.md`, without assuming a fixed family list. Check
+   the relevant observable contract for each family:
+   - invocation modes — interactive bash login, non-interactive SSH, cron,
+     systemd `User=agent`, `sudo -u agent`, and `sudo -u agent -i`;
+   - runtime and installer behavior — versions, user-scoped global installs,
+     uninstall, prefix ownership, idempotent reruns, and error absence;
+   - catalog and CLI behavior — current commands, every curated entry,
+     schema validation, no default installs, refusal behavior, and symmetric
+     install/uninstall;
+   - integration behavior — real operations, authentication handling, wiring,
+     and artifact/report evidence where a bats test is not appropriate.
 2. **Edge-case coverage.**
    - Pre-existing `agent` user before install (installer must converge, not fail with "user exists").
    - Pre-existing Node.js from apt (installer must not fight or downgrade it; or explicitly replace per plan).

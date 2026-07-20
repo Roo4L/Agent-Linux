@@ -125,15 +125,14 @@ teardown_file() {
   done
 }
 
-# AGT-01 (gsd): `get-shit-done-cc --help` exits 0 in all six invocation modes.
-# `--help` is used instead of `--version` because the package has no `--version`
-# flag (verified via `npm view get-shit-done-cc bin` — only the `get-shit-done-cc`
-# entry, no separate version-reporter). Post-install verify in the recipe relies
-# on the banner-grep; here AGT-01 just proves PATH-resolution under every mode.
-@test "AGT-01: get-shit-done-cc --help exits 0 in every invocation mode" {
+# AGT-01 (gsd): Open GSD's package-native `gsd-core --help` exits 0 in all six
+# invocation modes. Version verification uses the installed package manifest;
+# the upstream `gsd-core` entrypoint is an installer command, not a read-only
+# version probe.
+@test "AGT-01: gsd-core --help exits 0 in every invocation mode" {
   local mode
   for mode in "${INVOKE_MODES[@]}"; do
-    invoke_mode "$mode" 'get-shit-done-cc --help'
+    invoke_mode "$mode" 'gsd-core --help'
     if [[ "${output:-}" == *SKIP_SYSTEMD_UNAVAILABLE* ]]; then
       skip "AGT-01 (${mode}): systemd PID 1 not running"
     fi
@@ -244,27 +243,25 @@ teardown_file() {
 
 # ---------- AGT-04: gsd version-equivalent smoke ----------
 
-# AGT-04: get-shit-done-cc has no --version flag; its --help banner prints
-# "Get Shit Done v<pinned>" (verified: ANSI-color-wrapped, head -20 captures
-# it, grep -F matches through ANSI codes). This is the version-lock mechanism
-# for the gsd agent. Catalog-driven pin lookup (no hardcoding) so a version
-# bump updates the assertion without editing this file.
-@test "AGT-04: get-shit-done-cc --help banner reports pinned version" {
+@test "AGT-04: installed Open GSD package manifest reports the pinned release" {
   local pinned
   pinned=$(jq -r '.agents[] | select(.id=="gsd") | .pinned_version' "$CATALOG")
-  run sudo -u agent -H bash --login -c 'get-shit-done-cc --help'
+  run sudo -u agent -H bash --login -c '
+    package_json="$(npm root -g)/@opengsd/gsd-core/package.json"
+    test -f "$package_json"
+    node -e "console.log(require(process.argv[1]).version)" "$package_json"
+  '
   assert_exit_zero "AGT-04"
-  # GSD has no --version flag; its banner prints "Get Shit Done vX.Y.Z".
-  if ! printf '%s' "${output}" | grep -q -F -- "v${pinned}"; then
+  if ! printf '%s' "${output}" | grep -q -F -- "${pinned}"; then
     __fail "AGT-04" \
-      "get-shit-done-cc --help banner contains v${pinned}" \
+      "@opengsd/gsd-core package manifest contains ${pinned}" \
       "${output:-<empty>}" \
       "$LOG"
   fi
 }
 
 # AGT-04: install.sh must actually wire the GSD skill set into ~/.claude/skills/
-# — without this, npm-installing get-shit-done-cc is a no-op from the user's
+# — without this, npm-installing @opengsd/gsd-core is a no-op from the user's
 # perspective ("agentlinux install gsd" succeeds but Claude Code shows zero
 # /gsd-* commands). Discovered by dogfood. Without this @test, install.sh
 # could regress to "npm install only" and the bats suite would still go green

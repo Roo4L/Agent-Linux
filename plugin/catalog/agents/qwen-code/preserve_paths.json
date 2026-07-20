@@ -1,0 +1,6 @@
+{
+  "preserve_paths": [
+    "~/.qwen/"
+  ],
+  "comment": "Qwen Code per-user settings and cached credentials. Survives REMEDIATE-04 uninstall+reinstall per CAT-04."
+}

@@ -1,0 +1,7 @@
+{
+  "preserve_paths": [
+    "~/.config/opencode/",
+    "~/.local/share/opencode/"
+  ],
+  "comment": "opencode per-user config (~/.config/opencode) and stored provider auth/data (~/.local/share/opencode). Survives REMEDIATE-04 uninstall+reinstall per CAT-04."
+}

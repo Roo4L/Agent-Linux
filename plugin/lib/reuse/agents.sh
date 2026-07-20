@@ -30,16 +30,15 @@ fi
 # sourced from inside a function (as bats @tests do).
 declare -gA REUSE_AGENT_CANONICAL_PATHS=(
   [claude-code]="/home/agent/.local/bin/claude"
-  [gsd]="/home/agent/.npm-global/bin/get-shit-done-cc"
+  [gsd]="/home/agent/.npm-global/bin/gsd-core"
   [playwright-cli]="/home/agent/.npm-global/bin/playwright-cli"
 )
 
-# GSD second canonical presence — the deployed-system VERSION file. GSD's
-# bootstrapper binary (above) may not persist (the `npx get-shit-done-cc`
-# install path deploys the system but leaves no global binary), so a healthy gsd
-# detected at this path is ALSO reuse-eligible. MUST stay byte-identical to
+# GSD second canonical presence — the deployed-system VERSION file. Open GSD's
+# runtime payload may remain even when its package-native binary is absent, so a
+# healthy gsd detected at this path is ALSO reuse-eligible. MUST stay byte-identical to
 # GSD_SYSTEM_PATH in plugin/cli/src/detect.ts.
-readonly REUSE_GSD_SYSTEM_PATH="/home/agent/.claude/get-shit-done/VERSION"
+readonly REUSE_GSD_SYSTEM_PATH="/home/agent/.claude/gsd-core/VERSION"
 
 # reuse::agent_decision <id>
 # Returns {reuse, remediate, create} per predicates 1 + 2 (predicate 3 layered

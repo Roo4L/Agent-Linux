@@ -114,6 +114,29 @@ describe("dispatchRecipe", () => {
     );
     assert.deepEqual(result, { exitCode: 3, stdout: "out", stderr: "err" });
   });
+
+  test("#2: threads the stream flag through to the dispatcher opts (default false)", async () => {
+    let seen: { env: Record<string, string>; stream?: boolean } | undefined;
+    const spy = async (
+      _u: string,
+      _a: string[],
+      opts: { env: Record<string, string>; stream?: boolean },
+    ) => {
+      seen = opts;
+      return { exitCode: 0, stdout: "", stderr: "" };
+    };
+    await dispatchRecipe(
+      { entry: ENTRY, recipePath: "/x", version: "1.0.0", catalogDir: "/y", stream: true },
+      spy,
+    );
+    assert.equal(seen?.stream, true);
+
+    await dispatchRecipe(
+      { entry: ENTRY, recipePath: "/x", version: "1.0.0", catalogDir: "/y" },
+      spy,
+    );
+    assert.equal(seen?.stream, false, "unset stream defaults to false");
+  });
 });
 
 // AL-50 AC4 / AL-59 catalog-side gap: dispatchRecipe must run recipes AS the

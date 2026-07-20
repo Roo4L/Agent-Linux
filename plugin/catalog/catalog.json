@@ -1,10 +1,10 @@
 {
-  "version": "0.3.5",
+  "version": "0.3.6",
   "agents": [
     {
       "id": "claude-code",
       "display_name": "Claude Code",
-      "description": "Anthropic's agentic CLI for software engineering tasks (canonical AGT-02 target).",
+      "description": "Anthropic's agentic CLI for software engineering tasks.",
       "homepage": "https://docs.claude.com/en/docs/claude-code",
       "license": "Proprietary",
       "source_kind": "script",
@@ -23,16 +23,16 @@
     {
       "id": "gsd",
       "display_name": "Get Shit Done",
-      "description": "GSD workflow CLI for Claude Code (phase/plan/execute automation).",
-      "homepage": "https://github.com/gsd-build/get-shit-done",
+      "description": "Open GSD workflow system for Claude Code, OpenCode, Codex, and Qwen that helps coding agents plan, carry out, and verify multi-step work. Automatic Antigravity CLI integration is not currently available.",
+      "homepage": "https://github.com/open-gsd/gsd-core",
       "license": "MIT",
       "source_kind": "npm",
-      "npm_package_name": "get-shit-done-cc",
-      "pinned_version": "1.37.1",
-      "compatibility_window": ">=1.37.0 <2.0.0",
+      "npm_package_name": "@opengsd/gsd-core",
+      "pinned_version": "1.7.0",
+      "compatibility_window": ">=1.7.0 <2.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
-      "post_install_verify": "command -v get-shit-done-cc",
+      "post_install_verify": "command -v gsd-core",
       "preserve_paths_file": "preserve_paths.json",
       "tags": [
         "workflow",
@@ -42,12 +42,12 @@
     {
       "id": "playwright-cli",
       "display_name": "Playwright CLI",
-      "description": "Microsoft's token-efficient Playwright command-line tool for coding agents — exposes browser automation via concise CLI commands and bundles a Claude Code skill.",
+      "description": "Microsoft's token-efficient Playwright command-line tool for coding agents — exposes browser automation via concise CLI commands and includes the instructions Claude Code needs to discover and use its commands.",
       "homepage": "https://playwright.dev/agent-cli/installation",
       "license": "Apache-2.0",
       "source_kind": "npm",
       "npm_package_name": "@playwright/cli",
-      "pinned_version": "0.1.15",
+      "pinned_version": "0.1.17",
       "compatibility_window": ">=0.1.0 <1.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
@@ -57,6 +57,433 @@
         "browser",
         "automation",
         "agent-skill"
+      ]
+    },
+    {
+      "id": "codex",
+      "display_name": "OpenAI Codex",
+      "description": "OpenAI's Codex coding agent CLI; runs locally and forwards to the Codex agent. Background self-updates are disabled so the tested catalog version remains authoritative.",
+      "homepage": "https://github.com/openai/codex",
+      "license": "Apache-2.0",
+      "source_kind": "npm",
+      "npm_package_name": "@openai/codex",
+      "pinned_version": "0.142.3",
+      "compatibility_window": ">=0.142.0 <0.143.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v codex && codex --version",
+      "preserve_paths_file": "preserve_paths.json",
+      "tags": [
+        "agent",
+        "openai",
+        "coding-agent"
+      ]
+    },
+    {
+      "id": "antigravity-cli",
+      "display_name": "Antigravity CLI",
+      "description": "Google's terminal coding agent (binary `agy`). Sign in with Google after installation; credentials stay in Antigravity's user-owned state.",
+      "homepage": "https://github.com/google-antigravity/antigravity-cli",
+      "license": "Apache-2.0",
+      "source_kind": "binary",
+      "pinned_version": "1.1.4",
+      "compatibility_window": ">=1.1.4 <1.1.5",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v agy && agy --version",
+      "preserve_paths_file": "preserve_paths.json",
+      "tags": [
+        "agent",
+        "google",
+        "coding-agent"
+      ]
+    },
+    {
+      "id": "opencode",
+      "display_name": "opencode",
+      "description": "Open-source terminal coding agent (opencode-ai). Configure your model provider after installation.",
+      "homepage": "https://github.com/sst/opencode",
+      "license": "MIT",
+      "source_kind": "npm",
+      "npm_package_name": "opencode-ai",
+      "pinned_version": "1.18.3",
+      "compatibility_window": ">=1.0.0 <2.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v opencode && opencode --version",
+      "preserve_paths_file": "preserve_paths.json",
+      "tags": [
+        "agent",
+        "coding-agent"
+      ]
+    },
+    {
+      "id": "qwen-code",
+      "display_name": "Qwen Code",
+      "description": "Alibaba Qwen's command-line coding agent (binary `qwen`). Configure your model provider after installation.",
+      "homepage": "https://github.com/QwenLM/qwen-code",
+      "license": "Apache-2.0",
+      "source_kind": "npm",
+      "npm_package_name": "@qwen-code/qwen-code",
+      "pinned_version": "0.19.2",
+      "compatibility_window": ">=0.19.0 <0.20.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v qwen && qwen --version",
+      "preserve_paths_file": "preserve_paths.json",
+      "tags": [
+        "agent",
+        "qwen",
+        "coding-agent"
+      ]
+    },
+    {
+      "id": "ccusage",
+      "display_name": "ccusage",
+      "description": "Read-only Claude Code cost/usage reporter — parses local ~/.claude usage logs and prints token/cost tables. No token or secret required.",
+      "homepage": "https://github.com/ryoppippi/ccusage",
+      "license": "MIT",
+      "source_kind": "npm",
+      "npm_package_name": "ccusage",
+      "pinned_version": "20.0.14",
+      "compatibility_window": ">=20.0.0 <21.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v ccusage && ccusage --version",
+      "tags": [
+        "workflow",
+        "cost",
+        "token"
+      ]
+    },
+    {
+      "id": "rtk",
+      "display_name": "RTK (Rust Token Killer)",
+      "description": "Token-optimizing CLI proxy that filters and summarizes command output before it reaches the model. Installing it automatically enables RTK for Claude Code, Codex, and OpenCode; Antigravity and Qwen are not supported.",
+      "homepage": "https://github.com/rtk-ai/rtk",
+      "license": "MIT",
+      "source_kind": "binary",
+      "pinned_version": "0.42.4",
+      "compatibility_window": ">=0.42.0 <0.43.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v rtk && rtk --version",
+      "tags": [
+        "token",
+        "workflow",
+        "devops"
+      ],
+      "rewire_recipe_path": "rewire.sh"
+    },
+    {
+      "id": "gh",
+      "display_name": "GitHub CLI",
+      "description": "Official GitHub command-line tool for pull requests, issues, releases, and the GitHub API. Authenticate post-install with `gh auth login`.",
+      "homepage": "https://github.com/cli/cli",
+      "license": "MIT",
+      "source_kind": "binary",
+      "pinned_version": "2.95.0",
+      "compatibility_window": ">=2.95.0 <3.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "preserve_paths_file": "preserve_paths.json",
+      "post_install_verify": "command -v gh && gh --version",
+      "tags": [
+        "devops",
+        "git",
+        "github"
+      ]
+    },
+    {
+      "id": "glab",
+      "display_name": "GitLab CLI",
+      "description": "Official GitLab command-line tool (gitlab-org/cli) for merge requests, issues, pipelines, and the GitLab API. Authenticate post-install with `glab auth login`.",
+      "homepage": "https://gitlab.com/gitlab-org/cli",
+      "license": "MIT",
+      "source_kind": "binary",
+      "pinned_version": "1.105.0",
+      "compatibility_window": ">=1.105.0 <2.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "preserve_paths_file": "preserve_paths.json",
+      "post_install_verify": "command -v glab && glab --version",
+      "tags": [
+        "devops",
+        "git",
+        "gitlab"
+      ]
+    },
+    {
+      "id": "trivy",
+      "display_name": "Trivy",
+      "description": "All-in-one security scanner for filesystems, git repos, and container images (vulnerabilities, secrets, misconfigurations). Local fs/repo scans need no Docker daemon.",
+      "homepage": "https://github.com/aquasecurity/trivy",
+      "license": "Apache-2.0",
+      "source_kind": "binary",
+      "pinned_version": "0.71.2",
+      "compatibility_window": ">=0.71.0 <0.72.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v trivy && trivy --version",
+      "tags": [
+        "devops",
+        "security",
+        "scanner"
+      ]
+    },
+    {
+      "id": "gitleaks",
+      "display_name": "Gitleaks",
+      "description": "Fast secret scanner for git repos, directories, and files — detects hardcoded credentials, API keys, and tokens. Self-contained; no daemon or secret required.",
+      "homepage": "https://github.com/gitleaks/gitleaks",
+      "license": "MIT",
+      "source_kind": "binary",
+      "pinned_version": "8.30.1",
+      "compatibility_window": ">=8.30.0 <9.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v gitleaks && gitleaks version",
+      "tags": [
+        "devops",
+        "security",
+        "scanner"
+      ]
+    },
+    {
+      "id": "sentry-cli",
+      "display_name": "Sentry CLI",
+      "description": "Command-line tool for Sentry: manage releases, upload source maps and debug symbols, and send events. Authenticate post-install via SENTRY_AUTH_TOKEN or `sentry-cli login`.",
+      "homepage": "https://github.com/getsentry/sentry-cli",
+      "license": "FSL-1.1-MIT",
+      "source_kind": "npm",
+      "npm_package_name": "@sentry/cli",
+      "pinned_version": "3.6.0",
+      "compatibility_window": ">=3.6.0 <4.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v sentry-cli && sentry-cli --version",
+      "tags": [
+        "devops",
+        "observability",
+        "sentry"
+      ]
+    },
+    {
+      "id": "chrome-devtools-mcp",
+      "display_name": "Chrome DevTools MCP",
+      "description": "MCP server that gives Claude Code browser automation + DevTools access (navigate, inspect, network, performance) by driving a local Chrome/Chromium. Registered into Claude Code user scope; needs a Chrome present for browser tools.",
+      "homepage": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+      "license": "Apache-2.0",
+      "source_kind": "mcp",
+      "pinned_version": "1.4.0",
+      "compatibility_window": ">=1.4.0 <2.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "jq -e '.mcpServers[\"chrome-devtools-mcp\"]' /home/agent/.claude.json",
+      "tags": [
+        "mcp",
+        "browser",
+        "devtools"
+      ]
+    },
+    {
+      "id": "context7",
+      "display_name": "Context7 MCP",
+      "description": "MCP server that pulls up-to-date, version-specific library docs and code examples into Claude Code (Upstash Context7). Registered into Claude Code user scope. Works without a key; an optional free CONTEXT7_API_KEY can increase the rate limit, and AgentLinux does not store it.",
+      "homepage": "https://github.com/upstash/context7",
+      "license": "MIT",
+      "source_kind": "mcp",
+      "pinned_version": "3.2.3",
+      "compatibility_window": ">=3.2.0 <4.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": false,
+      "secret_env": "CONTEXT7_API_KEY",
+      "post_install_verify": "jq -e '.mcpServers[\"context7\"]' /home/agent/.claude.json",
+      "tags": [
+        "mcp",
+        "docs",
+        "context"
+      ]
+    },
+    {
+      "id": "github-mcp",
+      "display_name": "GitHub MCP",
+      "description": "GitHub's hosted remote MCP server (repos, issues, PRs, Actions, code search) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it; AgentLinux stores no credentials.",
+      "homepage": "https://github.com/github/github-mcp-server",
+      "license": "MIT",
+      "source_kind": "mcp",
+      "pinned_version": "1.5.0",
+      "endpoint_url": "https://api.githubcopilot.com/mcp/",
+      "compatibility_window": ">=1.5.0 <2.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:github-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"github-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "devops",
+        "github"
+      ],
+      "rewire_recipe_path": "install.sh"
+    },
+    {
+      "id": "sentry-mcp",
+      "display_name": "Sentry MCP",
+      "description": "Sentry's hosted remote MCP server (issues, errors, releases, traces, projects) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it; AgentLinux stores no credentials.",
+      "homepage": "https://github.com/getsentry/sentry-mcp",
+      "license": "FSL-1.1-ALv2",
+      "source_kind": "mcp",
+      "pinned_version": "0.37.0",
+      "endpoint_url": "https://mcp.sentry.dev/mcp",
+      "compatibility_window": ">=0.37.0 <1.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:sentry-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"sentry-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "observability",
+        "sentry"
+      ],
+      "rewire_recipe_path": "install.sh"
+    },
+    {
+      "id": "firecrawl-mcp",
+      "display_name": "Firecrawl MCP",
+      "description": "Firecrawl's hosted remote MCP server (web scrape, search, crawl, map, extract) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Clients complete OAuth on first use; clients without compatible OAuth may use a user-supplied API key in the URL path at runtime. AgentLinux stores no credentials.",
+      "homepage": "https://github.com/firecrawl/firecrawl-mcp-server",
+      "license": "MIT",
+      "source_kind": "mcp",
+      "pinned_version": "3.22.3",
+      "endpoint_url": "https://mcp.firecrawl.dev/v2/mcp",
+      "compatibility_window": ">=3.22.3 <4.0.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:firecrawl-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"firecrawl-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "scraping",
+        "firecrawl"
+      ],
+      "rewire_recipe_path": "install.sh"
+    },
+    {
+      "id": "slack-mcp",
+      "display_name": "Slack MCP",
+      "description": "Slack's official hosted remote MCP server (channels, messages, search, users) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it, subject to workspace-admin approval; AgentLinux stores no credentials.",
+      "homepage": "https://docs.slack.dev/ai/slack-mcp-server/",
+      "source_kind": "mcp",
+      "pinned_version": "2026.2.17",
+      "endpoint_url": "https://mcp.slack.com/mcp",
+      "compatibility_window": ">=2026.2.17",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:slack-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"slack-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "communication",
+        "slack"
+      ],
+      "rewire_recipe_path": "install.sh"
+    },
+    {
+      "id": "linear-mcp",
+      "display_name": "Linear MCP",
+      "description": "Linear's official hosted remote MCP server (issues, projects, cycles, comments) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it; it works on Linear's free plan and AgentLinux stores no credentials.",
+      "homepage": "https://linear.app/docs/mcp",
+      "source_kind": "mcp",
+      "pinned_version": "2025.5.1",
+      "endpoint_url": "https://mcp.linear.app/mcp",
+      "compatibility_window": ">=2025.5.1",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:linear-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"linear-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "project-management",
+        "linear"
+      ],
+      "rewire_recipe_path": "install.sh"
+    },
+    {
+      "id": "jira-atlassian-mcp",
+      "display_name": "Atlassian Rovo MCP (Jira/Confluence)",
+      "description": "Atlassian's official hosted Rovo MCP server for Jira and Confluence, registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it, operating within your own permissions; AgentLinux stores no credentials. Cloud-only; free Atlassian Cloud sites are supported (500 calls/hour).",
+      "homepage": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/use-atlassian-rovo-mcp-server/",
+      "license": "Apache-2.0",
+      "source_kind": "mcp",
+      "pinned_version": "2026.2.4",
+      "endpoint_url": "https://mcp.atlassian.com/v1/mcp/authv2",
+      "compatibility_window": ">=2026.2.4",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:jira-atlassian-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"jira-atlassian-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "tags": [
+        "mcp",
+        "project-management",
+        "atlassian",
+        "jira",
+        "confluence"
+      ],
+      "rewire_recipe_path": "install.sh"
+    },
+    {
+      "id": "spec-kit",
+      "display_name": "GitHub Spec Kit",
+      "description": "Spec-Driven Development toolkit — the `specify` CLI scaffolds and manages executable specifications that drive AI coding agents. Bootstraps a per-user uv (no root) and installs the Python CLI from its pinned git tag; the project `.specify/` directory is user-owned and is never removed on uninstall.",
+      "homepage": "https://github.com/github/spec-kit",
+      "license": "MIT",
+      "source_kind": "script",
+      "pinned_version": "0.12.11",
+      "compatibility_window": ">=0.12.0 <0.13.0",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v specify && specify --version",
+      "tags": [
+        "workflow",
+        "spec-driven"
+      ]
+    },
+    {
+      "id": "openclaw",
+      "display_name": "OpenClaw",
+      "description": "Self-hosted personal AI assistant Gateway — a per-user background daemon that bridges chat channels and coding agents to a provider of your choice. Installs via npm into the agent-owned prefix and runs as a per-user systemd service (no root); you provide your own provider key in the tool after installation. The per-user state directory ~/.openclaw is preserved on uninstall.",
+      "homepage": "https://github.com/openclaw/openclaw",
+      "license": "MIT",
+      "source_kind": "script",
+      "pinned_version": "2026.6.10",
+      "compatibility_window": ">=2026.6.10",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "preserve_paths_file": "preserve_paths.json",
+      "requires_secret": true,
+      "post_install_verify": "command -v openclaw && openclaw --version",
+      "tags": [
+        "assistant",
+        "daemon"
+      ]
+    },
+    {
+      "id": "hermes-agent",
+      "display_name": "Hermes Agent",
+      "description": "Nous Research's self-hosted personal AI assistant with a per-user messaging Gateway (Telegram, Discord, WhatsApp, and more). Installed via the official installer pinned to an immutable commit — no root, no /usr/local shim — and run as a per-user systemd service; you provide your own provider key in the tool after installation. The per-user state directory ~/.hermes is preserved on uninstall.",
+      "homepage": "https://github.com/NousResearch/hermes-agent",
+      "license": "MIT",
+      "source_kind": "script",
+      "pinned_version": "2026.6.19",
+      "compatibility_window": ">=2026.6.19",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "requires_secret": true,
+      "post_install_verify": "command -v hermes && hermes --version",
+      "tags": [
+        "assistant",
+        "daemon"
       ]
     },
     {

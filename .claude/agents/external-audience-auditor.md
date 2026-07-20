@@ -97,9 +97,9 @@ The examples below calibrate your judgment. Flag phrasings like the "Bad" column
 
 ### Example 6: A CONTRIBUTING.md paragraph
 
-- **Bad:** `Run the review loop per CLAUDE.md §"Review Loop" — invoke the appropriate reviewers from .claude/agents/ (bash-engineer, security-engineer, qa-engineer, ai-deslop, dev-docs-auditor) before opening an MR.`
-- **Good:** `Before opening a PR, run the review feedback loop on your changed files — see [Review Loop](../CLAUDE.md#review-loop) for the reviewer-by-file-type table and how to invoke it.`
-- Reasoning: `CLAUDE.md §"Review Loop"` is fine — it's a relative link any contributor can follow. Listing every reviewer agent inline is implementation detail and bloats the document; let the contributor click through to the table.
+- **Bad:** `Run the review loop per CLAUDE.md §"Review Loop" — invoke the appropriate reviewers from .claude/agents/ before opening an MR.`
+- **Good:** `Before opening a PR, run the review feedback loop on your changed files — see .claude/skills/review/SKILL.md for the reviewer-by-file-type table and host dispatch contract.`
+- Reasoning: the shared review skill is the source of truth; host files contain only dispatch mechanics. Listing every reviewer role inline is implementation detail and bloats the document.
 
 ### Example 7: Accepted use of internal vocabulary
 
@@ -117,7 +117,7 @@ A finding that says "this is internal" without proposing what to say instead is 
 If the file's location does not clearly match one of the four external-artifact categories, say so in your output and let the main agent confirm. False positives on internal docs are expensive — they produce churn in the workflow documentation and erode trust in the reviewer.
 
 **Rule 4: This reviewer is read-only.**
-It reports findings; the main agent applies fixes to the draft. Matches the review-loop convention in `CLAUDE.md` § "Review Loop"; the main agent owns triage.
+It reports findings; the main agent applies fixes to the draft. Matches the shared review-loop convention; the main agent owns triage.
 
 **Rule 5: Distinguish "internal-vocabulary leak" from "factual error" or "bloat".**
 Other reviewers cover those (`fact-checker` and `technical-writer`). Your concern is *vocabulary that the external audience cannot resolve*. If a sentence is factually wrong but uses public vocabulary, that's a fact-checker finding, not yours. If a sentence is bloated but the vocabulary is fine, that's a technical-writer finding, not yours.

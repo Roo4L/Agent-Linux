@@ -7,7 +7,7 @@ description: Use when the task touches plugin/bin/, plugin/lib/, plugin/provisio
 
 **Status:** Active. Established in Phase 13 (DOC-01..DOC-07). The `docs/internals/` tree shipped 9 component docs alongside this skill and the `dev-docs-auditor` reviewer.
 
-Authoritative spec: `docs/HARNESS.md` §4 (review loop) + this skill body. Decisions: ADR-010 (review loop via CLAUDE.md, refined 2026-05-02 to allow reminder hooks with `stop_hook_active` guard) — and the deliberate Phase 13 decision to NOT add a third reminder hook (recorded in `docs/decisions/015-developer-internals-docs.md`, lands in Phase 13 Plan 05).
+Authoritative spec: the shared `review` skill + `docs/HARNESS.md` §4. Decision ADR-010 establishes the host-instruction trigger and allows one-shot reminder hooks while rejecting reviewer-invoking hooks. The deliberate Phase 13 decision to NOT add a third reminder hook is recorded in `docs/decisions/015-developer-internals-docs.md`.
 Requirements this skill helps enforce: DOC-01 (index doc), DOC-02 (component docs), DOC-03 (reviewer agent registered), DOC-04 (skill exists), DOC-05 (top-level discoverability), DOC-06 (no new hook), DOC-07 (ADR captures the design).
 
 ## When to use this skill
@@ -20,6 +20,8 @@ Use when the task touches any file under:
 - `plugin/cli/src/**` — the registry CLI source -> `docs/internals/registry-cli.md`.
 - `plugin/catalog/{schema,catalog}.json` — the catalog data model -> `docs/internals/catalog.md`.
 - `plugin/catalog/agents/<name>/*` — per-agent recipes -> `docs/internals/<name>.md`.
+- `plugin/catalog/lib/*` — shared catalog recipe helpers -> the affected
+  component doc (for example `browser-deps.sh` -> `docs/internals/playwright.md`).
 - `packaging/curl-installer/install.sh` — the curl-pipe-bash entrypoint -> `docs/internals/installer.md`.
 
 Or when authoring or reviewing any file under `docs/internals/`.
@@ -56,6 +58,7 @@ The `dev-docs-auditor` reviewer reads this table to decide which component doc a
 | `plugin/catalog/agents/playwright-cli/*`, `plugin/catalog/agents/playwright/*` | `docs/internals/playwright.md` |
 | `plugin/cli/src/**`, `plugin/provisioner/50-registry-cli.sh` | `docs/internals/registry-cli.md` |
 | `plugin/catalog/schema.json`, `plugin/catalog/catalog.json` | `docs/internals/catalog.md` |
+| `plugin/catalog/lib/browser-deps.sh` | `docs/internals/playwright.md` |
 | `plugin/lib/log.sh`, `plugin/lib/idempotency.sh`, `plugin/lib/distro_detect.sh` | `docs/internals/installer.md` (shared installer infrastructure) |
 
 When a new top-level surface lands under `plugin/` (a new provisioner step, a new CLI command class, a new catalog backend), this table grows AND a new `docs/internals/<surface>.md` ships in the same PR.
@@ -94,7 +97,7 @@ Concretely:
 
 AgentLinux already has two reminder hooks (`.claude/hooks/review-reminder.sh` and `.claude/hooks/session-tracker-reminder.sh`), both wired per the ADR-010 2026-05-02 refinement (reminder hooks with a `stop_hook_active` one-shot guard are allowed; reviewer-invoking hooks remain rejected).
 
-Adding a third hook for docs/internals/ sync would multiply reminder noise without adding value: the existing `review-reminder.sh` already nudges Claude to run the review loop, and the review loop already routes plugin/ changes to the `dev-docs-auditor` per the CLAUDE.md "Review Loop" routing table. The dev-docs check rides inside the existing review loop; no new hook is needed. ADR-016 (lands in Phase 13 Plan 05) records this decision in full.
+Adding a third hook for docs/internals/ sync would multiply reminder noise without adding value: the existing host-specific `review-reminder.sh` hooks already nudge agents to run the shared review loop, and that loop routes relevant `plugin/` changes to `dev-docs-auditor` per its portable dispatch table. The dev-docs check rides inside the existing review loop; no new hook is needed. ADR-016 records this decision in full.
 
 ## Growth plan
 
@@ -107,7 +110,7 @@ Adding a third hook for docs/internals/ sync would multiply reminder noise witho
 
 - `docs/internals/README.md` — the docs/internals/ index (DOC-01).
 - `docs/internals/<component>.md` — the 9 component docs (DOC-02).
-- ADRs: 010 (review loop via CLAUDE.md, refined 2026-05-02), 015 (developer internals docs — no new hook decision; lands in Plan 05).
+- ADRs: 010 (host-neutral review loop, refined 2026-05-02), 015 (developer internals docs — no new hook decision).
 - Subagents: `dev-docs-auditor` (the reviewer this skill backs).
 - Sibling skills: `agentlinux-installer`, `behavior-test-contract`, `catalog-schema`, `qemu-harness`, `review`, `workspace-cleanup`.
-- Top-level pointers: `CLAUDE.md` "Review Loop" section (where the reviewer is wired) and "Pointers" section (where this skill is enumerated). Both are updated in Phase 13 Plan 04.
+- Top-level pointers: `AGENTS.md` "Review Loop" section and the shared `review` skill (where the reviewer roles are wired); host adapters provide only dispatch mechanics.

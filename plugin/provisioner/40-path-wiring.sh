@@ -68,6 +68,9 @@ export AGENTLINUX_PROFILE_SOURCED=1
 
 export LANG="\${LANG:-C.UTF-8}"
 export LC_ALL="\${LC_ALL:-C.UTF-8}"
+# Keep the Antigravity CLI's catalog-managed version authoritative. The
+# upstream-supported variable is harmless when Antigravity is not installed.
+export AGY_CLI_DISABLE_AUTO_UPDATE=true
 
 # Prepend in order so ${_AL_HOME}/.npm-global/bin lands FIRST in the final
 # PATH (a stray /usr/local/bin shim must lose to the user-owned binary).
@@ -125,6 +128,7 @@ AGENTLINUX_USER=${_AL_USER}
 AGENTLINUX_AGENT_HOME=${_AL_HOME}
 LANG=C.UTF-8
 LC_ALL=C.UTF-8
+AGY_CLI_DISABLE_AUTO_UPDATE=true
 ENVFILE
 log_info "wrote /etc/agentlinux.env (systemd EnvironmentFile + cron header template)"
 
@@ -142,6 +146,7 @@ write_file_atomic 0644 /etc/cron.d/agentlinux <<CRON
 PATH=${_AL_HOME}/.npm-global/bin:${_AL_HOME}/.local/bin:/usr/local/bin:/usr/bin:/bin
 LANG=C.UTF-8
 LC_ALL=C.UTF-8
+AGY_CLI_DISABLE_AUTO_UPDATE=true
 CRON
 log_info "wrote /etc/cron.d/agentlinux (PATH + locale header; no default jobs)"
 

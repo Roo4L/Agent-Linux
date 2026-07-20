@@ -1,0 +1,14 @@
+{
+  "version": "0.3.0",
+  "agents": [
+    {
+      "id": "test-binary",
+      "display_name": "Test Binary",
+      "description": "fixture — well-formed binary entry",
+      "source_kind": "binary",
+      "pinned_version": "1.2.3",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh"
+    }
+  ]
+}

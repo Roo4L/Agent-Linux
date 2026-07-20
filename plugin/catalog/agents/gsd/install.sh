@@ -1,79 +1,58 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# gsd install.sh — real body (Phase 5 AGT-04).
-#
-# npm_package_name: get-shit-done-cc (verified 2026-04-19 via npm view).
-# source_kind: npm — per-user global install via Phase 3's .npm-global prefix.
-#
-# CRITICAL: the binary name is `get-shit-done-cc`, NOT the three-letter slug.
-# Verified: `npm view get-shit-done-cc bin` →
-#   { 'get-shit-done-cc': 'bin/install.js' }
-# AGT-04's bats test invokes `get-shit-done-cc` only. See 05-RESEARCH
-# §Open Question 1 — research-locked decision: keep the package-native name,
-# no symlink (adding a three-letter symlink would be a hidden shim in the
-# spirit of the wrapper-shim anti-pattern).
-#
-# NPM_CONFIG_PREFIX=/home/agent/.npm-global is set by runner.ts (mirrors
-# /etc/agentlinux.env) — the global install lands in agent-owned territory
-# without privilege escalation (RT-02 keystone, ADR-004).
+# gsd install.sh — official Open GSD distribution (WIRE-01 + Codex support).
+# The catalog keeps the user-facing id `gsd`; the package-native command is
+# `gsd-core`. No alias or /usr/local shim is created.
 
 : "${AGENTLINUX_PINNED_VERSION:?AGENTLINUX_PINNED_VERSION not set}"
+: "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 
-echo "gsd: installing get-shit-done-cc@${AGENTLINUX_PINNED_VERSION}"
+pkg='@opengsd/gsd-core'
+bin='gsd-core'
+legacy_pkg='get-shit-done-cc'
+if npm list -g --depth=0 "$legacy_pkg" >/dev/null 2>&1; then
+  echo "gsd: removing legacy ${legacy_pkg} package before Open GSD migration"
+  npm uninstall -g --no-fund --no-audit "$legacy_pkg"
+fi
+echo "gsd: installing ${pkg}@${AGENTLINUX_PINNED_VERSION}"
+npm install -g --omit=dev --no-fund --no-audit "${pkg}@${AGENTLINUX_PINNED_VERSION}"
 
-# --omit=dev skips devDependencies; --no-fund / --no-audit silence npm's
-# noise for cleaner transcripts (faster, shorter logs for debugging).
-npm install -g \
-  --omit=dev \
-  --no-fund \
-  --no-audit \
-  "get-shit-done-cc@${AGENTLINUX_PINNED_VERSION}"
+# Resolve the npm-managed bin directory from the same prefix npm just used.
+# This keeps the recipe correct in the normal /home/agent prefix and in the
+# harness's isolated NPM_CONFIG_PREFIX, without creating a compatibility shim.
+npm_global_bin="$(npm prefix -g)/bin"
+export PATH="${npm_global_bin}:${PATH}"
 
-# Post-install smoke: binary resolves on PATH AND banner reports pinned version.
-# `get-shit-done-cc --help` exits 0 and prints the banner containing
-# "Get Shit Done v1.37.1". No --version flag exists (verified via npm view).
-bin_path=$(command -v get-shit-done-cc || true)
+bin_path=$(command -v "$bin" || true)
 if [[ -z "$bin_path" ]]; then
-  echo "gsd install: get-shit-done-cc not on PATH after install" >&2
+  echo "gsd install: ${bin} not on PATH after install" >&2
+  exit 1
+fi
+package_root=$(npm root -g)
+package_json="${package_root}/${pkg}/package.json"
+version_line=$(node -p 'require(process.argv[1]).version' "$package_json" 2>/dev/null || true)
+if ! printf '%s' "$version_line" | grep -q -F -- "${AGENTLINUX_PINNED_VERSION}"; then
+  printf 'gsd install: pinned=%s but installed package version: %s\n' \
+    "${AGENTLINUX_PINNED_VERSION}" "${version_line:-<unreadable>}" >&2
   exit 1
 fi
 
-# banner grep — the installer prints "Get Shit Done v<version>" before any
-# subcommand logic; --help short-circuits cleanly after the banner.
-banner=$(get-shit-done-cc --help 2>&1 | head -20)
-if ! printf '%s' "$banner" | grep -q -F "v${AGENTLINUX_PINNED_VERSION}"; then
-  printf 'gsd install: pinned=%s but banner: %s\n' \
-    "${AGENTLINUX_PINNED_VERSION}" "$banner" >&2
-  exit 1
-fi
+echo "gsd: wiring Open GSD into Claude Code, OpenCode, Codex, and Qwen"
+"$bin" --global --claude --opencode --codex --qwen \
+  || echo "gsd install: Open GSD bootstrapper returned non-zero; verifying surfaces" >&2
+echo "gsd: Antigravity CLI wiring is not currently provided by upstream; use its migration/import flow manually if needed"
 
-## get-shit-done-cc is the BOOTSTRAPPER, not the slash-commands themselves.
-## After npm install the binary lives on PATH but Claude Code does not yet
-## see any /gsd-* commands or skills. The bootstrapper has to be invoked
-## with --global --claude to copy the GSD skill set into ~/.claude/skills/
-## (122+ skill dirs, hooks, statusline, settings) — that is what makes
-## /gsd-* commands surface inside Claude Code.
-##
-## Discovered by dogfood: a fresh AgentLinux + `agentlinux install gsd`
-## left ~/.claude/skills/gsd-* empty, so the user ran Claude Code and saw
-## zero GSD commands. The recipe was technically correct (npm install
-## succeeded, binary on PATH, banner matched pin) but the user-visible
-## intent ("install GSD") was not satisfied.
-## Wrap the bootstrapper non-fatally so the recipe stays idempotent on
-## re-runs / `--force`. Upstream may exit non-zero on "already installed"
-## paths or on partial-state recovery; what we actually care about is that
-## the skill set ends up under ~/.claude/skills/ — verified below.
-echo "gsd: wiring GSD skill set into ~/.claude/ via get-shit-done-cc --global --claude"
-get-shit-done-cc --global --claude \
-  || echo "gsd install: bootstrapper exited non-zero (re-run / partial-state path); verifying skill dirs anyway" >&2
+assert_wired() {
+  local label=$1 root=$2 name=$3 type=$4
+  if ! find "$root" -maxdepth 2 -type "$type" -name "$name" -print -quit 2>/dev/null | grep -q .; then
+    printf 'gsd install: no Open GSD content for %s under %s\n' "$label" "$root" >&2
+    exit 1
+  fi
+  echo "gsd: wired into ${label} (${root})"
+}
 
-# Sanity-check that at least one gsd-* skill dir landed where Claude Code
-# looks. Without this assertion a regression to "binary on PATH but
-# bootstrapper never copied skills" would silently slip through.
-skill_dir="${AGENTLINUX_AGENT_HOME:-/home/agent}/.claude/skills"
-if ! find "$skill_dir" -maxdepth 1 -type d -name 'gsd-*' -print -quit 2>/dev/null | grep -q .; then
-  printf 'gsd install: no gsd-* skill dirs under %s after bootstrapper run\n' "$skill_dir" >&2
-  exit 1
-fi
-
-echo "gsd: install complete (resolves at ${bin_path}; banner matches pin; skill set wired into ${skill_dir}/gsd-*)"
+assert_wired 'Claude Code' "${AGENTLINUX_AGENT_HOME}/.claude/skills" 'gsd-*' d
+assert_wired 'OpenCode' "${AGENTLINUX_AGENT_HOME}/.config/opencode/skills" 'gsd-*' d
+assert_wired 'Codex' "${AGENTLINUX_AGENT_HOME}/.agents/skills" 'gsd-*' d
+assert_wired 'Qwen Code' "${AGENTLINUX_AGENT_HOME}/.qwen/skills" 'gsd-*' d
+echo "gsd: install complete (resolves at ${bin_path}; version matches pin; Codex wiring enabled)"

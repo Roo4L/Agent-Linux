@@ -1,5 +1,50 @@
 # Milestones
 
+## v0.3.6 Catalog Expansion (Release candidate: v0.3.6-rc1, 2026-07-20)
+
+**Scope:** Grow the catalog from 3 curated tools to **26 entries** — coding agents
+(codex, opencode, qwen-code, antigravity-cli), an MCP-server cohort registered
+through the ADR-017 thin-installer pattern (chrome-devtools, context7, github,
+sentry, firecrawl, slack, linear, jira-atlassian), a devops/security CLI cluster
+(gh, glab, trivy, gitleaks, sentry-cli, rtk, ccusage), and spec-kit — plus two
+rounds of maintainer dogfood UX fixes and a Codex-driven QA remediation pass.
+
+**Key accomplishments:**
+
+- **Catalog machinery generalized:** reusable install helpers (`prebuilt-binary.sh`,
+  `mcp-register.sh`, `browser-deps.sh`) and new `source_kind`s (`binary`, `mcp`)
+  land new tools with no CLI source change (CAT-03), each with symmetric
+  idempotent uninstall and `preserve_paths.json` where a tool owns auth state.
+- **ADR-017 thin-installer for MCP:** MCP entries register the *bare* server into
+  every installed MCP-capable client and bake **no** credential — the user
+  authenticates in-client. Hosted first-party endpoints preferred; a
+  source-selection gate dropped paywalled/card-gated candidates (gitlab, brave,
+  claude-flow, bmad) rather than ship a stale or non-free path.
+- **Open GSD migration (K-001):** gsd moved to `@opengsd/gsd-core`, resolving the
+  GSD × Codex `config.toml` hook-schema incompatibility; skills fan out across all
+  installed agents order-independently (WIRE-01).
+- **Codex QA campaign (phases 50–52):** OpenAI's Codex CLI ran the black-box
+  `qa-testing` skill against the full catalog — 129 test ideas, 5 confirmed product
+  bugs fixed (incl. F-006 Playwright silent exit-0, remediated with a status
+  adapter). Documented in `CODEX-QA-HACKATHON-REPORT.md` (referenced from README).
+- **Passive-autoupdate freeze (ENABLE-08):** background self-update paths for
+  opencode/gemini-class tools are frozen via each tool's own config, preserving the
+  AgentLinux self-update-without-sudo invariant.
+
+**Release gate:** shipped as `v0.3.6-rc1` (pre-release) once the 4-gate release
+pipeline (pre-commit + Docker ×4 + QEMU + pinned-combo) is green; promotion to the
+`latest` `v0.3.6` follows the rc soak. Version locked at 0.3.6 across
+`plugin/cli/package.json` + `plugin/catalog/catalog.json`.
+
+**Known deferred at close:** F52-001 (playwright-cli `remove` leaves the ~394 MB
+browser cache — CLI-04 asymmetry), F52-002 (`agentlinux list --wide` unsupported);
+MCP-05/06/WORK-04/05 candidates dropped on the source-selection gate.
+
+**Archived planning:** `.planning/milestones/v0.3.6-ROADMAP.md` +
+`.planning/milestones/v0.3.6-REQUIREMENTS.md`.
+
+---
+
 ## v0.3.5 AlmaLinux 9 Support (Shipped: 2026-07-11)
 
 **Phases completed:** 5 phases (18 Detection + Branching Foundation → 19 Docker AlmaLinux 9 Row → 20 Behavior-Test-Green on AlmaLinux 9 → 21 Catalog Verify on AlmaLinux 9 → 22 QEMU Release-Gate + Pipeline)

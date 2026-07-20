@@ -554,8 +554,8 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
   });
 
   test("REUSE-03 / DET-04: gsd at the deployed-system VERSION path is NOT a path-mismatch (npx form, no binary)", async () => {
-    // GSD's `get-shit-done-cc` is a bootstrapper; `npx get-shit-done-cc` deploys
-    // the system (VERSION + gsd-* skills) but leaves no global binary, so
+    // Open GSD's runtime payload (VERSION + gsd-* skills) may remain without a
+    // package-native binary, so
     // detect/agents.sh reports gsd at GSD_SYSTEM_PATH. That is a valid canonical
     // presence — it must NOT trigger REMEDIATE-04's uninstall+reinstall (2
     // dispatcher calls). Host-independent: if the real VERSION file happens to
@@ -572,7 +572,7 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
             {
               id: "gsd",
               status: "healthy",
-              path: "/home/agent/.claude/get-shit-done/VERSION", // GSD_SYSTEM_PATH
+              path: "/home/agent/.claude/gsd-core/VERSION", // GSD_SYSTEM_PATH
               version: "1.37.1",
             },
           ],
@@ -615,7 +615,7 @@ describe("installCmd — REUSE-03 pre-runner check (Plan 13-02)", () => {
             {
               id: "gsd",
               status: "healthy",
-              path: "/home/agent/.claude/get-shit-done/VERSION", // GSD_SYSTEM_PATH
+              path: "/home/agent/.claude/gsd-core/VERSION", // GSD_SYSTEM_PATH
               version: "1.36.0", // below compatibility_window >=1.37.0 <2.0.0
             },
           ],

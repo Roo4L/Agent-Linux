@@ -153,6 +153,21 @@ maintainer 2FA + branch protection.
 Report vulnerabilities via the repository's Security tab (coordinated
 disclosure).
 
+## Built with Codex
+
+Part of AgentLinux's v0.3.x quality work was driven with OpenAI's **Codex CLI**
+alongside Claude Code. Codex ran the project's black-box
+[`qa-testing`](.claude/skills/qa-testing/) skill against the full agent
+catalog through the GSD workflow — planning test ideas, reproducing failures in
+disposable sandboxes, recording redacted evidence, and routing findings to a
+remediation phase, largely autonomously. Several shipped fixes originated from
+that campaign.
+
+See **[CODEX-QA-HACKATHON-REPORT.md](CODEX-QA-HACKATHON-REPORT.md)** for the full
+write-up: the findings, the reproduction steps, the methodology, and how Codex
+integrated with the project's harness and review loop. Codex support itself is
+documented in [docs/codex.md](docs/codex.md).
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for how to file issues, open PRs, and

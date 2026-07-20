@@ -10,13 +10,34 @@ export interface CatalogEntry {
   description: string;
   homepage?: string;
   license?: string;
-  source_kind: "npm" | "script";
+  source_kind: "npm" | "script" | "binary" | "mcp";
   npm_package_name?: string; // required when source_kind === 'npm' (allOf clause)
+  // ENABLE-02: secret convention. requires_secret marks an entry that needs a
+  // credential to function; secret_env names the env var carrying it (e.g.
+  // CONTEXT7_API_KEY). Declarative metadata — the recipe prints the post-install
+  // instruction and the secret is never baked. Introduced for MCP-server entries
+  // but intentionally not restricted to source_kind "mcp": any entry that needs a
+  // post-install credential (e.g. an API-token CLI) may declare them. Both absent
+  // for a keyless entry (e.g. chrome-devtools-mcp).
+  requires_secret?: boolean;
+  secret_env?: string;
+  // ENABLE-02 remote-http: pinned HTTPS endpoint of a hosted remote MCP server
+  // (e.g. https://api.githubcopilot.com/mcp/). A hosted MCP has no semver — the
+  // URL is its stability contract and pinned_version names the curated upstream
+  // server release it is validated against. Absent for non-remote entries.
+  endpoint_url?: string;
   pinned_version: string; // exact semver — CAT-04 / ADR-011
   version_constraint?: string; // e.g. '^2.1' — --all-latest upper-bound
   compatibility_window?: string; // REUSE-03 semver range: adopt a detected install whose version satisfies this
   install_recipe_path: string; // e.g. 'install.sh'
   uninstall_recipe_path: string; // e.g. 'uninstall.sh'
+  // WIRE-02 (#4 dogfood): optional lightweight re-wire recipe for a cross-agent
+  // PROVIDER (rtk, a fan-out MCP server). After ANY coding agent is installed,
+  // the CLI re-runs each installed provider's rewire recipe so the provider fans
+  // out into the now-present agent too — WITHOUT reinstalling the provider —
+  // making cross-agent wiring converge regardless of install order. Absent for
+  // non-providers (an agent, a standalone CLI).
+  rewire_recipe_path?: string;
   post_install_verify?: string;
   // CAT-04: optional sibling-file pointer (e.g. 'preserve_paths.json'). When
   // set, the loader normalizes the listed paths into `preserve_paths`, which

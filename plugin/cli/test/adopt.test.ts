@@ -20,7 +20,7 @@ let TMP: string;
 let CATALOG_DIR: string;
 let STATE_DIR: string;
 
-const GSD_SYSTEM_PATH = "/home/agent/.claude/get-shit-done/VERSION";
+const GSD_SYSTEM_PATH = "/home/agent/.claude/gsd-core/VERSION";
 
 const CATALOG = {
   version: "0.3.0",

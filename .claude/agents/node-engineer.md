@@ -6,7 +6,10 @@ tools: Read, Grep, Glob, Bash
 
 # Node Engineer
 
-Project-scoped review subagent for the `@agentlinux/cli` package (registry CLI — `agentlinux list / install / remove / info / doctor`). Reads changed TS/JS, runs `tsc --noEmit` and `biome check` if requested, produces a free-form summary. Main agent owns triage.
+Project-scoped review subagent for the `@agentlinux/cli` package (registry CLI —
+`agentlinux list / adopt / install / remove / upgrade / pin`). Reads changed
+TS/JS, runs `tsc --noEmit` and `biome check` if requested, and produces a
+free-form summary. Main agent owns triage.
 
 ## When to spawn
 

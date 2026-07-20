@@ -474,15 +474,15 @@ __source_lib_chain_with_reuse() {
 }
 
 @test "REUSE-03 / DET-04: reuse::agent_decision returns 'reuse' for gsd at the deployed-system VERSION path (npx form)" {
-  # REQ: REUSE-03 / DET-04. GSD's `get-shit-done-cc` is a bootstrapper; the
-  # upstream `npx get-shit-done-cc` install deploys the GSD system (VERSION file
+  # REQ: REUSE-03 / DET-04. Open GSD's runtime payload can remain without its
+  # package-native binary (VERSION file
   # + gsd-* skills) but leaves NO persistent global binary, so detect/agents.sh
   # reports gsd at the deployed-system VERSION file. That path is a SECOND valid
   # canonical presence → reuse, NOT a wrong-path remediate. Regression guard for
   # "dry-run says gsd absent on a host where GSD is installed via npx".
   __source_lib_chain_with_reuse
   export DETECT_AGENT_GSD_STATUS=healthy
-  export DETECT_AGENT_GSD_PATH=/home/agent/.claude/get-shit-done/VERSION
+  export DETECT_AGENT_GSD_PATH=/home/agent/.claude/gsd-core/VERSION
   export DETECT_AGENT_GSD_VERSION=1.37.1
   run reuse::agent_decision gsd
   unset DETECT_AGENT_GSD_STATUS DETECT_AGENT_GSD_PATH DETECT_AGENT_GSD_VERSION
@@ -518,19 +518,29 @@ __source_lib_chain_with_reuse() {
     || __fail "REUSE-03" "reuse::agent_decision == 'create' on unknown catalog id" "$output" "$LOG"
 }
 
-@test "REUSE-03: catalog.json has compatibility_window on exactly 3 non-test entries" {
+@test "REUSE-03: every non-test catalog entry carries compatibility_window (test_only entries do not)" {
   # REQ: REUSE-03 (catalog.json compatibility_window field — semver range used
   # by the CLI install.ts to layer the version-in-window predicate on top of
   # reuse::agent_decision's path-match decision).
+  #
+  # Invariant (not a hardcoded count): every real entry MUST carry a
+  # compatibility_window so a detected pre-existing install can be adopted;
+  # every test_only entry MUST NOT (it never participates in REUSE). This
+  # holds as the v0.3.6 catalog grows from 3 → 26+ entries without per-phase
+  # edits to this assertion.
   local catalog=/opt/agentlinux-src/plugin/catalog/catalog.json
-  local count
-  count=$(grep -c 'compatibility_window' "$catalog")
-  [[ "$count" -eq 3 ]] \
-    || __fail "REUSE-03" "catalog.json has compatibility_window on exactly 3 non-test entries" "count=$count" "$catalog"
-  # test-dummy entry MUST NOT have compatibility_window (test_only: true; never
-  # participates in REUSE).
-  if jq -e '.agents[] | select(.test_only == true) | has("compatibility_window")' "$catalog" >/dev/null; then
-    __fail "REUSE-03" "test-dummy MUST NOT carry compatibility_window" "found compatibility_window on a test_only entry" "$catalog"
+  local real_count window_count
+  real_count=$(jq '[.agents[] | select(.test_only != true)] | length' "$catalog")
+  window_count=$(jq '[.agents[] | select(.test_only != true) | select(has("compatibility_window"))] | length' "$catalog")
+  [[ "$real_count" -ge 1 && "$window_count" -eq "$real_count" ]] \
+    || __fail "REUSE-03" "all $real_count non-test entries carry compatibility_window" "with_window=$window_count of $real_count" "$catalog"
+  # test_only entries (e.g. test-dummy) MUST NOT have compatibility_window —
+  # they never participate in REUSE. `any(...)` collapses the whole stream to a
+  # single boolean — a bare `.agents[] | select | has(...)` would set jq's exit
+  # status from only the LAST value, masking a violation on an earlier entry
+  # once the catalog has more than one test_only fixture.
+  if jq -e 'any(.agents[]; .test_only == true and has("compatibility_window"))' "$catalog" >/dev/null; then
+    __fail "REUSE-03" "test_only entries MUST NOT carry compatibility_window" "found compatibility_window on a test_only entry" "$catalog"
   fi
 }
 
