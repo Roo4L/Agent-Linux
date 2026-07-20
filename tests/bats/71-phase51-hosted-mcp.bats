@@ -35,12 +35,14 @@ LOG=/var/log/agentlinux-install.log
 }
 
 @test "MCP-08: Firecrawl and GitHub recipes surface client-owned OAuth/API-key diagnostics" {
+  # The diagnostics live in the shipped recipes themselves — a permanent bats
+  # test must assert against source that survives the release, not against a
+  # .planning/ phase artifact (intermediate state stripped before merge per the
+  # planning-workflow policy).
   run grep -Eni 'oauth|api.key|opencode mcp debug|dynamic client registration|auth server' \
     "$SOURCE_ROOT/plugin/catalog/agents/firecrawl-mcp/install.sh" \
     "$SOURCE_ROOT/plugin/catalog/agents/github-mcp/install.sh"
   assert_exit_zero "MCP-08/auth-guidance"
-  run test -f "$SOURCE_ROOT/.planning/phases/51-fix-all-phase-50-integration-qa-findings-known-issues-and-pr/51-OAUTH-DIAGNOSTICS.md"
-  assert_exit_zero "MCP-08/diagnostics-artifact"
 }
 
 @test "MCP-03: Antigravity adapter writes serverUrl into its native config" {
