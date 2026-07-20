@@ -25,8 +25,10 @@ The agent catalog and registry CLI:
 
 - [Claude Code](claude-code.md) — Anthropic's coding agent, installed via the
   upstream native installer into the agent's own tree.
-- [GSD](gsd.md) — `get-shit-done-cc`, the planning workflow CLI, installed
-  via npm into the agent's per-user prefix.
+- [Antigravity CLI](antigravity-cli.md) — Google's `agy` terminal coding agent,
+  installed from a checksum-verified official binary archive.
+- [GSD](gsd.md) — `@opengsd/gsd-core` / `gsd-core`, the multi-runtime planning
+  workflow CLI, installed via npm into the agent's per-user prefix.
 - [Playwright](playwright.md) — browser automation with chromium, installed
   via npm as `@playwright/cli` plus a `playwright-cli install --skills` step
   that wires the Claude Code skill and pulls down the chromium binary, then a

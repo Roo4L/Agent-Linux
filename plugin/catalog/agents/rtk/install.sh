@@ -15,8 +15,8 @@ set -euo pipefail
 # bare <pin>, which the helper's version-lock assert checks.
 #
 # Cross-agent auto-wiring (WIRE-02, #4 dogfood): install fans rtk's `init` hook
-# out to EVERY installed coding agent (claude-code, codex, gemini-cli, opencode;
-# qwen-code has no rtk target). And the CLI's post-install reconcile re-runs
+# out to EVERY supported installed coding agent (claude-code, codex, opencode;
+# Antigravity CLI and qwen-code have no rtk target). And the CLI's post-install reconcile re-runs
 # rtk's rewire.sh whenever an agent is installed LATER, so rtk ends up wired into
 # the same set regardless of install order. This supersedes the earlier opt-in
 # stance (WORK-02): the maintainer's dogfood feedback is that installing rtk

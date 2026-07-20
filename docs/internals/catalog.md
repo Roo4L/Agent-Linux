@@ -14,7 +14,8 @@ both fail the project's "fresh contributor adds an agent in one PR"
 test.
 
 The first is hardcoding the agent set into CLI source. This is the
-shape AgentLinux briefly considered before the v0.2.0 → v0.3.0 pivot:
+shape AgentLinux briefly considered before it moved from a custom
+distribution to an installable plugin:
 every supported agent's install logic lives as a TypeScript module
 that the CLI dispatches by name. Adding a new agent then requires
 editing TypeScript, running the test suite, and cutting a CLI release.
@@ -57,7 +58,7 @@ catalog auditor and the install path both read from.
 The second is `plugin/catalog/catalog.json` — the embedded agent list
 shipped in every release tarball. It holds the real entries (the
 originals claude-code, gsd, playwright-cli; the coding-agent CLIs
-codex, gemini-cli, opencode, qwen-code, and ccusage; the
+codex, antigravity-cli, opencode, qwen-code, and ccusage; the
 prebuilt-binary tools rtk, gh, glab, trivy, and gitleaks; the
 npm-distributed Sentry CLI; the MCP servers chrome-devtools-mcp,
 context7, and the hosted github-mcp, sentry-mcp, firecrawl-mcp,
@@ -131,14 +132,13 @@ The prebuilt-binary kind is the one that needs the most care, because
 supply-chain mistake does the most damage. AgentLinux installs a binary
 the same disciplined way its own curl-installer verifies a release: the
 asset is staged to a scratch directory, its gzip magic bytes are
-checked, and its SHA-256 is verified against the release's published
-`checksums.txt`
+checked, and its published checksum is verified
 **before anything is extracted**, and any mismatch aborts the install
 without unpacking or replacing a single file.
 
-The mechanics live in one shared helper,
-`plugin/catalog/lib/prebuilt-binary.sh`, that every binary recipe
-sources. The helper owns the security-critical, tool-agnostic core:
+Most binary recipes use the shared helper
+`plugin/catalog/lib/prebuilt-binary.sh`, which owns the security-critical,
+tool-agnostic core:
 the architecture dispatch (x86-64 or ARM64, abort otherwise), the
 verify-before-extract download, the single-member extract, and the
 version-lock assertion. It installs the binary `0755` into
@@ -147,8 +147,9 @@ version-lock assertion. It installs the binary `0755` into
 tool's own self-update). The recipe owns only what genuinely differs
 per upstream: which host serves the release, how the per-architecture
 asset and checksum files are named, and where the binary sits inside
-the archive. So adding the next binary-distributed tool is a catalog
-entry plus a thin recipe, with no shared code to touch.
+the archive. The few standalone binary recipes document their own equivalent
+checks alongside their catalog entry. So adding the next binary-distributed
+tool is a catalog entry plus a focused recipe, with no registry CLI changes.
 
 That split earns its keep across a mix of real upstreams. `rtk` (the
 Rust Token Killer, a token-optimizing CLI proxy) names its assets with
@@ -162,10 +163,20 @@ rather than `github.com` entirely — which is why the recipe, not the
 helper, supplies the release base URL. Every one of them is a handful
 of lines over the same helper.
 
+`antigravity-cli` is the mixed-cluster exception: Google publishes a Linux
+archive rather than an npm package. The recipe pins the official 1.1.4 archive,
+verifies its published SHA-512 before extracting the single `antigravity`
+member, and installs it as the agent-owned `~/.local/bin/agy`. Google Sign-In
+and the MCP/skills migration state remain user-owned under `~/.gemini` and are
+preserved on a normal remove. The upstream CLI exposes `agy update` and
+documents background self-updating; AgentLinux provisions the documented
+`AGY_CLI_DISABLE_AUTO_UPDATE=true` opt-out in login, systemd, and cron
+environments while leaving the explicit updater available.
+
 `rtk` is a cross-agent proxy, so installing it wires its `rtk init`
-hook into every coding agent already present — Claude Code, Codex,
-Gemini CLI, and OpenCode each get the hook written into their own
-config (Qwen has no rtk target). And because wiring a live config needs
+hook into every supported coding agent already present — Claude Code,
+Codex, and OpenCode each get the hook written into their own config
+(Antigravity CLI and Qwen have no rtk target). And because wiring a live config needs
 the agent present, installing a coding agent *later* re-runs rtk's
 wiring into the newcomer, so the wired set is the same regardless of
 install order. `agentlinux remove rtk` unwires all of them before
@@ -260,18 +271,19 @@ preserve-on-remove rule; only the install mechanism differs.
 An MCP server is not a program AgentLinux installs — it is a service a
 coding agent is told about. So the `mcp` source kind does not put a file
 on disk; it *registers* the server into the agent's own configuration.
-For Claude Code that means `claude mcp add <name> --scope user`, which
-writes the server (its launch command and args) into the user-scope
-`mcpServers` block of `~/.claude.json`; `agentlinux remove` runs
-`claude mcp remove` to take it back out, leaving no residue. Both halves
-are idempotent, so a re-install or a double-remove is a clean no-op.
+For Claude-only local entries, that means `claude mcp add <name> --scope
+user`, which writes the server (its launch command and args) into the
+user-scope `mcpServers` block of `~/.claude.json`; `agentlinux remove` runs
+`claude mcp remove` to take it back out. Hosted entries use the shared helper
+to write the equivalent bare URL into each installed supported agent's native
+configuration, including Antigravity's `serverUrl` format.
 
-Because the registration lives in the coding agent's config, an MCP
-entry has a real dependency: the agent has to be installed first. The
+Because a Claude-only registration lives in the coding agent's config, that
+entry has a real dependency: Claude Code has to be installed first. The
 recipe checks for `claude` on PATH and fails with a plain pointer
-(`agentlinux install claude-code`) rather than a cryptic
-command-not-found. The pinned version rides in the launch command
-itself — `chrome-devtools-mcp`, the first MCP entry, registers
+(`agentlinux install claude-code`) rather than a cryptic command-not-found.
+The pinned version rides in the launch command itself — `chrome-devtools-mcp`,
+the first MCP entry, registers
 `npx -y chrome-devtools-mcp@<pin>`, so npx fetches exactly the curated
 version on first launch and nothing is installed into the agent prefix.
 
@@ -317,11 +329,12 @@ would carry (Slack, Linear); but a hosted service can still be backed by
 an open-source repo, so `jira-atlassian-mcp` records `Apache-2.0` (the
 Atlassian Rovo server's repo) while still pinning a GA date.
 
-Not every hosted endpoint requires signing in. `firecrawl-mcp` registers
-a **keyless** endpoint that works out of the box, so its `requires_secret`
-is `false` — a user who wants their own recurring quota re-registers with
-a personal key (Firecrawl embeds it in the URL path, not a header), the
-same optional-upgrade shape `context7` uses for a local server. A tool
+Firecrawl's hosted endpoint supports client-owned OAuth. `firecrawl-mcp`
+therefore registers the bare endpoint and marks `requires_secret` `true` as a
+truthfulness signal, while AgentLinux stores neither an OAuth token nor an API
+key. A client that cannot complete OAuth can re-register at runtime with a
+personal key (Firecrawl embeds it in the URL path, not a header); the key stays
+in that client's session and is never written by the catalog recipe. A tool
 earns a hosted entry only when its free tier is genuinely usable without
 payment; two candidates (a GitLab and a Brave Search server) were dropped
 because their "free" tiers turned out to require a paid plan or a
@@ -338,7 +351,7 @@ that bypasses admin approval entirely.
 Because an MCP server is useful to *any* coding agent, not just Claude
 Code, an entry registers into all of them. `github-mcp` fans its
 registration out to every installed MCP-capable agent (Claude Code,
-Codex, Gemini CLI, opencode, qwen-code), writing each one's own config
+Codex, Antigravity CLI, opencode, qwen-code), writing each one's own config
 format, and `remove` tears it back out of all of them. A shared helper
 owns the per-agent writers so any remote entry gets the fan-out for free.
 
@@ -354,24 +367,26 @@ is no secret to leak, by construction) and avoids coupling each entry to
 a tool-specific auth scheme. `requires_secret` stays on the entry as a
 documentation flag — "this server needs you to sign in" — but AgentLinux
 never carries the secret. And the fan-out is **install-order-independent**:
-an agent installed *after* the server is wired up automatically too. Because
-a registration lives in the agent's *live* config (unlike a skill file that
-can be dropped ahead of time), the CLI closes the gap from the other side —
-after any coding agent is installed, it re-runs each installed provider's
-registration so the newcomer receives it. A provider opts into this by
-naming a `rewire_recipe_path` in its catalog entry; the fan-out MCP servers
-point it at their own idempotent `install.sh`. So whether you add the server
-or the agent first, you end up with the same wiring — the same guarantee
-`rtk` gets for its hook.
+after a coding agent is installed, the CLI makes a best-effort attempt to
+re-register each installed hosted MCP provider in that agent. A provider or
+client hiccup does not undo a successful install; the CLI reports the failed
+reconcile so it can be rerun. Because a registration lives in the agent's
+*live* config (unlike a skill file that can be dropped ahead of time), the
+CLI closes the gap from the other side — after any coding agent is installed,
+it re-runs each installed provider's registration so the newcomer receives
+it. A provider opts into this by naming a `rewire_recipe_path` in its catalog
+entry; the fan-out MCP servers point it at their own idempotent `install.sh`.
+So whether you add the server or the agent first, you end up with the same
+intended wiring — subject to a successful best-effort reconcile.
 
 ## Worked example
 
 ```
 $ jq '.agents[] | {id, source_kind, pinned_version}' \
-    /opt/agentlinux/catalog/0.3.4/catalog.json
+    /opt/agentlinux/catalog/0.3.5/catalog.json
 { "id": "claude-code",    "source_kind": "script", "pinned_version": "2.1.98" }
-{ "id": "gsd",            "source_kind": "npm",    "pinned_version": "1.37.1" }
-{ "id": "playwright-cli", "source_kind": "npm",    "pinned_version": "0.1.11" }
+{ "id": "gsd",            "source_kind": "npm",    "pinned_version": "1.7.0" }
+{ "id": "playwright-cli", "source_kind": "npm",    "pinned_version": "0.1.17" }
 { "id": "codex",          "source_kind": "npm",    "pinned_version": "0.142.3" }
 { "id": "rtk",            "source_kind": "binary", "pinned_version": "0.42.4" }
 { "id": "gh",             "source_kind": "binary", "pinned_version": "2.95.0" }
@@ -383,15 +398,18 @@ Adding a new agent looks like:
 
 ```
 $ mkdir plugin/catalog/agents/<new-id>
-$ touch plugin/catalog/agents/<new-id>/{install,uninstall}.sh && chmod +x ...
+$ touch plugin/catalog/agents/<new-id>/{install,uninstall}.sh
+$ chmod +x plugin/catalog/agents/<new-id>/{install,uninstall}.sh
 $ $EDITOR plugin/catalog/catalog.json   # add the entry
 $ pre-commit run --all-files            # ajv validation runs here
 ```
 
-No CLI source edited. Our catalog reviewer validates the entry
-against the schema; our PR review process flags any
+For entries that do not participate in cross-agent wiring, no CLI source is
+needed. Cross-agent consumers also update the registry's supported-target set.
+The catalog reviewer validates each entry against the schema; the project
+review process flags any
 `sudo npm install -g` or `/usr/local/bin/` shim in the recipe; the
-release-gate matrix runs the recipe end-to-end on a clean host.
+CI test matrix runs the recipe end-to-end on a clean host.
 
 ## Value vs the naive approach
 

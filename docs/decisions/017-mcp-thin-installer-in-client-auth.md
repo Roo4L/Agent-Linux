@@ -50,7 +50,7 @@ Concretely:
 
 - **Prefer the hosted/remote endpoint** wherever a tool offers one. Register the
   URL (`claude mcp add --transport http <name> <url>` with **no** `--header`; the
-  Codex/Gemini/opencode/qwen equivalents with **no** headers/token field). The
+  Codex/Antigravity/OpenCode/Qwen equivalents with **no** headers/token field). The
   client handles the connection and prompts the user for OAuth.
 - **stdio (npx) is a fallback**, only for tools with no hosted option. Register
   the launch command (`npx -y <pkg>@<pin>`) with **no** baked env/token; the

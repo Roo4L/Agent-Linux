@@ -102,6 +102,7 @@ remediate::nodejs::_enumerate_modules() {
     "npm" \
     "@anthropic-ai/claude-code" \
     "get-shit-done-cc" \
+    "@opengsd/gsd-core" \
     "@playwright/cli" \
     | jq -R . | jq -s .)
   jq -r --argjson excluded "$excluded_json" '

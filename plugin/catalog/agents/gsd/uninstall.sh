@@ -1,106 +1,45 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# gsd uninstall.sh — symmetric inverse. npm uninstall -g is idempotent.
-# CAT-04: AGENTLINUX_PRESERVE_PATHS preserves user workflow state
-# (.gsd, .config/get-shit-done) across REMEDIATE-04 reinstall.
-
+# Symmetric Open GSD teardown; only GSD-owned surfaces are swept.
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
+bin='gsd-core'
 
-# _should_remove <abs-path> — returns 0 (proceed with rm) unless <abs-path> is
-# in or under any AGENTLINUX_PRESERVE_PATHS entry. The env var is a
-# colon-separated list of HOME-relative paths (normalized by the loader); empty
-# means "no preserves". Descendant rule: a preserved root protects everything
-# beneath it.
-_should_remove() {
-  local target=$1
-  [[ -z "${AGENTLINUX_PRESERVE_PATHS:-}" ]] && return 0
-  local t_strip="${target%/}"
-  local IFS=:
-  local preserved
-  for preserved in $AGENTLINUX_PRESERVE_PATHS; do
-    local p_strip="${preserved%/}"
-    if [[ "$t_strip" == "${AGENTLINUX_AGENT_HOME}/${p_strip}" \
-       || "$t_strip" == "${AGENTLINUX_AGENT_HOME}/${p_strip}/"* ]]; then
-      return 1
-    fi
-  done
-  return 0
-}
-
-# _rm_path — wraps rm with the _should_remove gate.
-_rm_path() {
-  local mode=$1 target=$2
-  if _should_remove "$target"; then
-    rm "$mode" -- "$target"
-  else
-    echo "gsd uninstall: preserving ${target} (AGENTLINUX_PRESERVE_PATHS)"
-  fi
-}
-
-echo "gsd: removing get-shit-done-cc"
-
-# Step 1: ask the bootstrapper to undo what install.sh wired into every agent.
-# Mirrors the install path's `--global --claude --opencode --gemini --qwen`
-# invocation (WIRE-01; codex omitted — see gsd/install.sh). Failure is non-fatal
-# — the bootstrapper may be a future version that drops a flag, or the user may
-# have already removed bits manually; the defensive cleanup below catches
-# whatever remains (including codex leftovers from a pre-fix install).
-if command -v get-shit-done-cc >/dev/null 2>&1; then
-  get-shit-done-cc --global --claude --opencode --gemini --qwen --uninstall \
-    || echo "gsd uninstall: bootstrapper --uninstall returned non-zero (continuing)" >&2
+if command -v "$bin" >/dev/null 2>&1; then
+  "$bin" --global --claude --opencode --codex --qwen --uninstall \
+    || echo "gsd uninstall: upstream cleanup returned non-zero; continuing defensive sweep" >&2
 fi
 
-# Step 2: defensive cleanup of GSD-installed state across ALL shipped agents
-# (WIRE-01). The bootstrapper's `--uninstall` is best-effort, so sweep the GSD
-# surfaces ourselves: each agent's gsd-* command/skill entries plus the
-# per-tool `get-shit-done/` payload dir. Looping (not find -exec) so every match
-# runs through _should_remove; none of these live under a preserved root, so the
-# gate lets rm proceed. Anchored on `gsd-*`/`get-shit-done` so unrelated
-# user-authored commands/skills are never collateral damage. Each sweep root is
-# a (dir, find-args) pair.
-_sweep() {
-  local root=$1
-  shift
-  [[ -d $root ]] || return 0
-  local match
+home=${AGENTLINUX_AGENT_HOME}
+sweep() {
+  local root=$1 kind=$2 name=$3 match
+  [[ -d "$root" ]] || return 0
   while IFS= read -r -d '' match; do
-    if _should_remove "$match"; then
-      rm -rf -- "$match" 2>/dev/null || true
-    else
-      echo "gsd uninstall: preserving ${match} (AGENTLINUX_PRESERVE_PATHS)"
+    if [[ "$(basename "$match")" == 'gsd-dev-preferences' ]]; then
+      echo "gsd uninstall: preserving ${match} (Open GSD user-owned preferences)"
+      continue
     fi
-  done < <(find "$root" "$@" -print0 2>/dev/null)
+    rm -rf -- "$match"
+  done < <(find "$root" -maxdepth 2 -type "$kind" -name "$name" -print0 2>/dev/null)
 }
+sweep "${home}/.claude/skills" d 'gsd-*'
+sweep "${home}/.claude" d 'gsd-core'
+sweep "${home}/.config/opencode" f 'gsd-*.md'
+sweep "${home}/.config/opencode/skills" d 'gsd-*'
+sweep "${home}/.config/opencode" d 'get-shit-done'
+sweep "${home}/.config/opencode" d 'gsd-core'
+sweep "${home}/.agents/skills" d 'gsd-*'
+sweep "${home}/.agents" d 'gsd-core'
+sweep "${home}/.codex/skills" d 'gsd-*'
+sweep "${home}/.codex" d 'gsd-core'
+sweep "${home}/.qwen/skills" d 'gsd-*'
+sweep "${home}/.qwen" d 'gsd-core'
+# ~/.gemini is shared user-owned Antigravity state. Do not sweep it here: any
+# legacy GSD command artifacts there are left for explicit user cleanup.
 
-H="${AGENTLINUX_AGENT_HOME}"
-_sweep "${H}/.claude/skills" -maxdepth 1 -type d -name 'gsd-*'
-_sweep "${H}/.config/opencode/command" -maxdepth 1 -type f -name 'gsd-*.md'
-_sweep "${H}/.config/opencode" -maxdepth 1 -type d -name 'get-shit-done'
-# -maxdepth 2 mirrors the install-side assertion (gsd/install.sh) so a deeper
-# namespacing by a future GSD pin is torn down symmetrically, not orphaned.
-_sweep "${H}/.gemini/commands" -maxdepth 2 -type d -name 'gsd'
-_sweep "${H}/.gemini" -maxdepth 1 -type d -name 'get-shit-done'
-# codex is no longer wired on install, but keep these sweeps to clean up
-# leftovers from a pre-fix install (they target gsd-*/get-shit-done only, never
-# config.toml — recovering a codex broken by the old --codex wiring is a manual
-# edit of ~/.codex/config.toml).
-_sweep "${H}/.codex/skills" -maxdepth 1 -type d -name 'gsd-*'
-_sweep "${H}/.codex" -maxdepth 1 -type d -name 'get-shit-done'
-_sweep "${H}/.qwen/skills" -maxdepth 1 -type d -name 'gsd-*'
-_sweep "${H}/.qwen" -maxdepth 1 -type d -name 'get-shit-done'
-
-# Step 3: npm uninstall -g on a missing package exits 0 with "up to date"
-# — idempotent. Real truth check is `command -v` below.
-npm uninstall -g get-shit-done-cc --no-fund --no-audit >/dev/null 2>&1 || true
-
-# Verify removal. `hash -r` clears bash's command-name cache — without it,
-# the prior `get-shit-done-cc --uninstall` invocation hashed the binary's
-# path and `command -v` reports it as still-resolvable even after npm
-# uninstall -g has deleted the file from disk.
+npm uninstall -g '@opengsd/gsd-core' get-shit-done-cc --no-fund --no-audit >/dev/null 2>&1 || true
 hash -r
-if command -v get-shit-done-cc >/dev/null 2>&1; then
-  echo "gsd uninstall: get-shit-done-cc still on PATH after npm uninstall -g" >&2
+if command -v "$bin" >/dev/null 2>&1; then
+  echo "gsd uninstall: ${bin} still on PATH after npm uninstall -g" >&2
   exit 1
 fi
-
 echo "gsd: uninstall complete"

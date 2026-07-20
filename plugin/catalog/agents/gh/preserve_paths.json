@@ -2,5 +2,5 @@
   "preserve_paths": [
     "~/.config/gh/"
   ],
-  "comment": "gh per-user config (hosts.yml + the OAuth token written by `gh auth login`). Preserved across `agentlinux remove` per CAT-04 — the CLI injects it into AGENTLINUX_PRESERVE_PATHS on every uninstall, matching codex/gemini/claude-code so a remove never destroys the user's credentials. Only `agentlinux --purge` wipes the agent home."
+  "comment": "gh per-user config (hosts.yml + the OAuth token written by `gh auth login`). Preserved across `agentlinux remove` per CAT-04 — the CLI injects it into AGENTLINUX_PRESERVE_PATHS on every uninstall, matching codex/antigravity/claude-code so a remove never destroys the user's credentials. Only `agentlinux --purge` wipes the agent home."
 }

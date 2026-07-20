@@ -9,7 +9,7 @@
 # line). Two ways to supply them:
 #   - Local: drop them in an out-of-repo env file (default
 #     ~/.config/agentlinux-smoke.env, KEY=value lines) — sourced here.
-#   - CI: set OPENAI_API_KEY / GEMINI_API_KEY / ANTHROPIC_API_KEY / etc. as
+#   - CI: set OPENAI_API_KEY / ANTHROPIC_API_KEY / etc. as
 #     job env (e.g. from GitHub Actions secrets); no file needed.
 # Any credential that is absent makes its @test skip (the suite stays green
 # without secrets); ccusage runs unconditionally on seeded local data.
@@ -85,7 +85,7 @@ set +e
 # Forward only the providers the smoke actually consumes (Appendix C routing).
 # Add -e DASHSCOPE_API_KEY here if/when a native-Qwen DashScope smoke is added.
 docker exec \
-  -e OPENAI_API_KEY -e GEMINI_API_KEY -e ANTHROPIC_API_KEY \
+  -e OPENAI_API_KEY -e ANTHROPIC_API_KEY -e ANTIGRAVITY_CLI_QA \
   "$CID" bash -c 'cd /opt/agentlinux-src && bats tests/bats/54-catalog-npm-smoke.bats'
 RC=$?
 set -e

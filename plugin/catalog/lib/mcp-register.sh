@@ -15,7 +15,7 @@
 # cross-agent resource — every installed coding agent that speaks MCP can use it.
 # So registration fans OUT to each MCP-capable agent that is present, writing that
 # agent's native config format, and `remove` tears the registration down across
-# all of them. Currently targeted: claude-code, codex, gemini-cli, opencode,
+# all of them. Currently targeted: claude-code, codex, antigravity-cli, opencode,
 # qwen-code (the five shipped agents with remote-http MCP support).
 #
 # Thin-installer keystone (ADR-017 / CAT-02): an MCP entry registers the BARE
@@ -24,9 +24,9 @@
 # (the client's own OAuth prompt on first use for a remote server). There is thus
 # no secret to leak by construction; `remove` deregisters symmetrically.
 #
-# Order note (WIRE-01 corner case): fan-out is applied at the MCP entry's install
-# time to agents present THEN. An agent installed LATER does not auto-receive the
-# registration — re-run `agentlinux install <mcp-id>` to re-fan-out.
+# Order note (WIRE-02): fan-out is applied at the MCP entry's install time to
+# agents present then. When a coding agent is installed later, the CLI re-runs
+# each installed provider's idempotent rewire recipe to converge the new target.
 #
 # Deliberately NOT `set -euo pipefail` at file top: sourced into recipes that own
 # their own shell options. Each function is individually robust and returns
@@ -43,7 +43,7 @@ _al_mcp_home() {
   printf '%s' "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 }
 
-# ---- generic JSON config writers (gemini / opencode / qwen) -----------------
+# ---- generic JSON config writers (antigravity / opencode / qwen) ------------
 # SECURITY INVARIANT: the <parent-jq-path> argument is spliced into the jq PROGRAM
 # text (not passed as data), so it MUST be a code-literal from a call site inside
 # this file (`.mcpServers`, `.mcp`) — NEVER a catalog field or any external value.
@@ -58,7 +58,12 @@ _al_mcp_json_set() {
   tmp=$(mktemp "${cfg}.tmp.XXXXXX") || return 1
   if jq --arg s "$server" --argjson v "$val" \
     "$parent = (($parent // {}) | .[\$s] = \$v)" "$cfg" >"$tmp" 2>/dev/null; then
-    mv "$tmp" "$cfg"
+    if mv "$tmp" "$cfg"; then
+      :
+    else
+      rm -f "$tmp"
+      return 1
+    fi
   else
     rm -f "$tmp"
     return 1
@@ -73,7 +78,12 @@ _al_mcp_json_del() {
   if jq --arg s "$server" \
     "if ($parent | type) == \"object\" then $parent |= del(.[\$s]) else . end" \
     "$cfg" >"$tmp" 2>/dev/null; then
-    mv "$tmp" "$cfg"
+    if mv "$tmp" "$cfg"; then
+      :
+    else
+      rm -f "$tmp"
+      return 1
+    fi
   else
     rm -f "$tmp"
     return 1
@@ -116,7 +126,12 @@ _al_mcp_codex_deregister() { # <server>
   # carries no sed-address metacharacters.
   if sed "/# >>> agentlinux-mcp:${server} >>>/,/# <<< agentlinux-mcp:${server} <<</d" \
     "$cfg" >"$tmp" 2>/dev/null; then
-    mv "$tmp" "$cfg"
+    if mv "$tmp" "$cfg"; then
+      :
+    else
+      rm -f "$tmp"
+      return 1
+    fi
   else
     rm -f "$tmp"
     return 1
@@ -146,14 +161,19 @@ _al_mcp_codex_has() { # <server>
   [[ -f "$cfg" ]] && grep -q "# >>> agentlinux-mcp:${1} >>>" "$cfg"
 }
 
-# ---- gemini-cli / qwen-code (settings.json, bare httpUrl) -------------------
-_al_mcp_gemini_present() { command -v gemini >/dev/null 2>&1; }
-_al_mcp_gemini_cfg() { printf '%s/.gemini/settings.json' "$(_al_mcp_home)"; }
+# ---- antigravity-cli / qwen-code (JSON, bare remote URL) --------------------
+_al_mcp_antigravity_present() { command -v agy >/dev/null 2>&1; }
+_al_mcp_antigravity_cfg() { printf '%s/.gemini/config/mcp_config.json' "$(_al_mcp_home)"; }
 _al_mcp_qwen_present() { command -v qwen >/dev/null 2>&1; }
 _al_mcp_qwen_cfg() { printf '%s/.qwen/settings.json' "$(_al_mcp_home)"; }
 
-# Bare httpUrl object shared by the two gemini-family agents (no auth — ADR-017).
-_al_mcp_gemini_obj() { # <url>
+# Antigravity's modern remote-MCP schema uses serverUrl (no auth — ADR-017).
+_al_mcp_antigravity_obj() { # <url>
+  jq -n --arg u "$1" '{serverUrl: $u}'
+}
+
+# Qwen retains its legacy settings schema and uses httpUrl.
+_al_mcp_qwen_obj() { # <url>
   jq -n --arg u "$1" '{httpUrl: $u}'
 }
 
@@ -206,18 +226,18 @@ al_mcp_register_http() {
     echo "${server}: registered into codex (~/.codex/config.toml)"
   fi
 
-  if _al_mcp_gemini_present; then
-    _al_mcp_json_set "$(_al_mcp_gemini_cfg)" ".mcpServers" "$server" "$(_al_mcp_gemini_obj "$url")" \
+  if _al_mcp_antigravity_present; then
+    _al_mcp_json_set "$(_al_mcp_antigravity_cfg)" ".mcpServers" "$server" "$(_al_mcp_antigravity_obj "$url")" \
       || {
-        al_mcp_die "gemini-cli register failed"
+        al_mcp_die "antigravity-cli register failed"
         return 1
       }
-    AL_MCP_TARGETS+="gemini-cli "
-    echo "${server}: registered into gemini-cli (~/.gemini/settings.json)"
+    AL_MCP_TARGETS+="antigravity-cli "
+    echo "${server}: registered into antigravity-cli (~/.gemini/config/mcp_config.json)"
   fi
 
   if _al_mcp_qwen_present; then
-    _al_mcp_json_set "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server" "$(_al_mcp_gemini_obj "$url")" \
+    _al_mcp_json_set "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server" "$(_al_mcp_qwen_obj "$url")" \
       || {
         al_mcp_die "qwen-code register failed"
         return 1
@@ -247,11 +267,21 @@ al_mcp_register_http() {
 # after it returns 0, al_mcp_assert_absent verifies no residue.
 al_mcp_deregister() {
   local server=$1
-  _al_mcp_claude_present && _al_mcp_claude_deregister "$server"
-  _al_mcp_codex_present && { _al_mcp_codex_deregister "$server" || return 1; }
-  _al_mcp_gemini_present && { _al_mcp_json_del "$(_al_mcp_gemini_cfg)" ".mcpServers" "$server" || return 1; }
-  _al_mcp_qwen_present && { _al_mcp_json_del "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server" || return 1; }
-  _al_mcp_opencode_present && { _al_mcp_json_del "$(_al_mcp_opencode_cfg)" ".mcp" "$server" || return 1; }
+  if _al_mcp_claude_present; then
+    _al_mcp_claude_deregister "$server"
+  elif [[ -f "$(_al_mcp_claude_cfg)" ]]; then
+    _al_mcp_json_del "$(_al_mcp_claude_cfg)" ".mcpServers" "$server" || return 1
+  fi
+  [[ -f "$(_al_mcp_codex_cfg)" ]] && { _al_mcp_codex_deregister "$server" || return 1; }
+  if _al_mcp_json_has "$(_al_mcp_antigravity_cfg)" ".mcpServers" "$server"; then
+    _al_mcp_json_del "$(_al_mcp_antigravity_cfg)" ".mcpServers" "$server" || return 1
+  fi
+  if _al_mcp_json_has "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server"; then
+    _al_mcp_json_del "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server" || return 1
+  fi
+  if _al_mcp_json_has "$(_al_mcp_opencode_cfg)" ".mcp" "$server"; then
+    _al_mcp_json_del "$(_al_mcp_opencode_cfg)" ".mcp" "$server" || return 1
+  fi
   return 0
 }
 
@@ -260,23 +290,23 @@ al_mcp_deregister() {
 # server. Returns non-zero (with a message) on residue.
 al_mcp_assert_absent() {
   local server=$1
-  if _al_mcp_claude_present && _al_mcp_json_has "$(_al_mcp_claude_cfg)" ".mcpServers" "$server"; then
+  if _al_mcp_json_has "$(_al_mcp_claude_cfg)" ".mcpServers" "$server"; then
     al_mcp_die "residue: ${server} still in claude-code config"
     return 1
   fi
-  if _al_mcp_codex_present && _al_mcp_codex_has "$server"; then
+  if _al_mcp_codex_has "$server"; then
     al_mcp_die "residue: ${server} still in codex config"
     return 1
   fi
-  if _al_mcp_gemini_present && _al_mcp_json_has "$(_al_mcp_gemini_cfg)" ".mcpServers" "$server"; then
-    al_mcp_die "residue: ${server} still in gemini-cli config"
+  if _al_mcp_json_has "$(_al_mcp_antigravity_cfg)" ".mcpServers" "$server"; then
+    al_mcp_die "residue: ${server} still in antigravity-cli config"
     return 1
   fi
-  if _al_mcp_qwen_present && _al_mcp_json_has "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server"; then
+  if _al_mcp_json_has "$(_al_mcp_qwen_cfg)" ".mcpServers" "$server"; then
     al_mcp_die "residue: ${server} still in qwen-code config"
     return 1
   fi
-  if _al_mcp_opencode_present && _al_mcp_json_has "$(_al_mcp_opencode_cfg)" ".mcp" "$server"; then
+  if _al_mcp_json_has "$(_al_mcp_opencode_cfg)" ".mcp" "$server"; then
     al_mcp_die "residue: ${server} still in opencode config"
     return 1
   fi

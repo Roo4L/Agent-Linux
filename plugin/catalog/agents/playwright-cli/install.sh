@@ -22,6 +22,12 @@ set -euo pipefail
 : "${AGENTLINUX_PINNED_VERSION:?AGENTLINUX_PINNED_VERSION not set}"
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 
+# shellcheck source=../../lib/browser-deps.sh
+# The catalog is staged separately from the recipe; resolve the helper at
+# runtime from that staged root.
+# shellcheck disable=SC1091
+source "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}/lib/browser-deps.sh"
+
 echo "playwright-cli: installing @playwright/cli@${AGENTLINUX_PINNED_VERSION}"
 
 npm install -g \
@@ -29,6 +35,20 @@ npm install -g \
   --no-fund \
   --no-audit \
   "@playwright/cli@${AGENTLINUX_PINNED_VERSION}"
+
+# Resolve the npm-managed bin directory from the same prefix npm just used.
+# The normal AgentLinux environment supplies this through the login profile;
+# the isolated catalog harness supplies NPM_CONFIG_PREFIX directly.
+npm_global_bin="$(npm prefix -g)/bin"
+export PATH="${npm_global_bin}:${PATH}"
+
+# @playwright/cli@0.1.17 prints action-resolution failures in a structured
+# `### Error` envelope but exits zero. Install the narrow AgentLinux adapter
+# beside the npm-managed bin entry; it delegates every command to the package
+# and changes status only for that exact envelope. It is not a /usr/local shim.
+install -m 0755 \
+  "${AGENTLINUX_CATALOG_DIR}/agents/playwright-cli/status-wrapper.js" \
+  "${npm_global_bin}/playwright-cli"
 
 bin_path=$(command -v playwright-cli || true)
 if [[ -z "$bin_path" ]]; then
@@ -88,6 +108,23 @@ if ! find "$skill_dir" -maxdepth 1 -type d -name 'playwright-cli*' -print -quit 
   exit 1
 fi
 
+# The CLI's default `open` path uses the branded Chrome channel and Playwright
+# reports a missing `/opt/google/chrome/chrome` even when a Chromium cache exists.
+# Install Chrome through the shared agent-first helper; it is also the browser
+# required by chrome-devtools-mcp. No browser-owned files are written by npm.
+al_browser_ensure_chrome
+al_browser_ensure_playwright_libs
+
+# Prove the browser can launch before reporting success. This catches the Phase
+# 50 libglib/libnss class that `--version` cannot see. The session is isolated
+# and closed even when the probe fails.
+if ! ( cd "${AGENTLINUX_AGENT_HOME}" && \
+  PLAYWRIGHT_CLI_SESSION=agentlinux-install timeout 90 playwright-cli open about:blank >/dev/null 2>&1 && \
+  PLAYWRIGHT_CLI_SESSION=agentlinux-install playwright-cli close >/dev/null 2>&1 ); then
+  echo 'playwright-cli install: browser launch probe failed after dependency installation' >&2
+  exit 1
+fi
+
 # WIRE-01 (cross-agent skill wiring): the Claude-format skill the bootstrapper
 # just dropped is portable as-is to the other coding agents AgentLinux ships —
 # its SKILL.md (a directory with YAML `name`/`description` frontmatter) is the
@@ -97,9 +134,9 @@ fi
 # so it is already covered; the copy is what lights the skill up inside codex.
 # The copy is UNCONDITIONAL (independent of whether codex/opencode are installed
 # yet) so the wiring is install-order-independent: a codex installed later finds
-# the skill already present. gemini-cli and qwen-code have no skill host (only
-# prompt-style commands), so Playwright is not-applicable there — a multi-file
-# skill with a references/ tree does not round-trip to a single command prompt.
+# the skill already present. Antigravity has a workspace-specific skill path,
+# but AgentLinux has no single workspace target; qwen-code remains a
+# prompt-style host without a compatible skill scan path.
 wire_agents_skills_dir="${AGENTLINUX_AGENT_HOME}/.agents/skills"
 mkdir -p "$wire_agents_skills_dir"
 while IFS= read -r -d '' pw_skill; do

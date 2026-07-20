@@ -1,134 +1,82 @@
-# GSD (Get Shit Done)
+# Open GSD (Get Shit Done)
 
-GSD is a Claude Code workflow framework — slash commands and skills for
-planning multi-step engineering work, executing it phase by phase, and
-verifying the result. AgentLinux ships it as an opt-in catalog entry
-pinned to a version the project's CI matrix has exercised, so an upstream
-GSD regression does not immediately reach users.
+Open GSD is a multi-runtime workflow framework for planning multi-step
+engineering work, executing it phase by phase, and verifying the result.
+AgentLinux ships it as an opt-in catalog entry pinned to a tested release.
 
 ## The problem
 
-GSD has two intertwined installation problems on a fresh Ubuntu host.
+The naive root-global npm install path creates the same root-owned npm tree and
+`/usr/local` shim problem as every other privileged global install. Later
+agent-owned updates then fail with EACCES or require another privileged
+install.
 
-The first is the same ownership trap every npm-installed agent hits. The
-naive `sudo npm install -g get-shit-done-cc` lands a root-owned tree
-under `/usr/lib/node_modules`, leaves a wrapper at `/usr/local/bin/`,
-and turns every later `npm update` or in-tool self-update into an
-EACCES-then-`sudo` cycle. Once root has touched the global tree the
-agent user can no longer install or update without climbing the
-privilege ladder again — see [Agent user](agent-user.md) for the full
-bug class.
-
-The second is upstream cadence. GSD ships fast — multiple releases per
-week are normal, and the project has hit upstream regressions in
-production: a bug present in `latest` for several days before a fix
-shipped. A thin-wrapper distribution that always pulls `latest` exposes
-every user to every wobble in the upstream release cadence the moment
-it publishes, with no safety net between the broken version and the
-operator's machine.
-
-GSD also expects a follow-on bootstrap step that no thin wrapper can
-discover automatically: after the npm install, the binary is on PATH but
-no coding agent yet sees any `/gsd-*` slash commands or skills.
-GSD's bootstrapper has to be invoked once to copy its skill set into
-each agent's own config directory. Operators who skipped that step on
-the first GSD release reported "I installed it and my agent doesn't see
-it" — technically correct, intent-wise wrong.
-
-GSD's bootstrapper is multi-runtime — the same install can light up
-Claude Code, opencode, Gemini CLI, Codex, and Qwen Code, each in that
-tool's own command/skill format. So "install GSD" should mean GSD shows
-up in *every* coding agent the machine has, not just one.
+Open GSD also needs a bootstrap step after npm installation. A binary on PATH
+is not enough: each coding agent needs its own commands or skills. Skipping
+that step produces the misleading result “GSD is installed, but my agent
+cannot see it.”
 
 ## What AgentLinux does
 
-`agentlinux install gsd` runs the catalog recipe via the agent user.
-The recipe runs `npm install -g get-shit-done-cc@<pinned>` into the
-agent's per-user prefix at `~/.npm-global/`, so the binary
-(`get-shit-done-cc`, the npm-published name — there is no symlink
-shortening it to `gsd`) lands at
-`/home/agent/.npm-global/bin/get-shit-done-cc`, agent-owned.
+`agentlinux install gsd` runs the catalog recipe as `agent` and installs
+`@opengsd/gsd-core@<pinned>` into `/home/agent/.npm-global/`. The package-native
+command is `gsd-core`; AgentLinux creates no compatibility alias and no
+`/usr/local/bin` shim. The recipe checks the installed package manifest
+against the catalog pin before bootstrapping; it does not invoke the upstream
+command's side-effectful default installer as a version probe.
 
-The pinned version comes from the catalog entry's `pinned_version`
-field — the version AgentLinux's release-gate exercised against the
-full Docker + QEMU matrix before the tag shipped. After the install,
-the recipe asserts the help banner contains `v<pinned>` so a mispin or
-upstream-channel drift fails the install rather than silently writing
-a sentinel for the wrong version. The recipe then runs the GSD
-bootstrapper for every coding agent AgentLinux ships
-(`get-shit-done-cc --global --claude --opencode --gemini --codex
---qwen`), which copies the skill set into each agent's own config
-directory — Claude Code, Codex, and Qwen Code under a `skills/` tree,
-opencode under a `command/` directory, Gemini CLI under a namespaced
-`commands/` directory — and asserts the GSD surface actually landed for
-each one. GSD owns the per-tool format conversion; AgentLinux just
-invokes it and verifies the result, so the user's intent ("install
-GSD") is satisfied across the whole agent fleet, not just in the
-binary-on-PATH technical sense. The wiring is written unconditionally,
-so a coding agent installed *after* GSD still finds the skill set
-already present.
+The recipe then runs:
 
-`agentlinux upgrade` later compares installed, curated, and (with
-`--check-upstream`) upstream-latest, and surfaces the three divergence
-states (`synced`, `override-ahead`, `override-behind`) per
-[STABILITY-MODEL.md](../STABILITY-MODEL.md). When the operator runs
-`get-shit-done-cc` past the curated pin (or `npm install -g
-get-shit-done-cc` themselves), AgentLinux notices and asks rather than
-silently overwriting.
+```text
+gsd-core --global --claude --opencode --codex --qwen
+```
+
+Open GSD owns each runtime's format conversion. AgentLinux verifies the
+resulting skill files and command directories: Claude Code skills under
+`~/.claude/skills`, OpenCode skills under `~/.config/opencode/skills`, Codex skills under the shared
+`~/.agents/skills` root, and Qwen skills under `~/.qwen/skills`. Antigravity CLI
+automatic integration is not currently provided by upstream; users should use
+Antigravity's documented migration/import flow manually if needed. Uninstall
+invokes the same upstream cleanup and removes only GSD-owned files before
+uninstalling the npm package.
+
+`agentlinux upgrade` compares installed, curated, and (with
+`--check-upstream`) upstream versions. If an operator moves `gsd-core` beyond
+the curated pin, AgentLinux reports the divergence instead of silently
+overwriting it.
 
 ## Worked example
 
-```
+```text
 $ agentlinux install gsd
-gsd: installing get-shit-done-cc@1.37.1
-gsd: wiring GSD skill set into all shipped agents via get-shit-done-cc --global --claude --opencode --gemini --codex --qwen
-gsd: wired into Claude Code (/home/agent/.claude/skills)
-gsd: wired into opencode (/home/agent/.config/opencode/command)
-gsd: wired into gemini-cli (/home/agent/.gemini/commands)
-gsd: wired into codex (/home/agent/.codex/skills)
-gsd: wired into qwen-code (/home/agent/.qwen/skills)
-gsd: install complete (resolves at /home/agent/.npm-global/bin/get-shit-done-cc;
-     banner matches pin; skill set wired into Claude Code + opencode + gemini-cli + codex + qwen-code)
+gsd: installing @opengsd/gsd-core@1.7.0
+gsd: enabling Open GSD for Claude Code, OpenCode, Codex, and Qwen
+gsd: enabled for Claude Code (/home/agent/.claude/skills)
+gsd: enabled for OpenCode (/home/agent/.config/opencode)
+gsd: enabled for Codex (/home/agent/.agents/skills)
+gsd: enabled for Qwen Code (/home/agent/.qwen/skills)
 
-$ sudo -u agent get-shit-done-cc --help | head -1
-Get Shit Done v1.37.1
-
-$ agentlinux upgrade
-  gsd  installed=1.37.1  curated=1.37.1  state=synced
+$ sudo -u agent -H npm list -g --depth=0 @opengsd/gsd-core
+└── @opengsd/gsd-core@1.7.0
 ```
 
 ## Value vs the naive approach
 
-Without AgentLinux, the naive path is `sudo npm install -g
-get-shit-done-cc`. Two problems:
+AgentLinux preserves two user-visible guarantees in one catalog action:
 
-1. **The agent's own workflow tools end up root-owned.** GSD lives in
-   the same EACCES + recursive-shim story as Claude Code: once the
-   install tree is root-owned, no later operation under `~/.npm/` can
-   succeed without `sudo`, and every operator-side `sudo` corrupts
-   another layer. See [Agent user](agent-user.md) for the full bug
-   class — GSD is just one more victim of the naive global-install
-   path.
-2. **Upstream regressions hit immediately.** GSD ships fast, and
-   broken releases occasionally land in `latest`. A thin-wrapper
-   AgentLinux that always pulls `latest` would expose every user to
-   every upstream regression the moment it publishes. AgentLinux's
-   curated pin gives the project the freedom to test upstream movement
-   on the full Docker + QEMU matrix before it reaches users.
+1. **Agent-owned runtime.** The agent owns the npm runtime and can update it
+   without EACCES or a root shim.
+2. **Cross-runtime discovery.** The pinned, tested Open GSD release is
+   discoverable by every supported runtime, including Codex; Antigravity's
+   separate import flow is explicitly reported rather than guessed at by the
+   recipe.
 
-**Pinning is the explicit contract — AgentLinux tests what it ships,
-and the operator opts past the pin when they are ready.** The
-escape hatches (`agentlinux pin gsd=latest` for sticky-follow-upstream,
-`agentlinux pin gsd=<semver>` to bisect a regression) are first-class;
-the silent-drift path is the one that does not exist.
+The curated pin gives the project room to test new upstream releases through
+the container and virtual-machine test suites before they reach users.
 
 ## Related
 
-- [Agent user](agent-user.md) — the user that owns the per-user npm
-  prefix this install lands in.
-- [Catalog](catalog.md) — where the `gsd` entry's `pinned_version`
-  lives.
-- [Registry CLI](registry-cli.md) — the `agentlinux` command that
-  drives install / upgrade / pin against the catalog.
-- [../STABILITY-MODEL.md](../STABILITY-MODEL.md) — curated combos and
-  the three divergence states.
+- [Agent user](agent-user.md) — owns the per-user npm prefix.
+- [Catalog](catalog.md) — stores the `gsd` entry and pin.
+- [Registry CLI](registry-cli.md) — drives install, remove, upgrade, and pin.
+- [../STABILITY-MODEL.md](../STABILITY-MODEL.md) — curated version states.

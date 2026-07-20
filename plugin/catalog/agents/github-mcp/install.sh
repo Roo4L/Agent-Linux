@@ -4,7 +4,7 @@ set -euo pipefail
 #
 # Thin client-config installer (ADR-017): registers GitHub's HOSTED remote MCP
 # server (bare URL, NO credential) into EVERY installed MCP-capable coding agent
-# (claude-code, codex, gemini-cli, opencode, qwen-code) via the shared helper.
+# (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper.
 # First consumer of the ENABLE-02 remote-http machinery (reused by linear-mcp /
 # jira-atlassian-mcp).
 #
@@ -46,4 +46,7 @@ echo "${server}: registered into: ${AL_MCP_TARGETS}"
 # ADR-017: auth is completed IN-CLIENT — AgentLinux stores no token.
 echo "${server}: NOTE — authenticate from within your coding agent on first use"
 echo "${server}:        (Claude Code prompts a GitHub OAuth login; codex: \`codex mcp login\`)."
+echo "${server}:        OpenCode diagnostics: \`opencode mcp debug ${server}\`, then \`opencode mcp auth ${server}\`"
+echo "${server}:        and \`opencode auth list\`. GitHub's hosted OAuth metadata may not support"
+echo "${server}:        dynamic client registration; if so, OpenCode reports that external limitation."
 echo "${server}:        No token is stored by AgentLinux."

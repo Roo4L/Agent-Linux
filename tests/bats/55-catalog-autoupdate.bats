@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 # tests/bats/55-catalog-autoupdate.bats — AGT-02-style self-update / autoupdate
-# coexistence for the v0.3.6 npm cluster, mirroring the Claude Code self-update
+# coexistence for the v0.3.6 agent cluster, mirroring the Claude Code self-update
 # gate (51-agt02-release-gate.bats). No credentials needed — this is a
 # binary/updater-level check, not a model call.
 #
@@ -15,8 +15,8 @@
 #   - the binary stays agent-owned under $HOME (never a /usr/local shim);
 #   - the reported version is monotonic non-decreasing (pin not silently broken
 #     / downgraded), same shape as the claude `update` gate.
-# Tools with NO in-tool updater (gemini-cli, qwen-code, ccusage) are asserted to
-# expose none — their version is governed solely by the catalog pin and
+# Tools with NO in-tool updater (qwen-code, ccusage) are asserted to expose none
+# — their version is governed solely by the catalog pin and
 # `agentlinux upgrade`, so there is no in-tool path to bypass the pin.
 #
 # codex re-exercises ENABLE-05: with the catalog pin already at latest,
@@ -25,31 +25,33 @@
 # its updater is allowed to run, so the assertion is "updates cleanly +
 # monotonic", not "pin frozen".
 #
-# ENABLE-08 (passive autoupdate freeze) — the *other* half, added here: three
-# tools AUTO-INSTALL updates in the background by default (opencode on TUI
-# startup; gemini-cli + qwen-code via a detached `npm install -g @latest` on
-# startup). That passive path silently replaces the catalog pin out of band —
+# ENABLE-08 (passive autoupdate freeze) — the *other* half, added here: tools
+# that auto-install updates in the background must be frozen at their own
+# launch-mode-independent config (opencode and qwen-code). That passive path
+# silently replaces the catalog pin out of band —
 # the canonical AGT-02 hazard. The install recipe freezes it via each tool's own
 # launch-mode-independent config. The EXPLICIT user-initiated update path is
 # unaffected — the freeze lives in config, separate from the package, so
 # `agentlinux upgrade` / an npm reinstall still updates the tool; the codex +
 # opencode explicit updaters are exercised by the AGT-02-style @tests below, and
-# gemini-cli/qwen-code expose no in-tool updater by design.
+# qwen-code exposes no in-tool updater by design. Antigravity is different: its
+# official binary exposes `agy update` and the upstream installer documents
+# background self-updating. AgentLinux provisions the upstream-supported
+# `AGY_CLI_DISABLE_AUTO_UPDATE=true` opt-out in login, systemd, and cron
+# environments, while leaving the explicit updater available.
 # The @tests below assert the freeze CONFIG is present + correct after install.
 #
-# (The full passive-trigger reproduction — install N-1, drive an interactive
-# session, watch it auto-bump — was performed manually under Docker for
-# gemini-cli: 0.47.0→0.49.0 with no freeze, pinned at 0.47.0 with the freeze. It
-# is intentionally NOT a CI @test: it needs an allocated PTY + live network +
-# ~90s and is inherently flaky. The deterministic config assertion is the CI
-# gate; see the phase SUMMARY for the manual A/B.)
+# A passive-trigger reproduction for Antigravity is intentionally NOT a CI
+# @test: it needs a real PTY, live Google auth, and a safe older artifact. The
+# deterministic environment assertion below covers AgentLinux's opt-out
+# wiring; the upstream client remains responsible for honoring that variable.
 #
 # PIN-BUMP GUARDRAIL (qa): the config assertion checks the key NAME we write, not
-# that the tool still READS it. If an opencode/gemini-cli/qwen-code pin bump
+# that the tool still READS it. If an opencode/qwen-code or Antigravity pin bump
 # renames the upstream key (e.g. enableAutoUpdate→autoUpdate), the freeze breaks
-# silently while this test stays green. On any pin bump of these three, re-run
-# the manual interactive A/B above to confirm the freeze still takes, and update
-# the key name in BOTH the recipe and these @tests if upstream changed it.
+# silently while this test stays green. On any pin bump, rerun the relevant
+# manual interactive check and update the recipe/tests if upstream changes the
+# setting name or behavior.
 
 load 'helpers/invoke_modes'
 load 'helpers/assertions'
@@ -68,7 +70,7 @@ setup_file() {
 teardown_file() {
   if [[ -L /home/agent/.npm-global/bin/agentlinux ]]; then
     local id
-    for id in codex opencode gemini-cli qwen-code ccusage; do
+    for id in codex opencode antigravity-cli qwen-code ccusage; do
       sudo -u agent -H bash --login -c "agentlinux remove --force ${id}" >/dev/null 2>&1 || true
     done
   fi
@@ -157,18 +159,6 @@ _assert_frozen_json() {
   _remove opencode
 }
 
-@test "ENABLE-08: gemini-cli install freezes passive autoupdate (general.enableAutoUpdate=false)" {
-  _reinstall gemini-cli
-  _assert_frozen_json "ENABLE-08/gemini-cli" \
-    "/home/agent/.gemini/settings.json" '.general.enableAutoUpdate == false'
-  # Smoke that the binary still launches with the freeze config in place (JSON
-  # well-formedness is already enforced by jq -e above; this just guards against
-  # the freeze write having left the tool unrunnable for any reason).
-  run sudo -u agent -H bash --login -c 'gemini --version </dev/null 2>&1'
-  assert_exit_zero "ENABLE-08/gemini-cli (--version with freeze present)"
-  _remove gemini-cli
-}
-
 @test "ENABLE-08: qwen-code install freezes passive autoupdate (general.enableAutoUpdate=false)" {
   _reinstall qwen-code
   _assert_frozen_json "ENABLE-08/qwen-code" \
@@ -239,10 +229,20 @@ _assert_frozen_json() {
   _remove opencode
 }
 
-@test "AGT-02-style: gemini-cli exposes no in-tool self-updater (pin governed by agentlinux upgrade)" {
-  _install gemini-cli
-  _assert_no_updater "AGT-02-style/gemini-cli" gemini
-  _remove gemini-cli
+@test "AGT-02-style: antigravity-cli exposes its explicit updater without AgentLinux invoking it" {
+  _install antigravity-cli
+  run sudo -u agent -H bash --login -c 'test "${AGY_CLI_DISABLE_AUTO_UPDATE:-}" = true'
+  assert_exit_zero "AGT-02-style/antigravity-cli (supported passive-update opt-out is provisioned)"
+  run grep -qx 'AGY_CLI_DISABLE_AUTO_UPDATE=true' /etc/agentlinux.env
+  assert_exit_zero "AGT-02-style/antigravity-cli (systemd EnvironmentFile opt-out)"
+  run grep -qx 'AGY_CLI_DISABLE_AUTO_UPDATE=true' /etc/cron.d/agentlinux
+  assert_exit_zero "AGT-02-style/antigravity-cli (cron environment opt-out)"
+  run sudo -u agent -H bash --login -c 'agy --help </dev/null 2>&1'
+  assert_exit_zero "AGT-02-style/antigravity-cli (--help)"
+  if ! printf '%s' "${output}" | grep -qE '(^|[[:space:]])update([[:space:]]|$)'; then
+    __fail "AGT-02-style/antigravity-cli" "explicit 'agy update' subcommand is discoverable" "${output:-<empty>}" "$LOG"
+  fi
+  _remove antigravity-cli
 }
 
 @test "AGT-02-style: qwen-code exposes no in-tool self-updater (pin governed by agentlinux upgrade)" {

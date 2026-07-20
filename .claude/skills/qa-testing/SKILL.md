@@ -17,11 +17,14 @@ campaign.
 
 ## Invocation and defaults
 
-At invocation, state in free-form text:
+At invocation, state in free-form text, then use that as the credential
+checkpoint before the first package operation:
 
 - the unit or package scope (release candidate, milestone, package, or workflow);
 - any Ubuntu distribution or workflow focus;
-- credentials already authorized for this session and their intended minimal use;
+- credential classes already authorized for this session and their intended
+  minimal use (Antigravity requires the agent user's Google Sign-In/keyring
+  session; it does not use an API key);
 - optional changes to the default productive window or clean-idea threshold.
 
 The normal stop defaults are **30 minutes of productive QA activity** and the
@@ -36,7 +39,7 @@ consistently.
 
 The included catalog inventory is:
 
-`claude-code`, `gsd`, `playwright-cli`, `codex`, `gemini-cli`, `opencode`,
+`claude-code`, `gsd`, `playwright-cli`, `codex`, `antigravity-cli`, `opencode`,
 `qwen-code`, `ccusage`, `rtk`, `gh`, `glab`, `trivy`, `gitleaks`, `sentry-cli`,
 `chrome-devtools-mcp`, `context7`, `github-mcp`, `sentry-mcp`, `firecrawl-mcp`,
 `slack-mcp`, `linear-mcp`, `jira-atlassian-mcp`, and `spec-kit`.
@@ -58,6 +61,14 @@ Compare every catalog ID with the three explicit exclusions and the ledger. The
 listed 23-entry inventory is the current expected snapshot; if the catalog has
 changed, stop and reconcile the scope before testing. Do not silently omit an
 included entry because its operation is inconvenient.
+
+For a phase-bound campaign, keep the two durable records beside the phase
+artifacts: `.planning/phases/<phase>/<phase>-SCENARIO-LEDGER.md` and
+`.planning/phases/<phase>/<phase>-QA-REPORT.md`. For a standalone campaign,
+use `.planning/qa/<YYYY-MM-DD>-SCENARIO-LEDGER.md` and
+`.planning/qa/<YYYY-MM-DD>-QA-REPORT.md`. The ledger is updated after each
+idea; the report is the final handback in the template below. Keep both free
+of secret values and link only to redacted evidence.
 
 ## Per-package evidence contract
 
@@ -113,7 +124,7 @@ matrix. At minimum cover:
 - coding-agent consumers with `gsd` and `playwright-cli`, including provider-first
   and consumer-first installation where the shared skill/config surface matters;
 - every compatible cross-agent MCP fan-out provider against each compatible
-  installed coding agent (`claude-code`, `codex`, `gemini-cli`, `opencode`, and
+  installed coding agent (`claude-code`, `codex`, `antigravity-cli`, `opencode`, and
   `qwen-code` as applicable), in both installation orders;
 - the catalog/list UX after representative installs: `agentlinux list`,
   `agentlinux list --by-category`, and their `--json` forms; inspect default and
@@ -133,8 +144,8 @@ defect; do not inflate coverage with meaningless pairs.
 
 ## Credential checkpoint and blocking
 
-Before package operations, inventory the credential classes required by the
-selected real scenarios and ask the user for runtime authorization. Likely
+Before package operations, confirm the credential classes already stated at
+invocation and ask the user only for missing runtime authorization. Likely
 classes are:
 
 - model/provider access for authenticated coding-agent prompts;

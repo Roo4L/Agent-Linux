@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# tests/bats/53-catalog-npm-cluster.bats — v0.3.6 Phases 23-27 npm catalog
-# cluster: AGT-07 (codex) + ENABLE-05, AGT-06 (gemini-cli), AGT-05 (opencode),
+# tests/bats/53-catalog-agent-cluster.bats — v0.3.6 Phases 23-27 agent catalog
+# cluster: AGT-07 (codex) + ENABLE-05, AGT-06 (antigravity-cli), AGT-05 (opencode),
 # AGT-08 (qwen-code), WORK-01 (ccusage).
 #
 # Each requirement gets one @test that drives the full TST-07 lifecycle:
@@ -20,7 +20,7 @@
 #
 # Refs:
 #   - tests/bats/50-agents.bats (setup_file recovery + jq-pin precedent)
-#   - plugin/catalog/agents/{codex,gemini-cli,opencode,qwen-code,ccusage}/
+#   - plugin/catalog/agents/{codex,antigravity-cli,opencode,qwen-code,ccusage}/
 #   - .planning/REQUIREMENTS.md (AGT-05..08, WORK-01, ENABLE-05)
 
 load 'helpers/invoke_modes'
@@ -54,7 +54,7 @@ teardown_file() {
   # Symmetric removal + state scrub so later @test files see a clean slate.
   if [[ -L /home/agent/.npm-global/bin/agentlinux ]]; then
     local id
-    for id in codex gemini-cli opencode qwen-code ccusage; do
+    for id in codex antigravity-cli opencode qwen-code ccusage; do
       sudo -u agent -H bash --login -c "agentlinux remove --force ${id}" >/dev/null 2>&1 || true
     done
   fi
@@ -65,12 +65,14 @@ teardown_file() {
   ' >/dev/null 2>&1 || true
 }
 
-# _npm_agent_lifecycle <req-id> <catalog-id> <binary> — shared install→verify→
+# _agent_lifecycle <req-id> <catalog-id> <binary> <expected-prefix> — shared install→verify→
 # remove driver. Asserts: install exit 0, no EACCES, version matches the
-# catalog pin, binary resolves under the agent npm prefix (no /usr/local shim),
-# symmetric remove drops it from PATH, and a second remove is idempotent.
-_npm_agent_lifecycle() {
-  local req=$1 id=$2 bin=$3 pinned
+# catalog pin, binary resolves under the agent-owned prefix (no /usr/local
+# shim), symmetric remove drops it from PATH, and a second remove is idempotent.
+# The expected prefix is explicit because Antigravity is a direct binary while
+# the other entries in this cluster are npm-managed.
+_agent_lifecycle() {
+  local req=$1 id=$2 bin=$3 expected_prefix=$4 pinned
   pinned=$(jq -r ".agents[] | select(.id==\"${id}\") | .pinned_version" "$CATALOG")
   # Guard: an empty/null pin would make `grep -F -- ""` match ANY output,
   # silently defeating the version-lock assertion (missing catalog, bad id).
@@ -90,8 +92,8 @@ _npm_agent_lifecycle() {
   run sudo -u agent -H bash --login -c "command -v ${bin}"
   assert_exit_zero "${req} (resolve)"
   case "${output}" in
-    /home/agent/.npm-global/bin/*) : ;;
-    *) __fail "$req" "${bin} resolves under /home/agent/.npm-global/bin (no /usr/local shim)" "${output:-<empty>}" "$LOG" ;;
+    "${expected_prefix}"/*) : ;;
+    *) __fail "$req" "${bin} resolves under ${expected_prefix} (no /usr/local shim)" "${output:-<empty>}" "$LOG" ;;
   esac
 
   run sudo -u agent -H bash --login -c "agentlinux remove --force ${id}"
@@ -101,13 +103,13 @@ _npm_agent_lifecycle() {
   [[ "${status}" -ne 0 ]] \
     || __fail "$req" "${bin} NOT on PATH after remove" "still resolves: ${output}" "$LOG"
 
-  # Idempotent re-remove (uninstall.sh is npm-uninstall-|| true).
+  # Idempotent re-remove.
   run sudo -u agent -H bash --login -c "agentlinux remove --force ${id}"
   assert_exit_zero "${req} (idempotent remove)"
 }
 
 @test "AGT-07: codex install→version-pin→symmetric remove lifecycle" {
-  _npm_agent_lifecycle "AGT-07" codex codex
+  _agent_lifecycle "AGT-07" codex codex /home/agent/.npm-global/bin
 }
 
 @test "ENABLE-05: codex install disables the in-app startup update check and keeps the npm pin authoritative" {
@@ -156,18 +158,26 @@ _npm_agent_lifecycle() {
   fi
 }
 
-@test "AGT-06: gemini-cli install→version-pin→symmetric remove lifecycle" {
-  _npm_agent_lifecycle "AGT-06" gemini-cli gemini
+@test "AGT-06: antigravity-cli install→version-pin→symmetric remove lifecycle" {
+  run sudo -u agent -H bash --login -c \
+    'mkdir -p ~/.gemini/antigravity-cli && printf "%s\\n" preserved > ~/.gemini/antigravity-cli/agentlinux-preserve-sentinel'
+  assert_exit_zero "AGT-06 (seed preserved Antigravity state)"
+
+  _agent_lifecycle "AGT-06" antigravity-cli agy /home/agent/.local/bin
+
+  run sudo -u agent -H bash --login -c \
+    'test "$(cat ~/.gemini/antigravity-cli/agentlinux-preserve-sentinel)" = preserved'
+  assert_exit_zero "AGT-06 (preserve ~/.gemini state after remove)"
 }
 
 @test "AGT-05: opencode install→version-pin→symmetric remove lifecycle" {
-  _npm_agent_lifecycle "AGT-05" opencode opencode
+  _agent_lifecycle "AGT-05" opencode opencode /home/agent/.npm-global/bin
 }
 
 @test "AGT-08: qwen-code install→version-pin→symmetric remove lifecycle" {
-  _npm_agent_lifecycle "AGT-08" qwen-code qwen
+  _agent_lifecycle "AGT-08" qwen-code qwen /home/agent/.npm-global/bin
 }
 
 @test "WORK-01: ccusage install→version-pin→symmetric remove lifecycle" {
-  _npm_agent_lifecycle "WORK-01" ccusage ccusage
+  _agent_lifecycle "WORK-01" ccusage ccusage /home/agent/.npm-global/bin
 }

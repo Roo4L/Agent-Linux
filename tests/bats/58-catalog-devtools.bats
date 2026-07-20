@@ -144,7 +144,7 @@ _remove_gone() {
 
 # _assert_config_preserved <req> <abs-config-file>
 # CAT-04: an authenticated tool's per-user auth/config survives `agentlinux remove`
-# — consistent with every other authenticated agent (codex ~/.codex, gemini
+# — consistent with every other authenticated agent (codex ~/.codex, Antigravity
 # ~/.gemini, claude-code ~/.claude). Only `agentlinux --purge` wipes the agent
 # home. The seeded sentinel file must still exist after remove.
 _assert_config_preserved() {

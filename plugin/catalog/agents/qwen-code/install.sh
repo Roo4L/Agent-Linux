@@ -12,8 +12,8 @@ set -euo pipefail
 # Provider auth (DASHSCOPE_API_KEY / OpenAI-compatible creds) is supplied
 # post-install — never baked into the recipe.
 #
-# ENABLE-08 (passive autoupdate freeze): qwen-code is a gemini-cli fork and
-# inherits its auto-updater — handleAutoUpdate.ts spawns a detached
+# ENABLE-08 (passive autoupdate freeze): qwen-code inherits its upstream CLI
+# auto-updater — handleAutoUpdate.ts spawns a detached
 # `npm install -g @qwen-code/qwen-code@latest` on startup by default
 # (general.enableAutoUpdate defaults to true). Freezing this matters doubly
 # here: on a non-agent-owned npm prefix qwen's auto-update fails EACCES and

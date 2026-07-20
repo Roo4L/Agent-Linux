@@ -4,7 +4,7 @@
 #
 # THIN INSTALLER (ADR-017): github-mcp registers GitHub's hosted remote MCP server
 # as a BARE URL — no credential — into EVERY installed MCP-capable agent
-# (claude-code, codex, gemini-cli, opencode, qwen-code) via the shared helper
+# (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper
 # plugin/catalog/lib/mcp-register.sh. AgentLinux stores NO token; the user
 # authenticates in-client (OAuth) on first use. `remove` deregisters from all
 # agents symmetrically.
@@ -12,7 +12,7 @@
 # This gate installs claude-code + codex as preconditions (the two the maintainer
 # named) and asserts bare-URL fan-out into BOTH, that NO credential lands in any
 # config, the no-Docker shape, and residue-free symmetric removal.
-# gemini/opencode/qwen are asserted only if present.
+# antigravity/opencode/qwen are asserted only if present.
 #
 # Design invariants (behavior-test-contract):
 #   - every @test name prefixed with the requirement ID
@@ -114,9 +114,9 @@ _assert_gone_if_present() {
   [[ "${status}" -ne 0 ]] \
     || __fail "MCP-03" "codex github-mcp block carries NO bearer/token (bare url)" "token field present" "$LOG"
 
-  # Cross-agent fan-out: gemini-family + opencode get the SAME bare entry when
+  # Cross-agent fan-out: Antigravity + qwen + opencode get the SAME bare entry when
   # present. Assert conditionally (they may not be installed on this container).
-  _assert_present_if_installed gemini "jq -e --arg u \"${url}\" '.mcpServers[\"github-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.gemini/settings.json"
+  _assert_present_if_installed agy "jq -e --arg u \"${url}\" '.mcpServers[\"github-mcp\"] | .serverUrl==\$u and (has(\"headers\")|not)' /home/agent/.gemini/config/mcp_config.json"
   _assert_present_if_installed qwen "jq -e --arg u \"${url}\" '.mcpServers[\"github-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.qwen/settings.json"
   _assert_present_if_installed opencode "jq -e --arg u \"${url}\" '.mcp[\"github-mcp\"] | .type==\"remote\" and .url==\$u and (has(\"headers\")|not)' /home/agent/.config/opencode/opencode.json"
 
@@ -139,7 +139,7 @@ _assert_gone_if_present() {
   run sudo -u agent -H bash --login -c "grep -q 'agentlinux-mcp:github-mcp' ${CODEX_TOML}"
   [[ "${status}" -ne 0 ]] \
     || __fail "MCP-03" "github-mcp block gone from ${CODEX_TOML} after remove" "block remains" "$LOG"
-  _assert_gone_if_present gemini "jq -e '.mcpServers | has(\"github-mcp\")' /home/agent/.gemini/settings.json"
+  _assert_gone_if_present agy "jq -e '.mcpServers | has(\"github-mcp\")' /home/agent/.gemini/config/mcp_config.json"
   _assert_gone_if_present qwen "jq -e '.mcpServers | has(\"github-mcp\")' /home/agent/.qwen/settings.json"
   _assert_gone_if_present opencode "jq -e '.mcp | has(\"github-mcp\")' /home/agent/.config/opencode/opencode.json"
 

@@ -7,7 +7,7 @@ set -euo pipefail
 # through the CAT-04 preserve gate: catalog.json lists it in preserve_paths.json,
 # so the CLI injects it into AGENTLINUX_PRESERVE_PATHS on every uninstall and the
 # gate keeps it. This matches every other authenticated agent (codex ~/.codex,
-# gemini ~/.gemini, claude-code ~/.claude) — a `remove` never destroys the user's
+# Antigravity ~/.gemini, claude-code ~/.claude) — a `remove` never destroys the user's
 # credentials, and only `agentlinux --purge` wipes the whole agent home. Every
 # destructive step is guarded / idempotent, so a second remove on a missing
 # install exits 0. The truth check asserts on the concrete agent-owned binary path

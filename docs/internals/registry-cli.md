@@ -12,8 +12,8 @@ catalog itself) is wiring underneath.
 
 A fleet of agents, each with its own install command and update story,
 becomes unmemorable fast. Claude Code installs via Anthropic's native
-`claude.ai/install.sh`; GSD installs via `npm install -g get-shit-done-cc`
-plus a `--global --claude` bootstrapper; Playwright installs via
+`claude.ai/install.sh`; Open GSD installs via `npm install -g @opengsd/gsd-core`
+plus a multi-runtime bootstrapper; Playwright installs via
 `npm install -g @playwright/cli` plus a `--skills` bootstrapper that
 needs apt-layer browser deps. The naive alternative is a `README.md`
 listing per-agent install commands and hoping operators copy-paste them
@@ -86,6 +86,13 @@ The CLI exposes six verbs:
   brownfield host's `present` tools into managed `reused` entries. "No
   agent installed by default" still holds — adopt only records what
   detection already found.
+
+After a coding agent install succeeds, the CLI also makes a best-effort
+cross-agent reconciliation pass for installed providers that declare a
+`rewire_recipe_path`. That pass includes Antigravity in the supported coding
+agent set, so hosted MCP registrations can be applied to its native config
+when it is installed after the provider. A failed reconciliation is reported
+without turning the already-successful agent install into a failure.
 - `agentlinux remove <name>` — the symmetric inverse: dispatch the
   entry's `uninstall_recipe_path` and delete the sentinel. `--force`
   succeeds even when nothing is installed (idempotent).
@@ -136,8 +143,8 @@ auditor to review.
 $ agentlinux list
 NAME           STATUS         CURATED   INSTALLED  DESCRIPTION
 claude-code    synced         2.1.98    2.1.98 (reused — managed by agentlinux ...
-gsd            synced         1.37.1    1.37.1 (reused — managed by agentlinux ...
-playwright-cli not-installed  0.1.11    -          Microsoft's token-efficient ...
+gsd            synced         1.7.0     1.7.0 (reused — managed by agentlinux ...
+playwright-cli not-installed  0.1.17    -          Microsoft's token-efficient ...
 
 # A tool the host has but that AgentLinux has not recorded yet reads `present`,
 # not `not-installed` — and adopt records it (no download, no reinstall):
@@ -148,7 +155,7 @@ $ agentlinux adopt claude-code
 
 $ agentlinux upgrade
   claude-code     installed=2.1.98  curated=2.1.98  state=synced
-  gsd             installed=1.37.1  curated=1.37.1  state=synced
+  gsd             installed=1.7.0  curated=1.7.0  state=synced
   playwright-cli  not-installed
 ```
 

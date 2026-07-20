@@ -21,8 +21,9 @@
 #                (--codex is REJECTED with --auto-patch; the codex path writes
 #                 AGENTS.md+RTK.md and never patches settings.json, so it is
 #                 already non-interactive — we still close stdin defensively)
-#   gemini-cli   rtk init -g --gemini --auto-patch   -> ~/.gemini/GEMINI.md (rtk block)
 #   opencode     rtk init -g --opencode --auto-patch -> ~/.config/opencode/plugins/rtk.ts
+#   antigravity-cli N/A — rtk exposes no Antigravity target (and its CLI uses a
+#                separate config/skills model).
 #   qwen-code    N/A — rtk has no qwen target (absent from `--agent`). Documented,
 #                never silently pretended-wired.
 #
@@ -38,65 +39,7 @@ _al_rtk_home() { printf '%s' "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not
 _al_rtk_present() { command -v rtk >/dev/null 2>&1; }
 _al_rtk_claude_present() { command -v claude >/dev/null 2>&1; }
 _al_rtk_codex_present() { command -v codex >/dev/null 2>&1; }
-_al_rtk_gemini_present() { command -v gemini >/dev/null 2>&1; }
 _al_rtk_opencode_present() { command -v opencode >/dev/null 2>&1; }
-_al_rtk_gemini_artifact_present() {
-  grep -qF -- '# RTK - Rust Token Killer' \
-    "${1}/.gemini/GEMINI.md" 2>/dev/null
-}
-_al_rtk_gemini_hook_present() {
-  [[ -f "${1}/.gemini/hooks/rtk-hook-gemini.sh" ]] \
-    || [[ -f "${1}/.gemini/hooks/.rtk-hook.sha256" ]]
-}
-
-# RTK's Gemini uninstall removes GEMINI.md wholesale. When Gemini itself has
-# already been removed, clean only RTK's uniquely named hook and settings entry
-# so a user-edited GEMINI.md remains intact.
-_al_rtk_unwire_stale_gemini_hook() {
-  local home=$1
-  rm -f -- "${home}/.gemini/hooks/rtk-hook-gemini.sh" \
-    "${home}/.gemini/hooks/.rtk-hook.sha256"
-
-  local settings="${home}/.gemini/settings.json"
-  [[ -f $settings ]] || return 0
-  AGENTLINUX_GEMINI_SETTINGS=$settings node <<'NODE' >/dev/null 2>&1 || true
-const fs = require("fs");
-const file = process.env.AGENTLINUX_GEMINI_SETTINGS;
-let settings;
-try {
-  settings = JSON.parse(fs.readFileSync(file, "utf8"));
-} catch {
-  process.exit(0);
-}
-const before = settings?.hooks?.BeforeTool;
-if (!Array.isArray(before)) process.exit(0);
-const kept = [];
-let changed = false;
-for (const entry of before) {
-  if (!Array.isArray(entry?.hooks) || entry.hooks.length === 0) {
-    kept.push(entry);
-    continue;
-  }
-  const hooks = entry.hooks.filter((hook) => {
-    const command = hook?.command;
-    return typeof command !== "string" || !command.includes("rtk-hook-gemini");
-  });
-  if (hooks.length !== entry.hooks.length) changed = true;
-  if (hooks.length > 0) kept.push({ ...entry, hooks });
-}
-if (!changed) process.exit(0);
-if (kept.length === 0) {
-  delete settings.hooks.BeforeTool;
-} else {
-  settings.hooks.BeforeTool = kept;
-}
-const mode = fs.statSync(file).mode & 0o777;
-const tmp = `${file}.agentlinux.tmp`;
-fs.writeFileSync(tmp, `${JSON.stringify(settings, null, 2)}\n`, { mode });
-fs.chmodSync(tmp, mode);
-fs.renameSync(tmp, file);
-NODE
-}
 
 # al_rtk_wire — fan `rtk init` out to every supported agent present now. Sets
 # AL_RTK_TARGETS to the space-separated wired-agent list. Always returns 0
@@ -131,16 +74,6 @@ al_rtk_wire() {
       echo "rtk: wired into codex (~/.codex/RTK.md + AGENTS.md)"
     else
       echo "rtk-wire: codex wiring did not land (skipped)" >&2
-    fi
-  fi
-
-  if _al_rtk_gemini_present; then
-    if rtk init -g --gemini --auto-patch >/dev/null 2>&1 \
-      && _al_rtk_gemini_artifact_present "$home"; then
-      AL_RTK_TARGETS+="gemini-cli "
-      echo "rtk: wired into gemini-cli (~/.gemini/GEMINI.md)"
-    else
-      echo "rtk-wire: gemini-cli wiring did not land (skipped)" >&2
     fi
   fi
 
@@ -183,11 +116,6 @@ al_rtk_unwire() {
   fi
   if _al_rtk_codex_present || [[ -f "${home}/.codex/RTK.md" ]]; then
     rtk init -g --codex --uninstall </dev/null >/dev/null 2>&1 || true
-  fi
-  if _al_rtk_gemini_present; then
-    rtk init -g --gemini --uninstall --auto-patch >/dev/null 2>&1 || true
-  elif _al_rtk_gemini_hook_present "$home"; then
-    _al_rtk_unwire_stale_gemini_hook "$home"
   fi
   if _al_rtk_opencode_present || [[ -f "${home}/.config/opencode/plugins/rtk.ts" ]]; then
     rtk init -g --opencode --uninstall --auto-patch >/dev/null 2>&1 || true

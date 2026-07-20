@@ -3,14 +3,14 @@
 #
 # THIN INSTALLER (ADR-017): sentry-mcp registers Sentry's hosted remote MCP server
 # as a BARE URL — no credential — into EVERY installed MCP-capable agent
-# (claude-code, codex, gemini-cli, opencode, qwen-code) via the shared helper
+# (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper
 # plugin/catalog/lib/mcp-register.sh. AgentLinux stores NO token; the user
 # authenticates in-client (Sentry OAuth) on first use. `remove` deregisters from
 # all agents symmetrically. Second consumer of the ENABLE-02 remote-http helper.
 #
 # Installs claude-code + codex as preconditions and asserts bare-URL fan-out into
 # BOTH, that NO credential lands in any config, and residue-free symmetric removal.
-# gemini/opencode/qwen are asserted only if present.
+# antigravity/opencode/qwen are asserted only if present.
 #
 # Design invariants: see tests/bats/60-catalog-github-mcp.bats (identical shape).
 
@@ -92,7 +92,7 @@ _assert_gone_if_present() {
   [[ "${status}" -ne 0 ]] \
     || __fail "MCP-04" "codex sentry-mcp block carries NO bearer/token (bare url)" "token field present" "$LOG"
 
-  _assert_present_if_installed gemini "jq -e --arg u \"${url}\" '.mcpServers[\"sentry-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.gemini/settings.json"
+  _assert_present_if_installed agy "jq -e --arg u \"${url}\" '.mcpServers[\"sentry-mcp\"] | .serverUrl==\$u and (has(\"headers\")|not)' /home/agent/.gemini/config/mcp_config.json"
   _assert_present_if_installed qwen "jq -e --arg u \"${url}\" '.mcpServers[\"sentry-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.qwen/settings.json"
   _assert_present_if_installed opencode "jq -e --arg u \"${url}\" '.mcp[\"sentry-mcp\"] | .type==\"remote\" and .url==\$u and (has(\"headers\")|not)' /home/agent/.config/opencode/opencode.json"
 
@@ -112,7 +112,7 @@ _assert_gone_if_present() {
   run sudo -u agent -H bash --login -c "grep -q 'agentlinux-mcp:sentry-mcp' ${CODEX_TOML}"
   [[ "${status}" -ne 0 ]] \
     || __fail "MCP-04" "sentry-mcp block gone from ${CODEX_TOML} after remove" "block remains" "$LOG"
-  _assert_gone_if_present gemini "jq -e '.mcpServers | has(\"sentry-mcp\")' /home/agent/.gemini/settings.json"
+  _assert_gone_if_present agy "jq -e '.mcpServers | has(\"sentry-mcp\")' /home/agent/.gemini/config/mcp_config.json"
   _assert_gone_if_present qwen "jq -e '.mcpServers | has(\"sentry-mcp\")' /home/agent/.qwen/settings.json"
   _assert_gone_if_present opencode "jq -e '.mcp | has(\"sentry-mcp\")' /home/agent/.config/opencode/opencode.json"
 

@@ -1,10 +1,10 @@
 {
-  "version": "0.3.5",
+  "version": "0.3.6",
   "agents": [
     {
       "id": "claude-code",
       "display_name": "Claude Code",
-      "description": "Anthropic's agentic CLI for software engineering tasks (canonical AGT-02 target).",
+      "description": "Anthropic's agentic CLI for software engineering tasks.",
       "homepage": "https://docs.claude.com/en/docs/claude-code",
       "license": "Proprietary",
       "source_kind": "script",
@@ -23,16 +23,16 @@
     {
       "id": "gsd",
       "display_name": "Get Shit Done",
-      "description": "GSD workflow CLI for Claude Code (phase/plan/execute automation).",
-      "homepage": "https://github.com/gsd-build/get-shit-done",
+      "description": "Open GSD workflow system for Claude Code, OpenCode, Codex, and Qwen that helps coding agents plan, carry out, and verify multi-step work. Automatic Antigravity CLI integration is not currently available.",
+      "homepage": "https://github.com/open-gsd/gsd-core",
       "license": "MIT",
       "source_kind": "npm",
-      "npm_package_name": "get-shit-done-cc",
-      "pinned_version": "1.37.1",
-      "compatibility_window": ">=1.37.0 <2.0.0",
+      "npm_package_name": "@opengsd/gsd-core",
+      "pinned_version": "1.7.0",
+      "compatibility_window": ">=1.7.0 <2.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
-      "post_install_verify": "command -v get-shit-done-cc",
+      "post_install_verify": "command -v gsd-core",
       "preserve_paths_file": "preserve_paths.json",
       "tags": [
         "workflow",
@@ -42,12 +42,12 @@
     {
       "id": "playwright-cli",
       "display_name": "Playwright CLI",
-      "description": "Microsoft's token-efficient Playwright command-line tool for coding agents — exposes browser automation via concise CLI commands and bundles a Claude Code skill.",
+      "description": "Microsoft's token-efficient Playwright command-line tool for coding agents — exposes browser automation via concise CLI commands and includes the instructions Claude Code needs to discover and use its commands.",
       "homepage": "https://playwright.dev/agent-cli/installation",
       "license": "Apache-2.0",
       "source_kind": "npm",
       "npm_package_name": "@playwright/cli",
-      "pinned_version": "0.1.15",
+      "pinned_version": "0.1.17",
       "compatibility_window": ">=0.1.0 <1.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
@@ -62,7 +62,7 @@
     {
       "id": "codex",
       "display_name": "OpenAI Codex",
-      "description": "OpenAI's Codex coding agent CLI; runs locally and forwards to the Codex agent. Self-updater coexistence is enforced so the catalog pin stays authoritative (ENABLE-05).",
+      "description": "OpenAI's Codex coding agent CLI; runs locally and forwards to the Codex agent. Background self-updates are disabled so the tested catalog version remains authoritative.",
       "homepage": "https://github.com/openai/codex",
       "license": "Apache-2.0",
       "source_kind": "npm",
@@ -80,18 +80,17 @@
       ]
     },
     {
-      "id": "gemini-cli",
-      "display_name": "Gemini CLI",
-      "description": "Google's Gemini command-line coding agent (binary `gemini`). Google auth is supplied post-install.",
-      "homepage": "https://github.com/google-gemini/gemini-cli",
+      "id": "antigravity-cli",
+      "display_name": "Antigravity CLI",
+      "description": "Google's terminal coding agent (binary `agy`). Sign in with Google after installation; credentials stay in Antigravity's user-owned state.",
+      "homepage": "https://github.com/google-antigravity/antigravity-cli",
       "license": "Apache-2.0",
-      "source_kind": "npm",
-      "npm_package_name": "@google/gemini-cli",
-      "pinned_version": "0.49.0",
-      "compatibility_window": ">=0.49.0 <0.50.0",
+      "source_kind": "binary",
+      "pinned_version": "1.1.4",
+      "compatibility_window": ">=1.1.4 <1.1.5",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
-      "post_install_verify": "command -v gemini && gemini --version",
+      "post_install_verify": "command -v agy && agy --version",
       "preserve_paths_file": "preserve_paths.json",
       "tags": [
         "agent",
@@ -102,12 +101,12 @@
     {
       "id": "opencode",
       "display_name": "opencode",
-      "description": "Open-source terminal coding agent (opencode-ai). Provider auth is supplied post-install.",
+      "description": "Open-source terminal coding agent (opencode-ai). Configure your model provider after installation.",
       "homepage": "https://github.com/sst/opencode",
       "license": "MIT",
       "source_kind": "npm",
       "npm_package_name": "opencode-ai",
-      "pinned_version": "1.17.11",
+      "pinned_version": "1.18.3",
       "compatibility_window": ">=1.0.0 <2.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
@@ -121,7 +120,7 @@
     {
       "id": "qwen-code",
       "display_name": "Qwen Code",
-      "description": "Alibaba Qwen's command-line coding agent (binary `qwen`). Provider auth is supplied post-install.",
+      "description": "Alibaba Qwen's command-line coding agent (binary `qwen`). Configure your model provider after installation.",
       "homepage": "https://github.com/QwenLM/qwen-code",
       "license": "Apache-2.0",
       "source_kind": "npm",
@@ -160,7 +159,7 @@
     {
       "id": "rtk",
       "display_name": "RTK (Rust Token Killer)",
-      "description": "Token-optimizing CLI proxy that filters/summarizes command output before it reaches the LLM context. Installing it auto-wires rtk's hook into every installed coding agent (Claude Code, Codex, Gemini CLI, OpenCode); an agent installed later gets wired automatically too, and remove unwires all of them.",
+      "description": "Token-optimizing CLI proxy that filters and summarizes command output before it reaches the model. Installing it automatically enables RTK for Claude Code, Codex, and OpenCode; Antigravity and Qwen are not supported.",
       "homepage": "https://github.com/rtk-ai/rtk",
       "license": "MIT",
       "source_kind": "binary",
@@ -290,7 +289,7 @@
     {
       "id": "context7",
       "display_name": "Context7 MCP",
-      "description": "MCP server that pulls up-to-date, version-specific library docs and code examples into Claude Code (Upstash context7). Registered into Claude Code user scope. Works keyless; an optional free CONTEXT7_API_KEY raises the rate limit and is supplied post-install (never baked).",
+      "description": "MCP server that pulls up-to-date, version-specific library docs and code examples into Claude Code (Upstash Context7). Registered into Claude Code user scope. Works without a key; an optional free CONTEXT7_API_KEY can increase the rate limit, and AgentLinux does not store it.",
       "homepage": "https://github.com/upstash/context7",
       "license": "MIT",
       "source_kind": "mcp",
@@ -310,7 +309,7 @@
     {
       "id": "github-mcp",
       "display_name": "GitHub MCP",
-      "description": "GitHub's hosted remote MCP server (repos, issues, PRs, Actions, code search) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (GitHub OAuth on first use). No credential stored by AgentLinux. Never the Docker recipe.",
+      "description": "GitHub's hosted remote MCP server (repos, issues, PRs, Actions, code search) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it; AgentLinux stores no credentials.",
       "homepage": "https://github.com/github/github-mcp-server",
       "license": "MIT",
       "source_kind": "mcp",
@@ -320,7 +319,7 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "requires_secret": true,
-      "post_install_verify": "jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:github-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"github-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "post_install_verify": "jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:github-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"github-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"github-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
       "tags": [
         "mcp",
         "devops",
@@ -331,7 +330,7 @@
     {
       "id": "sentry-mcp",
       "display_name": "Sentry MCP",
-      "description": "Sentry's hosted remote MCP server (issues, errors, releases, traces, projects) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (Sentry OAuth on first use). No credential stored by AgentLinux.",
+      "description": "Sentry's hosted remote MCP server (issues, errors, releases, traces, projects) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it; AgentLinux stores no credentials.",
       "homepage": "https://github.com/getsentry/sentry-mcp",
       "license": "FSL-1.1-ALv2",
       "source_kind": "mcp",
@@ -341,7 +340,7 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "requires_secret": true,
-      "post_install_verify": "jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:sentry-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"sentry-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "post_install_verify": "jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:sentry-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"sentry-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"sentry-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
       "tags": [
         "mcp",
         "observability",
@@ -352,7 +351,7 @@
     {
       "id": "firecrawl-mcp",
       "display_name": "Firecrawl MCP",
-      "description": "Firecrawl's hosted remote MCP server (web scrape, search, crawl, map, extract) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare KEYLESS remote-http endpoint — scrape/search/interact work out of the box with no signup; crawl/map/extract need a free personal key (Free plan: 1,000 credits/month, no card) added in-client via the key-in-URL-path. No credential stored by AgentLinux.",
+      "description": "Firecrawl's hosted remote MCP server (web scrape, search, crawl, map, extract) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Clients complete OAuth on first use; clients without compatible OAuth may use a user-supplied API key in the URL path at runtime. AgentLinux stores no credentials.",
       "homepage": "https://github.com/firecrawl/firecrawl-mcp-server",
       "license": "MIT",
       "source_kind": "mcp",
@@ -361,8 +360,8 @@
       "compatibility_window": ">=3.22.3 <4.0.0",
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
-      "requires_secret": false,
-      "post_install_verify": "jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:firecrawl-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"firecrawl-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "requires_secret": true,
+      "post_install_verify": "jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:firecrawl-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"firecrawl-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"firecrawl-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
       "tags": [
         "mcp",
         "scraping",
@@ -373,7 +372,7 @@
     {
       "id": "slack-mcp",
       "display_name": "Slack MCP",
-      "description": "Slack's official hosted remote MCP server (channels, messages, search, users) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (Slack OAuth on first use, subject to workspace-admin approval). No credential stored by AgentLinux. Uses Slack's first-party admin-governed endpoint — NOT a third-party stealth-token server.",
+      "description": "Slack's official hosted remote MCP server (channels, messages, search, users) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it, subject to workspace-admin approval; AgentLinux stores no credentials.",
       "homepage": "https://docs.slack.dev/ai/slack-mcp-server/",
       "source_kind": "mcp",
       "pinned_version": "2026.2.17",
@@ -382,7 +381,7 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "requires_secret": true,
-      "post_install_verify": "jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:slack-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"slack-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "post_install_verify": "jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:slack-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"slack-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"slack-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
       "tags": [
         "mcp",
         "communication",
@@ -393,7 +392,7 @@
     {
       "id": "linear-mcp",
       "display_name": "Linear MCP",
-      "description": "Linear's official hosted remote MCP server (issues, projects, cycles, comments) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (Linear OAuth on first use). Works on Linear's free plan — MCP is not gated behind a paid plan. No credential stored by AgentLinux.",
+      "description": "Linear's official hosted remote MCP server (issues, projects, cycles, comments) registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it; it works on Linear's free plan and AgentLinux stores no credentials.",
       "homepage": "https://linear.app/docs/mcp",
       "source_kind": "mcp",
       "pinned_version": "2025.5.1",
@@ -402,7 +401,7 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "requires_secret": true,
-      "post_install_verify": "jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:linear-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"linear-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "post_install_verify": "jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:linear-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"linear-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"linear-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
       "tags": [
         "mcp",
         "project-management",
@@ -413,7 +412,7 @@
     {
       "id": "jira-atlassian-mcp",
       "display_name": "Atlassian Rovo MCP (Jira/Confluence)",
-      "description": "Atlassian's official hosted Rovo MCP server (Jira and Confluence at GA, with more Atlassian products rolling out) registered into every installed MCP-capable agent (claude-code, codex, gemini-cli, opencode, qwen-code). Thin installer (ADR-017): registers the bare remote-http endpoint; you authenticate in-client (Atlassian OAuth on first use), operating within your own permissions. No credential stored by AgentLinux. Cloud-only (no Data Center/Server); free Atlassian Cloud sites are supported (500 calls/hour).",
+      "description": "Atlassian's official hosted Rovo MCP server for Jira and Confluence, registered into every installed supported coding agent (Claude Code, Codex, Antigravity CLI, OpenCode, and Qwen Code). Sign in through the agent when you first use it, operating within your own permissions; AgentLinux stores no credentials. Cloud-only; free Atlassian Cloud sites are supported (500 calls/hour).",
       "homepage": "https://support.atlassian.com/atlassian-rovo-mcp-server/docs/use-atlassian-rovo-mcp-server/",
       "license": "Apache-2.0",
       "source_kind": "mcp",
@@ -423,7 +422,7 @@
       "install_recipe_path": "install.sh",
       "uninstall_recipe_path": "uninstall.sh",
       "requires_secret": true,
-      "post_install_verify": "jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:jira-atlassian-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.gemini/settings.json 2>/dev/null || jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"jira-atlassian-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
+      "post_install_verify": "jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.claude.json 2>/dev/null || grep -q 'agentlinux-mcp:jira-atlassian-mcp' /home/agent/.codex/config.toml 2>/dev/null || jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.gemini/config/mcp_config.json 2>/dev/null || jq -e '.mcpServers[\"jira-atlassian-mcp\"]' /home/agent/.qwen/settings.json 2>/dev/null || jq -e '.mcp[\"jira-atlassian-mcp\"]' /home/agent/.config/opencode/opencode.json 2>/dev/null",
       "tags": [
         "mcp",
         "project-management",
@@ -453,7 +452,7 @@
     {
       "id": "openclaw",
       "display_name": "OpenClaw",
-      "description": "Self-hosted personal-AI-assistant Gateway — a per-user background daemon that bridges your chat channels and coding agents to a provider of your choice. Installs via npm into the agent-owned prefix and runs as a per-user systemd service (no root); onboards without baking any provider key (BYO, added in-tool). The per-user state dir ~/.openclaw is user-owned and preserved on uninstall.",
+      "description": "Self-hosted personal AI assistant Gateway — a per-user background daemon that bridges chat channels and coding agents to a provider of your choice. Installs via npm into the agent-owned prefix and runs as a per-user systemd service (no root); you provide your own provider key in the tool after installation. The per-user state directory ~/.openclaw is preserved on uninstall.",
       "homepage": "https://github.com/openclaw/openclaw",
       "license": "MIT",
       "source_kind": "script",
@@ -472,7 +471,7 @@
     {
       "id": "hermes-agent",
       "display_name": "Hermes Agent",
-      "description": "Nous Research's self-hosted personal-AI-assistant with a per-user messaging Gateway (Telegram, Discord, WhatsApp, and more). Installed via the official installer pinned to an immutable commit — no root, no /usr/local shim — and run as a per-user systemd service; installs without baking any provider key (BYO, added in-tool). The per-user state dir ~/.hermes (config, persona, sessions, secrets) is user-owned and preserved on uninstall.",
+      "description": "Nous Research's self-hosted personal AI assistant with a per-user messaging Gateway (Telegram, Discord, WhatsApp, and more). Installed via the official installer pinned to an immutable commit — no root, no /usr/local shim — and run as a per-user systemd service; you provide your own provider key in the tool after installation. The per-user state directory ~/.hermes is preserved on uninstall.",
       "homepage": "https://github.com/NousResearch/hermes-agent",
       "license": "MIT",
       "source_kind": "script",

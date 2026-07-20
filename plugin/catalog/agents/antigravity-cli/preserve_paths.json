@@ -1,0 +1,6 @@
+{
+  "preserve_paths": [
+    "~/.gemini/"
+  ],
+  "comment": "Antigravity CLI settings, migrated user state, skills, MCP profiles, and session state. Preserved across agentlinux remove/reinstall per CAT-04; --purge is required to wipe the agent home."
+}

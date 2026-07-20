@@ -8,7 +8,7 @@
 # Catalog binary mapping (verbatim from catalog.json + agents/*/install.sh;
 # test-dummy is test_only and excluded):
 #   claude-code     → claude
-#   gsd             → get-shit-done-cc
+#   gsd             → gsd-core
 #   playwright-cli  → playwright-cli
 #
 # Classification:
@@ -38,13 +38,14 @@ fi
 # DETECT_AGENT_BINARIES — catalog ID → binary-on-PATH name.
 declare -A DETECT_AGENT_BINARIES=(
   [claude-code]=claude
-  [gsd]=get-shit-done-cc
+  [gsd]=gsd-core
   [playwright-cli]=playwright-cli
 )
 
 # __det_agent_version_probe <id> <user> <binary> — emit the agent's version on
 # stdout, or empty when unparseable. claude-code / playwright-cli parse a semver
-# line; gsd has no --version flag, so it greps the first --help banner line.
+# line; gsd has no --version flag, so it extracts the first semver from its
+# --help banner (which begins with blank/ANSI art lines in Open GSD 1.7.0).
 #
 # The semver regex also hardens against a malicious binary injecting shell
 # metacharacters or ANSI escapes: a non-matching version yields empty (→ broken)
@@ -62,9 +63,10 @@ __det_agent_version_probe() {
       ;;
     gsd)
       as_user_login "$user" "$binary" --help 2>/dev/null \
-        | head -1 \
         | tr -d '\r' \
-        | tr -d '\n'
+        | grep -Eo '[vV]?[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
+        | head -1 \
+        | tr -d 'vV'
       ;;
     playwright-cli)
       as_user_login "$user" "$binary" --version 2>/dev/null \
@@ -101,16 +103,13 @@ detect::agents_probe() {
     # entries are present; see the header for why bare as_user misclassifies.
     bin_path=$(as_user_login "$user" command -v "$binary" 2>/dev/null || true)
 
-    # GSD's `get-shit-done-cc` is a BOOTSTRAPPER, not a long-lived CLI: the
-    # functional install is the deployed system at ~user/.claude/get-shit-done
-    # (a VERSION file + the gsd-* skill set it copies into ~/.claude/skills).
-    # The upstream `npx get-shit-done-cc` install path deploys that system but
-    # leaves NO persistent global binary, so a binary-only probe misclassifies a
-    # working GSD as absent. When the binary is missing, fall back to the
-    # deployed-system VERSION file as a second valid presence signal. The path
-    # is reported so reuse/agents.sh + install.ts can treat it as canonical.
-    if [[ -z "$bin_path" && "$id" == "gsd" && -n "$home" && -f "$home/.claude/get-shit-done/VERSION" ]]; then
-      local gsd_ver_file="$home/.claude/get-shit-done/VERSION"
+    # Open GSD's runtime payload lives at ~user/.claude/gsd-core and contains a
+    # VERSION file plus the gsd-* skill set. When the package-native binary is
+    # missing, fall back to that VERSION file as a second valid presence signal.
+    # The path is reported so reuse/agents.sh + install.ts can treat it as
+    # canonical.
+    if [[ -z "$bin_path" && "$id" == "gsd" && -n "$home" && -f "$home/.claude/gsd-core/VERSION" ]]; then
+      local gsd_ver_file="$home/.claude/gsd-core/VERSION"
       # Security: stat/read follow symlinks, so trust the VERSION file ONLY when
       # it's owned by the install user. An agent-planted symlink to a root-only
       # file (e.g. /etc/shadow) reports root here → refuse to read it as root and

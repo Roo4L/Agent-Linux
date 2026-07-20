@@ -20,10 +20,11 @@ v0.3.0 pins:
 
 - `claude-code` — **2.1.98** (Anthropic's native installer; self-updates via
   `claude update` into the agent-owned install tree)
-- `gsd` (`get-shit-done-cc`) — **1.37.1** (npm global into the agent's
-  per-user prefix)
-- `playwright` — **1.59.1** (npm global + `playwright install --with-deps
-  chromium`; apt-layer runs via the agent user's NOPASSWD sudo drop-in)
+- `gsd` (`@opengsd/gsd-core`) — **1.7.0** (npm global into the agent's
+  per-user prefix; the package-native command is `gsd-core`)
+- `playwright-cli` — **0.1.17** (npm global + agent-owned browser download;
+  launch libraries are installed through the agent user's non-interactive
+  sudo permission)
 
 The release-gate test installs the full pinned combo on a clean Ubuntu host
 and runs the agent bats suite before the tag can publish. A red combo cannot
@@ -65,8 +66,8 @@ Per-agent divergence (report-only; pass --reset-all-curated or per-agent
 choice to mutate):
 
   claude-code  installed=2.1.114  curated=2.1.98   state=override-ahead
-  gsd          installed=1.37.1   curated=1.37.1   state=synced
-  playwright   installed=1.59.1   curated=1.59.1   state=synced
+  gsd          installed=1.7.0    curated=1.7.0    state=synced
+  playwright-cli installed=0.1.17 curated=0.1.17 state=synced
 
   Choose per-agent: [keep override] [accept curated] [accept upstream latest]
   Or apply to all: --reset-all-curated | --respect-overrides | --all-latest
@@ -82,7 +83,7 @@ it for you silently.
 ```bash
 agentlinux pin claude-code=latest
 agentlinux pin claude-code=curated
-agentlinux pin gsd=1.38.0
+agentlinux pin gsd=1.7.0
 ```
 
 - `=latest` — follow upstream for this agent. Sticky. Skipped by

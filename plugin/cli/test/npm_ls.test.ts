@@ -31,7 +31,7 @@ const NPM_ENTRY: CatalogEntry = {
   display_name: "GSD",
   description: ".",
   source_kind: "npm",
-  npm_package_name: "get-shit-done-cc",
+  npm_package_name: "@opengsd/gsd-core",
   pinned_version: "1.0.0",
   install_recipe_path: "install.sh",
   uninstall_recipe_path: "uninstall.sh",
@@ -91,7 +91,7 @@ describe("queryNpmViewLatest install-user dispatch", () => {
     await queryNpmViewLatest(NPM_ENTRY, cap.impl);
     const [user, argv, opts] = cap.calls[0];
     assert.equal(user, "claude");
-    assert.deepEqual(argv, ["npm", "view", "get-shit-done-cc", "versions", "--json"]);
+    assert.deepEqual(argv, ["npm", "view", "@opengsd/gsd-core", "versions", "--json"]);
     assert.equal(opts.env.HOME, "/home/claude");
   });
 });

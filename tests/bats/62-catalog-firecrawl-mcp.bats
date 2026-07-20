@@ -3,18 +3,15 @@
 #
 # THIN INSTALLER (ADR-017): firecrawl-mcp registers Firecrawl's hosted remote MCP
 # server as a BARE URL — no credential — into EVERY installed MCP-capable agent
-# (claude-code, codex, gemini-cli, opencode, qwen-code) via the shared helper
+# (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper
 # plugin/catalog/lib/mcp-register.sh. AgentLinux stores NO token.
 #
-# Distinct from sentry-mcp/github-mcp: Firecrawl's endpoint is KEYLESS — the bare
-# URL works out of the box with no signup (requires_secret=false). A user who
-# wants their own recurring quota re-registers with a personal key in the URL path
-# (Firecrawl authenticates by URL path, not a header). `remove` deregisters from
-# all agents symmetrically. Third consumer of the ENABLE-02 remote-http helper.
+# Firecrawl's bare endpoint uses OAuth. A client that cannot complete OAuth may
+# use a runtime-only personal key in the URL path; AgentLinux stores neither.
 #
 # Installs claude-code + codex as preconditions and asserts bare-URL fan-out into
 # BOTH, that NO credential lands in any config, and residue-free symmetric removal.
-# gemini/opencode/qwen are asserted only if present.
+# antigravity/opencode/qwen are asserted only if present.
 #
 # Design invariants: see tests/bats/61-catalog-sentry-mcp.bats (identical shape).
 
@@ -62,7 +59,7 @@ _assert_gone_if_present() {
     || __fail "MCP-07" "${bin} config still carries firecrawl-mcp after remove" "residue" "$LOG"
 }
 
-@test "MCP-07: firecrawl-mcp registers a BARE keyless remote URL (no credential, ADR-017) into every installed agent, then deregisters with no residue" {
+@test "MCP-07: firecrawl-mcp registers a BARE OAuth remote URL (no credential) into every installed agent, then deregisters with no residue" {
   run sudo -u agent -H bash --login -c 'command -v claude'
   assert_exit_zero "MCP-07 (claude present precondition)"
   run sudo -u agent -H bash --login -c 'command -v codex'
@@ -78,9 +75,9 @@ _assert_gone_if_present() {
   assert_exit_zero "MCP-07 (install)"
   assert_no_eacces "MCP-07 (install)" "$output"
 
-  # Keyless installer surfaces the optional-key upgrade pointer (NOT an OAuth note).
-  if ! printf '%s' "${output}" | grep -qiE 'keyless|api-keys|re-register'; then
-    __fail "MCP-07" "install surfaces the keyless / optional-key pointer" "${output:-<empty>}" "$LOG"
+  # Installer surfaces the OAuth path and the runtime-only API-key fallback.
+  if ! printf '%s' "${output}" | grep -qiE 'oauth|api-keys|re-register'; then
+    __fail "MCP-07" "install surfaces OAuth and runtime API-key guidance" "${output:-<empty>}" "$LOG"
   fi
 
   # claude: bare http registration at the pinned endpoint, NO auth header.
@@ -97,7 +94,7 @@ _assert_gone_if_present() {
   [[ "${status}" -ne 0 ]] \
     || __fail "MCP-07" "codex firecrawl-mcp block carries NO bearer/token (bare url)" "token field present" "$LOG"
 
-  _assert_present_if_installed gemini "jq -e --arg u \"${url}\" '.mcpServers[\"firecrawl-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.gemini/settings.json"
+  _assert_present_if_installed agy "jq -e --arg u \"${url}\" '.mcpServers[\"firecrawl-mcp\"] | .serverUrl==\$u and (has(\"headers\")|not)' /home/agent/.gemini/config/mcp_config.json"
   _assert_present_if_installed qwen "jq -e --arg u \"${url}\" '.mcpServers[\"firecrawl-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.qwen/settings.json"
   _assert_present_if_installed opencode "jq -e --arg u \"${url}\" '.mcp[\"firecrawl-mcp\"] | .type==\"remote\" and .url==\$u and (has(\"headers\")|not)' /home/agent/.config/opencode/opencode.json"
 
@@ -117,7 +114,7 @@ _assert_gone_if_present() {
   run sudo -u agent -H bash --login -c "grep -q 'agentlinux-mcp:firecrawl-mcp' ${CODEX_TOML}"
   [[ "${status}" -ne 0 ]] \
     || __fail "MCP-07" "firecrawl-mcp block gone from ${CODEX_TOML} after remove" "block remains" "$LOG"
-  _assert_gone_if_present gemini "jq -e '.mcpServers | has(\"firecrawl-mcp\")' /home/agent/.gemini/settings.json"
+  _assert_gone_if_present agy "jq -e '.mcpServers | has(\"firecrawl-mcp\")' /home/agent/.gemini/config/mcp_config.json"
   _assert_gone_if_present qwen "jq -e '.mcpServers | has(\"firecrawl-mcp\")' /home/agent/.qwen/settings.json"
   _assert_gone_if_present opencode "jq -e '.mcp | has(\"firecrawl-mcp\")' /home/agent/.config/opencode/opencode.json"
 
@@ -125,13 +122,13 @@ _assert_gone_if_present() {
   assert_exit_zero "MCP-07 (idempotent re-remove)"
 }
 
-@test "MCP-07: firecrawl-mcp entry shape — hosted keyless remote-http, thin installer, MIT license" {
-  # source_kind mcp, https endpoint_url, requires_secret FALSE (keyless — no
-  # in-client auth needed), NO secret_env (ADR-017), MIT license.
+@test "MCP-07: firecrawl-mcp entry shape — hosted OAuth remote-http, thin installer, MIT license" {
+  # source_kind mcp, https endpoint_url, requires_secret TRUE (OAuth required),
+  # NO secret_env (ADR-017), MIT license.
   run bash -c "jq -r '.agents[] | select(.id==\"firecrawl-mcp\") | \"\\(.source_kind) \\(.requires_secret) \\(.secret_env) \\(.license) \\(.endpoint_url)\"' ${CATALOG}"
   assert_exit_zero "MCP-07 (entry shape)"
-  if [[ "${output}" != "mcp false null MIT https://mcp.firecrawl.dev/v2/mcp" ]]; then
-    __fail "MCP-07" "mcp + requires_secret false + NO secret_env + MIT + https endpoint" "${output:-<empty>}" "$LOG"
+  if [[ "${output}" != "mcp true null MIT https://mcp.firecrawl.dev/v2/mcp" ]]; then
+    __fail "MCP-07" "mcp + requires_secret true + NO secret_env + MIT + https endpoint" "${output:-<empty>}" "$LOG"
   fi
 
   # No Docker recipe (consistency with the whole MCP cluster).

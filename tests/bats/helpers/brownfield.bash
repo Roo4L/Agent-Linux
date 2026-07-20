@@ -572,12 +572,13 @@ setup_brownfield_host_full() {
     "npm install -g --no-fund --no-audit @anthropic-ai/claude-code@${claude_pin}" \
     >/dev/null 2>&1 || true
 
-  # Step 6: install gsd globally at canonical npm-global path (REUSE-03 fixture).
-  local gsd_pin
+  # Step 6: install Open GSD globally at canonical npm-global path (REUSE-03 fixture).
+  local gsd_pin gsd_pkg
   gsd_pin=$(jq -r '.agents[] | select(.id=="gsd") | .pinned_version' "$catalog")
-  log_brownfield "installing get-shit-done-cc@${gsd_pin} via npm (canonical path; REUSE-03 fixture)"
+  gsd_pkg=$(jq -r '.agents[] | select(.id=="gsd") | .npm_package_name' "$catalog")
+  log_brownfield "installing ${gsd_pkg}@${gsd_pin} via npm (canonical path; REUSE-03 fixture)"
   sudo -u agent -H bash --login -c \
-    "npm install -g --no-fund --no-audit get-shit-done-cc@${gsd_pin}" \
+    "npm install -g --no-fund --no-audit ${gsd_pkg}@${gsd_pin}" \
     >/dev/null 2>&1 || true
 
   # Step 7: install playwright-cli globally at canonical npm-global path.

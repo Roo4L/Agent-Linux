@@ -19,6 +19,9 @@ set -euo pipefail
 : "${AGENTLINUX_PINNED_VERSION:?AGENTLINUX_PINNED_VERSION not set}"
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 
+# shellcheck source=../../lib/browser-deps.sh
+source "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}/lib/browser-deps.sh"
+
 server="chrome-devtools-mcp"
 ver="${AGENTLINUX_PINNED_VERSION}"
 claude_json="${AGENTLINUX_AGENT_HOME}/.claude.json"
@@ -28,6 +31,10 @@ if ! command -v claude >/dev/null 2>&1; then
   echo "${server} install: install it first with:  agentlinux install claude-code" >&2
   exit 1
 fi
+
+# Chrome DevTools MCP's default browser discovery requires the branded Chrome
+# executable, not merely an npm package or a Playwright cache browser.
+al_browser_ensure_chrome
 
 echo "${server}: registering ${server}@${ver} into Claude Code user config (--scope user)"
 

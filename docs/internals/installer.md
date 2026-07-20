@@ -133,8 +133,8 @@ agentlinux-install: agentlinux-install complete
 $ agentlinux list
 NAME            STATUS         CURATED   INSTALLED   DESCRIPTION
 claude-code     not installed  2.1.98    —           Anthropic's coding agent
-gsd             not installed  1.37.1    —           get-shit-done-cc planning workflow CLI
-playwright-cli  not installed  0.1.11    —           Browser automation with chromium
+gsd             not installed  1.7.0     —           Open GSD planning workflow CLI
+playwright-cli  not installed  0.1.17    —           Browser automation with chromium
 ```
 
 No agents are installed by default — that is a deliberate choice (see

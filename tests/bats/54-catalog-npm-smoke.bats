@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
-# tests/bats/54-catalog-npm-smoke.bats — OPS-01 operational smokes for the
-# v0.3.6 npm cluster: each tool is run in a minimal REAL scenario as the agent
+# tests/bats/54-catalog-agent-smoke.bats — OPS-01 operational smokes for the
+# v0.3.6 agent cluster: each tool is run in a minimal REAL scenario as the agent
 # user (not just install/version), proving it operates correctly under
 # AgentLinux.
 #
@@ -18,7 +18,7 @@
 # @test skips — the file is safe in credential-free CI.
 #
 # Provider routing (Appendix C): codex→OpenAI (required; OpenAI-only),
-# gemini-cli→Gemini (free), opencode→Anthropic, qwen-code→Anthropic
+# antigravity-cli→Google Sign-In/keyring, opencode→Anthropic, qwen-code→Anthropic
 # (OpenAI-compatible/native also supported), ccusage→none.
 #
 # The probe prompt is a trivia question whose one-word answer ("Paris") does
@@ -38,8 +38,9 @@ setup_file() {
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
     bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
   fi
-  sudo -u agent -H bash --login -c '
-    rm -rf ~/.codex ~/.gemini ~/.qwen ~/.config/opencode ~/.local/share/opencode 2>/dev/null
+  sudo --preserve-env=ANTIGRAVITY_CLI_QA -u agent -H bash --login -c '
+    rm -rf ~/.codex ~/.qwen ~/.config/opencode ~/.local/share/opencode 2>/dev/null
+    if [[ -z "${ANTIGRAVITY_CLI_QA:-}" ]]; then rm -rf ~/.gemini; fi
   ' >/dev/null 2>&1 || true
 }
 
@@ -49,7 +50,7 @@ teardown_file() {
   # is left on disk and no state leaks into downstream test files.
   if [[ -L /home/agent/.npm-global/bin/agentlinux ]]; then
     local id
-    for id in codex gemini-cli opencode qwen-code ccusage; do
+    for id in codex antigravity-cli opencode qwen-code ccusage; do
       sudo -u agent -H bash --login -c "agentlinux remove --force ${id}" >/dev/null 2>&1 || true
     done
   fi
@@ -66,7 +67,7 @@ _remove() { sudo -u agent -H bash --login -c "agentlinux remove --force ${1}" >/
 # one could). Never prints the keys themselves.
 _redact() {
   local s=$1 k
-  for k in "${OPENAI_API_KEY:-}" "${GEMINI_API_KEY:-}" "${ANTHROPIC_API_KEY:-}" "${DASHSCOPE_API_KEY:-}"; do
+  for k in "${OPENAI_API_KEY:-}" "${ANTHROPIC_API_KEY:-}" "${DASHSCOPE_API_KEY:-}"; do
     [[ -n "$k" ]] && s=${s//"$k"/<redacted>}
   done
   printf '%s' "$s"
@@ -85,16 +86,16 @@ _skip_if_unavailable() {
   fi
 }
 
-@test "OPS-01: gemini-cli answers a real prompt (skips without GEMINI_API_KEY)" {
-  [[ -n "${GEMINI_API_KEY:-}" ]] || skip "GEMINI_API_KEY not set"
-  _install gemini-cli
-  run sudo --preserve-env=GEMINI_API_KEY -u agent -H bash --login -c \
-    "cd /tmp && gemini --skip-trust -m gemini-2.5-flash -p '${PROMPT}'"
-  _remove gemini-cli
-  _skip_if_unavailable "OPS-01/gemini-cli"
-  assert_exit_zero "OPS-01/gemini-cli"
+@test "OPS-01: antigravity-cli answers a real prompt when Google auth is preconfigured" {
+  [[ -n "${ANTIGRAVITY_CLI_QA:-}" ]] || skip "OPS-01/AGT-06: ANTIGRAVITY_CLI_QA not set; authenticate the agent user with Google Sign-In before this live smoke"
+  _install antigravity-cli
+  run sudo --preserve-env=ANTIGRAVITY_CLI_QA -u agent -H bash --login -c \
+    "cd /tmp && agy --print '${PROMPT}'"
+  _remove antigravity-cli
+  _skip_if_unavailable "OPS-01/antigravity-cli"
+  assert_exit_zero "OPS-01/antigravity-cli"
   printf '%s' "${output}" | grep -qi "${EXPECT}" \
-    || __fail "OPS-01/gemini-cli" "model reply contains '${EXPECT}'" "$(_redact "${output:-<empty>}")" "$LOG"
+    || __fail "OPS-01/antigravity-cli" "model reply contains '${EXPECT}'" "$(_redact "${output:-<empty>}")" "$LOG"
 }
 
 @test "OPS-01: opencode answers a real prompt (skips without ANTHROPIC_API_KEY)" {

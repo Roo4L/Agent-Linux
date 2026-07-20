@@ -27,6 +27,15 @@ const CATALOG: Catalog = {
       uninstall_recipe_path: "uninstall.sh",
     },
     {
+      id: "antigravity-cli",
+      display_name: "Antigravity CLI",
+      description: ".",
+      source_kind: "binary",
+      pinned_version: "1.1.4",
+      install_recipe_path: "install.sh",
+      uninstall_recipe_path: "uninstall.sh",
+    },
+    {
       id: "rtk",
       display_name: "rtk",
       description: ".",
@@ -147,6 +156,21 @@ describe("reconcileCrossWiring (#4 / WIRE-02)", () => {
       recipes.some((r) => r.endsWith("/agents/github-mcp/install.sh")),
       "github-mcp re-registration dispatched",
     );
+    assert.ok(cap.calls.every((c) => c.user === "agent"));
+  });
+
+  test("installing Antigravity is a reverse-trigger wiring target", async () => {
+    await seed("rtk", "github-mcp", "antigravity-cli");
+    const cap = makeCap();
+    const restore = silence();
+    try {
+      await reconcileCrossWiring("antigravity-cli", CATALOG, cap.impl);
+    } finally {
+      restore();
+    }
+    assert.equal(cap.calls.length, 2);
+    assert.ok(cap.calls.some((c) => c.argv[1].endsWith("/agents/rtk/rewire.sh")));
+    assert.ok(cap.calls.some((c) => c.argv[1].endsWith("/agents/github-mcp/install.sh")));
     assert.ok(cap.calls.every((c) => c.user === "agent"));
   });
 

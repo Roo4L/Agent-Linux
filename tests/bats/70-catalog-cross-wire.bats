@@ -11,10 +11,10 @@
 #       the provider's rewire_recipe_path (rtk -> agents/rtk/rewire.sh).
 # Both directions must converge to the same wired set; `remove` unwires all.
 #
-# Agents used: codex (`rtk init --codex` -> ~/.codex/RTK.md) and gemini-cli
-# (`rtk init --gemini` -> rtk block in ~/.gemini/GEMINI.md) — two distinct rtk
-# wire paths, both reliable npm installs. Pure filesystem assertions, no model
-# calls. qwen-code is intentionally NOT exercised: rtk ships no qwen target (N/A).
+# Agents used: codex (`rtk init --codex` -> ~/.codex/RTK.md) and opencode
+# (`rtk init --opencode` -> ~/.config/opencode/plugins/rtk.ts) — two distinct
+# rtk wire paths. Pure filesystem assertions, no model calls. Antigravity and
+# qwen-code are intentionally not wired: rtk ships no target for either.
 
 load 'helpers/assertions'
 
@@ -33,7 +33,7 @@ _remove() { sudo -u agent -H bash --login -c "agentlinux remove --force ${1}" >/
 teardown() {
   _remove rtk
   _remove codex
-  _remove gemini-cli
+  _remove antigravity-cli
   _remove opencode
 }
 
@@ -48,30 +48,30 @@ _agent_test() {
 @test "WIRE-02: installing rtk fans its hook into every present coding agent; remove unwires all" {
   # Direction (a): agents FIRST, then the provider.
   _install codex
-  _install gemini-cli
+  _install opencode
   run _install rtk
   assert_exit_zero "WIRE-02 (rtk install)"
   assert_no_eacces "WIRE-02 (rtk install)" "$output"
 
   _agent_test "WIRE-02/rtk/codex" "rtk wired into codex (~/.codex/RTK.md)" \
     "test -f /home/agent/.codex/RTK.md"
-  _agent_test "WIRE-02/rtk/gemini" "rtk block present in ~/.gemini/GEMINI.md" \
-    "grep -qi rtk /home/agent/.gemini/GEMINI.md"
+  _agent_test "WIRE-02/rtk/opencode" "rtk plugin present under ~/.config/opencode/plugins" \
+    "test -f /home/agent/.config/opencode/plugins/rtk.ts"
 
   # Symmetric teardown: remove rtk unwires from BOTH agents.
   run sudo -u agent -H bash --login -c "agentlinux remove --force rtk"
   assert_exit_zero "WIRE-02 (rtk remove)"
   _agent_test "WIRE-02/rtk/remove-codex" "rtk unwired from codex after remove" \
     "! test -e /home/agent/.codex/RTK.md"
-  _agent_test "WIRE-02/rtk/remove-gemini" "no rtk block in ~/.gemini/GEMINI.md after remove" \
-    "! grep -qi rtk /home/agent/.gemini/GEMINI.md 2>/dev/null"
+  _agent_test "WIRE-02/rtk/remove-opencode" "no rtk plugin after remove" \
+    "! test -e /home/agent/.config/opencode/plugins/rtk.ts"
 }
 
 @test "WIRE-02: reverse-trigger — installing an agent AFTER rtk wires rtk into the new agent" {
   # Direction (b): rtk FIRST (with no wireable agent present), then codex — the
   # CLI reconcile must re-run rtk's rewire recipe so codex ends up wired too.
   _remove codex
-  _remove gemini-cli
+  _remove antigravity-cli
   run _install rtk
   assert_exit_zero "WIRE-02 (rtk install, no agents present)"
 
@@ -107,44 +107,33 @@ _agent_test() {
     "! test -e /home/agent/.codex/RTK.md"
 }
 
-@test "WIRE-02: removing Gemini and OpenCode before rtk removes both preserved hooks" {
+@test "WIRE-02: removing OpenCode before rtk removes the preserved hook" {
   # The same consumer-before-provider order must converge for every supported
-  # RTK integration, not just Codex.
-  _install gemini-cli
+  # RTK integration, not just Codex. Antigravity is intentionally N/A: rtk
+  # exposes no Antigravity target.
   _install opencode
   _install rtk
-  run sudo -u agent -H bash --login -c "agentlinux remove --force gemini-cli"
-  assert_exit_zero "WIRE-02 (remove gemini before rtk)"
   run sudo -u agent -H bash --login -c "agentlinux remove --force opencode"
   assert_exit_zero "WIRE-02 (remove opencode before rtk)"
-  _agent_test "WIRE-02/order/gemini" "Gemini config is preserved before provider removal" \
-    "grep -qi rtk /home/agent/.gemini/GEMINI.md"
   _agent_test "WIRE-02/order/opencode" "OpenCode RTK plugin is preserved before provider removal" \
     "test -f /home/agent/.config/opencode/plugins/rtk.ts"
 
   run sudo -u agent -H bash --login -c "agentlinux remove --force rtk"
-  assert_exit_zero "WIRE-02 (remove rtk after Gemini and OpenCode)"
-  _agent_test "WIRE-02/order/gemini-clean" "rtk removes the stale Gemini hook" \
-    "! test -e /home/agent/.gemini/hooks/rtk-hook-gemini.sh"
+  assert_exit_zero "WIRE-02 (remove rtk after OpenCode)"
   _agent_test "WIRE-02/order/opencode-clean" "rtk removes the stale OpenCode plugin" \
     "! test -e /home/agent/.config/opencode/plugins/rtk.ts"
+}
 
-  # A preserved user-owned GEMINI.md may mention rtk without containing the
-  # RTK-owned marker. Removing the provider must leave that content intact.
-  _install gemini-cli
+@test "WIRE-02: rtk removal preserves Antigravity's shared user state" {
+  _remove antigravity-cli
+  run sudo -u agent -H bash --login -c \
+    'mkdir -p ~/.gemini && printf "%s\\n" user-state > ~/.gemini/agentlinux-rtk-preserve-sentinel'
+  assert_exit_zero "WIRE-02/antigravity-state (seed)"
+
   _install rtk
-  run sudo -u agent -H bash --login -c "agentlinux remove --force gemini-cli"
-  assert_exit_zero "WIRE-02 (remove Gemini before rtk, preservation case)"
-  run sudo -u agent -H bash --login -c \
-    "printf '%s\\n' '# User instructions: rtk is a preference' > /home/agent/.gemini/GEMINI.md"
-  assert_exit_zero "WIRE-02 (seed user-owned Gemini instructions)"
-  run sudo -u agent -H bash --login -c \
-    "printf '%s\\n' '{\"hooks\":{\"BeforeTool\":[{\"matcher\":\"run_shell_command\",\"hooks\":[{\"type\":\"command\",\"command\":\"/home/agent/user-hook.sh\"},{\"type\":\"command\",\"command\":\"/home/agent/.gemini/hooks/rtk-hook-gemini.sh\"}]}]}}' > /home/agent/.gemini/settings.json"
-  assert_exit_zero "WIRE-02 (seed mixed Gemini hooks)"
-  run sudo -u agent -H bash --login -c "agentlinux remove --force rtk"
-  assert_exit_zero "WIRE-02 (preserve user-owned Gemini instructions)"
-  _agent_test "WIRE-02/order/gemini-preserve" "user-owned Gemini instructions survive rtk removal" \
-    "test -f /home/agent/.gemini/GEMINI.md && grep -qF 'User instructions: rtk is a preference' /home/agent/.gemini/GEMINI.md"
-  _agent_test "WIRE-02/order/gemini-hook-preserve" "non-RTK Gemini hook survives rtk removal" \
-    "grep -qF '/home/agent/user-hook.sh' /home/agent/.gemini/settings.json && ! grep -qF 'rtk-hook-gemini' /home/agent/.gemini/settings.json"
+  _remove rtk
+  _agent_test "WIRE-02/antigravity-state" "rtk removal leaves shared ~/.gemini state intact" \
+    "test \"\$(cat ~/.gemini/agentlinux-rtk-preserve-sentinel)\" = user-state"
+  run sudo -u agent -H bash --login -c 'rm -f ~/.gemini/agentlinux-rtk-preserve-sentinel'
+  assert_exit_zero "WIRE-02/antigravity-state (cleanup)"
 }

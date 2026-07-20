@@ -70,6 +70,12 @@ even if `~/.npmrc` reads regress for any reason. The PATH literal is
 byte-identical across every artifact — split-brain divergence fails the
 acceptance grep.
 
+The same environment artifacts also export
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`. This is Antigravity CLI's documented
+passive-update opt-out; putting it in the login profile, systemd environment
+file, and cron file keeps the setting consistent across launch modes without
+coupling the Node.js runtime to the Antigravity package.
+
 Path ordering is deliberate. `/home/agent/.npm-global/bin` lands first in
 PATH, ahead of `/usr/local/bin` and the system bin directories, so a
 stray wrapper shim at `/usr/local/bin/<tool>` (the canonical anti-pattern
@@ -94,7 +100,7 @@ $ sudo -u agent which claude
 /home/agent/.local/bin/claude
 
 # Cron entry under /etc/cron.d/agentlinux:
-# */5 * * * * agent /home/agent/.npm-global/bin/get-shit-done-cc heartbeat
+# */5 * * * * agent /home/agent/.npm-global/bin/gsd-core heartbeat
 # claude resolves the same way under cron, systemd, and non-interactive ssh.
 
 $ ssh agent@host 'which claude'

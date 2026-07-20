@@ -177,7 +177,7 @@ teardown() {
   local cache
   cache=$(mktemp -t al61-list.XXXXXX)
   cat >"$cache" <<'JSON'
-{"components":{"agents":[{"id":"gsd","status":"healthy","path":"/home/agent/.claude/get-shit-done/VERSION","version":"1.37.1"}]}}
+{"components":{"agents":[{"id":"gsd","status":"healthy","path":"/home/agent/.claude/gsd-core/VERSION","version":"1.37.1"}]}}
 JSON
   chmod 0644 "$cache"
   run sudo -u agent -H bash --login -c "AGENTLINUX_DETECT_CACHE=${cache} agentlinux list"
@@ -532,10 +532,10 @@ JSON
   dummy_ver=$(echo "$output" | jq -r '.[] | select(.id=="test-dummy") | .curated')
   [[ "$claude_ver" == "2.1.98" ]] \
     || __fail "CAT-04" "claude-code pinned_version=2.1.98" "$claude_ver" "plugin/catalog/catalog.json"
-  [[ "$gsd_ver" == "1.37.1" ]] \
-    || __fail "CAT-04" "gsd pinned_version=1.37.1" "$gsd_ver" "plugin/catalog/catalog.json"
-  [[ "$playwright_cli_ver" == "0.1.15" ]] \
-    || __fail "CAT-04" "playwright-cli pinned_version=0.1.15" "$playwright_cli_ver" "plugin/catalog/catalog.json"
+  [[ "$gsd_ver" == "1.7.0" ]] \
+    || __fail "CAT-04" "gsd pinned_version=1.7.0" "$gsd_ver" "plugin/catalog/catalog.json"
+  [[ "$playwright_cli_ver" == "0.1.17" ]] \
+    || __fail "CAT-04" "playwright-cli pinned_version=0.1.17" "$playwright_cli_ver" "plugin/catalog/catalog.json"
   [[ "$dummy_ver" == "0.0.1" ]] \
     || __fail "CAT-04" "test-dummy pinned_version=0.0.1" "$dummy_ver" "plugin/catalog/catalog.json"
 }

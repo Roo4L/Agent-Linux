@@ -19,7 +19,13 @@ import type { Catalog, CatalogEntry } from "./types.js";
 // provider, a devops CLI) does not — the provider's own install.sh already
 // fanned out into whatever was present. Mirrors the target sets in
 // lib/rtk-wire.sh and lib/mcp-register.sh.
-const WIREABLE_AGENTS = new Set(["claude-code", "codex", "gemini-cli", "opencode", "qwen-code"]);
+const WIREABLE_AGENTS = new Set([
+  "claude-code",
+  "codex",
+  "antigravity-cli",
+  "opencode",
+  "qwen-code",
+]);
 
 export async function reconcileCrossWiring(
   installedId: string,
@@ -66,8 +72,9 @@ export async function reconcileCrossWiring(
         );
       }
     } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       console.error(
-        `↻ note: re-wiring ${provider.id} into ${installedId} failed (${(err as Error).message}); install still OK`,
+        `↻ note: re-wiring ${provider.id} into ${installedId} failed (${detail}); install still OK`,
       );
     }
   }

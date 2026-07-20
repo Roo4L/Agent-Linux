@@ -45,7 +45,7 @@ teardown() {
   # Drop every agent any @test in this file can install (the order-independence
   # @tests install target agents LATER) so a mid-test failure can't leak an
   # install into the next test file. Keep this list == the union of installs here.
-  _remove gemini-cli
+  _remove antigravity-cli
   _remove codex
   _remove opencode
   _remove qwen-code
@@ -63,21 +63,18 @@ _agent_test() {
   fi
 }
 
-@test "WIRE-01: install gsd wires GSD into the shipped coding agents (codex excluded — upstream config breakage)" {
+@test "WIRE-01: install gsd wires Open GSD into every supported upstream runtime" {
   _reinstall gsd
 
-  # Each shipped agent gets GSD in its own native surface (Claude/qwen use a
-  # skills/ dir, opencode a command/ dir, gemini a namespaced commands/gsd dir
-  # — the layouts observed for the pinned GSD; a pin bump re-validates here).
-  # codex is DELIBERATELY not wired: the pinned GSD's codex writer emits a
-  # config.toml `[[hooks]]` block that codex 0.125+ rejects, breaking codex
-  # launch — see gsd/install.sh and the codex-safety @test below.
+  # Each shipped agent gets GSD in its own native surface. The layouts are
+  # observed from the pinned Open GSD release; these assertions re-validate
+  # them whenever the catalog pin changes.
   _agent_test "WIRE-01/gsd/claude" "gsd-* skills under /home/agent/.claude/skills" \
     "find /home/agent/.claude/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
-  _agent_test "WIRE-01/gsd/opencode" "gsd-*.md commands under /home/agent/.config/opencode/command" \
-    "find /home/agent/.config/opencode/command -maxdepth 1 -type f -name 'gsd-*.md' | grep -q ."
-  _agent_test "WIRE-01/gsd/gemini" "gsd commands under /home/agent/.gemini/commands" \
-    "find /home/agent/.gemini/commands -maxdepth 2 -type d -name 'gsd' | grep -q ."
+  _agent_test "WIRE-01/gsd/opencode" "gsd-* skills under /home/agent/.config/opencode/skills" \
+    "find /home/agent/.config/opencode/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
+  _agent_test "WIRE-01/gsd/codex" "gsd-* skills under /home/agent/.agents/skills" \
+    "find /home/agent/.agents/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
   _agent_test "WIRE-01/gsd/qwen" "gsd-* skills under /home/agent/.qwen/skills" \
     "find /home/agent/.qwen/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
 
@@ -85,28 +82,25 @@ _agent_test() {
   _remove gsd
   _agent_test "WIRE-01/gsd/remove-claude" "no gsd-* under /home/agent/.claude/skills after remove" \
     "! find /home/agent/.claude/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
-  _agent_test "WIRE-01/gsd/remove-opencode" "no gsd-*.md under /home/agent/.config/opencode/command after remove" \
-    "! find /home/agent/.config/opencode/command -maxdepth 1 -type f -name 'gsd-*.md' | grep -q ."
-  _agent_test "WIRE-01/gsd/remove-gemini" "no gsd commands under /home/agent/.gemini/commands after remove" \
-    "! find /home/agent/.gemini/commands -maxdepth 2 -type d -name 'gsd' | grep -q ."
+  _agent_test "WIRE-01/gsd/remove-opencode" "no gsd-* under /home/agent/.config/opencode/skills after remove" \
+    "! find /home/agent/.config/opencode/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
+  _agent_test "WIRE-01/gsd/remove-codex" "no gsd-* under /home/agent/.agents/skills after remove" \
+    "! find /home/agent/.agents/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
   _agent_test "WIRE-01/gsd/remove-qwen" "no gsd-* under /home/agent/.qwen/skills after remove" \
     "! find /home/agent/.qwen/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
 }
 
-@test "WIRE-01: installing gsd does NOT break codex — config.toml stays codex-loadable" {
-  # Regression for the dogfood bug (2026-07-16): the pinned GSD, wired into codex
-  # via `--codex`, appended an array-of-tables `[[hooks]]` block to
-  # ~/.codex/config.toml, which codex 0.125+ rejects with
-  #   Error loading config.toml: invalid type: sequence, expected struct HooksToml in `hooks`
-  # so `codex` refused to launch. The fix drops `--codex` from gsd/install.sh.
-  # This @test is the acceptance contract: codex + gsd coinstalled, codex still
-  # launches, and no `[[hooks]]` block was written. Guards against a GSD pin bump
-  # silently re-introducing the breakage.
+@test "WIRE-01: installing Open GSD wires Codex without reintroducing invalid hooks" {
+  # Regression for the dogfood bug (2026-07-16): the old GSD package emitted an
+  # array-of-tables `[[hooks]]` block that Codex rejected. Open GSD owns the
+  # Codex adapter now, so Codex wiring is mandatory while this parse-safety
+  # assertion guards against a future upstream regression.
   _reinstall codex
   _install gsd
 
-  # codex config carries no array-of-tables hooks block.
-  _agent_test "WIRE-01/gsd/codex-safe-config" "no [[hooks]] in ~/.codex/config.toml after gsd install" \
+  _agent_test "WIRE-01/gsd/codex-skills" "Open GSD skills under ~/.agents/skills" \
+    "find /home/agent/.agents/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
+  _agent_test "WIRE-01/gsd/codex-safe-config" "no invalid [[hooks]] in ~/.codex/config.toml after gsd install" \
     "! grep -qE '^\\[\\[hooks\\]\\]' /home/agent/.codex/config.toml 2>/dev/null"
 
   # And codex actually launches (config loads) — the user-visible symptom.
@@ -118,6 +112,19 @@ _agent_test() {
 
   _remove gsd
   _remove codex
+}
+
+@test "WIRE-01: removing Open GSD preserves shared Antigravity user state" {
+  run sudo -u agent -H bash --login -c \
+    'mkdir -p ~/.gemini && printf "%s\\n" user-state > ~/.gemini/gsd-preserve-sentinel'
+  assert_exit_zero "WIRE-01/gsd-antigravity-state (seed)"
+
+  _reinstall gsd
+  _remove gsd
+  _agent_test "WIRE-01/gsd-antigravity-state" "GSD removal leaves shared ~/.gemini state intact" \
+    "test \"\$(cat ~/.gemini/gsd-preserve-sentinel)\" = user-state"
+  run sudo -u agent -H bash --login -c 'rm -f ~/.gemini/gsd-preserve-sentinel'
+  assert_exit_zero "WIRE-01/gsd-antigravity-state (cleanup)"
 }
 
 @test "WIRE-01: install playwright-cli mirrors its skill into /home/agent/.agents/skills (codex/opencode scan path)" {
@@ -142,27 +149,24 @@ _agent_test() {
     "! test -e /home/agent/.agents/skills/playwright-cli"
 }
 
-@test "WIRE-01: order-independence — installing gemini-cli AFTER gsd leaves gsd's wiring intact (no clobber)" {
+@test "WIRE-01: order-independence — installing opencode AFTER gsd leaves GSD wiring intact" {
   # WIRE-01 promises the wired set is the same regardless of install order. GSD
-  # writes each target agent's dir UNCONDITIONALLY at its own install time; a
-  # target agent installed LATER must not clobber that wiring. This is the
-  # provider-first-then-agent direction (the existing @tests cover provider-only);
-  # it guards against a later agent install silently wiping the provider's dir.
+  # writes each target agent's dir unconditionally; a target agent installed
+  # later must not clobber that wiring.
   _reinstall gsd
-  # gsd is wired into gemini's command dir even though gemini-cli isn't installed.
-  _agent_test "WIRE-01/order/gsd-pre" "gsd wired into ~/.gemini/commands before gemini-cli install" \
-    "find /home/agent/.gemini/commands -maxdepth 2 -type d -name 'gsd' | grep -q ."
+  _agent_test "WIRE-01/order/gsd-pre" "gsd OpenCode commands before opencode install" \
+    "find /home/agent/.config/opencode/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
 
-  # Install gemini-cli LATER; its install must NOT wipe gsd's command dir.
-  run sudo -u agent -H bash --login -c "agentlinux install gemini-cli"
-  assert_exit_zero "WIRE-01/order (gemini-cli install)"
-  _agent_test "WIRE-01/order/gsd-post" "gsd wiring SURVIVES a later gemini-cli install" \
-    "find /home/agent/.gemini/commands -maxdepth 2 -type d -name 'gsd' | grep -q ."
+  # Install OpenCode LATER; its install must NOT wipe GSD's command dir.
+  run sudo -u agent -H bash --login -c "agentlinux install opencode"
+  assert_exit_zero "WIRE-01/order (opencode install)"
+  _agent_test "WIRE-01/order/gsd-post" "gsd wiring SURVIVES a later opencode install" \
+    "find /home/agent/.config/opencode/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
   # The Claude surface is likewise untouched.
-  _agent_test "WIRE-01/order/gsd-claude" "gsd claude skills intact after gemini-cli install" \
+  _agent_test "WIRE-01/order/gsd-claude" "gsd Claude skills intact after OpenCode install" \
     "find /home/agent/.claude/skills -maxdepth 1 -type d -name 'gsd-*' | grep -q ."
 
-  _remove gemini-cli
+  _remove opencode
   _remove gsd
 }
 

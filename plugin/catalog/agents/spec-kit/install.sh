@@ -27,6 +27,8 @@ set -euo pipefail
 : "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}"
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 
+# shellcheck source=../../lib/browser-deps.sh
+source "${AGENTLINUX_CATALOG_DIR}/lib/browser-deps.sh"
 # shellcheck source=../../lib/uv-bootstrap.sh
 source "${AGENTLINUX_CATALOG_DIR}/lib/uv-bootstrap.sh"
 
@@ -35,13 +37,9 @@ tag="v${ver}"
 pkg="specify-cli"
 git_url="https://github.com/github/spec-kit.git"
 
-# spec-kit installs from a git+ source, so `uv tool install` shells out to system git.
-# Fail fast with an actionable message rather than a cryptic uv error deep in the build.
-if ! command -v git >/dev/null 2>&1; then
-  echo "spec-kit install: git is required (uv installs Spec Kit from a git tag)." >&2
-  echo "spec-kit install: install it first, e.g.  sudo apt-get install -y git" >&2
-  exit 1
-fi
+# spec-kit installs from a git+ source. Install git through the agent's available
+# apt/dnf permission before uv; an inability to escalate is explicit and fatal.
+al_browser_ensure_git
 
 echo "spec-kit: ensuring a per-user uv is available"
 al_uv_ensure || {
