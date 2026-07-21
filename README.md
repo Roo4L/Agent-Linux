@@ -97,6 +97,18 @@ story is HTTPS + SHA256 + maintainer 2FA + branch protection.
 Report vulnerabilities through the repository's Security tab (coordinated
 disclosure).
 
+## Built with Codex
+
+Part of AgentLinux's quality work was driven with OpenAI's **Codex CLI**
+alongside Claude Code. Codex ran the project's black-box QA campaign against
+the full agent catalog — planning tests, reproducing failures in disposable
+sandboxes, and routing findings to a fix — largely on its own, and several
+shipped fixes came out of it.
+
+The full write-up is in
+[CODEX-QA-HACKATHON-REPORT.md](CODEX-QA-HACKATHON-REPORT.md); using Codex in
+this repo is covered in [docs/codex.md](docs/codex.md).
+
 ## Learn more
 
 - [How it works, component by component](docs/internals/) — the agent user,
@@ -104,9 +116,6 @@ disclosure).
 - [Vision](docs/VISION.md) — what AgentLinux is for and where it's going
 - [Contributing](CONTRIBUTING.md) — filing issues, opening PRs, running the
   tests. The `tests/bats/` suite is the behavior contract.
-- [Built with Codex](CODEX-QA-HACKATHON-REPORT.md) — how OpenAI's Codex CLI ran
-  the project's QA campaign, and [docs/codex.md](docs/codex.md) for using Codex
-  in this repo
 - Source and releases: [github.com/Roo4L/Agent-Linux](https://github.com/Roo4L/Agent-Linux)
 
 ## License
