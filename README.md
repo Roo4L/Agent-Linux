@@ -81,7 +81,7 @@ sets a sticky override when you want to run ahead.
 ```bash
 agentlinux pin claude-code=latest    # follow upstream for this tool
 agentlinux pin claude-code=curated   # go back to the tested pin
-agentlinux pin gsd=1.38.0            # pin an exact version
+agentlinux pin gsd=1.7.0             # pin an exact version
 ```
 
 Details in [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md).
