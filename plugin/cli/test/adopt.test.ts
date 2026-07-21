@@ -46,6 +46,19 @@ const CATALOG = {
       uninstall_recipe_path: "uninstall.sh",
     },
     {
+      // v0.3.6 catalog-expansion tool: NO CANONICAL_PATHS entry. Exercises the
+      // generalized tryReuse path (adoptable at its managed ~/.local/bin dir),
+      // which the original-three canonical gate used to exclude.
+      id: "rtk",
+      display_name: "Repo Tool Kit",
+      description: "adopt fixture — non-canonical binary tool",
+      source_kind: "binary",
+      pinned_version: "0.42.4",
+      compatibility_window: ">=0.42.0 <0.43.0",
+      install_recipe_path: "install.sh",
+      uninstall_recipe_path: "uninstall.sh",
+    },
+    {
       id: "test-dummy",
       display_name: "Test Dummy",
       description: "test-only fixture",
@@ -255,6 +268,50 @@ describe("adoptCmd — AL-61 adopt-on-install / honest reuse recording", () => {
       assert.ok(typeof r.id === "string");
       assert.ok(["adopted", "already-managed", "skipped", "migrate-available"].includes(r.action));
     }
+  });
+
+  test("non-canonical catalog tool (rtk) at its managed path → adopted (generalized reuse)", async () => {
+    // The keystone fix: a tool with NO CANONICAL_PATHS entry, detected healthy at
+    // its source_kind's managed dir (~/.local/bin for a binary) within the
+    // compatibility window, is now adoptable. Deterministic: point AGENT_HOME at
+    // TMP and lay down a real binary so tryReuse's statSync re-validation passes.
+    process.env.AGENTLINUX_AGENT_HOME = TMP;
+    const binPath = join(TMP, ".local/bin/rtk");
+    await mkdir(join(TMP, ".local/bin"), { recursive: true });
+    await writeFile(binPath, "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
+    stageCache([{ id: "rtk", status: "healthy", path: binPath, version: "0.42.4" }]);
+    const sil = silenceConsole();
+    try {
+      await adoptCmd("rtk", {});
+    } finally {
+      sil.restore();
+      // biome-ignore lint/performance/noDelete: delete required for process.env
+      delete process.env.AGENTLINUX_AGENT_HOME;
+    }
+    assert.match(sil.out.join("\n"), /\[ADOPT\] rtk/);
+    const s = await readSentinel("rtk");
+    assert.equal(s?.status, "reused", "generalized adoption writes a reused sentinel");
+    assert.equal(s?.version, "0.42.4");
+    assert.equal(s?.binary_path, binPath, "reused sentinel records the detected binary path");
+    assert.equal(s?.detected_source, "pre-existing");
+  });
+
+  test("non-canonical tool at a NON-managed path (system bin) → skipped, no sentinel", async () => {
+    // Symmetric guard: rtk at /usr/bin/rtk is NOT at its managed ~/.local/bin, so
+    // adopt declines it (list surfaces it as a present migration candidate). adopt
+    // only records tools already sitting where AgentLinux would manage them.
+    process.env.AGENTLINUX_AGENT_HOME = TMP;
+    stageCache([{ id: "rtk", status: "healthy", path: "/usr/bin/rtk", version: "0.42.4" }]);
+    const sil = silenceConsole();
+    try {
+      await adoptCmd("rtk", {});
+    } finally {
+      sil.restore();
+      // biome-ignore lint/performance/noDelete: delete required for process.env
+      delete process.env.AGENTLINUX_AGENT_HOME;
+    }
+    assert.match(sil.out.join("\n"), /nothing to adopt/);
+    assert.equal(await readSentinel("rtk"), null, "non-managed path must not be adopted");
   });
 
   test("happy path is host-independent: gsd@system-path → adopted or skipped, never a non-reused sentinel", async () => {

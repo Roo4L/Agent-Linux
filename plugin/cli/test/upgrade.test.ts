@@ -9,6 +9,7 @@
 // no sudo ever runs under `pnpm test`.
 
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -66,6 +67,10 @@ before(async () => {
   await writeFile(join(CATALOG_DIR, "catalog.json"), JSON.stringify(CATALOG));
   process.env.AGENTLINUX_CATALOG_DIR = CATALOG_DIR;
   process.env.AGENTLINUX_STATE_DIR = STATE_DIR;
+  // Default the detect cache at a nonexistent path so the presence overlay reads
+  // "no cache" (→ not-installed) for the report-only tests, rather than a real
+  // /run/agentlinux-detect.json on a dev host. The presence describe overrides it.
+  process.env.AGENTLINUX_DETECT_CACHE = join(TMP, "nonexistent-detect.json");
 });
 
 after(async () => {
@@ -74,6 +79,10 @@ after(async () => {
   delete process.env.AGENTLINUX_CATALOG_DIR;
   // biome-ignore lint/performance/noDelete: delete required for process.env
   delete process.env.AGENTLINUX_STATE_DIR;
+  // biome-ignore lint/performance/noDelete: delete required for process.env
+  delete process.env.AGENTLINUX_DETECT_CACHE;
+  // biome-ignore lint/performance/noDelete: delete required for process.env
+  delete process.env.AGENTLINUX_AGENT_HOME;
 });
 
 const { upgradeCmd } = await import("../src/commands/upgrade.js");
@@ -720,5 +729,91 @@ describe("upgradeCmd — flag priority", () => {
     // override sentinel WAS reset (reset-all-curated semantics).
     const byId = new Map(recipe.calls.map((c) => [c.entryId, c]));
     assert.ok(byId.has("npm-agent"), "reset-all-curated overrides respect-overrides");
+  });
+});
+
+describe("upgradeCmd — presence overlay (detected-but-unmanaged brownfield tools)", () => {
+  // A tool the host already has but that AgentLinux has not recorded must read
+  // `present` in `upgrade` too — not `not-installed`, which contradicts `list`.
+  // Pure cache read (detectPresence): no on-disk stat, so host-independent.
+  let seq = 0;
+  function stageCache(
+    agents: Array<{ id: string; status: string; path: string; version: string }>,
+  ) {
+    seq += 1;
+    const cachePath = join(TMP, `upg-detect-${seq}.json`);
+    writeFileSync(cachePath, JSON.stringify({ components: { agents } }));
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+  }
+
+  beforeEach(async () => {
+    await rm(STATE_DIR, { recursive: true, force: true });
+    // Managed-dir heuristic resolves against AGENTLINUX_AGENT_HOME; point it at
+    // TMP so ~/.local/bin/<id> is a stable managed path in the cache fixtures.
+    process.env.AGENTLINUX_AGENT_HOME = TMP;
+    process.env.AGENTLINUX_DETECT_CACHE = join(TMP, "nonexistent-detect.json");
+  });
+
+  test("detected script tool at its managed path → present + detected version (not not-installed)", async () => {
+    stageCache([
+      {
+        id: "script-agent",
+        status: "healthy",
+        path: `${TMP}/.local/bin/script-agent`,
+        version: "1.9.0",
+      },
+    ]);
+    const recipe = makeRecipeCap();
+    const sil = silenceConsole();
+    try {
+      await upgradeCmd(
+        { json: true },
+        {
+          dispatchRecipe: recipe.impl,
+          queryGlobalNpm: async () => new Map<string, string>(),
+          queryNpmViewLatest: async () => null,
+        },
+      );
+    } finally {
+      sil.restore();
+    }
+    const rows = JSON.parse(sil.out.join("\n"));
+    const row = rows.find((r: { id: string }) => r.id === "script-agent");
+    assert.equal(row.status, "present", "brownfield tool reads present, not not-installed");
+    assert.equal(row.installedVersion, "1.9.0", "present row carries the detected version");
+  });
+
+  test("present rows are report-only: --reset-all-curated does NOT reinstall them", async () => {
+    stageCache([
+      {
+        id: "script-agent",
+        status: "healthy",
+        path: `${TMP}/.local/bin/script-agent`,
+        version: "1.9.0",
+      },
+    ]);
+    const recipe = makeRecipeCap();
+    const sil = silenceConsole();
+    try {
+      await upgradeCmd(
+        { resetAllCurated: true },
+        {
+          dispatchRecipe: recipe.impl,
+          queryGlobalNpm: async () => new Map<string, string>(),
+          queryNpmViewLatest: async () => null,
+        },
+      );
+    } finally {
+      sil.restore();
+    }
+    assert.ok(
+      !recipe.calls.some((c) => c.entryId === "script-agent"),
+      "a present (unmanaged) tool must not be reinstalled by a bulk flag — adopt is the path",
+    );
+    assert.equal(
+      await readSentinel("script-agent"),
+      null,
+      "no sentinel written for a present tool by upgrade",
+    );
   });
 });

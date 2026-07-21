@@ -117,7 +117,7 @@ describe("listCmd — presence overlay for catalog-expansion tools (no CANONICAL
     }
     const joined = cap.lines.join("\n");
     assert.match(joined, /gh\s+present\s+2\.95\.0\s+2\.95\.0/);
-    assert.match(joined, /detected — run: agentlinux install gh to manage/);
+    assert.match(joined, /detected — run: agentlinux adopt gh to manage/);
   });
 
   test("npm tool at its managed ~/.npm-global/bin path → present + adopt hint", async () => {

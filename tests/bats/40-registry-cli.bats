@@ -184,7 +184,7 @@ JSON
   assert_exit_zero "AL-61"
   echo "$output" | grep -Eq 'gsd[[:space:]]+present' \
     || __fail "AL-61" "gsd reads present" "${output:-<empty>}" "$LOG"
-  echo "$output" | grep -qF 'detected — run: agentlinux install gsd to manage' \
+  echo "$output" | grep -qF 'detected — run: agentlinux adopt gsd to manage' \
     || __fail "AL-61" "present manage-hint wording" "${output:-<empty>}" "$LOG"
   rm -f "$cache"
 }

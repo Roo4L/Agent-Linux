@@ -16,6 +16,7 @@
 // test-only entry (dummy) to exercise the test_only-doesn't-block-pin path.
 
 import assert from "node:assert/strict";
+import { writeFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -60,6 +61,9 @@ before(async () => {
   await writeFile(join(CATALOG_DIR, "catalog.json"), JSON.stringify(CATALOG));
   process.env.AGENTLINUX_CATALOG_DIR = CATALOG_DIR;
   process.env.AGENTLINUX_STATE_DIR = STATE_DIR;
+  // Default the detect cache at a nonexistent path so the present-vs-absent
+  // branch reads "absent" (→ install-first message) unless a test stages a cache.
+  process.env.AGENTLINUX_DETECT_CACHE = join(TMP, "nonexistent-detect.json");
 });
 
 after(async () => {
@@ -68,6 +72,10 @@ after(async () => {
   delete process.env.AGENTLINUX_CATALOG_DIR;
   // biome-ignore lint/performance/noDelete: delete required for process.env
   delete process.env.AGENTLINUX_STATE_DIR;
+  // biome-ignore lint/performance/noDelete: delete required for process.env
+  delete process.env.AGENTLINUX_DETECT_CACHE;
+  // biome-ignore lint/performance/noDelete: delete required for process.env
+  delete process.env.AGENTLINUX_AGENT_HOME;
 });
 
 const { parsePinSpec, pinCmd } = await import("../src/commands/pin.js");
@@ -263,6 +271,86 @@ describe("pinCmd — error paths (process.exit intercepted)", () => {
     } finally {
       sil.restore();
       process.exit = origExit;
+    }
+  });
+
+  test("pin on a PRESENT-but-unmanaged tool: exit 1 directing to adopt (not install)", async () => {
+    // bar has no sentinel, but the detect cache reports it healthy at its managed
+    // path → it's `present`. pin must route the user to `adopt` (records the
+    // existing bits) rather than `install` (a fresh copy over them), staying
+    // consistent with what `list` shows.
+    process.env.AGENTLINUX_AGENT_HOME = TMP;
+    const cachePath = join(TMP, "pin-present-detect.json");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        components: {
+          agents: [
+            { id: "bar", status: "healthy", path: `${TMP}/.local/bin/bar`, version: "2.0.0" },
+          ],
+        },
+      }),
+    );
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+    const origExit = process.exit;
+    const exitCodes: number[] = [];
+    // biome-ignore lint/suspicious/noExplicitAny: test override of process.exit signature
+    (process as any).exit = (code?: number) => {
+      exitCodes.push(code ?? 0);
+      throw new Error(`__test_exit_${code}__`);
+    };
+    const sil = silenceConsole();
+    try {
+      await assert.rejects(() => pinCmd("bar=curated"), /__test_exit_1__/);
+      assert.deepEqual(exitCodes, [1]);
+      assert.match(sil.err.join("\n"), /present but not managed/);
+      assert.match(sil.err.join("\n"), /agentlinux adopt bar/);
+      assert.doesNotMatch(sil.err.join("\n"), /agentlinux install bar/);
+    } finally {
+      sil.restore();
+      process.exit = origExit;
+      process.env.AGENTLINUX_DETECT_CACHE = join(TMP, "nonexistent-detect.json");
+      // biome-ignore lint/performance/noDelete: delete required for process.env
+      delete process.env.AGENTLINUX_AGENT_HOME;
+    }
+  });
+
+  test("pin on a PRESENT tool at a NON-managed path: exit 1 directing to install-to-migrate (QA F-QA-01)", async () => {
+    // Regression guard: a present tool at a non-managed path (e.g. a system
+    // /usr/bin copy) is a MIGRATION candidate, not adoptable. pin must mirror
+    // `list` and advise `install ... to migrate`, NOT `adopt` — advising adopt
+    // here is a dead-end because adopt declines a non-managed path.
+    process.env.AGENTLINUX_AGENT_HOME = TMP;
+    const cachePath = join(TMP, "pin-migrate-detect.json");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        components: {
+          agents: [{ id: "bar", status: "healthy", path: "/usr/bin/bar", version: "2.0.0" }],
+        },
+      }),
+    );
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+    const origExit = process.exit;
+    const exitCodes: number[] = [];
+    // biome-ignore lint/suspicious/noExplicitAny: test override of process.exit signature
+    (process as any).exit = (code?: number) => {
+      exitCodes.push(code ?? 0);
+      throw new Error(`__test_exit_${code}__`);
+    };
+    const sil = silenceConsole();
+    try {
+      await assert.rejects(() => pinCmd("bar=curated"), /__test_exit_1__/);
+      assert.deepEqual(exitCodes, [1]);
+      assert.match(sil.err.join("\n"), /not the managed path/);
+      assert.match(sil.err.join("\n"), /agentlinux install bar.*migrate/);
+      assert.doesNotMatch(sil.err.join("\n"), /agentlinux adopt bar/);
+    } finally {
+      sil.restore();
+      process.exit = origExit;
+      process.env.AGENTLINUX_DETECT_CACHE = join(TMP, "nonexistent-detect.json");
+      // biome-ignore lint/performance/noDelete: delete required for process.env
+      delete process.env.AGENTLINUX_AGENT_HOME;
     }
   });
 

@@ -33,6 +33,7 @@
 
 import semver from "semver";
 import { loadCatalog } from "../catalog/loader.js";
+import { detectPresence } from "../detect.js";
 import { readSentinel, writeSentinel } from "../state/sentinel.js";
 import type { Sentinel } from "../types.js";
 
@@ -104,9 +105,27 @@ export async function pinCmd(spec: string, _opts: PinOpts = {}): Promise<void> {
   // since no bits at 2.1.7 are on disk.
   const existing = await readSentinel(entry.id);
   if (!existing) {
-    console.error(
-      `agentlinux: ${entry.id} is not installed — run 'agentlinux install ${entry.id}' first`,
-    );
+    // A tool the host already has (detected, no sentinel) is `present`, not
+    // absent — so route it to the SAME verb `list` recommends, not a blanket
+    // "install". The right verb depends on WHERE it sits: at its managed path
+    // (canonical) `adopt` records the existing bits with no reinstall; at a
+    // non-managed path it's a migration candidate that `install` relocates
+    // under management. Advising `adopt` for the migrate case would be a
+    // dead-end (adopt declines a non-managed path), so mirror list exactly.
+    const present = detectPresence(entry);
+    if (present?.canonical) {
+      console.error(
+        `agentlinux: ${entry.id} is present but not managed — run 'agentlinux adopt ${entry.id}' first, then pin`,
+      );
+    } else if (present) {
+      console.error(
+        `agentlinux: ${entry.id} is present at ${present.path} (not the managed path) — run 'agentlinux install ${entry.id}' to migrate it under management, then pin`,
+      );
+    } else {
+      console.error(
+        `agentlinux: ${entry.id} is not installed — run 'agentlinux install ${entry.id}' first`,
+      );
+    }
     process.exit(1);
     return;
   }
