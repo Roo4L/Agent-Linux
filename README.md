@@ -4,16 +4,15 @@
 
 **Agent-ready Linux in one command.**
 
-Running coding agents on a server usually starts with `sudo npm install -g`,
-and that one command quietly breaks them. It leaves an npm prefix that later
-throws `EACCES`, and for tools that update themselves (Claude Code is the
-classic case) it creates a shim under `/usr/local/bin/` that self-update can
-never overwrite.
+Setting up a server to run coding agents is fiddlier than it looks. Install
+the tools the usual way and they end up owned by the wrong user, so they can't
+update themselves, and small permission problems keep interrupting the work you
+actually wanted the agent to do.
 
-AgentLinux fixes this at the root: it provisions a dedicated `agent` user with
-a Node.js runtime the agent actually owns, plus a small CLI for installing
-agent tools. Claude Code, GSD, and the rest self-update cleanly — no sudo, no
-`EACCES`, no broken shim.
+AgentLinux gives you a host that's already set up correctly. One command
+provisions a dedicated `agent` user with a runtime it fully owns, plus a small
+CLI for installing agent tools. The tools install cleanly and keep themselves
+up to date on their own — no permission errors, no manual repair.
 
 [![test](https://github.com/Roo4L/Agent-Linux/actions/workflows/test.yml/badge.svg)](https://github.com/Roo4L/Agent-Linux/actions/workflows/test.yml)
 [![release](https://github.com/Roo4L/Agent-Linux/actions/workflows/release.yml/badge.svg)](https://github.com/Roo4L/Agent-Linux/actions/workflows/release.yml)
@@ -49,9 +48,8 @@ agentlinux install claude-code  # install one
 claude --version                # it's on PATH, owned by the agent user
 ```
 
-From here, `claude update` runs Claude Code's own updater against its
-agent-owned install. That's the case that breaks under `sudo npm install -g`,
-and it just works.
+From here the tool manages itself: `claude update` and the like just work,
+because everything is owned by the `agent` user rather than root.
 
 ## Uninstall
 
