@@ -5,16 +5,19 @@
 # Sourced fragment: inherits set -euo pipefail / ERR trap / log.sh / as_user.sh
 # and uses `return 1` (not `exit 1`).
 #
-# Catalog binary mapping (verbatim from catalog.json + agents/*/install.sh;
-# test-dummy is test_only and excluded):
-#   claude-code     → claude
-#   gsd             → gsd-core
-#   playwright-cli  → playwright-cli
+# Catalog binary mapping is DERIVED from the catalog at probe time (see
+# __det_agent_rows): every non-mcp, non-test entry whose post_install_verify
+# begins `command -v <bin>` is probed on PATH — so the whole catalog is detected,
+# not just the original three. MCP entries register into client configs (no PATH
+# binary) and are excluded. A malformed/absent catalog degrades to the legacy
+# three (claude-code→claude, gsd→gsd-core, playwright-cli→playwright-cli).
 #
 # Classification:
 #   absent  — `command -v <binary>` (as the user) exits non-zero.
-#   healthy — binary present + version parses + `--help` exit 0.
-#   broken  — binary present but version empty OR `--help` non-zero.
+#   healthy — binary present + version parses (the original three additionally
+#             require `--help` exit 0, preserving their prior contract).
+#   broken  — binary present but version unparseable (or, for the original
+#             three, `--help` non-zero).
 #
 # GSD is the exception: its binary is a bootstrapper, so when it's absent gsd is
 # also classified from the deployed-system VERSION file (see the fallback branch
@@ -35,12 +38,49 @@ if ! command -v log_error >/dev/null 2>&1; then
   return 1 2>/dev/null || exit 1
 fi
 
-# DETECT_AGENT_BINARIES — catalog ID → binary-on-PATH name.
-declare -A DETECT_AGENT_BINARIES=(
-  [claude-code]=claude
-  [gsd]=gsd-core
-  [playwright-cli]=playwright-cli
-)
+# The original three carry bespoke version-probe logic (see
+# __det_agent_version_probe); every other tool uses the generic probe. Listed
+# here so the loop can branch health/version handling without re-hardcoding IDs.
+readonly DETECT_AGENT_LEGACY_IDS=" claude-code gsd playwright-cli "
+
+# The legacy id<TAB>binary rows, used verbatim when the catalog is unreadable so a
+# malformed/absent catalog degrades to prior behavior rather than reporting none.
+readonly DETECT_AGENT_LEGACY_ROWS=$'claude-code\tclaude\ngsd\tgsd-core\nplaywright-cli\tplaywright-cli'
+
+# __det_catalog_path — resolve the catalog.json the probe derives its tool list
+# from. Override with AGENTLINUX_CATALOG (test seam); otherwise the source copy
+# shipped alongside this lib in the extracted plugin tree. Both provision-time
+# and install-time callers see the same file.
+__det_catalog_path() {
+  if [[ -n "${AGENTLINUX_CATALOG:-}" ]]; then
+    printf '%s' "$AGENTLINUX_CATALOG"
+    return 0
+  fi
+  printf '%s' "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../catalog" 2>/dev/null && pwd)/catalog.json"
+}
+
+# __det_agent_rows <catalog> — emit `id<TAB>binary` for every PATH-resolvable
+# catalog tool: non-mcp, non-test entries whose post_install_verify begins
+# `command -v <bin>` (the universal presence convention). MCP entries
+# (registration-based, no PATH binary) are skipped. Falls back to the legacy
+# three when the catalog is unreadable. jq is --arg-free: the catalog is trusted
+# repo data and `capture` extracts only the binary token. The caller MUST consume
+# these rows in a `while read` loop in the current shell (not a subshell) so its
+# per-agent exports persist.
+__det_agent_rows() {
+  local catalog=$1
+  if [[ -r "$catalog" ]]; then
+    jq -r '
+      .agents[]
+      | select((.test_only // false) | not)
+      | select(.source_kind != "mcp")
+      | select((.post_install_verify // "") | test("command -v [^ ]+"))
+      | [.id, ((.post_install_verify) | capture("command -v (?<b>[^ ]+)").b)]
+      | @tsv
+    ' "$catalog" 2>/dev/null && return 0
+  fi
+  printf '%s\n' "$DETECT_AGENT_LEGACY_ROWS"
+}
 
 # __det_agent_version_probe <id> <user> <binary> — emit the agent's version on
 # stdout, or empty when unparseable. claude-code / playwright-cli parse a semver
@@ -75,6 +115,23 @@ __det_agent_version_probe() {
         | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
         | head -1
       ;;
+    *)
+      # Generic probe for the rest of the catalog: most CLIs print a semver on
+      # `--version`; a few use a `version` subcommand (gitleaks) or only a
+      # `--help` banner. Try each in turn and take the first semver. The regex
+      # again neutralizes adversarial output — only digits/dots reach stdout.
+      local __v __flag
+      for __flag in --version version --help; do
+        __v=$(as_user_login "$user" "$binary" "$__flag" 2>/dev/null \
+          | tr -d '\r' \
+          | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
+          | head -1)
+        if [[ -n "$__v" ]]; then
+          printf '%s' "$__v"
+          return 0
+        fi
+      done
+      ;;
   esac
 }
 
@@ -91,13 +148,15 @@ detect::agents_probe() {
   local home
   home=$(getent passwd "$user" 2>/dev/null | cut -d: -f6 || true)
 
-  # Explicit ordered list (not the associative array's hash-bucket order) for
-  # deterministic renderer output.
-  local ids=(claude-code gsd playwright-cli)
+  # Derive the tool list from the catalog (catalog order → deterministic
+  # renderer output), one `id<TAB>binary` row per PATH-resolvable tool.
   local id binary bin_path ver health_rc owner status upper
 
-  for id in "${ids[@]}"; do
-    binary=${DETECT_AGENT_BINARIES[$id]}
+  # `while read` from a process substitution runs the loop body in THIS shell
+  # (only jq runs in the subshell), so the entries[] array and per-agent exports
+  # below persist to the caller — a `for` over a subshell-populated map would not.
+  while IFS=$'\t' read -r id binary; do
+    [[ -n "$id" && -n "$binary" ]] || continue
 
     # Resolve as the install user via login shell so the agent-owned PATH
     # entries are present; see the header for why bare as_user misclassifies.
@@ -139,19 +198,29 @@ detect::agents_probe() {
       ver=$(__det_agent_version_probe "$id" "$user" "$binary")
       owner=$(stat -c '%U:%G' "$bin_path" 2>/dev/null || echo "unknown")
 
-      # Health probe, independent of version: `--help` should exit 0 for a
-      # healthy CLI. Capture the rc explicitly so the entrypoint's set -e
-      # doesn't trip on a non-zero exit.
-      if as_user_login "$user" "$binary" --help >/dev/null 2>&1; then
-        health_rc=0
+      if [[ "$DETECT_AGENT_LEGACY_IDS" == *" $id "* ]]; then
+        # Original three: keep the strict `--help`-exit-0 + version gate that
+        # their behavior contract (and bats coverage) asserts. Capture the rc
+        # explicitly so the entrypoint's set -e doesn't trip on a non-zero exit.
+        if as_user_login "$user" "$binary" --help >/dev/null 2>&1; then
+          health_rc=0
+        else
+          health_rc=$?
+        fi
+        if [[ "$health_rc" -eq 0 && -n "$ver" ]]; then
+          status=healthy
+        else
+          status=broken
+        fi
       else
-        health_rc=$?
-      fi
-
-      if [[ "$health_rc" -eq 0 && -n "$ver" ]]; then
-        status=healthy
-      else
-        status=broken
+        # Generic tools: `--help` conventions vary too widely to gate on (some
+        # exit non-zero, some lack it). A parseable version from the probe above
+        # is the presence-and-health signal; present-but-unversionable → broken.
+        if [[ -n "$ver" ]]; then
+          status=healthy
+        else
+          status=broken
+        fi
       fi
     fi
 
@@ -173,7 +242,7 @@ detect::agents_probe() {
     export "DETECT_AGENT_${upper}_PATH"="$bin_path"
     export "DETECT_AGENT_${upper}_VERSION"="$ver"
     export "DETECT_AGENT_${upper}_OWNER"="$owner"
-  done
+  done < <(__det_agent_rows "$(__det_catalog_path)")
 
   printf '%s\n' "${entries[@]}" | jq -s '{agents: .}' >"$fragment_path"
   export DETECT_AGENTS_SECTION_STATUS=present

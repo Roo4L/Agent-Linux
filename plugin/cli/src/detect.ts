@@ -37,6 +37,36 @@ export function isCanonicalAgentPath(
   return path === canonical || (entry.id === "gsd" && path === GSD_SYSTEM_PATH);
 }
 
+// Agent home base for the managed-dir heuristic. Mirrors the hardcoded home in
+// CANONICAL_PATHS; overridable so unit tests can point at a fixture tree.
+function agentHome(): string {
+  return process.env.AGENTLINUX_AGENT_HOME ?? "/home/agent";
+}
+
+// The dir AgentLinux's own recipe installs a tool's binary into, by source_kind:
+// npm globals land in the per-user npm prefix bin; prebuilt binaries and script
+// installers land in ~/.local/bin. Returns null for kinds with no PATH binary
+// (mcp). Used ONLY for the list presence adopt-vs-migrate hint — never gates a
+// mutation, so an imperfect guess degrades to "migrate" wording, not a reinstall.
+function managedBinDir(entry: CatalogEntry): string | null {
+  switch (entry.source_kind) {
+    case "npm":
+      return `${agentHome()}/.npm-global/bin`;
+    case "binary":
+    case "script":
+      return `${agentHome()}/.local/bin`;
+    default:
+      return null;
+  }
+}
+
+// True when a detected binary sits in its source_kind's managed install dir —
+// i.e. AgentLinux already owns the path, so list renders "adopt" not "migrate".
+function isManagedPath(entry: CatalogEntry, path: string): boolean {
+  const dir = managedBinDir(entry);
+  return dir !== null && path.startsWith(`${dir}/`);
+}
+
 export interface ReuseHit {
   binary_path: string;
   version: string;
@@ -80,21 +110,37 @@ export function detectCachePath(): string {
 // agent for <entry> with its canonical path. Returns null on every condition the
 // callers treat as "not a candidate": cache absent/unparseable, id has no
 // canonical path, or the agent isn't in the cache.
-export function readDetectedAgent(
-  entry: CatalogEntry,
-): { detected: DetectCacheAgent; canonical: string } | null {
+// Low-level cache parse: resolve the path, parse it (accepting both the on-disk
+// top-level `agents` shape AND the `--report-only` `.components.agents` shape),
+// and return the agents array, or null when the cache is absent/unparseable.
+function readCacheAgents(): DetectCacheAgent[] | null {
   const cachePath = detectCachePath();
   if (!existsSync(cachePath)) return null;
-  const canonical = CANONICAL_PATHS[entry.id];
-  if (!canonical) return null;
   let cache: { agents?: DetectCacheAgent[]; components?: { agents?: DetectCacheAgent[] } };
   try {
     cache = JSON.parse(readFileSync(cachePath, "utf8"));
   } catch {
     return null;
   }
-  const agents = cache.agents ?? cache.components?.agents;
-  const detected = agents?.find((a) => a.id === entry.id);
+  return cache.agents ?? cache.components?.agents ?? null;
+}
+
+// Cache lookup by id with NO canonical-path requirement. The list presence
+// overlay uses this so every detected catalog tool is surfaced, not only the
+// ones with a CANONICAL_PATHS entry.
+export function readCachedAgentById(id: string): DetectCacheAgent | null {
+  return readCacheAgents()?.find((a) => a.id === id) ?? null;
+}
+
+// Canonical-gated reader for REUSE-03 / REMEDIATE-04. Those decisions compare the
+// detected path against a KNOWN canonical path, so an entry without one is simply
+// not a reuse/remediate candidate — install behavior is unchanged for such tools.
+export function readDetectedAgent(
+  entry: CatalogEntry,
+): { detected: DetectCacheAgent; canonical: string } | null {
+  const canonical = CANONICAL_PATHS[entry.id];
+  if (!canonical) return null;
+  const detected = readCachedAgentById(entry.id);
   if (!detected) return null;
   return { detected, canonical };
 }
@@ -180,14 +226,19 @@ export interface PresenceHit {
 }
 
 export function detectPresence(entry: CatalogEntry): PresenceHit | null {
-  const hit = readDetectedAgent(entry);
-  if (!hit) return null;
-  const { detected, canonical } = hit;
-  if (detected.status !== "healthy") return null;
+  const detected = readCachedAgentById(entry.id);
+  if (!detected || detected.status !== "healthy") return null;
+  // The original agents carry an exact canonical path; every other catalog tool
+  // (no CANONICAL_PATHS entry) is judged "at the managed path" by whether its
+  // resolved binary lives in the dir AgentLinux's own recipe would install it to.
+  const known = CANONICAL_PATHS[entry.id];
+  const canonical = known
+    ? isCanonicalAgentPath(entry, detected.path, known)
+    : isManagedPath(entry, detected.path);
   return {
     // Normalized (semver.valid returns the clean version or null).
     version: semver.valid(detected.version),
     path: detected.path,
-    canonical: isCanonicalAgentPath(entry, detected.path, canonical),
+    canonical,
   };
 }
