@@ -39,12 +39,19 @@ provisioner steps: agent user, sudo drop-in, Node.js runtime, PATH wiring,
 registry CLI.
 
 After provisioning, on an apply (not a `--dry-run`), the installer runs an
-adopt-on-install pass: any agent tool the host already had — a healthy
+adopt-on-install pass: a curated agent the host already had — a healthy
 Claude Code or GSD at its canonical location, within the catalog's
 compatibility window — is recorded into a managed sentinel so `agentlinux
 list` reflects it as `reused` rather than `not-installed`. This installs
 nothing; it only records what the read-only detection pass already found
 (see [Registry CLI](registry-cli.md) for the `adopt` verb).
+
+The read-only detection pass itself spans the **whole catalog** — it derives
+its tool list from the catalog, so a manually-installed `codex`, `gh`, `rtk`,
+etc. is detected too and `agentlinux list` surfaces it as `present` (see
+[Registry CLI](registry-cli.md)). Adopt-into-a-`reused`-sentinel is the
+narrower, canonical-path case above; every other detected tool simply reads
+`present` until an explicit `agentlinux install` takes it under management.
 
 The version is either pinned explicitly via the `AGENTLINUX_VERSION`
 environment variable or resolved automatically to the latest GitHub
