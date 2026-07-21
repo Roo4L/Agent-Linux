@@ -45,6 +45,7 @@ const CATALOG = {
       description: "script-backed fixture",
       source_kind: "script",
       pinned_version: "2.0.0",
+      compatibility_window: ">=2.0.0 <3.0.0",
       install_recipe_path: "install.sh",
       uninstall_recipe_path: "uninstall.sh",
     },
@@ -344,6 +345,46 @@ describe("pinCmd — error paths (process.exit intercepted)", () => {
       assert.deepEqual(exitCodes, [1]);
       assert.match(sil.err.join("\n"), /not the managed path/);
       assert.match(sil.err.join("\n"), /agentlinux install bar.*migrate/);
+      assert.doesNotMatch(sil.err.join("\n"), /agentlinux adopt bar/);
+    } finally {
+      sil.restore();
+      process.exit = origExit;
+      process.env.AGENTLINUX_DETECT_CACHE = join(TMP, "nonexistent-detect.json");
+      // biome-ignore lint/performance/noDelete: delete required for process.env
+      delete process.env.AGENTLINUX_AGENT_HOME;
+    }
+  });
+
+  test("pin on a PRESENT tool at its managed path but OUT of window: exit 1 directing to install, not adopt (QA F-QA-02)", async () => {
+    // bar at its managed ~/.local/bin but at 5.0.0 (outside >=2.0.0 <3.0.0). adopt
+    // would refuse (out-of-window), so pin must advise `install` to reconcile — not
+    // `adopt` (the dead-end the install->adopt hint change would otherwise create).
+    process.env.AGENTLINUX_AGENT_HOME = TMP;
+    const cachePath = join(TMP, "pin-oow-detect.json");
+    writeFileSync(
+      cachePath,
+      JSON.stringify({
+        components: {
+          agents: [
+            { id: "bar", status: "healthy", path: `${TMP}/.local/bin/bar`, version: "5.0.0" },
+          ],
+        },
+      }),
+    );
+    process.env.AGENTLINUX_DETECT_CACHE = cachePath;
+    const origExit = process.exit;
+    const exitCodes: number[] = [];
+    // biome-ignore lint/suspicious/noExplicitAny: test override of process.exit signature
+    (process as any).exit = (code?: number) => {
+      exitCodes.push(code ?? 0);
+      throw new Error(`__test_exit_${code}__`);
+    };
+    const sil = silenceConsole();
+    try {
+      await assert.rejects(() => pinCmd("bar=curated"), /__test_exit_1__/);
+      assert.deepEqual(exitCodes, [1]);
+      assert.match(sil.err.join("\n"), /out of the compatibility window/);
+      assert.match(sil.err.join("\n"), /agentlinux install bar/);
       assert.doesNotMatch(sil.err.join("\n"), /agentlinux adopt bar/);
     } finally {
       sil.restore();

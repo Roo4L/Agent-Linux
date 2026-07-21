@@ -42,11 +42,14 @@ interface Row {
   // on the INSTALLED column.
   reused: boolean;
   // AL-61/AL-62: no sentinel, but the detect cache reports the agent healthy —
-  // physically present, just not adopted. present_canonical distinguishes the
-  // hint: at the managed path → "run adopt to manage" (record, no reinstall); at
-  // a non-canonical path (e.g. claude via npm) → "run install to migrate" (AL-62).
+  // physically present, just not adopted. Two flags pick one of three hints:
+  //   present_adoptable → managed path AND in-window → "run adopt to manage".
+  //   present_canonical && !adoptable → managed path but out-of-window → "run
+  //     install to manage" (adopt would refuse; reinstall at the pin manages it).
+  //   !present_canonical → non-managed path → "run install to migrate" (AL-62).
   present: boolean;
   present_canonical: boolean;
+  present_adoptable: boolean;
   present_path: string | null;
   // Text renderer appends a distinct suffix per status; JSON carries it verbatim.
   sentinel_status?: "installed" | "reused" | "broken-after-remediate" | "reused-with-warning";
@@ -76,6 +79,7 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
     // detected version instead of being reported absent.
     let present = false;
     let presentCanonical = false;
+    let presentAdoptable = false;
     let presentPath: string | null = null;
     if (status === "not-installed") {
       const hit = detectPresence(entry);
@@ -83,6 +87,7 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
         status = "present";
         present = true;
         presentCanonical = hit.canonical;
+        presentAdoptable = hit.adoptable;
         presentPath = hit.path;
         installed = hit.version; // may be null → renders "-"
       }
@@ -103,6 +108,7 @@ function buildRows(entries: CatalogEntry[], sentinels: Sentinel[]): Row[] {
       reused,
       present,
       present_canonical: presentCanonical,
+      present_adoptable: presentAdoptable,
       present_path: presentPath,
       sentinel_status: sentinel?.status,
       decline_reason: sentinel?.decline_reason,
@@ -125,7 +131,11 @@ function renderTable(rows: Row[], lines: string[], showDescriptions: boolean): v
   // from the recorded pin and how to reconcile.
   const driftSuffix = (recorded: string) =>
     ` (self-updated from ${recorded} — run: agentlinux upgrade to reconcile)`;
-  const presentManageSuffix = (id: string) => ` (detected — run: agentlinux adopt ${id} to manage)`;
+  const presentAdoptSuffix = (id: string) => ` (detected — run: agentlinux adopt ${id} to manage)`;
+  // Managed path but out of the compatibility window (or no window): adopt would
+  // refuse, so the verb is install — reinstall at the curated pin to manage it.
+  const presentReconcileSuffix = (id: string) =>
+    ` (detected out-of-window — run: agentlinux install ${id} to manage)`;
   const presentMigrateSuffix = (id: string, path: string) =>
     ` (detected at ${path}, not the managed path — run: agentlinux install ${id} to migrate)`;
   const header = showDescriptions
@@ -142,9 +152,13 @@ function renderTable(rows: Row[], lines: string[], showDescriptions: boolean): v
     } else if (r.drifted && r.sentinel_version) {
       installed = `${r.installed}${driftSuffix(r.sentinel_version)}`;
     } else if (r.present) {
-      installed = r.present_canonical
-        ? `${r.installed}${presentManageSuffix(r.id)}`
-        : `${r.installed}${presentMigrateSuffix(r.id, r.present_path ?? "a non-canonical path")}`;
+      if (r.present_adoptable) {
+        installed = `${r.installed}${presentAdoptSuffix(r.id)}`;
+      } else if (r.present_canonical) {
+        installed = `${r.installed}${presentReconcileSuffix(r.id)}`;
+      } else {
+        installed = `${r.installed}${presentMigrateSuffix(r.id, r.present_path ?? "a non-canonical path")}`;
+      }
     }
     const base = [r.id, r.status, r.curated, installed];
     return showDescriptions ? [...base, r.description] : base;

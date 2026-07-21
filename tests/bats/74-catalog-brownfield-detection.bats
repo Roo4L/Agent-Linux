@@ -141,3 +141,37 @@ teardown() {
   printf '%s' "$output" | grep -Fq 'pin cleared' \
     || __fail "DET-04/pin-after-adopt" "pin succeeds once rtk is managed" "$output" "$LOG"
 }
+
+@test "DET-04: a present tool OUT of the compatibility window routes to install, not adopt (QA F-QA-02)" {
+  # REQ: DET-04 — a brownfield tool at its managed path but outside the catalog's
+  # compatibility_window is present-but-NOT-adoptable: adopt would refuse, so both
+  # `list` and `pin` must point at `install` (reconcile at the pin), never `adopt`.
+  # Re-plant rtk at 0.99.0 (window is >=0.42.0 <0.43.0) for this test only.
+  cat >"$FAKE_BIN" <<'SH'
+#!/usr/bin/env bash
+[[ "${1:-}" == --version ]] && echo "rtk 0.99.0"
+exit 0
+SH
+  chmod 0755 "$FAKE_BIN"; chown agent:agent "$FAKE_BIN"
+
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-04/oow-refresh"
+
+  run al_agent list
+  assert_exit_zero "DET-04/oow-list"
+  printf '%s' "$output" | grep -Fq 'detected out-of-window — run: agentlinux install rtk to manage' \
+    || __fail "DET-04/oow-list" "out-of-window rtk points at install-to-manage" "$output" "$LOG"
+  printf '%s' "$output" | grep -Fq 'agentlinux adopt rtk' \
+    && __fail "DET-04/oow-list" "out-of-window rtk must NOT recommend adopt (dead-end)" "$output" "$LOG"
+
+  run al_agent adopt rtk
+  assert_exit_zero "DET-04/oow-adopt"
+  printf '%s' "$output" | grep -Fq 'nothing to adopt' \
+    || __fail "DET-04/oow-adopt" "adopt declines an out-of-window tool" "$output" "$LOG"
+
+  run al_agent pin rtk=curated
+  [ "$status" -eq 1 ] \
+    || __fail "DET-04/oow-pin" "pin on an out-of-window present tool exits 1" "$output" "$LOG"
+  printf '%s' "$output" | grep -Fq 'out of the compatibility window' \
+    || __fail "DET-04/oow-pin" "pin names the out-of-window state and points at install" "$output" "$LOG"
+}

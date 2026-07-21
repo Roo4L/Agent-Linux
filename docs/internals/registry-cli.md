@@ -53,15 +53,19 @@ The CLI exposes six verbs:
   itself (every non-MCP entry with a `command -v <bin>` verify), so a
   manually-installed `codex`, `gh`, `rtk`, or `hermes-agent` reads `present`
   the same way Claude Code does — adding a catalog entry gets detection for
-  free, no CLI edit. The hint depends on *where* the tool lives: at the
-  managed path it says "run adopt to manage" (record the existing bits into a
-  sentinel, no reinstall); at a non-canonical path — e.g. Claude Code installed
-  via npm at `~/.npm-global/bin/claude` instead of the native
-  `~/.local/bin/claude` — it names the detected path and says "run install to
-  migrate", because that install is a migration candidate, not blessed as-is.
-  `upgrade` and `pin` agree with `list` here: a `present` tool reads `present`
-  in `upgrade` too (not `not-installed`), and `pin` on it points at `adopt`
-  rather than `install`, so the four verbs never contradict each other on a
+  free, no CLI edit. The hint points at whichever verb will actually work, in
+  three cases: at the managed path *and* within the catalog's compatibility
+  window it says "run adopt to manage" (record the existing bits into a
+  sentinel, no reinstall); at the managed path but *outside* the window it says
+  "run install to manage" — `adopt` refuses an out-of-window version, so the
+  path to management is a reinstall at the curated pin; at a non-canonical path
+  — e.g. Claude Code installed via npm at `~/.npm-global/bin/claude` instead of
+  the native `~/.local/bin/claude` — it names the detected path and says "run
+  install to migrate", because that install is a migration candidate, not
+  blessed as-is. `upgrade` and `pin` agree with `list` on all three: a `present`
+  tool reads `present` in `upgrade` too (not `not-installed`), and `pin` on it
+  points at the same verb `list` names — `adopt` only when adopt would succeed,
+  `install` otherwise — so the four verbs never contradict each other on a
   brownfield host. `list` also tells the
   truth when a tool self-updated behind AgentLinux's back: rather than trust
   the version it recorded at install time, it probes the *real* on-disk
