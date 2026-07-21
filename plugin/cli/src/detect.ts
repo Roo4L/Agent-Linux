@@ -226,6 +226,11 @@ export interface PresenceHit {
 }
 
 export function detectPresence(entry: CatalogEntry): PresenceHit | null {
+  // MCP entries have no PATH binary — "presence" for them means a client-config
+  // registration, which the bash probe does not report and this overlay does not
+  // detect (deferred follow-up). Guard explicitly so a stray mcp cache entry is
+  // never mislabeled as a present-but-migrate binary.
+  if (entry.source_kind === "mcp") return null;
   const detected = readCachedAgentById(entry.id);
   if (!detected || detected.status !== "healthy") return null;
   // The original agents carry an exact canonical path; every other catalog tool

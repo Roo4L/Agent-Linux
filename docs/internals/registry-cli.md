@@ -48,7 +48,12 @@ The CLI exposes six verbs:
   honest-status case: a tool the host already has but that AgentLinux has not
   recorded — it reads `present` with its detected version, never
   `not-installed`, so a brownfield host's existing tools are never
-  mislabelled as absent. The hint depends on *where* the tool lives: at the
+  mislabelled as absent. This spans the **whole catalog**, not just the
+  original agents: the detect probe derives its tool list from the catalog
+  itself (every non-MCP entry with a `command -v <bin>` verify), so a
+  manually-installed `codex`, `gh`, `rtk`, or `hermes-agent` reads `present`
+  the same way Claude Code does — adding a catalog entry gets detection for
+  free, no CLI edit. The hint depends on *where* the tool lives: at the
   managed (canonical) path it says "run install to manage" (adoptable); at a
   non-canonical path — e.g. Claude Code installed via npm at
   `~/.npm-global/bin/claude` instead of the native `~/.local/bin/claude` — it

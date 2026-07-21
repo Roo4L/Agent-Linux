@@ -54,6 +54,21 @@ teardown() {
     || __fail "DET-04/mcp-excluded" "github-mcp (mcp source_kind) excluded from the PATH agents probe" "$output" "$LOG"
 }
 
+@test "DET-04: agentlinux list surfaces the brownfield tool as present (end-to-end)" {
+  # REQ: DET-04 — the user-facing complaint. --report-only refreshes the detect
+  # cache at /run/agentlinux-detect.json; `agentlinux list` reads that same cache
+  # and its presence overlay must render the brownfield rtk as "present" with the
+  # adopt hint (it sits at the managed ~/.local/bin), not "not-installed".
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-04/list-refresh"
+  run sudo -u agent -H bash --login -c 'agentlinux list 2>&1'
+  assert_exit_zero "DET-04/list-e2e"
+  printf '%s' "$output" | grep -Eq 'rtk[[:space:]]+present' \
+    || __fail "DET-04/list-e2e" "rtk row reads 'present' in agentlinux list" "$output" "$LOG"
+  printf '%s' "$output" | grep -Fq 'to manage' \
+    || __fail "DET-04/list-e2e" "brownfield rtk at the managed path shows the adopt hint" "$output" "$LOG"
+}
+
 @test "DET-04: the original three agents still appear in the probe (no regression)" {
   # REQ: DET-04 — generalization must not drop the original hardcoded set.
   run bash "$INSTALLER" --report-only --report-format=json

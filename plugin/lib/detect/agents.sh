@@ -95,21 +95,21 @@ __det_agent_version_probe() {
   local id=$1 user=$2 binary=$3
   case "$id" in
     claude-code)
-      as_user_login "$user" "$binary" --version 2>/dev/null \
+      as_user_login "$user" "$binary" --version </dev/null 2>/dev/null \
         | head -1 \
         | tr -d '\r' \
         | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
         | head -1
       ;;
     gsd)
-      as_user_login "$user" "$binary" --help 2>/dev/null \
+      as_user_login "$user" "$binary" --help </dev/null 2>/dev/null \
         | tr -d '\r' \
         | grep -Eo '[vV]?[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
         | head -1 \
         | tr -d 'vV'
       ;;
     playwright-cli)
-      as_user_login "$user" "$binary" --version 2>/dev/null \
+      as_user_login "$user" "$binary" --version </dev/null 2>/dev/null \
         | head -1 \
         | tr -d '\r' \
         | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
@@ -122,7 +122,7 @@ __det_agent_version_probe() {
       # again neutralizes adversarial output — only digits/dots reach stdout.
       local __v __flag
       for __flag in --version version --help; do
-        __v=$(as_user_login "$user" "$binary" "$__flag" 2>/dev/null \
+        __v=$(as_user_login "$user" "$binary" "$__flag" </dev/null 2>/dev/null \
           | tr -d '\r' \
           | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.-]+)?' \
           | head -1)
@@ -160,7 +160,7 @@ detect::agents_probe() {
 
     # Resolve as the install user via login shell so the agent-owned PATH
     # entries are present; see the header for why bare as_user misclassifies.
-    bin_path=$(as_user_login "$user" command -v "$binary" 2>/dev/null || true)
+    bin_path=$(as_user_login "$user" command -v "$binary" </dev/null 2>/dev/null || true)
 
     # Open GSD's runtime payload lives at ~user/.claude/gsd-core and contains a
     # VERSION file plus the gsd-* skill set. When the package-native binary is
@@ -202,7 +202,7 @@ detect::agents_probe() {
         # Original three: keep the strict `--help`-exit-0 + version gate that
         # their behavior contract (and bats coverage) asserts. Capture the rc
         # explicitly so the entrypoint's set -e doesn't trip on a non-zero exit.
-        if as_user_login "$user" "$binary" --help >/dev/null 2>&1; then
+        if as_user_login "$user" "$binary" --help </dev/null >/dev/null 2>&1; then
           health_rc=0
         else
           health_rc=$?

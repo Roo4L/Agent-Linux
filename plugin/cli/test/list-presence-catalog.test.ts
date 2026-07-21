@@ -44,6 +44,16 @@ const CATALOG = {
       install_recipe_path: "install.sh",
       uninstall_recipe_path: "uninstall.sh",
     },
+    {
+      id: "github-mcp",
+      display_name: "GitHub MCP",
+      description: "mcp fixture — no PATH binary",
+      source_kind: "mcp",
+      endpoint_url: "https://api.githubcopilot.com/mcp/",
+      pinned_version: "1.5.0",
+      install_recipe_path: "install.sh",
+      uninstall_recipe_path: "uninstall.sh",
+    },
   ],
 };
 
@@ -145,6 +155,40 @@ describe("listCmd — presence overlay for catalog-expansion tools (no CANONICAL
     assert.match(joined, /gh\s+present/);
     assert.match(joined, /\/usr\/bin\/gh, not the managed path/);
     assert.match(joined, /to migrate/);
+  });
+
+  test("npm tool at a non-managed path → present + migrate hint", async () => {
+    // Guards managedBinDir's npm case: a codex resolved outside ~/.npm-global/bin
+    // must read migrate, not adopt.
+    stageCache([{ id: "codex", status: "healthy", path: "/usr/bin/codex", version: "0.142.3" }]);
+    const cap = captureStdout();
+    try {
+      await listCmd({});
+    } finally {
+      cap.restore();
+    }
+    const joined = cap.lines.join("\n");
+    assert.match(joined, /codex\s+present/);
+    assert.match(joined, /\/usr\/bin\/codex, not the managed path/);
+    assert.match(joined, /to migrate/);
+  });
+
+  test("mcp entry in cache → NOT surfaced as present (no PATH binary)", async () => {
+    // Even a healthy cache entry for an mcp id must not render as a present
+    // binary — MCP presence is a client-config registration, out of scope here.
+    stageCache([
+      { id: "github-mcp", status: "healthy", path: "/home/agent/.local/bin/x", version: "1.5.0" },
+    ]);
+    const cap = captureStdout();
+    try {
+      await listCmd({ json: true });
+    } finally {
+      cap.restore();
+    }
+    const rows = JSON.parse(cap.lines.join("\n"));
+    const mcp = rows.find((r: { id: string }) => r.id === "github-mcp");
+    assert.equal(mcp.status, "not-installed");
+    assert.equal(mcp.present, false);
   });
 
   test("broken cache entry → stays not-installed", async () => {
