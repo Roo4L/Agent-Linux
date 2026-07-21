@@ -277,6 +277,44 @@ _openclaw_pin() {
   fi
 }
 
+@test "ENABLE-04: the daemon-lifecycle helper detects a container and reports an HONEST no-daemon reason (Docker-awareness)" {
+  # The install runs inside the Docker CI container, so al_daemon_in_container MUST return
+  # true and al_daemon_report_no_daemon MUST print the container-branch copy ("running
+  # inside a container … expected in Docker/CI"), NOT the bus-unreachable-host branch. This
+  # is the Docker-awareness the recipes use to explain WHY the per-user Gateway is skipped
+  # here instead of the old guess-y "(container?)" hedge. Offline, mutation-free.
+  run sudo -u agent -H bash --login -c '
+    set -euo pipefail
+    export AGENTLINUX_AGENT_HOME=/home/agent
+    export AGENTLINUX_CATALOG_DIR=/opt/agentlinux/catalog/'"${PKG_VERSION}"'
+    # shellcheck source=/dev/null
+    source "$AGENTLINUX_CATALOG_DIR/lib/daemon-lifecycle.sh"
+    al_daemon_in_container && echo "IN_CONTAINER_OK"
+    al_daemon_report_no_daemon openclaw "openclaw gateway run"
+  '
+  assert_exit_zero "ENABLE-04 (container detection)"
+  if ! printf '%s' "${output}" | grep -q 'IN_CONTAINER_OK'; then
+    __fail "ENABLE-04" "al_daemon_in_container true inside the Docker CI container" "${output:-<empty>}" "$LOG"
+  fi
+  if ! printf '%s' "${output}" | grep -qi 'running inside a container'; then
+    __fail "ENABLE-04" "report names the container reason, not a '(container?)' guess" "${output:-<empty>}" "$LOG"
+  fi
+  # The foreground fallback command is surfaced so a container user knows how to run it now.
+  if ! printf '%s' "${output}" | grep -q 'openclaw gateway run'; then
+    __fail "ENABLE-04" "report surfaces the foreground fallback command" "${output:-<empty>}" "$LOG"
+  fi
+}
+
+@test "ASST-01: the openclaw recipe onboards non-interactively with stdin from /dev/null so a real interactive install cannot hang on a prompt" {
+  # Sibling guard to the hermes-agent wizard-hang regression: openclaw's onboarding runs
+  # its own CLI with --non-interactive, but we also pin its stdin to /dev/null so it can
+  # never fall back to a terminal prompt and block the way hermes-agent's third-party
+  # installer did. Offline contract assertion on the recipe.
+  local recipe=/opt/agentlinux-src/plugin/catalog/agents/openclaw/install.sh
+  run grep -E 'openclaw onboard .*--non-interactive.*</dev/null' "$recipe"
+  assert_exit_zero "ASST-01 (onboard is non-interactive with stdin </dev/null)"
+}
+
 @test "ASST-01: the openclaw catalog entry is a script-kind, MIT, daemon assistant with preserved state" {
   # Offline entry-shape assertion — the entry is the contract. Exact tuple guards drift.
   run bash -c "jq -r '.agents[] | select(.id==\"openclaw\") | \"\(.source_kind) \(.license) \(.pinned_version) \(.install_recipe_path) \(.uninstall_recipe_path) \(.requires_secret) \(.preserve_paths_file)\"' '$CATALOG'"
