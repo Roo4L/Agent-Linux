@@ -86,17 +86,6 @@ agentlinux pin gsd=1.7.0             # pin an exact version
 
 Details in [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md).
 
-## Security
-
-The install script wraps its body in `main() { ... }; main "$@"`, so a
-truncated download fails as a syntax error before any command runs — a partial
-transfer can't execute. The tarball is fetched over HTTPS and verified against
-its `.sha256` before extraction. Signed releases are planned; today's trust
-story is HTTPS + SHA256 + maintainer 2FA + branch protection.
-
-Report vulnerabilities through the repository's Security tab (coordinated
-disclosure).
-
 ## Built with Codex
 
 Part of AgentLinux's quality work was driven with OpenAI's **Codex CLI**
