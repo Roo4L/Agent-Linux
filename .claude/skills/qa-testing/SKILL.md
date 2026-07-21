@@ -44,23 +44,28 @@ The included catalog inventory is:
 `chrome-devtools-mcp`, `context7`, `github-mcp`, `sentry-mcp`, `firecrawl-mcp`,
 `slack-mcp`, `linear-mcp`, `jira-atlassian-mcp`, and `spec-kit`.
 
-The explicit exclusions are:
+The fully excluded entry is:
 
-- `openclaw` — its primary systemd service is unavailable in the requested
-  Docker environment;
-- `hermes-agent` — its primary systemd service is unavailable in that Docker
-  environment;
 - `test-dummy` — a fixture, not a product package.
 
-The two daemon exclusions are coverage boundaries, not passing results. Do not
-start a fake daemon or infer systemd/QEMU behavior from Docker. QEMU remains
-the authority for those paths.
+`openclaw` and `hermes-agent` are **partial** coverage, not full exclusions.
+Their user-facing INSTALL path is Docker-testable — the recipes probe for a
+usable per-user systemd bus and degrade to a clean config-only install in a
+container — so install, non-daemon operation (`--version`, `doctor`, config
+inspection), preserve-on-remove, and idempotent re-remove ARE in scope in
+Docker. Only the per-user **systemd Gateway daemon lifecycle** (start/enable/
+linger/teardown) is unavailable under masked logind and stays QEMU-gated
+(ADR-007). Do not start a fake daemon or infer systemd/QEMU daemon behavior
+from Docker; that boundary is a coverage limit, not a passing result. This
+supersedes the earlier blanket exclusion of the two daemon tools — their
+official installers document a container-install path, so the install surface
+is expected to work (and be tested) in Docker.
 
 Derive the scenario ledger from `plugin/catalog/catalog.json` at session start.
-Compare every catalog ID with the three explicit exclusions and the ledger. The
-listed 23-entry inventory is the current expected snapshot; if the catalog has
-changed, stop and reconcile the scope before testing. Do not silently omit an
-included entry because its operation is inconvenient.
+Compare every catalog ID with the one full exclusion (`test-dummy`), the two
+partial (daemon-gated) entries, and the ledger; if the catalog has changed,
+stop and reconcile the scope before testing. Do not silently omit an included
+entry because its operation is inconvenient.
 
 For a phase-bound campaign, keep the two durable records beside the phase
 artifacts: `.planning/phases/<phase>/<phase>-SCENARIO-LEDGER.md` and
@@ -239,9 +244,10 @@ End with a report containing:
 - Unexpected credential requests and user checkpoints:
 
 ## Exclusions
-- `openclaw`: Docker has no usable primary systemd service.
-- `hermes-agent`: Docker has no usable primary systemd service.
-- `test-dummy`: fixture, not a product package.
+- `test-dummy`: fixture, not a product package (full exclusion).
+- `openclaw` / `hermes-agent`: PARTIAL — install/non-daemon-op/remove tested in
+  Docker (config-only path); only the systemd Gateway daemon lifecycle is
+  QEMU-gated. State the daemon boundary here, not a blanket exclusion.
 
 ## Coverage limits
 - Docker distros and fresh-container boundaries:

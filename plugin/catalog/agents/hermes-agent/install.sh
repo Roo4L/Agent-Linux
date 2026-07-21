@@ -56,16 +56,30 @@ if ! command -v git >/dev/null 2>&1; then
 fi
 
 # --- 1. install: download the official installer, then run it PINNED + non-interactive ---
-# --non-interactive skips the two user-input stages (setup=API keys, gateway=service), so
-# NOTHING secret is written and no gateway service is auto-created — we drive the daemon via
-# ENABLE-04 below. Download-then-run (never `curl | bash`) over pinned TLS.
+# FLAG CONTRACT (verified against the upstream installer, not assumed):
+#   --skip-setup       sets RUN_SETUP=false. This is the ONLY gate on the setup WIZARD in
+#                      the installer's monolithic main() path (the path a plain `bash
+#                      install.sh` takes). run_setup_wizard reads from /dev/tty directly and
+#                      is gated solely by RUN_SETUP + a /dev/tty probe — it NEVER consults
+#                      --non-interactive. Because `agentlinux install` runs from a terminal,
+#                      /dev/tty is openable, so WITHOUT --skip-setup the wizard launches and
+#                      blocks on `< /dev/tty` forever (the dogfood hang). --non-interactive
+#                      only skips setup on the installer's separate `--stage` protocol path,
+#                      which we do not use. So --skip-setup is load-bearing here, not --non-interactive.
+#   --non-interactive  still passed: it makes the installer's other prompts (system-package
+#                      install, gateway pairing) resolve to their defaults instead of
+#                      prompting, so nothing else blocks either.
+# Skipping setup writes NO secret and creates NO gateway service — we drive the daemon via
+# ENABLE-04 below and the user runs `hermes setup` in-tool later (step 4). Redirect stdin
+# from /dev/null as belt-and-suspenders so any stdin-based `read` gets EOF, never a hang.
+# Download-then-run (never `curl | bash`) over pinned TLS.
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 echo "hermes-agent: fetching the official installer (pinned commit ${HERMES_COMMIT})"
 curl -fsSL --proto '=https' --tlsv1.2 "$INSTALLER_URL" -o "$tmp/install.sh"
 
-echo "hermes-agent: installing v${ver} (no root, no baked key)"
-bash "$tmp/install.sh" --commit "$HERMES_COMMIT" --non-interactive
+echo "hermes-agent: installing v${ver} (no root, no baked key, no interactive setup)"
+bash "$tmp/install.sh" --commit "$HERMES_COMMIT" --non-interactive --skip-setup </dev/null
 
 # --- 2. version-lock: the installed `hermes --version` (which prints "… (2026.6.19) … local
 # <sha>") must report BOTH the pinned calendar version AND the pinned commit's short SHA.
@@ -102,9 +116,7 @@ if al_daemon_user_systemd_available; then
     echo "hermes-agent:   start it later with 'hermes gateway install && hermes gateway start'." >&2
   fi
 else
-  echo "hermes-agent: per-user systemd unavailable (container?) — Gateway NOT auto-started."
-  echo "hermes-agent:   run it in the foreground now with 'hermes gateway run', or re-install"
-  echo "hermes-agent:   on a host with a per-user systemd session for the managed daemon."
+  al_daemon_report_no_daemon hermes-agent "hermes gateway run"
 fi
 
 # --- 4. BYO provider key instruction (never baked) ---

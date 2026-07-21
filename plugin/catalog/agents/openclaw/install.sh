@@ -55,7 +55,9 @@ echo "openclaw: installed (${got})"
 # provider key in-tool later (`openclaw configure` / `openclaw onboard`). Nothing secret
 # is written by this recipe.
 echo "openclaw: onboarding non-interactively (no provider key baked)"
-openclaw onboard --non-interactive --accept-risk --auth-choice skip --skip-health
+# stdin from /dev/null so onboarding can never fall back to a terminal prompt and block
+# the way hermes-agent's third-party installer did (see that recipe's flag-contract note).
+openclaw onboard --non-interactive --accept-risk --auth-choice skip --skip-health </dev/null
 
 # --- 4. ENABLE-05 self-updater coexistence: keep the catalog pin authoritative ---
 # openclaw's background auto-update defaults to OFF (schema key update.auto.enabled,
@@ -78,7 +80,7 @@ fi
 if al_daemon_user_systemd_available; then
   echo "openclaw: per-user systemd available — installing + starting the Gateway daemon"
   al_daemon_enable_linger || echo "openclaw: linger not enabled (non-fatal); daemon may not persist across logout" >&2
-  if openclaw daemon install && openclaw daemon start; then
+  if openclaw daemon install </dev/null && openclaw daemon start </dev/null; then
     al_daemon_mark openclaw
     openclaw daemon status --no-probe >/dev/null 2>&1 || true # best-effort warm-up; QEMU asserts liveness
     echo "openclaw: Gateway daemon installed + started (per-user systemd)"
@@ -87,9 +89,7 @@ if al_daemon_user_systemd_available; then
     echo "openclaw:   start it later with 'openclaw daemon install && openclaw daemon start'." >&2
   fi
 else
-  echo "openclaw: per-user systemd unavailable (container?) — Gateway NOT auto-started."
-  echo "openclaw:   run it in the foreground now with 'openclaw gateway run', or re-install"
-  echo "openclaw:   on a host with a per-user systemd session for the managed daemon."
+  al_daemon_report_no_daemon openclaw "openclaw gateway run"
 fi
 
 # --- 6. BYO provider key instruction (never baked) ---

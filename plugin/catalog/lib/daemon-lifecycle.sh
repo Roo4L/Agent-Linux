@@ -61,6 +61,37 @@ al_daemon_user_systemd_available() {
   systemctl --user show-environment >/dev/null 2>&1
 }
 
+# al_daemon_in_container
+# 0 iff we are running inside a container (Docker/Podman/OCI). Lets the caller name the
+# real reason the per-user daemon is skipped: "inside a container" (expected) vs "on a host
+# but the user bus is unreachable" (a real problem worth flagging). Checks, in cheap order:
+# the Docker/Podman marker files, an explicit `container=` env (systemd and Podman set it),
+# then the cgroup path. Detection-only — never gates install success on its own;
+# al_daemon_user_systemd_available remains the functional discriminator.
+al_daemon_in_container() {
+  [[ -f /.dockerenv || -f /run/.containerenv ]] && return 0
+  [[ -n "${container:-}" ]] && return 0
+  grep -qaE '(docker|containerd|podman|libpod|kubepods)' /proc/1/cgroup 2>/dev/null && return 0
+  return 1
+}
+
+# al_daemon_report_no_daemon <tool> <foreground-cmd>
+# Shared "daemon not started" explanation for the systemd-unavailable branch. Names the
+# actual reason — container vs bus-unreachable host — then points at the foreground
+# fallback. Keeps the two recipes' user-facing copy identical.
+al_daemon_report_no_daemon() {
+  local tool="${1:?al_daemon_report_no_daemon: tool required}" fg_cmd="${2:-}"
+  if al_daemon_in_container; then
+    printf '%s: running inside a container — per-user systemd (the Gateway daemon) is not available here; installed config-only.\n' "$tool"
+    printf '%s:   this is expected in Docker/CI; the managed daemon is validated on a real host (QEMU).\n' "$tool"
+  else
+    printf '%s: per-user systemd is not reachable on this host — Gateway NOT auto-started (installed config-only).\n' "$tool" >&2
+    printf '%s:   enable a per-user systemd session (loginctl enable-linger) and re-install for the managed daemon.\n' "$tool" >&2
+  fi
+  [[ -n "$fg_cmd" ]] && printf '%s:   or run it in the foreground now: %s\n' "$tool" "$fg_cmd"
+  return 0
+}
+
 # al_daemon_enable_linger
 # Ensure the agent user's systemd instance persists across logout so a per-user daemon
 # keeps running on a headless host. Idempotent, and OWNERSHIP-AWARE: if linger is already

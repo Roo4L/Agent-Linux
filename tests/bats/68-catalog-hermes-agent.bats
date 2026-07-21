@@ -185,6 +185,29 @@ _hermes_pin() {
     || __fail "ENABLE-04" "daemon marker removed on uninstall" "${DAEMON_MARKER} still exists" "$LOG"
 }
 
+@test "ASST-02: the hermes-agent recipe drives the official installer non-interactively (--skip-setup) so a real interactive install never hangs on the setup wizard" {
+  # REGRESSION (dogfood v0.3.6-rc4): the upstream installer's monolithic main() path — the
+  # path a plain `bash install.sh` takes — calls run_setup_wizard UNCONDITIONALLY. That
+  # function is gated ONLY by RUN_SETUP (set false by --skip-setup) plus a `/dev/tty` probe;
+  # it NEVER consults --non-interactive. Because `agentlinux install` runs from a user's
+  # terminal, /dev/tty is openable, so WITHOUT --skip-setup the wizard launches and blocks
+  # forever on `< /dev/tty`. CI never caught it because bats runs with no controlling tty
+  # (the /dev/tty probe fails, wizard self-skips) — only a real interactive install hangs.
+  # This offline contract guard asserts the load-bearing flag is present. It is verified
+  # end-to-end under a real PTY in the phase QA campaign (see the QA report).
+  local recipe=/opt/agentlinux-src/plugin/catalog/agents/hermes-agent/install.sh
+  run grep -E 'bash .*install\.sh.*--skip-setup' "$recipe"
+  assert_exit_zero "ASST-02 (recipe passes --skip-setup to the official installer)"
+  # --non-interactive is still passed (defaults the installer's other prompts); assert both
+  # travel together so a future edit can't drop the wizard gate while keeping the rest.
+  run grep -E 'bash .*install\.sh.*--non-interactive.*--skip-setup|bash .*install\.sh.*--skip-setup.*--non-interactive' "$recipe"
+  assert_exit_zero "ASST-02 (recipe keeps --non-interactive alongside --skip-setup)"
+  # The stdin `</dev/null` defense-in-depth (against any stdin-based read, distinct from the
+  # /dev/tty wizard) must stay too — guard it so a future editor can't drop it as "redundant".
+  run grep -E 'bash .*install\.sh.*</dev/null' "$recipe"
+  assert_exit_zero "ASST-02 (recipe redirects the installer's stdin from /dev/null)"
+}
+
 @test "ASST-02: the hermes-agent catalog entry is a script-kind, MIT, daemon assistant" {
   # Offline entry-shape assertion — the entry is the contract. Exact tuple guards drift.
   run bash -c "jq -r '.agents[] | select(.id==\"hermes-agent\") | \"\(.source_kind) \(.license) \(.pinned_version) \(.install_recipe_path) \(.uninstall_recipe_path) \(.requires_secret)\"' '$CATALOG'"
