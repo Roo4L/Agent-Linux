@@ -277,32 +277,44 @@ _openclaw_pin() {
   fi
 }
 
-@test "ENABLE-04: the daemon-lifecycle helper detects a container and reports an HONEST no-daemon reason (Docker-awareness)" {
-  # The install runs inside the Docker CI container, so al_daemon_in_container MUST return
-  # true and al_daemon_report_no_daemon MUST print the container-branch copy ("running
-  # inside a container … expected in Docker/CI"), NOT the bus-unreachable-host branch. This
-  # is the Docker-awareness the recipes use to explain WHY the per-user Gateway is skipped
-  # here instead of the old guess-y "(container?)" hedge. Offline, mutation-free.
+@test "ENABLE-04: the daemon-lifecycle helper reports an HONEST, environment-correct no-daemon reason (Docker-awareness)" {
+  # al_daemon_in_container drives the message branch and MUST match the real substrate:
+  #   - Docker CI (gate-2-docker): in a container → the "running inside a container" copy;
+  #   - QEMU release gate (gate-3-qemu, a real VM): NOT a container → the bus-unreachable-host
+  #     copy on stderr.
+  # Assert whichever branch matches THIS environment so the test is correct under both gates
+  # (an earlier version hard-asserted the container branch and failed the whole QEMU gate).
+  # The foreground fallback command is surfaced in BOTH branches. Offline, mutation-free.
   run sudo -u agent -H bash --login -c '
-    set -euo pipefail
+    set -uo pipefail
     export AGENTLINUX_AGENT_HOME=/home/agent
     export AGENTLINUX_CATALOG_DIR=/opt/agentlinux/catalog/'"${PKG_VERSION}"'
     # shellcheck source=/dev/null
     source "$AGENTLINUX_CATALOG_DIR/lib/daemon-lifecycle.sh"
-    al_daemon_in_container && echo "IN_CONTAINER_OK"
-    al_daemon_report_no_daemon openclaw "openclaw gateway run"
+    # Independent substrate oracle (NOT the SUT predicate): the Docker daemon always creates
+    # /.dockerenv in a container; a QEMU real VM never has it. Reporting it separately lets the
+    # assertions verify al_daemon_in_container actually AGREES with the substrate (catches a
+    # broken detector), not just that the helper is internally self-consistent.
+    if [ -f /.dockerenv ]; then echo "ORACLE=container"; else echo "ORACLE=host"; fi
+    if al_daemon_in_container; then echo "DETECT=container"; else echo "DETECT=host"; fi
+    # 2>&1: the host branch prints its reason to stderr — capture both so the assertion sees it.
+    al_daemon_report_no_daemon openclaw "openclaw gateway run" 2>&1
   '
-  assert_exit_zero "ENABLE-04 (container detection)"
-  if ! printf '%s' "${output}" | grep -q 'IN_CONTAINER_OK'; then
-    __fail "ENABLE-04" "al_daemon_in_container true inside the Docker CI container" "${output:-<empty>}" "$LOG"
+  assert_exit_zero "ENABLE-04 (report reason)"
+  if printf '%s' "${output}" | grep -q 'ORACLE=container'; then
+    printf '%s' "${output}" | grep -q 'DETECT=container' \
+      || __fail "ENABLE-04" "al_daemon_in_container detects the Docker substrate (/.dockerenv present)" "${output:-<empty>}" "$LOG"
+    printf '%s' "${output}" | grep -qi 'running inside a container' \
+      || __fail "ENABLE-04" "container substrate → container-branch copy" "${output:-<empty>}" "$LOG"
+  else
+    printf '%s' "${output}" | grep -q 'DETECT=host' \
+      || __fail "ENABLE-04" "al_daemon_in_container reports host on a non-container substrate" "${output:-<empty>}" "$LOG"
+    printf '%s' "${output}" | grep -qi 'not reachable on this host' \
+      || __fail "ENABLE-04" "non-container substrate → bus-unreachable-host copy" "${output:-<empty>}" "$LOG"
   fi
-  if ! printf '%s' "${output}" | grep -qi 'running inside a container'; then
-    __fail "ENABLE-04" "report names the container reason, not a '(container?)' guess" "${output:-<empty>}" "$LOG"
-  fi
-  # The foreground fallback command is surfaced so a container user knows how to run it now.
-  if ! printf '%s' "${output}" | grep -q 'openclaw gateway run'; then
-    __fail "ENABLE-04" "report surfaces the foreground fallback command" "${output:-<empty>}" "$LOG"
-  fi
+  # The foreground fallback command is surfaced in both branches so the user can run it now.
+  printf '%s' "${output}" | grep -q 'openclaw gateway run' \
+    || __fail "ENABLE-04" "report surfaces the foreground fallback command" "${output:-<empty>}" "$LOG"
 }
 
 @test "ASST-01: the openclaw recipe onboards non-interactively with stdin from /dev/null so a real interactive install cannot hang on a prompt" {
