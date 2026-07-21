@@ -88,11 +88,11 @@ Details in [docs/STABILITY-MODEL.md](docs/STABILITY-MODEL.md).
 
 ## Built with Codex
 
-Part of AgentLinux's quality work was driven with OpenAI's **Codex CLI**
-alongside Claude Code. Codex ran the project's black-box QA campaign against
-the full agent catalog — planning tests, reproducing failures in disposable
-sandboxes, and routing findings to a fix — largely on its own, and several
-shipped fixes came out of it.
+Part of AgentLinux's quality work was driven with OpenAI's **Codex CLI**.
+Codex ran the project's black-box QA campaign against the full agent catalog —
+planning tests, reproducing failures in disposable sandboxes, and routing
+findings to a fix — largely on its own, and several shipped fixes came out of
+it.
 
 The full write-up is in
 [CODEX-QA-HACKATHON-REPORT.md](CODEX-QA-HACKATHON-REPORT.md); using Codex in
