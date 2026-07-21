@@ -19,6 +19,16 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 # version probe classifies it healthy.
 FAKE_BIN=/home/agent/.local/bin/rtk
 
+# Scoped sentinel store so the adopt/pin management tests don't pollute the real
+# /opt/agentlinux/state — agent-owned (under $HOME), auto-created by writeSentinel,
+# torn down per test. AGENTLINUX_STATE_DIR is the installed.d dir itself.
+SCOPED_STATE=/home/agent/.al-brownfield-test/installed.d
+
+# Run the CLI as the agent login user with the scoped sentinel store.
+al_agent() {
+  sudo -u agent -H bash --login -c "AGENTLINUX_STATE_DIR=$SCOPED_STATE agentlinux $*"
+}
+
 setup() {
   install -d -m 0755 -o agent -g agent /home/agent/.local/bin
   cat >"$FAKE_BIN" <<'SH'
@@ -28,10 +38,12 @@ exit 0
 SH
   chmod 0755 "$FAKE_BIN"
   chown agent:agent "$FAKE_BIN"
+  rm -rf /home/agent/.al-brownfield-test 2>/dev/null || true
 }
 
 teardown() {
   rm -f "$FAKE_BIN" 2>/dev/null || true
+  rm -rf /home/agent/.al-brownfield-test 2>/dev/null || true
 }
 
 @test "DET-04: a brownfield catalog CLI tool (rtk) is detected healthy with its version" {
@@ -76,4 +88,56 @@ teardown() {
   printf '%s' "$output" \
     | jq -e '(.components.agents // .agents) | map(.id) | (index("claude-code") and index("gsd") and index("playwright-cli"))' >/dev/null \
     || __fail "DET-04/legacy-preserved" "claude-code + gsd + playwright-cli present in agents[]" "$output" "$LOG"
+}
+
+@test "DET-04: agentlinux upgrade surfaces the brownfield tool as present (not not-installed)" {
+  # REQ: DET-04 — `upgrade` must agree with `list`: a detected-but-unmanaged tool
+  # reads 'present', never 'not-installed' (the reported inconsistency).
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-04/upgrade-refresh"
+  run al_agent upgrade
+  assert_exit_zero "DET-04/upgrade-present"
+  printf '%s' "$output" | grep -Eq 'rtk[[:space:]]+present' \
+    || __fail "DET-04/upgrade-present" "rtk reads 'present' in agentlinux upgrade" "$output" "$LOG"
+}
+
+@test "DET-04: pin on a present brownfield tool directs to adopt, not install" {
+  # REQ: DET-04 — pin must route a present-but-unmanaged tool to `adopt` (records
+  # the existing bits), not `install` (a fresh copy over them).
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-04/pin-refresh"
+  run al_agent pin rtk=curated
+  [ "$status" -eq 1 ] \
+    || __fail "DET-04/pin-present" "pin on a present tool exits 1" "$output" "$LOG"
+  printf '%s' "$output" | grep -Fq 'present but not managed' \
+    || __fail "DET-04/pin-present" "pin message names the present-but-unmanaged state" "$output" "$LOG"
+  printf '%s' "$output" | grep -Fq 'agentlinux adopt rtk' \
+    || __fail "DET-04/pin-present" "pin directs the user to 'agentlinux adopt rtk'" "$output" "$LOG"
+}
+
+@test "DET-04: adopt brings the brownfield tool under management (list/pin then consistent)" {
+  # REQ: DET-04 — the keystone: adopt a non-canonical catalog tool, then list
+  # reads it managed (reused/synced) and pin succeeds. This closes the loop the
+  # user hit — present in `list` but un-adoptable / un-pinnable.
+  run bash "$INSTALLER" --report-only --report-format=json
+  assert_exit_zero "DET-04/adopt-refresh"
+
+  run al_agent adopt rtk
+  assert_exit_zero "DET-04/adopt"
+  printf '%s' "$output" | grep -Fq '[ADOPT] rtk' \
+    || __fail "DET-04/adopt" "adopt records the brownfield rtk into a reused sentinel" "$output" "$LOG"
+
+  # Now managed: list shows synced (0.42.4 == pin) with the reused suffix.
+  run al_agent list
+  assert_exit_zero "DET-04/list-after-adopt"
+  printf '%s' "$output" | grep -Eq 'rtk[[:space:]]+synced' \
+    || __fail "DET-04/list-after-adopt" "rtk reads 'synced' after adopt" "$output" "$LOG"
+  printf '%s' "$output" | grep -Fq 'reused' \
+    || __fail "DET-04/list-after-adopt" "rtk carries the reused (managed) suffix" "$output" "$LOG"
+
+  # And pin now succeeds against the managed sentinel.
+  run al_agent pin rtk=curated
+  assert_exit_zero "DET-04/pin-after-adopt"
+  printf '%s' "$output" | grep -Fq 'pin cleared' \
+    || __fail "DET-04/pin-after-adopt" "pin succeeds once rtk is managed" "$output" "$LOG"
 }

@@ -67,6 +67,19 @@ function isManagedPath(entry: CatalogEntry, path: string): boolean {
   return dir !== null && path.startsWith(`${dir}/`);
 }
 
+// "Is this detected binary at the path AgentLinux would manage it at?" —
+// the single at-canonical predicate shared by adopt (tryReuse) and list
+// (detectPresence) so the two agree on what counts as adoptable. The original
+// three carry an EXACT canonical path (CANONICAL_PATHS + gsd's dual VERSION
+// presence); every other catalog tool has no such entry, so its managed path is
+// derived from the source_kind's install dir. Without this, a brownfield rtk/gh
+// would read `present` in `list` yet be un-adoptable (dead-end) — the exact
+// inconsistency this fixes.
+function isAtManagedPath(entry: CatalogEntry, path: string): boolean {
+  const known = CANONICAL_PATHS[entry.id];
+  return known ? isCanonicalAgentPath(entry, path, known) : isManagedPath(entry, path);
+}
+
 export interface ReuseHit {
   binary_path: string;
   version: string;
@@ -151,11 +164,14 @@ export function readDetectedAgent(
 // version-out-of-window, missing cache, etc.).
 export function tryReuse(entry: CatalogEntry): ReuseHit | null {
   if (!entry.compatibility_window) return null;
-  const hit = readDetectedAgent(entry);
-  if (!hit) return null;
-  const { detected, canonical } = hit;
+  // Not canonical-gated: any catalog tool detected at its managed path is a
+  // reuse candidate (isAtManagedPath keeps the original three on their exact
+  // canonical paths). This is what lets `adopt` record a brownfield rtk/gh that
+  // `list` already surfaces as `present`, closing the dead-end.
+  const detected = readCachedAgentById(entry.id);
+  if (!detected) return null;
   if (detected.status !== "healthy") return null;
-  if (!isCanonicalAgentPath(entry, detected.path, canonical)) return null;
+  if (!isAtManagedPath(entry, detected.path)) return null;
   // Forward the semver-NORMALIZED version (drops a leading `v`/whitespace the
   // cache may carry) so the sentinel + any downstream install use a clean value.
   const version = semver.valid(detected.version);
@@ -211,9 +227,11 @@ export function tryRemediate(entry: CatalogEntry): RemediateHit | null {
 // the detect cache: an agent with no sentinel but reported healthy is physically
 // PRESENT, not "not-installed". `canonical` distinguishes the two cases list
 // renders differently:
-//   - canonical=true  → at the managed path; adoptable ("run install to manage").
-//                       In practice adopt-on-install already adopts these into a
-//                       sentinel, so this covers the pre-adoption window.
+//   - canonical=true  → at the managed path; adoptable ("run adopt to manage").
+//                       adopt records it into a reused sentinel with no reinstall
+//                       (adopt-on-install already does this on the greenfield
+//                       apply; this covers the pre-adoption window and now every
+//                       catalog tool, not just the original three).
 //   - canonical=false → present at a non-canonical path (e.g. claude installed via
 //                       npm at ~/.npm-global/bin/claude); a MIGRATION candidate,
 //                       not blessed — list points at `agentlinux install` to
@@ -233,13 +251,10 @@ export function detectPresence(entry: CatalogEntry): PresenceHit | null {
   if (entry.source_kind === "mcp") return null;
   const detected = readCachedAgentById(entry.id);
   if (!detected || detected.status !== "healthy") return null;
-  // The original agents carry an exact canonical path; every other catalog tool
-  // (no CANONICAL_PATHS entry) is judged "at the managed path" by whether its
-  // resolved binary lives in the dir AgentLinux's own recipe would install it to.
-  const known = CANONICAL_PATHS[entry.id];
-  const canonical = known
-    ? isCanonicalAgentPath(entry, detected.path, known)
-    : isManagedPath(entry, detected.path);
+  // Same at-canonical predicate adopt uses (isAtManagedPath): the original three
+  // by exact canonical path, every other catalog tool by its managed install
+  // dir. Keeps list's adopt-vs-migrate hint in lockstep with what `adopt` will do.
+  const canonical = isAtManagedPath(entry, detected.path);
   return {
     // Normalized (semver.valid returns the clean version or null).
     version: semver.valid(detected.version),

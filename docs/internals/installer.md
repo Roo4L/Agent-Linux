@@ -39,19 +39,24 @@ provisioner steps: agent user, sudo drop-in, Node.js runtime, PATH wiring,
 registry CLI.
 
 After provisioning, on an apply (not a `--dry-run`), the installer runs an
-adopt-on-install pass: a curated agent the host already had — a healthy
-Claude Code or GSD at its canonical location, within the catalog's
-compatibility window — is recorded into a managed sentinel so `agentlinux
-list` reflects it as `reused` rather than `not-installed`. This installs
-nothing; it only records what the read-only detection pass already found
-(see [Registry CLI](registry-cli.md) for the `adopt` verb).
+adopt-on-install pass: any catalog tool the host already had — healthy, at its
+managed path, and within the catalog's compatibility window — is recorded into
+a managed sentinel so `agentlinux list` reflects it as `reused` rather than
+`not-installed`. This spans the whole catalog: the "managed path" is the exact
+canonical location for Claude Code / GSD / Playwright and, for every other tool,
+the directory its recipe installs into (`~/.local/bin` for a binary/script,
+`~/.npm-global/bin` for an npm global), so a brownfield `codex`, `gh`, or `rtk`
+sitting there is adopted the same way. This installs nothing; it only records
+what the read-only detection pass already found (see
+[Registry CLI](registry-cli.md) for the `adopt` verb).
 
 The read-only detection pass itself spans the **whole catalog** — it derives
 its tool list from the catalog, so a manually-installed `codex`, `gh`, `rtk`,
 etc. is detected too and `agentlinux list` surfaces it as `present` (see
-[Registry CLI](registry-cli.md)). Adopt-into-a-`reused`-sentinel is the
-narrower, canonical-path case above; every other detected tool simply reads
-`present` until an explicit `agentlinux install` takes it under management.
+[Registry CLI](registry-cli.md)). A `present` tool at its managed path is
+brought under management with `agentlinux adopt` (the no-reinstall record the
+installer runs automatically); a `present` tool at a *non-managed* path is a
+migration candidate that `agentlinux install` relocates under management.
 
 The version is either pinned explicitly via the `AGENTLINUX_VERSION`
 environment variable or resolved automatically to the latest GitHub

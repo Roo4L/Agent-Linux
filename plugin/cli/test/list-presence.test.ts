@@ -99,7 +99,7 @@ describe("listCmd — AL-61 presence overlay", () => {
     }
     const joined = cap.lines.join("\n");
     assert.match(joined, /gsd\s+present\s+1\.37\.1\s+1\.37\.1/);
-    assert.match(joined, /detected — run: agentlinux install gsd to manage/);
+    assert.match(joined, /detected — run: agentlinux adopt gsd to manage/);
     assert.doesNotMatch(joined, /not-installed/);
   });
 

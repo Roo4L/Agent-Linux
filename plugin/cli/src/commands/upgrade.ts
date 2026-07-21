@@ -15,6 +15,7 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 import { loadCatalog } from "../catalog/loader.js";
+import { detectPresence } from "../detect.js";
 import { dispatchRecipe as realDispatchRecipe } from "../runner.js";
 import type { DispatchResult, Dispatcher } from "../runner.js";
 import { listSentinels, readSentinel, writeSentinel } from "../state/sentinel.js";
@@ -73,6 +74,12 @@ function willTouchUpstream(opts: UpgradeOpts): boolean {
 // shouldReinstall: returns the reinstall source for this entry, or null to skip.
 // Follows the flag-priority contract at the top of this file.
 function shouldReinstall(report: DivergenceReport, opts: UpgradeOpts): "curated" | "latest" | null {
+  // `present` = detected on disk but not under AgentLinux management (no
+  // sentinel). Reconcile is a management operation; taking an unmanaged tool
+  // over via a bulk flag would silently change the user's version. The path to
+  // manage a present tool is the explicit `agentlinux adopt`, so upgrade leaves
+  // present rows report-only under every flag.
+  if (report.status === "present") return null;
   // --reset-all-curated hits every diverged entry; synced entries are no-ops.
   if (opts.resetAllCurated) {
     return report.status === "synced" ? null : "curated";
@@ -145,7 +152,19 @@ export async function upgradeCmd(opts: UpgradeOpts, deps: UpgradeDeps = {}): Pro
       }
     }
 
-    reports.push(computeDivergence({ entry, sentinel, installed, latest }));
+    // Presence overlay (mirrors `list`): computeDivergence returns
+    // "not-installed" for any entry without a sentinel, even one the host
+    // already has. Reconcile against the detect cache so a brownfield tool reads
+    // "present" with its detected version here too — keeping `upgrade` honest and
+    // consistent with `list` instead of contradicting it.
+    let report = computeDivergence({ entry, sentinel, installed, latest });
+    if (report.status === "not-installed") {
+      const hit = detectPresence(entry);
+      if (hit) {
+        report = { ...report, status: "present", installedVersion: hit.version };
+      }
+    }
+    reports.push(report);
   }
 
   if (opts.json) {

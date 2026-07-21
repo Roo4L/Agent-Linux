@@ -54,11 +54,15 @@ The CLI exposes six verbs:
   manually-installed `codex`, `gh`, `rtk`, or `hermes-agent` reads `present`
   the same way Claude Code does — adding a catalog entry gets detection for
   free, no CLI edit. The hint depends on *where* the tool lives: at the
-  managed (canonical) path it says "run install to manage" (adoptable); at a
-  non-canonical path — e.g. Claude Code installed via npm at
-  `~/.npm-global/bin/claude` instead of the native `~/.local/bin/claude` — it
-  names the detected path and says "run install to migrate", because that
-  install is a migration candidate, not blessed as-is. `list` also tells the
+  managed path it says "run adopt to manage" (record the existing bits into a
+  sentinel, no reinstall); at a non-canonical path — e.g. Claude Code installed
+  via npm at `~/.npm-global/bin/claude` instead of the native
+  `~/.local/bin/claude` — it names the detected path and says "run install to
+  migrate", because that install is a migration candidate, not blessed as-is.
+  `upgrade` and `pin` agree with `list` here: a `present` tool reads `present`
+  in `upgrade` too (not `not-installed`), and `pin` on it points at `adopt`
+  rather than `install`, so the four verbs never contradict each other on a
+  brownfield host. `list` also tells the
   truth when a tool self-updated behind AgentLinux's back: rather than trust
   the version it recorded at install time, it probes the *real* on-disk
   version, so an agent that ran its own updater (`codex update`, a stray
@@ -83,14 +87,19 @@ The CLI exposes six verbs:
   version only if the operator opts in.
 - `agentlinux adopt [<name>] [--all]` — record a tool the host already
   has into a managed sentinel *without installing anything*. When a
-  pre-existing install is healthy, at its canonical path, and within the
+  pre-existing install is healthy, at its managed path, and within the
   catalog's compatibility window, adopt writes a `reused` sentinel so
   the agent comes under `upgrade`/`remove` management; it never
-  downloads, reinstalls, or repairs. The installer runs `adopt --all`
-  automatically after a successful apply, which is what turns a
-  brownfield host's `present` tools into managed `reused` entries. "No
-  agent installed by default" still holds — adopt only records what
-  detection already found.
+  downloads, reinstalls, or repairs. This spans the whole catalog, not
+  just the original three: the "managed path" is the exact canonical path
+  for Claude Code / GSD / Playwright and, for every other catalog tool,
+  the directory its `source_kind` recipe installs into (`~/.local/bin`
+  for a binary/script, `~/.npm-global/bin` for an npm global) — so a
+  brownfield `rtk` or `gh` sitting there is adoptable the same way. The
+  installer runs `adopt --all` automatically after a successful apply,
+  which is what turns a brownfield host's `present` tools into managed
+  `reused` entries. "No agent installed by default" still holds — adopt
+  only records what detection already found.
 
 After a coding agent install succeeds, the CLI also makes a best-effort
 cross-agent reconciliation pass for installed providers that declare a
@@ -154,7 +163,7 @@ playwright-cli not-installed  0.1.17    -          Microsoft's token-efficient .
 # A tool the host has but that AgentLinux has not recorded yet reads `present`,
 # not `not-installed` — and adopt records it (no download, no reinstall):
 $ agentlinux list
-claude-code    present        2.1.98    2.1.98 (detected — run: agentlinux install claude-code ...
+claude-code    present        2.1.98    2.1.98 (detected — run: agentlinux adopt claude-code ...
 $ agentlinux adopt claude-code
 [ADOPT] claude-code: adopted pre-existing install 2.1.98 (status=reused — managed by agentlinux upgrade/remove)
 

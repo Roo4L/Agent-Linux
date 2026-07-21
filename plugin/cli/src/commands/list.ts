@@ -43,8 +43,8 @@ interface Row {
   reused: boolean;
   // AL-61/AL-62: no sentinel, but the detect cache reports the agent healthy —
   // physically present, just not adopted. present_canonical distinguishes the
-  // hint: at the managed path → "run install to manage" (adopt); at a
-  // non-canonical path (e.g. claude via npm) → "run install to migrate" (AL-62).
+  // hint: at the managed path → "run adopt to manage" (record, no reinstall); at
+  // a non-canonical path (e.g. claude via npm) → "run install to migrate" (AL-62).
   present: boolean;
   present_canonical: boolean;
   present_path: string | null;
@@ -125,8 +125,7 @@ function renderTable(rows: Row[], lines: string[], showDescriptions: boolean): v
   // from the recorded pin and how to reconcile.
   const driftSuffix = (recorded: string) =>
     ` (self-updated from ${recorded} — run: agentlinux upgrade to reconcile)`;
-  const presentManageSuffix = (id: string) =>
-    ` (detected — run: agentlinux install ${id} to manage)`;
+  const presentManageSuffix = (id: string) => ` (detected — run: agentlinux adopt ${id} to manage)`;
   const presentMigrateSuffix = (id: string, path: string) =>
     ` (detected at ${path}, not the managed path — run: agentlinux install ${id} to migrate)`;
   const header = showDescriptions
