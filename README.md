@@ -26,13 +26,12 @@ Run this on a clean host, as root or with sudo:
 curl -fsSL https://agentlinux.org/install.sh | sudo bash
 ```
 
-To pin an exact release (recommended for unattended provisioning), download the
-installer and run it with the version set on `sudo`'s command line, so it
-survives into the root environment:
+To pin an exact release (recommended for unattended provisioning), set the
+version on `sudo`'s command line — not before `curl` — so it reaches the root
+environment the installer runs in:
 
 ```bash
-curl -fsSL https://agentlinux.org/install.sh -o install.sh
-sudo AGENTLINUX_VERSION=v0.3.6 bash install.sh
+curl -fsSL https://agentlinux.org/install.sh | sudo AGENTLINUX_VERSION=v0.3.6 bash
 ```
 
 The installer downloads the release tarball and checks its SHA256 against a
