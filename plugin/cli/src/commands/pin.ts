@@ -107,15 +107,21 @@ export async function pinCmd(spec: string, _opts: PinOpts = {}): Promise<void> {
   if (!existing) {
     // A tool the host already has (detected, no sentinel) is `present`, not
     // absent — so route it to the SAME verb `list` recommends, not a blanket
-    // "install". The right verb depends on WHERE it sits: at its managed path
-    // (canonical) `adopt` records the existing bits with no reinstall; at a
-    // non-managed path it's a migration candidate that `install` relocates
-    // under management. Advising `adopt` for the migrate case would be a
-    // dead-end (adopt declines a non-managed path), so mirror list exactly.
+    // "install". Three cases, mirroring the list hints:
+    //   - adoptable (managed path AND in-window) → `adopt` records the bits with
+    //     no reinstall.
+    //   - present but NOT adoptable → `install` brings it under management:
+    //     reinstall at the pin for an out-of-window managed-path tool, or relocate
+    //     a non-managed-path tool (migrate). Advising `adopt` in either case would
+    //     dead-end, since adopt refuses both — the exact trap QA flagged.
     const present = detectPresence(entry);
-    if (present?.canonical) {
+    if (present?.adoptable) {
       console.error(
         `agentlinux: ${entry.id} is present but not managed — run 'agentlinux adopt ${entry.id}' first, then pin`,
+      );
+    } else if (present?.canonical) {
+      console.error(
+        `agentlinux: ${entry.id} is present but out of the compatibility window — run 'agentlinux install ${entry.id}' to bring it under management, then pin`,
       );
     } else if (present) {
       console.error(

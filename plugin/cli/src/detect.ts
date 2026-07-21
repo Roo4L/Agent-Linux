@@ -225,22 +225,24 @@ export function tryRemediate(entry: CatalogEntry): RemediateHit | null {
 
 // Presence overlay for `agentlinux list` (honest-status, AL-61 + AL-62). Reuses
 // the detect cache: an agent with no sentinel but reported healthy is physically
-// PRESENT, not "not-installed". `canonical` distinguishes the two cases list
-// renders differently:
-//   - canonical=true  → at the managed path; adoptable ("run adopt to manage").
-//                       adopt records it into a reused sentinel with no reinstall
-//                       (adopt-on-install already does this on the greenfield
-//                       apply; this covers the pre-adoption window and now every
-//                       catalog tool, not just the original three).
-//   - canonical=false → present at a non-canonical path (e.g. claude installed via
-//                       npm at ~/.npm-global/bin/claude); a MIGRATION candidate,
-//                       not blessed — list points at `agentlinux install` to
-//                       migrate to the native build (AL-62).
+// PRESENT, not "not-installed". Two orthogonal facts drive the three hints list
+// and pin render:
+//   - canonical  → the binary sits at its managed path (adopt's LOCATION gate).
+//                  false = a non-managed path (e.g. claude via npm), a MIGRATION
+//                  candidate that `agentlinux install` relocates (AL-62).
+//   - adoptable  → adopt would actually accept it: at the managed path AND within
+//                  the catalog's compatibility_window. This mirrors `tryReuse`'s
+//                  gates (minus its host statSync), so the "run adopt to manage"
+//                  hint is only shown when adopt won't refuse. A managed-path tool
+//                  that is OUT of window (or whose entry has no window) is present
+//                  but NOT adoptable — the verb to manage it is `install` (reinstall
+//                  at the pin), never `adopt` (which would dead-end).
 // Pure cache read — no host stat — so the status is host-independent in tests.
 export interface PresenceHit {
   version: string | null;
   path: string;
   canonical: boolean;
+  adoptable: boolean;
 }
 
 export function detectPresence(entry: CatalogEntry): PresenceHit | null {
@@ -255,10 +257,19 @@ export function detectPresence(entry: CatalogEntry): PresenceHit | null {
   // by exact canonical path, every other catalog tool by its managed install
   // dir. Keeps list's adopt-vs-migrate hint in lockstep with what `adopt` will do.
   const canonical = isAtManagedPath(entry, detected.path);
-  return {
-    // Normalized (semver.valid returns the clean version or null).
-    version: semver.valid(detected.version),
-    path: detected.path,
-    canonical,
-  };
+  // Normalized (semver.valid returns the clean version or null).
+  const version = semver.valid(detected.version);
+  // adoptable replicates tryReuse's non-location gates (window present + version
+  // in window) so list/pin only recommend `adopt` when it would succeed. tryReuse
+  // returns null with no compatibility_window, so a windowless entry is not
+  // adoptable either.
+  const adoptable =
+    canonical &&
+    // Truthy (not just `!= null`) to stay byte-for-byte with tryReuse's gate 1
+    // (`if (!entry.compatibility_window) return null`) even if the schema's
+    // minLength:1 on the window is ever relaxed. `!!` keeps the result boolean.
+    !!entry.compatibility_window &&
+    version != null &&
+    semver.satisfies(version, entry.compatibility_window);
+  return { version, path: detected.path, canonical, adoptable };
 }

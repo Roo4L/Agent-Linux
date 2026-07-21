@@ -53,10 +53,12 @@ what the read-only detection pass already found (see
 The read-only detection pass itself spans the **whole catalog** — it derives
 its tool list from the catalog, so a manually-installed `codex`, `gh`, `rtk`,
 etc. is detected too and `agentlinux list` surfaces it as `present` (see
-[Registry CLI](registry-cli.md)). A `present` tool at its managed path is
-brought under management with `agentlinux adopt` (the no-reinstall record the
-installer runs automatically); a `present` tool at a *non-managed* path is a
-migration candidate that `agentlinux install` relocates under management.
+[Registry CLI](registry-cli.md)). A `present` tool at its managed path *and*
+within the catalog's compatibility window is brought under management with
+`agentlinux adopt` (the no-reinstall record the installer runs automatically);
+one at the managed path but *outside* the window, or at a *non-managed* path,
+is handled by `agentlinux install` instead — a reinstall at the curated pin, or
+a relocation — since `adopt` only records a version it can vouch for.
 
 The version is either pinned explicitly via the `AGENTLINUX_VERSION`
 environment variable or resolved automatically to the latest GitHub
