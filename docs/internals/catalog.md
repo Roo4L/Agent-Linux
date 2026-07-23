@@ -266,6 +266,37 @@ launched command, leaving the user's config, persona, and sessions in
 place. Same daemon lifecycle, same bring-your-own-key stance, same
 preserve-on-remove rule; only the install mechanism differs.
 
+## Keeping a daemon alive: an operational concern, not an install one
+
+The gateway is just a long-lived process: `hermes gateway run` (or `openclaw
+gateway run`) starts it anywhere, with no systemd and no D-Bus. What the user
+bus adds is only the *managed* form — auto-restart, start-on-boot, survival
+across logout. The lifecycle above is that convenience, not a hard dependency
+of the tool.
+
+There are three mutually exclusive ways to keep such a gateway alive: the
+tool's native `systemd --user` service (the one AgentLinux wires up when a
+usable user bus is present); the tool's own official Docker image, where the
+container runtime and an in-image supervisor keep it up with no systemd; or
+plain foreground / self-supervised execution. AgentLinux automates the first
+because it fits the native-install-under-the-agent-user, no-root model — it
+does not run tools as nested containers, so it never reaches for the second.
+Beyond that, keeping a service up 24/7 is an *operational* concern, and an
+installer's contract stops at install-and-remove: where the platform cleanly
+supports a rootless managed daemon AgentLinux wires one up, and everywhere else
+it installs config-only and says so. In an arbitrary container with no systemd
+there is no clean supervision answer to invent, and inventing one is not an
+installer's job — keeping the gateway running there is the operator's call.
+
+None of this means AgentLinux needs systemd. The core install pulls in no init
+system and drops no unit; systemd shows up only as one of the *invocation
+modes* AgentLinux stays compatible with — it writes `/etc/agentlinux.env` as a
+systemd `EnvironmentFile` so a systemd-invoked agent process still gets the
+right PATH — and in the CI harness, which boots it purely to test that
+compatibility and the opt-in daemon tools. A user's AgentLinux host, or
+container, may run no systemd at all and everything except the managed-daemon
+convenience still works.
+
 ## The MCP source kind
 
 An MCP server is not a program AgentLinux installs — it is a service a
