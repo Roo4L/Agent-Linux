@@ -49,17 +49,24 @@ The fully excluded entry is:
 - `test-dummy` — a fixture, not a product package.
 
 `openclaw` and `hermes-agent` are **partial** coverage, not full exclusions.
-Their user-facing INSTALL path is Docker-testable — the recipes probe for a
-usable per-user systemd bus and degrade to a clean config-only install in a
-container — so install, non-daemon operation (`--version`, `doctor`, config
-inspection), preserve-on-remove, and idempotent re-remove ARE in scope in
-Docker. Only the per-user **systemd Gateway daemon lifecycle** (start/enable/
-linger/teardown) is unavailable under masked logind and stays QEMU-gated
-(ADR-007). Do not start a fake daemon or infer systemd/QEMU daemon behavior
-from Docker; that boundary is a coverage limit, not a passing result. This
-supersedes the earlier blanket exclusion of the two daemon tools — their
-official installers document a container-install path, so the install surface
-is expected to work (and be tested) in Docker.
+**Docker-testable:** the whole INSTALL path (the recipes probe for a usable
+per-user systemd bus and degrade to a clean config-only install in a
+container), non-daemon operations (`--version`, `doctor`, config inspection),
+preserve-on-remove, idempotent re-remove — AND running the **Gateway process
+itself** (`hermes gateway run` / `openclaw gateway run`), which needs no
+systemd and no D-Bus and so starts fine in a plain container. A *meaningful*
+gateway run (a served request or message round-trip) needs a provider key +
+chat token injected at runtime under the credential checkpoint; keyless, only
+assert that the process launches — do not claim a served operation you did not
+perform. **QEMU-gated (NOT Docker):** only the AgentLinux-**managed**
+`systemd --user` daemon lifecycle — unit install, linger enable/revert,
+symmetric teardown — which needs a real user bus that masked-logind containers
+cannot bring up, so it stays a QEMU release-gate behavior (the Docker/QEMU
+boundary is ADR-007). Do not infer that managed lifecycle from a
+hand-started gateway or a fake daemon; that boundary is a coverage limit, not
+a passing result. This supersedes the earlier blanket exclusion of the two
+tools. (Background: keeping a daemon alive is an operational concern, not an
+install one — see `docs/internals/catalog.md` §"Keeping a daemon alive".)
 
 Derive the scenario ledger from `plugin/catalog/catalog.json` at session start.
 Compare every catalog ID with the one full exclusion (`test-dummy`), the two
@@ -245,9 +252,10 @@ End with a report containing:
 
 ## Exclusions
 - `test-dummy`: fixture, not a product package (full exclusion).
-- `openclaw` / `hermes-agent`: PARTIAL — install/non-daemon-op/remove tested in
-  Docker (config-only path); only the systemd Gateway daemon lifecycle is
-  QEMU-gated. State the daemon boundary here, not a blanket exclusion.
+- `openclaw` / `hermes-agent`: PARTIAL — install / non-daemon-op / remove / and
+  running the Gateway PROCESS (bus-free `gateway run`) are Docker-testable; only
+  the AgentLinux-managed `systemd --user` daemon lifecycle (unit/linger/teardown)
+  is QEMU-gated. State that boundary here, not a blanket exclusion.
 
 ## Coverage limits
 - Docker distros and fresh-container boundaries:
