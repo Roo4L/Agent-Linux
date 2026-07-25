@@ -168,6 +168,23 @@ _assert_frozen_json() {
   _remove qwen-code
 }
 
+# Docker-runnable guard for the OPS-01 Anthropic fix: the live smoke in
+# 54-catalog-npm-smoke.bats only runs nightly (needs ANTHROPIC_API_KEY), so
+# assert the structural precondition here on every PR. Without
+# enableCacheControl=false the recipe writes, qwen-code emits a
+# cache_control.scope:"global" request the Anthropic API rejects, 400ing every
+# qwen -> api.anthropic.com call. See qwen-code/install.sh header.
+@test "OPS-01: qwen-code install disables the Anthropic global-cache-scope path (model.generationConfig.enableCacheControl=false)" {
+  # Wipe ~/.qwen first (it is preserved across remove via preserve_paths.json,
+  # so the ENABLE-08 test above leaves a settings.json behind): assert the
+  # recipe writes the key from a truly fresh state, not off residue.
+  sudo -u agent -H bash --login -c 'rm -rf ~/.qwen 2>/dev/null' >/dev/null 2>&1 || true
+  _reinstall qwen-code
+  _assert_frozen_json "OPS-01/qwen-code (cache-control)" \
+    "/home/agent/.qwen/settings.json" '.model.generationConfig.enableCacheControl == false'
+  _remove qwen-code
+}
+
 @test "ENABLE-08/ENABLE-05: codex install freezes the startup update check (check_for_update_on_startup=false)" {
   _reinstall codex
   # codex is notify-only (no passive auto-install), but the recipe freezes its
