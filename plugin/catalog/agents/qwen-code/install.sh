@@ -24,6 +24,21 @@ set -euo pipefail
 # `npm install -g @qwen-code/qwen-code@latest` / `agentlinux upgrade qwen-code`
 # path is unaffected. ~/.qwen/ is in preserve_paths.json so the freeze survives
 # REMEDIATE-04 uninstall+reinstall (CAT-04).
+#
+# OPS-01 (Anthropic global-cache-scope workaround): on the anthropic-native
+# path (auth-type anthropic + api.anthropic.com), qwen-code's Anthropic adapter
+# attaches `cache_control: { scope: "global" }` to the system block and last
+# tool. The current Anthropic API rejects this as a non-prefix cache breakpoint
+# ("scope: global ... is only valid when every preceding block is also globally
+# scoped"), so EVERY qwen -> api.anthropic.com request 400s before the model
+# ever runs. This is upstream and unfixed through the latest 0.21.0 (identical
+# code in every published version). Setting model.generationConfig
+# .enableCacheControl=false drops cache_control entirely, so the request is
+# accepted (uncached but working). It is a no-op for qwen's primary
+# OpenAI-compatible/DashScope path — that content generator ignores the flag —
+# so only the otherwise-broken Anthropic path changes. Written into the same
+# ~/.qwen/settings.json merge below; a user who explicitly wants caching can
+# re-enable it per-provider under modelProviders[].generationConfig.
 
 : "${AGENTLINUX_PINNED_VERSION:?AGENTLINUX_PINNED_VERSION not set}"
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
@@ -50,13 +65,15 @@ if ! printf '%s' "$version_line" | grep -q -F -- "${AGENTLINUX_PINNED_VERSION}";
   exit 1
 fi
 
-# ENABLE-08: freeze qwen-code's passive background self-update (see header).
+# Apply AgentLinux's qwen-code settings.json overrides (see header):
+#   * general.enableAutoUpdate=false            — ENABLE-08 autoupdate freeze
+#   * model.generationConfig.enableCacheControl=false — OPS-01 Anthropic fix
 # Idempotent deep-merge via node (the provisioned runtime — no jq dependency):
-# set general.enableAutoUpdate=false while preserving every other top-level key
-# AND every other general.* key. Atomic same-dir tmp+rename; a pre-existing
-# non-JSON settings file is left untouched (warn, do not clobber). Path is
-# passed via the environment, never interpolated into the script body.
-freeze_autoupdate() {
+# every other top-level key and every other nested key is preserved. Atomic
+# same-dir tmp+rename; a pre-existing non-JSON settings file is left untouched
+# (warn, do not clobber). Path is passed via the environment, never
+# interpolated into the script body.
+apply_settings() {
   local config_dir="${AGENTLINUX_AGENT_HOME}/.qwen"
   local config_file="${config_dir}/settings.json"
   mkdir -p "$config_dir"
@@ -72,23 +89,38 @@ if (fs.existsSync(file)) {
     // Omit the parse error text: a malformed settings file may hold cached
     // creds, and V8's SyntaxError embeds the offending input's leading bytes —
     // which would spill into the install transcript. The path is enough.
-    console.error(`qwen-code: existing ${file} is not valid JSON; leaving untouched — autoupdate NOT frozen`);
+    console.error(`qwen-code: existing ${file} is not valid JSON; leaving untouched — settings NOT applied`);
     process.exit(0);
   }
   if (typeof cfg !== 'object' || cfg === null || Array.isArray(cfg)) {
-    console.error(`qwen-code: existing ${file} is not a JSON object; leaving untouched — autoupdate NOT frozen`);
+    console.error(`qwen-code: existing ${file} is not a JSON object; leaving untouched — settings NOT applied`);
     process.exit(0);
   }
   mode = fs.statSync(file).mode & 0o777; // preserve the user's original mode
 }
-if (typeof cfg.general !== 'object' || cfg.general === null || Array.isArray(cfg.general)) {
-  cfg.general = {};
+// Return the object at cfg[...path], creating a plain {} at any level that is
+// missing or non-object — never overwrites an existing object's other keys.
+const objAt = (path) => path.reduce((node, key) => {
+  if (typeof node[key] !== 'object' || node[key] === null || Array.isArray(node[key])) {
+    node[key] = {};
+  }
+  return node[key];
+}, cfg);
+const changed = [];
+const general = objAt(['general']);
+if (general.enableAutoUpdate !== false) {
+  general.enableAutoUpdate = false;
+  changed.push('general.enableAutoUpdate=false');
 }
-if (cfg.general.enableAutoUpdate === false) {
-  console.log(`qwen-code: passive autoupdate already disabled in ${file}`);
+const generationConfig = objAt(['model', 'generationConfig']);
+if (generationConfig.enableCacheControl !== false) {
+  generationConfig.enableCacheControl = false;
+  changed.push('model.generationConfig.enableCacheControl=false');
+}
+if (changed.length === 0) {
+  console.log(`qwen-code: settings already applied in ${file}`);
   process.exit(0);
 }
-cfg.general.enableAutoUpdate = false;
 const tmp = `${file}.agentlinux.tmp`;
 try {
   fs.writeFileSync(tmp, `${JSON.stringify(cfg, null, 2)}\n`, { mode });
@@ -98,12 +130,12 @@ try {
   try { fs.unlinkSync(tmp); } catch { /* no tmp to clean up */ }
   throw err; // a real write failure fails the install (set -e on the bash side)
 }
-console.log(`qwen-code: disabled passive autoupdate in ${file}`);
+console.log(`qwen-code: applied settings in ${file} (${changed.join(', ')})`);
 NODE
 }
 
-# freeze_autoupdate logs its own authoritative outcome; the completion line
-# below does not restate it, so a malformed-config skip is never misreported.
-freeze_autoupdate
+# apply_settings logs its own authoritative outcome; the completion line below
+# does not restate it, so a malformed-config skip is never misreported.
+apply_settings
 
 echo "qwen-code: install complete (resolves at ${bin_path}; version matches pin)"
