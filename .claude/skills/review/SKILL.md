@@ -46,16 +46,16 @@ for every change.
 
 | Changed file pattern | Reviewer roles |
 |---|---|
-| `^plugin/(bin|lib|provisioner)/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor` |
-| `^plugin/catalog/lib/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor` |
-| `^packaging/curl-installer/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop` |
-| `^plugin/cli/(src|test|scripts)/.+\.(ts|mjs|js)$` | `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor` |
+| `^plugin/(bin|lib|provisioner)/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^plugin/catalog/lib/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^packaging/curl-installer/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` |
+| `^plugin/cli/(src|test|scripts)/.+\.(ts|mjs|js)$` | `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
 | `^plugin/cli/(package\.json|tsconfig\.json|biome\.json|stryker\.config\.json)$` | `node-engineer` |
 | `^tests/bats/.+\.bats$` | `qa-engineer`, `behavior-coverage-auditor` |
-| `^tests/bats/helpers/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop` |
-| `^tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop` |
-| `^plugin/catalog/(agents/.+/.+\.(sh|json)|catalog\.json|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor` (add `bash-engineer` for shell recipes) |
-| `^plugin/catalog/agents/.+/.+\.(js|mjs|ts)$` | `node-engineer`, `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor` |
+| `^tests/bats/helpers/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
+| `^tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
+| `^plugin/catalog/(agents/.+/.+\.(sh|json)|catalog\.json|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` (add `bash-engineer` for shell recipes) |
+| `^plugin/catalog/agents/.+/.+\.(js|mjs|ts)$` | `node-engineer`, `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
 | `^docs/.+\.md$` (not ADRs/research summaries) | `technical-writer`, `fact-checker`, `ai-deslop` |
 | `^docs/decisions/.+\.md$` or `^docs/research/.+/SUMMARY\.md$` | `technical-writer`, `fact-checker` |
 | `^(AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md)$` | `technical-writer`, `fact-checker` (add `external-audience-auditor` for contributor/public copy) |
@@ -64,6 +64,18 @@ for every change.
 | `^\.claude/agents/.+\.md$` | `technical-writer`, `fact-checker`, `ai-deslop` (add the role's domain reviewer when its rubric changes) |
 | `^\.planning/REQUIREMENTS\.md$` | `behavior-coverage-auditor` |
 | phase close | `behavior-coverage-auditor` always |
+
+`readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, and
+`reliability-reviewer` are cross-cutting trait reviewers: they judge one quality
+lens across whichever language changed, alongside the surface reviewers
+(`bash-engineer`, `node-engineer`) rather than instead of them. `security-engineer`
+is likewise a trait reviewer (security and data safety), not a bash-only role.
+Two reviewers looking at one file from different angles is intended, not
+duplication. `testability-reviewer` judges the design of production code for
+testability, not the tests themselves — the test suite's own quality stays with
+`qa-engineer` and `behavior-coverage-auditor`. As with every role, dispatch the
+intersection with the changed-file set and skip trait reviewers for trivial or
+formatting-only changes.
 
 For externally-facing copy, also dispatch `external-audience-auditor`.
 This includes top-level README/contribution copy, `docs/internals/`,
