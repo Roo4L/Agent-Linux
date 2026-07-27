@@ -20,7 +20,27 @@ An agent can be dropped into any supported Linux system and *just work* — a de
 
 **Documentation:** README has a new `## Brownfield install` section linked from main Install; `docs/MIGRATION.md` walks 4 worked scenarios (manual `useradd`, NodeSource Node, root-Claude reinstall, broken Playwright); per-phase AUDITs at `.planning/phases/{12..16}-*/`-AUDIT.md`; milestone audit at `.planning/v0.3.4-MILESTONE-AUDIT.md`.
 
-## Current Milestone: v0.3.6 Catalog Expansion — community agent tooling for first release
+## Current Milestone: v0.4.0 Rust Rewrite — reimplement the CLI + provisioner in Rust
+
+**Goal:** Reimplement the AgentLinux registry CLI and the ~4.3k LOC provisioner
+as a single Rust static binary — moving today's untestable Bash decision logic
+into a tested language (proptest + cargo-mutants) — while keeping the bats
+behavior contract green at every step and master shippable throughout. Decision
+recorded 2026-07-27 in `docs/research/v0.3.0/stack-reconsideration.md` (Rust
+chosen over Go and a runtime-bundled-JS binary).
+
+**Target workstreams (phases derive from these):**
+- Rust scaffold + de-risking spike (cargo workspace, clap, x86_64 musl target, CI; port classify+divergence+one provisioner unit; instrument agent iterations-to-green / token cost / cargo-timeout + crate-hallucination friction)
+- Testing bedrock — proptest (property) + cargo-mutants (mutation gate on the pure core) + schemars schema-gen (kills catalog schema drift) + semver crate with a node-semver prerelease porting audit
+- Pure-logic core port (classify/decide, divergence, category, detect gates, pin-spec)
+- CLI verbs (list/install/remove/upgrade/pin/adopt) + subprocess dispatcher (sudo -u, streaming tee, timeout, SIGTERM→SIGKILL)
+- Provisioner port + logic consolidation (agent-user, sudoers, nodejs, path-wiring, registry staging, detect/remediate/reuse/idempotency; delete duplicated CANONICAL_PATHS/GSD_SYSTEM_PATH from Bash)
+- Distribution — x86_64 musl static build shipped through the existing curl-installer tarball + `.sha256` (single artifact while ARM stays out of scope; per-arch + arch-detecting installer deferred until ARM enters scope); optional `.deb` kept (ADR-006)
+- Full validation gate — entire bats suite green on Docker (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) AND QEMU; behavior-contract IDs all covered; acceptance test (agent self-update without sudo) holds
+
+**Invariants:** the ~11k-LOC bats suite is the language-agnostic executable spec (ADR-002) and the safety net — nothing is "done" until it is green on the Rust build; validation is per-phase, first-class, not a final phase. The ~25 per-agent `install.sh` recipes stay Bash (env-var contract kept, generated from a typed Rust source). The rewrite proceeds on a parallel track so master stays shippable, with per-phase rollback. Accept + manage Rust's known agent-coding costs (crate-hallucination, slower/pricier loops, cargo timeouts).
+
+## Previous Milestone: v0.3.6 Catalog Expansion — community agent tooling for first release
 
 **Goal:** Grow the catalog from 3 entries to 26 of the most trusted/popular AI-agent-community tools (availability only — CAT-02 holds; nothing installed by default), so first-release users don't hit "I miss tool X."
 
@@ -59,9 +79,18 @@ An agent can be dropped into any supported Linux system and *just work* — a de
 Archived: `.planning/milestones/v0.3.4-ROADMAP.md`, `.planning/milestones/v0.3.4-REQUIREMENTS.md`.
 </details>
 
-## Previous Milestone: v0.4.0 Open-Source Release — feature-complete (formal closeout pending)
+## Earlier Milestone: Open-Source Release — feature-complete (legacy "v0.4.0" tag, renamed 2026-07-27)
 
-v0.4.0 (Open-Source Release) shipped Phases 7–11 (License + CONTRIBUTING; gitleaks/trufflehog history audit + scanner gate; repo hygiene + branch cleanup; public-CI/CD audit + branch protection; visibility flip + post-flip smoke). The status section of this document and `MILESTONES.md` are scheduled for a maintenance pass that reconciles the formal closeout. v0.3.4 numbering reflects a milestone-rename pass; the formal `MILESTONES.md` ordering will be updated in that same pass.
+> **Renumber note (2026-07-27):** this milestone was historically tagged `v0.4.0`,
+> but that tag was reassigned to the **Rust Rewrite** (current milestone) at the
+> owner's direction — the legacy Open-Source Release shipped 2026-05-09, which
+> chronologically precedes v0.3.4/3.5/3.6, so its canonical number is deferred to
+> the numbering-reconciliation pass the project already planned. Referred to below
+> as the **Open-Source Release** to avoid a hard `v0.4.0` collision. Archived
+> planning still lives under `.planning/milestones/v0.4.0-*` (filenames unchanged
+> until the reconciliation pass).
+
+The Open-Source Release shipped Phases 7–11 (License + CONTRIBUTING; gitleaks/trufflehog history audit + scanner gate; repo hygiene + branch cleanup; public-CI/CD audit + branch protection; visibility flip + post-flip smoke). The status section of this document and `MILESTONES.md` are scheduled for a maintenance pass that reconciles the formal closeout. v0.3.4 numbering reflects a milestone-rename pass; the formal `MILESTONES.md` ordering will be updated in that same pass.
 
 ## Earlier Milestones
 
@@ -112,9 +141,11 @@ The v0.2.0 milestone aimed to ship a custom Linux distribution (Debian 12 QCOW2 
 - ✓ Bats behavior-test suite + Docker matrix + QEMU release-gate suite + 4-gate `release.yml` — v0.3.0
 - ✓ Pinned-combo release gate (TST-08) + catalog snapshot publication (CAT-05) per ADR-011 — v0.3.0
 
-### Active (v0.3.5 — AlmaLinux 9 Support)
+### Active (v0.4.0 — Rust Rewrite)
 
-See `.planning/REQUIREMENTS.md` for the full v0.3.5 requirement list (populated by the milestone roadmap — categories TBD at requirements time: e.g. DETECT, HARNESS, BEHAVE, CAT, REL). Headline outcome: `curl … | bash` installs the plugin on AlmaLinux 9 with the same six-mode contract and zero-EACCES self-update gate Ubuntu has.
+See `.planning/REQUIREMENTS.md` for the full v0.4.0 requirement list (RUST / TEST / CORE / CLI / PROV / DIST / VAL categories). Headline outcome: the CLI + provisioner run as one Rust static binary, the pure decision logic is property- and mutation-tested, and the **entire existing bats behavior contract stays green** on the Rust build across the Docker + QEMU matrix — nothing observable changes for users.
+
+_(Parallel milestone: v0.3.5 AlmaLinux 9 Support remains in flight on `worktree-almalinux-support`; its requirement list is archived per that branch. The Rust Rewrite must preserve the AlmaLinux 9 behavior once merged.)_
 
 ### Validated (v0.3.4 — Aware Installation Process; SHIPPED 2026-06-08)
 
@@ -242,4 +273,4 @@ This document evolves at phase transitions and milestone boundaries.
 4. Update Context with current state
 
 ---
-*Last updated: 2026-06-27 — v0.3.5 (AlmaLinux 9 Support) milestone started via /gsd-new-milestone (AL-47, Epic AL-48; blocker AL-38 Done). Previous milestone v0.3.4 (Aware Installation Process) SHIPPED 2026-06-08. v0.4.0 (Open-Source Release) feature-complete; formal closeout reconciliation pending.*
+*Last updated: 2026-07-27 — v0.4.0 (Rust Rewrite) milestone started via /gsd-new-milestone; decision recorded in `docs/research/v0.3.0/stack-reconsideration.md`. The legacy "v0.4.0" (Open-Source Release, shipped 2026-05-09) was renamed to free the v0.4.0 tag for the rewrite — canonical renumber deferred to the reconciliation pass. Latest shipped: v0.3.6 Catalog Expansion (rc1 2026-07-20). Parallel: v0.3.5 AlmaLinux 9 in flight on `worktree-almalinux-support`.*
