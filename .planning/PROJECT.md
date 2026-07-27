@@ -35,7 +35,7 @@ chosen over Go and a runtime-bundled-JS binary).
 - Pure-logic core port (classify/decide, divergence, category, detect gates, pin-spec)
 - CLI verbs (list/install/remove/upgrade/pin/adopt) + subprocess dispatcher (sudo -u, streaming tee, timeout, SIGTERM→SIGKILL)
 - Provisioner port + logic consolidation (agent-user, sudoers, nodejs, path-wiring, registry staging, detect/remediate/reuse/idempotency; delete duplicated CANONICAL_PATHS/GSD_SYSTEM_PATH from Bash)
-- Distribution — x86_64 musl static build shipped through the existing curl-installer tarball + `.sha256` (single artifact while ARM stays out of scope; per-arch + arch-detecting installer deferred until ARM enters scope); optional `.deb` kept (ADR-006)
+- Distribution — x86_64 musl static build shipped through the curl-installer tarball + `.sha256` as the **sole** channel (single artifact while ARM stays out of scope; per-arch + arch-detecting installer deferred until ARM enters scope). The legacy optional `.deb` path is **dropped** (ADR-006 flagged for update)
 - Full validation gate — entire bats suite green on Docker (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) AND QEMU; behavior-contract IDs all covered; acceptance test (agent self-update without sudo) holds
 
 **Invariants:** the ~11k-LOC bats suite is the language-agnostic executable spec (ADR-002) and the safety net — nothing is "done" until it is green on the Rust build; validation is per-phase, first-class, not a final phase. The ~25 per-agent `install.sh` recipes stay Bash (env-var contract kept, generated from a typed Rust source). The rewrite proceeds on a parallel track so master stays shippable, with per-phase rollback. Accept + manage Rust's known agent-coding costs (crate-hallucination, slower/pricier loops, cargo timeouts).
