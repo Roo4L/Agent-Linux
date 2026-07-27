@@ -1,6 +1,130 @@
 # Roadmap
 
-**Current milestone:** 🚧 **v0.3.6 Catalog Expansion** — IN PROGRESS (phases **23–52**; **23–48** are one-tool-per-phase catalog entries, **49** the categorization/growth-kit capstone, **50** the integration-QA capstone, **51** the unified QA-remediation follow-up, and **52** a focused priority-package QA sweep; **22 new catalog entries** shipping; 4 of the 26 originally-selected candidates dropped in-flight — gitlab/brave on the source-selection gate, claude-flow/bmad on first-cohort demand). v0.3.4 Aware Installation Process **SHIPPED 2026-06-08** (final release v0.3.4, marked Latest).
+**Current milestone:** 🚧 **v0.4.0 Rust Rewrite** — IN PROGRESS (phases **53–59**). Reimplement the TypeScript registry CLI (~2,800 LOC) + the Bash provisioner (~4,363 LOC) as **one Rust static binary** (x86_64 musl), moving today's untestable Bash decision logic into a property- and mutation-tested language — while keeping the ~11k-LOC bats behavior contract green at every step and `master` shippable throughout. Like-for-like: **nothing observable changes for users**. Decision recorded 2026-07-27 in `docs/research/v0.3.0/stack-reconsideration.md` (Rust chosen over Go and a runtime-bundled-JS binary). Previous milestone **v0.3.6 Catalog Expansion** shipped as `v0.3.6-rc1` (2026-07-20); its content is preserved below.
+
+## Current Milestone: v0.4.0 Rust Rewrite
+
+**Milestone goal:** Make the ~7k LOC of CLI + provisioner logic **testable** by porting it into a single dependency-free Rust binary behind the language-agnostic bats spec (ADR-002). The pure decision core gets `proptest` property tests + a `cargo-mutants` gate; the catalog schema is generated from Rust types via `schemars` (kills drift); the provisioner logic that runs *before Node exists* finally lives in a language a mutation tester can reach. The ~25 per-agent `install.sh` recipes stay Bash behind a generated env-var contract. The rewrite lands on a **parallel track** so `master` stays shippable, with a per-phase rollback path.
+
+**Prime directive (ADR-002):** the ~11k-LOC bats behavior suite is the executable spec and the acceptance oracle. **Nothing is "done" until the full bats suite is green on the Rust build.** Validation is **per-phase, first-class, not a final step**.
+
+**Cross-cutting invariants (folded into EVERY phase's success criteria, not a standalone phase):**
+
+- **GATE-01** — every phase ships behind a **green full bats suite** for the ported surface; no phase merges with a red or newly-skipped behavior test; no behavior-contract regression.
+- **GATE-05** — `master` stays shippable throughout; the rewrite is a parallel track with a per-phase rollback path; a broken Rust phase never blocks a hotfix release from `master`.
+
+> **Phase-numbering note (continue, not reset).** The previous milestone (v0.3.6 Catalog Expansion) ended at **phase 52**, so v0.4.0 phases start at **phase 53** and run **53–59** (7 phases). This continues the project's global phase counter per GSD convention. `project_code` is NOT part of the phase ID — phases are plain `Phase N` (config `phase_id_convention` absent → sequential).
+
+### Phases
+
+Execution is strictly sequential (53 → 59); the order respects the natural port dependency + de-risking sequence (spike first, testing bedrock next, then pure core → verbs → provisioner → distribution → full-matrix validation gate).
+
+- [ ] **Phase 53: Rust Scaffold + De-Risking Spike** - Stand up the cargo workspace + musl target + CI; port classify + divergence + one gnarly provisioner unit behind the existing bats tests; instrument agent-loop metrics. Establishes the GATE-01 / GATE-05 invariants.
+- [ ] **Phase 54: Testing Bedrock** - proptest (property) + cargo-mutants (mutation gate on the pure core) + schemars schema-gen (kills catalog schema drift) + the node-semver → Rust `semver` parity audit — so the rigor exists before the bulk port.
+- [ ] **Phase 55: Pure-Logic Core Parity** - Port classify/decide, computeDivergence + resolveLatestFor, detect gates, pin-spec parsing, and category derivation to Rust with verdicts identical to TS across a golden corpus.
+- [ ] **Phase 56: Registry CLI Verbs + Subprocess Dispatcher** - Port list/install/remove/upgrade/pin/adopt + the sudo-u/streaming-tee/timeout/SIGTERM→SIGKILL dispatcher + the generated env-var recipe contract; CLI-* bats green.
+- [ ] **Phase 57: Provisioner Port + Logic Consolidation** - Port agent-user/sudoers/nodejs/path-wiring/registry-staging + detect/remediate/reuse/idempotency; delete duplicated CANONICAL_PATHS/GSD_SYSTEM_PATH from Bash; RT-*/AGT-*/DET-* bats green across all six invocation modes on Ubuntu + AlmaLinux.
+- [ ] **Phase 58: Distribution — musl Tarball as Sole Channel** - Reproducible x86_64 musl static tarball + `.sha256` fetched/verified/installed by the curl-installer with no Node prerequisite; drop the legacy fpm `.deb` path; flag ADR-006 for update.
+- [ ] **Phase 59: Full Validation Gate** - The complete bats contract green on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) AND QEMU; zero uncovered behavior families; the canonical AGT-02 self-update-without-sudo acceptance test green against the live Anthropic CDN.
+
+## Phase Details
+
+### Phase 53: Rust Scaffold + De-Risking Spike
+**Goal**: Prove the Rust rewrite is viable end-to-end at small scale — a cargo workspace producing a static musl binary, wired into CI, with `classify` + `divergence` + one gnarly provisioner unit ported behind the existing bats tests and agent-loop cost instrumented — so the remaining port is calibrated by evidence, not estimate. This phase also establishes the two cross-cutting invariants (green-bats-per-phase, master-stays-shippable) that every later phase re-asserts.
+**Depends on**: Nothing (first v0.4.0 phase; builds on the shipped v0.3.6 codebase + bats suite)
+**Requirements**: RUST-01, RUST-02, RUST-03, GATE-01, GATE-05
+**Success Criteria** (what must be TRUE):
+  1. `cargo build --release --target x86_64-unknown-linux-musl` produces a single fully-static `agentlinux` binary — `ldd` reports "not a dynamic executable" (RUST-01).
+  2. CI builds, `clippy`-lints, `rustfmt`-checks, and unit-tests the Rust binary on every PR; the Rust job is added to the Docker matrix (RUST-02).
+  3. The spike ports `classify` + `divergence` + one gnarly provisioner unit (e.g. `detect/nodejs.sh` or npm-prefix reconciliation) to Rust; the **full bats behavior suite is green** on the Rust build for that ported surface, with **no newly-skipped tests** (RUST-03, GATE-01).
+  4. Measured agent-loop metrics — iterations-to-green, token cost, cargo-timeout + crate-hallucination incidents — are recorded to calibrate the remaining port (RUST-03).
+  5. The spike lands on a **parallel track**; `master` remains shippable and a per-phase rollback path exists (a broken spike never blocks a `master` hotfix) (GATE-05).
+**Plans**: TBD
+
+### Phase 54: Testing Bedrock
+**Goal**: Stand up the property + mutation + schema-generation + semver-parity machinery on the pure-logic core *before* the bulk port, so the practice that motivated the whole rewrite is operational — not aspirational — and every later port lands behind a real testing gate.
+**Depends on**: Phase 53
+**Requirements**: TEST-01, TEST-02, TEST-03, TEST-04, GATE-01, GATE-05
+**Success Criteria** (what must be TRUE):
+  1. The pure-logic core has `proptest` property tests asserting its invariants — classify is total & deterministic; `sticky ⇒ status ∈ {synced, pinned-override}`; latest-resolution output always satisfies the constraint or returns a typed error (TEST-01).
+  2. `cargo-mutants` runs on the pure-logic crate in CI and reports a mutation score gated at an agreed threshold (advisory → gate) (TEST-02).
+  3. The catalog JSON Schema is generated from the Rust catalog types via `schemars` (single source of truth); CI fails if committed `schema.json` drifts from the generated output — schema drift check green (TEST-03).
+  4. A `node-semver` → Rust `semver` behavior-parity audit documents every range/prerelease case the catalog uses, backed by a golden test asserting identical `satisfies`/`maxSatisfying`/`valid` verdicts on the current catalog (TEST-04).
+  5. The **full bats behavior suite stays green** on the Rust build for the ported surface with **no behavior-contract regression and no newly-skipped tests** (GATE-01); `master` stays shippable with a rollback path (GATE-05).
+**Plans**: TBD
+
+### Phase 55: Pure-Logic Core Parity
+**Goal**: Port the entire I/O-free decision core (six-state classification, divergence + latest-resolution, detect gates, pin-spec parsing, category derivation) to Rust with byte-for-byte-equivalent verdicts to the TS implementation across a golden corpus — the highest-value, most-testable slice, now guarded by the Phase 54 bedrock.
+**Depends on**: Phase 54
+**Requirements**: CORE-01, CORE-02, CORE-03, GATE-01, GATE-05
+**Success Criteria** (what must be TRUE):
+  1. Six-state version classification returns verdicts identical to TS `classify` across a golden corpus of `(sentinel, installed, pinned, sticky)` inputs (CORE-01).
+  2. `computeDivergence` + `resolveLatestFor` (semver `maxSatisfying`) match TS outputs across the golden corpus, including the zero-match error path (CORE-02).
+  3. Detect gates (reuse/remediate/presence), pin-spec parsing, and category derivation match TS outputs across the golden corpus (CORE-03).
+  4. The ported core is exercised by the Phase 54 proptest + cargo-mutants gates (mutation score ≥ threshold on the pure core), and the **full bats suite is green** on the Rust build for the ported surface with **no newly-skipped tests** (GATE-01).
+  5. `master` stays shippable throughout; the core port is reversible per-phase (GATE-05).
+**Plans**: TBD
+
+### Phase 56: Registry CLI Verbs + Subprocess Dispatcher
+**Goal**: Port the user-facing registry CLI — list/install/remove/upgrade/pin/adopt — plus the subprocess dispatcher and the typed env-var recipe contract, so `agentlinux <verb>` produces contract-equivalent stdout + exit codes to the TS CLI and the ~25 unchanged Bash recipes still run correctly against a single generated source of truth.
+**Depends on**: Phase 55 (verbs consume the ported pure core)
+**Requirements**: VERB-01, VERB-02, VERB-03, GATE-01, GATE-05
+**Success Criteria** (what must be TRUE):
+  1. `list / install / remove / upgrade / pin / adopt` produce contract-equivalent stdout + exit codes to the TS CLI — the existing `CLI-*` and `50-agents`/list/upgrade/pin bats tests are green on the Rust `list`/`install`/... (VERB-01).
+  2. The subprocess dispatcher runs recipes as the target user (`sudo -u`), streams output (tee), enforces a timeout, and escalates SIGTERM→SIGKILL — the dispatcher/streaming behavior tests are green (VERB-02).
+  3. The recipe env-var contract (the six `AGENTLINUX_*` names) is generated from a single typed Rust source, and the ~25 unchanged Bash recipes run correctly against it — a rename cannot silently desync CLI and recipes (VERB-03).
+  4. The **full bats behavior suite is green** on the Rust build for the CLI surface with **no behavior-contract regression / no newly-skipped tests** (GATE-01).
+  5. `master` stays shippable; the verb port is reversible per-phase (GATE-05).
+**Plans**: TBD
+
+### Phase 57: Provisioner Port + Logic Consolidation
+**Goal**: Port the ~4.3k LOC of pre-Node provisioner logic — agent-user creation, sudoers drop-in, NodeSource Node, PATH/env wiring, registry-CLI staging, and the detect/remediate/reuse/idempotency decision layer — into the Rust binary, consolidating the duplicated Bash maps into a single Rust source of truth, with identical observable system state across all six invocation modes on both distro families.
+**Depends on**: Phase 56 (provisioner stages the ported CLI binary; shares the dispatcher + pure core)
+**Requirements**: PROV-01, PROV-02, PROV-03, GATE-01, GATE-05
+**Success Criteria** (what must be TRUE):
+  1. Provisioning (agent-user, sudoers, NodeSource Node, PATH/env wiring to `/etc/agentlinux.env`, registry-CLI staging) leaves the system in the same observable state as the Bash provisioner — the `RT-*` / `AGT-*` bats are green across all six invocation modes (interactive login, non-interactive SSH, cron, systemd `User=agent`, `sudo -u`, `sudo -u -i`) (PROV-01).
+  2. Detect/remediate/reuse/idempotency logic is consolidated into the Rust binary; the duplicated `CANONICAL_PATHS` / `GSD_SYSTEM_PATH` maps are deleted from Bash (single source of truth in Rust) (PROV-02).
+  3. Distro detection and the aware-install reuse/remediate/bail paths behave identically to today on Ubuntu 22.04/24.04/26.04 **and** AlmaLinux 9 — `DET-*` / `REUSE-*` / `REMEDIATE-*` bats green (PROV-03).
+  4. The **full bats behavior suite is green** on the Rust build for the provisioner surface with **no behavior-contract regression / no newly-skipped tests** (GATE-01).
+  5. `master` stays shippable; the provisioner port is reversible per-phase — a broken provisioner phase never blocks a `master` hotfix (GATE-05).
+**Plans**: TBD
+
+### Phase 58: Distribution — musl Tarball as Sole Channel
+**Goal**: Ship the Rust binary through the curl-installer as the single distribution channel — a reproducible x86_64 musl static tarball + `.sha256`, fetched, verified, and installed with **no Node prerequisite for the CLI/provisioner itself** — and remove the legacy optional fpm `.deb` path entirely (the chicken-and-egg is gone).
+**Depends on**: Phase 57 (the full binary — CLI + provisioner — must exist to package)
+**Requirements**: DIST-01, DIST-02, GATE-01, GATE-05
+**Success Criteria** (what must be TRUE):
+  1. `scripts/build-release.sh` produces a reproducible x86_64 musl static tarball + `.sha256`; the curl-installer fetches it, verifies the sha256, and installs it — with **no Node prerequisite for the CLI/provisioner itself**; this is the **sole** distribution channel (DIST-01).
+  2. The legacy optional fpm `.deb` path is removed — `packaging/deb/`, the `build-release.sh` `--deb`/`fpm` branch, and the `.deb` postinst bridge are deleted; ADR-006 is flagged for an update to the tarball-only channel (DIST-02).
+  3. The **full bats behavior suite (incl. the curl-installer INST-* tests) is green** on the Rust build with **no behavior-contract regression / no newly-skipped tests** (GATE-01).
+  4. `master` stays shippable; the distribution change is reversible per-phase (GATE-05).
+**Plans**: TBD
+
+### Phase 59: Full Validation Gate
+**Goal**: Prove the rewrite is complete and behavior-preserving at full matrix scale — the entire bats behavior contract green on the Rust build across every supported distro on both Docker and QEMU, every behavior family still covered, and the canonical self-update-without-sudo acceptance test green against the live Anthropic CDN — so v0.4.0 can ship as a like-for-like reimplementation with zero observable change.
+**Depends on**: Phase 58 (validates the fully-ported, distributed Rust build)
+**Requirements**: GATE-02, GATE-03, GATE-04, GATE-01, GATE-05
+**Success Criteria** (what must be TRUE):
+  1. The complete bats behavior contract passes on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) **and** the QEMU release gate (GATE-02).
+  2. Every existing requirement ID / behavior family (BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC) retains behavior or harness evidence on the Rust build — `behavior-coverage-auditor` reports zero uncovered (GATE-03).
+  3. The canonical acceptance test — agent `claude` self-update without sudo, zero EACCES — passes on the Rust build against the live Anthropic CDN (GATE-04).
+  4. The whole-matrix run confirms **no behavior-contract regression / no newly-skipped tests** relative to the TS/Bash baseline (GATE-01).
+  5. `master` is shippable at gate close — the Rust track is ready to become `master`, with the pre-cutover TS/Bash build retained as the rollback path (GATE-05).
+**Plans**: TBD
+
+## Progress (v0.4.0)
+
+**Execution Order:** Phases execute strictly in numeric order: 53 (spike) → 54 (testing bedrock) → 55 (pure core) → 56 (CLI verbs) → 57 (provisioner) → 58 (distribution) → 59 (full validation gate).
+
+| Phase | Plans Complete | Status | Completed |
+|-------|----------------|--------|-----------|
+| 53. Rust Scaffold + De-Risking Spike | 0/? | Not started | - |
+| 54. Testing Bedrock | 0/? | Not started | - |
+| 55. Pure-Logic Core Parity | 0/? | Not started | - |
+| 56. Registry CLI Verbs + Dispatcher | 0/? | Not started | - |
+| 57. Provisioner Port + Logic Consolidation | 0/? | Not started | - |
+| 58. Distribution — musl Tarball as Sole Channel | 0/? | Not started | - |
+| 59. Full Validation Gate | 0/? | Not started | - |
 
 ## Current Milestone: v0.3.6 Catalog Expansion
 

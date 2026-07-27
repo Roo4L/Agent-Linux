@@ -3,10 +3,10 @@ gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Rust Rewrite
 status: planning
-last_updated: "2026-07-27T21:23:41.521Z"
+last_updated: "2026-07-27T22:00:00.000Z"
 last_activity: 2026-07-27
 progress:
-  total_phases: 0
+  total_phases: 7
   completed_phases: 0
   total_plans: 0
   completed_plans: 0
@@ -24,10 +24,11 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 ## Current Position
 
-Phase: Not started (defining requirements)
+Phase: 53 — Rust Scaffold + De-Risking Spike (roadmap created; not started)
 Plan: —
-Status: Defining requirements
-Last activity: 2026-07-27 — Milestone v0.4.0 started
+Status: Roadmap created — 7 phases (53–59) derived from the v0.4.0 RUST/TEST/CORE/VERB/PROV/DIST/GATE requirement families; all 23 v1 requirements mapped (0 orphans). Ready to plan Phase 53 (the de-risking spike).
+Milestone: v0.4.0 Rust Rewrite — reimplement the TS registry CLI (~2,800 LOC) + Bash provisioner (~4,363 LOC) as one Rust static binary (x86_64 musl) behind the language-agnostic bats spec (ADR-002). Like-for-like: nothing observable changes for users. Order respects the natural port dependency + de-risking sequence — spike first (53), testing bedrock (54), pure-logic core (55), CLI verbs + dispatcher (56), provisioner + logic consolidation (57), distribution (58), full-matrix validation gate (59). GATE-01 (green-bats-per-phase) + GATE-05 (master stays shippable / parallel track / per-phase rollback) are cross-cutting invariants folded into every phase's success criteria (anchored to Phase 53 for coverage). Recipes stay Bash behind a generated env-var contract; the fpm .deb path is dropped (ADR-006 flagged). Decision recorded 2026-07-27 in docs/research/v0.3.0/stack-reconsideration.md (Rust over Go and a runtime-bundled-JS binary).
+Last activity: 2026-07-27 — v0.4.0 roadmap created (phases 53–59); requirements traceability filled
 
 ## Current Position (v0.3.4 — historical)
 
@@ -123,6 +124,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 
 ### Roadmap Evolution
 
+- v0.4.0 Rust Rewrite roadmap created (2026-07-27): 7 phases (53–59), derived from THIS milestone's RUST/TEST/CORE/VERB/PROV/DIST/GATE requirement families only. Order follows the natural port dependency + de-risking sequence — the **spike is its own first phase (53)** (cargo workspace + musl + CI + classify/divergence/one provisioner unit behind bats + agent-loop metrics), then the **testing bedrock (54)** (proptest + cargo-mutants + schemars + node-semver parity audit), **pure-logic core (55)**, **CLI verbs + dispatcher (56)**, **provisioner + logic consolidation (57)**, **distribution (58)**, and a **full-matrix validation gate (59)** (Docker Ubuntu 22.04/24.04/26.04 + AlmaLinux 9 AND QEMU, zero uncovered families, AGT-02 self-update against the live CDN). **GATE-01 (green-bats-per-phase) + GATE-05 (master shippable / parallel track / per-phase rollback) are cross-cutting invariants** written into EVERY phase's success criteria, and validation is per-phase/first-class per ADR-002 — not a final step. Granularity=coarse → 7 substantial phases (spike kept standalone by directive). Phase numbering CONTINUES the global counter (prior milestone v0.3.6 ended at 52 → start at 53), not a reset. 23/23 requirements mapped, 0 orphans (GATE-01/GATE-05 anchored to Phase 53 for the exactly-one-home-phase rule while re-asserted everywhere). Prior-milestone ROADMAP content preserved below the v0.4.0 section per GSD convention.
 - v0.3.6 Catalog Expansion roadmap created (2026-06-28): 27 phases 23–49, one tool per phase (owner's explicit always-shippable preference — each phase ends with one working, tested, installable+removable catalog entry). 4 machinery enablers folded into first-consumer phases (🔧): ENABLE-01 prebuilt-binary→Phase 28 (rtk), ENABLE-02 MCP recipe pattern→Phase 34 (chrome-devtools-mcp), ENABLE-03 Python+uv→Phase 44 (spec-kit), ENABLE-04 daemon lifecycle→Phase 47 (openclaw); plus ENABLE-05 self-updater coexistence→Phase 23 (codex) and remote-http/OAuth handling→Phase 42 (linear-mcp). 33/33 requirements mapped, 0 orphans. Phase numbering starts at 23 (NOT 18) because phases 18–22 are reserved for the parallel in-flight v0.3.5 AlmaLinux milestone on `worktree-almalinux-support` — chosen up front to avoid version + phase collision at merge.
 - Phase 50 completed (2026-07-19): reusable `qa-testing` skill self-check passed; all 23 included catalog entries and representative co-install workflows were exercised; the available-scope stop gate reached 33m12s productive activity and 10 latest clean ideas after the latest confirmed finding; blocked credential/OAuth and Docker-only systemd/QEMU boundaries remain explicit and are not treated as clean. All findings, known issues, and prerequisite boundaries are routed to the unified Phase 51 remediation phase.
 - Phase 51 added (2026-07-19): unified remediation phase for all Phase 50 integration-QA findings, including confirmed findings, known issue reproductions, and the Spec Kit `git` and Chrome runtime prerequisite boundaries requested for bug-fixing review.
@@ -369,7 +371,9 @@ None new for v0.3.5. See `.planning/todos/pending/` (carried-forward website PR-
 
 ### Blockers/Concerns
 
-None. v0.3.6 roadmap created; all 33 requirements mapped (33/33, 0 orphans); Phase 23 (codex 🔧) is ready to plan. Numbering note: phases 18–22 are RESERVED for the parallel in-flight v0.3.5 AlmaLinux milestone (worktree-almalinux-support) — do not reuse.
+None blocking. v0.4.0 Rust Rewrite roadmap created; all 23 v1 requirements mapped (23/23, 0 orphans) to phases 53–59; Phase 53 (Rust Scaffold + De-Risking Spike) is ready to plan. Numbering note: v0.4.0 phases continue the global counter from the prior milestone (v0.3.6 ended at phase 52), so they start at 53 — NOT a reset. Accepted (managed, not blocking) Rust agent-coding costs to instrument in the Phase 53 spike: worst-in-class crate-hallucination rate, slower/pricier agent loops, and cargo-timeout friction (per stack-reconsideration.md §7). The AlmaLinux 9 behavior contract (v0.3.5, merged) must be preserved on the Rust build — covered by PROV-03 + GATE-02.
+
+Historical (v0.3.6): phases 18–22 were RESERVED for the parallel in-flight v0.3.5 AlmaLinux milestone (worktree-almalinux-support) — do not reuse.
 
 ### Quick Tasks Completed
 

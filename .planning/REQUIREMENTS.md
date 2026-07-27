@@ -47,11 +47,11 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 
 ### Validation Gate (GATE)
 
-- [ ] **GATE-01**: Every phase ships behind a **green full bats suite** — no phase merges with a red or newly-skipped behavior test (validation is per-phase, first-class).
+- [ ] **GATE-01**: Every phase ships behind a **green full bats suite** — no phase merges with a red or newly-skipped behavior test (validation is per-phase, first-class). *Cross-cutting invariant — folded into every phase's success criteria; anchored (traceability) to Phase 53 where it is first established.*
 - [ ] **GATE-02**: The complete bats behavior contract passes on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) **and** the QEMU release gate.
 - [ ] **GATE-03**: Every existing requirement ID / behavior family (BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC) retains behavior or harness evidence on the Rust build (`behavior-coverage-auditor` reports zero uncovered).
 - [ ] **GATE-04**: The canonical acceptance test — agent `claude` self-update without sudo, zero EACCES — passes on the Rust build against the live Anthropic CDN.
-- [ ] **GATE-05**: `master` stays shippable throughout — the rewrite lands on a parallel track with a per-phase rollback path; a broken Rust phase never blocks a hotfix release from `master`.
+- [ ] **GATE-05**: `master` stays shippable throughout — the rewrite lands on a parallel track with a per-phase rollback path; a broken Rust phase never blocks a hotfix release from `master`. *Cross-cutting invariant — folded into every phase's success criteria; anchored (traceability) to Phase 53 where it is first established.*
 
 ## v2 Requirements
 
@@ -78,39 +78,40 @@ Deferred — acknowledged but not in this milestone's roadmap.
 
 ## Traceability
 
-Populated during roadmap creation (roadmapper maps each requirement to exactly one phase).
+Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-cutting invariants** re-asserted in *every* phase's success criteria; for coverage they are anchored to Phase 53 (where they are first established), so each requirement still maps to exactly one home phase.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RUST-01 | — | Pending |
-| RUST-02 | — | Pending |
-| RUST-03 | — | Pending |
-| TEST-01 | — | Pending |
-| TEST-02 | — | Pending |
-| TEST-03 | — | Pending |
-| TEST-04 | — | Pending |
-| CORE-01 | — | Pending |
-| CORE-02 | — | Pending |
-| CORE-03 | — | Pending |
-| VERB-01 | — | Pending |
-| VERB-02 | — | Pending |
-| VERB-03 | — | Pending |
-| PROV-01 | — | Pending |
-| PROV-02 | — | Pending |
-| PROV-03 | — | Pending |
-| DIST-01 | — | Pending |
-| DIST-02 | — | Pending |
-| GATE-01 | — | Pending |
-| GATE-02 | — | Pending |
-| GATE-03 | — | Pending |
-| GATE-04 | — | Pending |
-| GATE-05 | — | Pending |
+| RUST-01 | Phase 53 | Pending |
+| RUST-02 | Phase 53 | Pending |
+| RUST-03 | Phase 53 | Pending |
+| TEST-01 | Phase 54 | Pending |
+| TEST-02 | Phase 54 | Pending |
+| TEST-03 | Phase 54 | Pending |
+| TEST-04 | Phase 54 | Pending |
+| CORE-01 | Phase 55 | Pending |
+| CORE-02 | Phase 55 | Pending |
+| CORE-03 | Phase 55 | Pending |
+| VERB-01 | Phase 56 | Pending |
+| VERB-02 | Phase 56 | Pending |
+| VERB-03 | Phase 56 | Pending |
+| PROV-01 | Phase 57 | Pending |
+| PROV-02 | Phase 57 | Pending |
+| PROV-03 | Phase 57 | Pending |
+| DIST-01 | Phase 58 | Pending |
+| DIST-02 | Phase 58 | Pending |
+| GATE-01 | Phase 53 (cross-cutting — every phase) | Pending |
+| GATE-02 | Phase 59 | Pending |
+| GATE-03 | Phase 59 | Pending |
+| GATE-04 | Phase 59 | Pending |
+| GATE-05 | Phase 53 (cross-cutting — every phase) | Pending |
 
 **Coverage:**
 - v1 requirements: 23 total
-- Mapped to phases: 0 (roadmap pending)
-- Unmapped: 23 ⚠️ (resolved when roadmapper runs)
+- Mapped to phases: 23 (100%) ✓
+- Unmapped: 0 ✓
+- Phases: 7 (Phase 53–59); GATE-01 + GATE-05 additionally re-asserted in every phase's success criteria
 
 ---
 *Requirements defined: 2026-07-27*
-*Last updated: 2026-07-27 after initial definition (v0.4.0 Rust Rewrite)*
+*Last updated: 2026-07-27 — roadmap created; all 23 v1 requirements mapped to phases 53–59 (v0.4.0 Rust Rewrite), 0 orphans.*
