@@ -4,17 +4,17 @@ milestone: v0.4.0
 milestone_name: Rust Rewrite
 current_phase: 57
 current_phase_name: Provisioner Port + Logic Consolidation
-status: ready
-stopped_at: Phase 56 COMPLETE + verified (GOAL ACHIEVED 8/8; de-flake fix proven 25/25) — advancing to Phase 57
-last_updated: "2026-07-28T19:20:00.000Z"
+status: in_progress
+stopped_at: Completed 57-01-PLAN.md
+last_updated: "2026-07-28T20:05:03.177Z"
 last_activity: 2026-07-28
-last_activity_desc: Phase 56 complete — all 6 CLI verbs + dispatcher + env-var contract ported; verified + reviewed; test flake fixed
+last_activity_desc: "Plan 57-01 complete (Wave 0 — sysio/distro/pkg provisioner I/O foundation + AGENTLINUX_PROVISION_RUST seam + PROV-02 gate)"
 progress:
   total_phases: 7
-  completed_phases: 4
-  total_plans: 16
-  completed_plans: 16
-  percent: 57
+  completed_phases: 3
+  total_plans: 20
+  completed_plans: 14
+  percent: 45
 ---
 
 # Project State
@@ -28,7 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 ## Current Position
 
-Phase: 57 — Provisioner Port + Logic Consolidation (NOT STARTED — next up)
+Phase: 57 — Provisioner Port + Logic Consolidation (IN PROGRESS — Wave 0 done)
+
+Plan 57-01 ✅ COMPLETE (2026-07-28, Wave 0 — provisioner systems-I/O foundation + staging seam + PROV-02 gate): ported the pre-Node Bash provisioner's I/O floor to the Rust bin byte-faithfully. sysio.rs (PROV-01) — the six idempotency.sh primitives (write_file_atomic same-dir atomic rename + RAII tmpguard; ensure_line_in_file grep -Fxq; ensure_marker_block awk-strip Top/Bottom emit order + exact `# >>> {tag} begin >>>` markers via write_file_atomic(0o644); ensure_user id-gated useradd; ensure_dir create-or-reassert drift correction; visudo_validate). distro.rs (PROV-03) — Family{Debian,Rhel} + detect_distro exact-ID (ubuntu 22.04/24.04/26.04; almalinux 9|9.*; Rocky/EL8/EL10 refused) + both bats seams. pkg.rs (PROV-03) — 9 apt↔dnf verbs, each single match-family (Pattern 2, zero call-site family-if), ARGV factored into pure builders; rhel nodesource_prereqs ONLY ca-certificates (never curl, Pitfall 5); nodesource_repo_paths byte-identical to pkg.sh:144-160; nodesource_module_reset rhel-only (Pitfall 4); locale_ensure C.UTF-8-only, rhel writes /etc/locale.conf via sysio::write_file_atomic. tests/docker/run.sh — AGENTLINUX_PROVISION_RUST=1 seam runs `agentlinux provision` (root, require_root) instead of the Bash entrypoint, fail-loud on absent bin (T-57-03 no false-green), flag-unset keeps Bash authoritative (GATE-05). scripts/check-no-bash-canonical-map.sh — PROV-02 single-source gate, green from Wave 0 (one Bash def in the retained plugin/lib/reuse/agents.sh per plan-check B-1), documented teeth self-test verified live. sysio 17 + distro 14 + pkg 12 new tests; cargo test --workspace 121(core)+150(bin) pass; clippy -D warnings + fmt clean; agentlinux-core zero changes (pure core untouched); no new crates (nix 0.31.3, used std::os::unix::fs::chown since nix `fs` feature off). 3 atomic commits dc3e7aa/90c11dd/f2eadc6. Unblocks Waves 1-5.
+
 Phase 56 ✅ COMPLETE + VERIFIED (2026-07-28): all 4 plans/4 waves done — clap CLI + RecipeEnv + dispatcher (W0), guard/catalog/sentinel/cache adapters + list/pin/adopt (W1), install/remove/upgrade + probe/npm/rewire adapters (W2), full-CLI-bats parity closeout (W3). gsd-verifier: GOAL ACHIEVED 8/8 (no masked parity regression; bats specs byte-for-byte unchanged; master untouched at f14c092). Wave-0 dispatcher + Wave-1/2 verb/adapter surface reviewed (reliability+security) — all findings faithful-port MEDIUM/LOW, 2 documented, 0 blocking. One real defect found + FIXED: the cargo-test parallel-runner env-race flake → single shared poison-tolerant test ENV_LOCK, proven 25/25 green (commits f4b87b6 + d63cb62). cargo test --workspace 228 pass reliably; clippy/fmt clean; agentlinux-core pure. AL-119→ next: AL-120 Done, file Phase-57 task.
 
 Plan 56-04 (Wave 3 — parity closeout): full CLI bats surface green on the Rust build (per-file, Docker-OOM-safe). Reconciled the last staging artifact — CLI-01 interactive `command -v agentlinux` resolved `.local/bin` (RUST-03 reuse-path stage shadows the canonical symlink on the front-of-PATH `.local/bin`) instead of `.npm-global/bin`; fixed HARNESS-side by relocating the flag-gated Rust bin off-PATH (`/opt/agentlinux/rust/agentlinux`) so the canonical `.npm-global/bin/agentlinux` symlink wins. 5/6 invocation modes green (interactive/sudo_u/sudo_u_i/systemd_user/cron); ssh is the sole env-gated mode (no agent ssh key in Docker → Phase-59 QEMU). Per-file: 40-registry-cli 27/29 (2 = CLI-01 ssh); 23-install-user 9/9; 10-installer 10/11 (INST-02 pure-installer test perturbed only by the flag's post-install symlink override — GREEN 11/11 on the TS path, resolves Phase 57); 50-agents 9/12 (3 = AGT-01 ssh). Dispatcher floor re-asserted (cargo test -p agentlinux dispatcher = 9 green) after all six verbs wired dispatch_recipe — VERB-02 floor holds. cargo test --workspace 228 pass; clippy -D warnings clean; fmt clean; agentlinux-core production code pure. VERB-01/02/03 + GATE-01/GATE-05 signed off. bats specs UNCHANGED; only tests/docker/run.sh changed (no rust/ or plugin/cli/ churn — master shippable). VALIDATION.md flipped nyquist_compliant:true + wave_0_complete:true. 1 commit 1ffbe2c.
@@ -138,6 +141,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 56 P02 | 45min | 4 tasks | 11 files |
 | Phase 56 P03 | ~60min | 4 tasks | 8 files |
 | Phase 56 P04 | ~45m | 2 tasks | 2 files |
+| Phase 57 P01 | 40 | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -424,6 +428,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-28T18:51:36.707Z
-Stopped at: Completed 56-04-PLAN.md (phase closeout)
+Last session: 2026-07-28T20:05:03.156Z
+Stopped at: Completed 57-01-PLAN.md
 Resume file: None

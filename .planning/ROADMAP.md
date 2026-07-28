@@ -121,7 +121,8 @@ Plans:
   5. `master` stays shippable; the provisioner port is reversible per-phase — a broken provisioner phase never blocks a `master` hotfix (GATE-05).
 
 **Plans**: 6 plans (one per wave)
-- [ ] 57-01-PLAN.md — Wave 0: `sysio.rs` (6 idempotency primitives) + `distro.rs`/`pkg.rs` (apt↔dnf + distro detect) + the `AGENTLINUX_PROVISION_RUST=1` run.sh staging seam + the PROV-02 grep gate
+
+- [x] 57-01-PLAN.md — Wave 0: `sysio.rs` (6 idempotency primitives) + `distro.rs`/`pkg.rs` (apt↔dnf + distro detect) + the `AGENTLINUX_PROVISION_RUST=1` run.sh staging seam + the PROV-02 grep gate
 - [ ] 57-02-PLAN.md — Wave 1: the `provision` subcommand + `require_root` orchestrator + `provision/agent_user.rs` (10-agent-user: useradd + locale + DOC-02 CLAUDE.md)
 - [ ] 57-03-PLAN.md — Wave 2: `provision/sudoers.rs` (20-sudoers: visudo-gated 0440 root:root NOPASSWD drop-in)
 - [ ] 57-04-PLAN.md — Wave 3: `provision/nodejs.rs` (30-nodejs: NodeSource pre-Node bootstrap + RT-01 verify + RT-04 npm prefix + REMEDIATE-01)
