@@ -8,5 +8,6 @@
 
 pub mod classify;
 pub mod divergence;
+pub mod reuse;
 pub mod semver_shim;
 pub mod types;

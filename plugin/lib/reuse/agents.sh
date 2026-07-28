@@ -28,6 +28,13 @@ fi
 # object in plugin/cli/src/detect.ts (drift flips reuse→remediate).
 # `-g` forces global scope so the array stays visible when this library is
 # sourced from inside a function (as bats @tests do).
+#
+# Consumed EXTERNALLY: remediate.sh:288 iterates `${!REUSE_AGENT_CANONICAL_PATHS[@]}`
+# to enumerate per-agent decisions. Since the v0.4.0 Rust-rewrite spike (Phase 53)
+# moved the decision body into the Rust bin, the map is no longer read inside this
+# file — but it MUST stay for that external iterator (consolidating the
+# duplication is Phase 57). shellcheck can't see the cross-file use.
+# shellcheck disable=SC2034
 declare -gA REUSE_AGENT_CANONICAL_PATHS=(
   [claude-code]="/home/agent/.local/bin/claude"
   [gsd]="/home/agent/.npm-global/bin/gsd-core"
@@ -38,60 +45,32 @@ declare -gA REUSE_AGENT_CANONICAL_PATHS=(
 # runtime payload may remain even when its package-native binary is absent, so a
 # healthy gsd detected at this path is ALSO reuse-eligible. MUST stay byte-identical to
 # GSD_SYSTEM_PATH in plugin/cli/src/detect.ts.
+#
+# The Rust bin now owns the gsd-system-path special case (main.rs GSD_SYSTEM_PATH);
+# this constant is retained for parity/documentation alongside the map above and
+# is no longer read inside this file post-spike (Phase 57 removes the duplication).
+# shellcheck disable=SC2034
 readonly REUSE_GSD_SYSTEM_PATH="/home/agent/.claude/gsd-core/VERSION"
 
 # reuse::agent_decision <id>
 # Returns {reuse, remediate, create} per predicates 1 + 2 (predicate 3 layered
 # on by the CLI).
+#
+# v0.4.0 Rust-rewrite spike (Phase 53, RUST-03 / GATE-01): the decision body is
+# now computed by the `agentlinux` Rust binary (agentlinux-core::reuse) — the
+# same env-var-in / stdout-token-out contract, so every 13-reuse.bats @test and
+# the remediate.sh:288 call site work verbatim with ZERO bats edits. The
+# `DETECT_AGENT_<UPPER>_STATUS/_PATH` exports the caller/bats set are read by the
+# bin; this function only forwards the id. The binary is resolved via
+# `${AGENTLINUX_RUST_BIN:-agentlinux}` (absolute-path env override for tests +
+# pinned deploys; bare `agentlinux` PATH fallback otherwise).
+#
+# NB: REUSE_AGENT_CANONICAL_PATHS + REUSE_GSD_SYSTEM_PATH below are DELIBERATELY
+# retained — remediate.sh:288 iterates the map's keys to enumerate per-agent
+# decisions. Consolidating the duplication (map now lives in the Rust bin too)
+# is Phase 57, not this spike.
 reuse::agent_decision() {
   local id=${1:-}
-  if [[ -z "$id" ]]; then
-    printf 'create'
-    return 0
-  fi
-
-  # Predicate 1: status.
-  local status
-  status=$(detect::agent_status "$id")
-
-  if [[ "$status" == "absent" ]]; then
-    printf 'create'
-    return 0
-  fi
-
-  # Predicate 2: canonical path lookup. Unknown id falls through to install
-  # rather than incorrectly REUSE (future catalog ids aren't in the map).
-  local canonical=${REUSE_AGENT_CANONICAL_PATHS[$id]:-}
-  if [[ -z "$canonical" ]]; then
-    printf 'create'
-    return 0
-  fi
-
-  if [[ "$status" == "broken" ]]; then
-    printf 'remediate'
-    return 0
-  fi
-
-  # healthy — compare binary path. ${id^^//-/_} → CLAUDE_CODE etc.
-  local upper=${id^^}
-  upper=${upper//-/_}
-  local path_var="DETECT_AGENT_${upper}_PATH"
-  local detected_path=${!path_var:-}
-
-  if [[ "$detected_path" != "$canonical" ]]; then
-    # GSD's deployed-system form (npx install) lives at the VERSION file rather
-    # than the bootstrapper binary path — also a valid canonical presence, so
-    # reuse instead of treating it as a wrong-path reinstall.
-    if [[ "$id" == "gsd" && "$detected_path" == "$REUSE_GSD_SYSTEM_PATH" ]]; then
-      printf 'reuse'
-      return 0
-    fi
-    # Healthy but wrong path → reinstall at the canonical path.
-    printf 'remediate'
-    return 0
-  fi
-
-  # Healthy + path-match. The CLI re-checks version-in-window before acting.
-  printf 'reuse'
-  return 0
+  local bin=${AGENTLINUX_RUST_BIN:-agentlinux}
+  "$bin" reuse-decision "$id"
 }
