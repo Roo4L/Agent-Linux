@@ -129,6 +129,8 @@ mod tests {
             version_constraint: None,
             npm_package_name: Some("foo".to_string()),
             compatibility_window: None,
+            tags: Vec::new(),
+            source_kind: None,
         }
     }
 
@@ -288,6 +290,8 @@ mod proptests {
             version_constraint: vc,
             npm_package_name: Some("foo".to_string()),
             compatibility_window: None,
+            tags: Vec::new(),
+            source_kind: None,
         })
     }
 
