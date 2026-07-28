@@ -81,7 +81,10 @@ Plans:
   4. The ported core is exercised by the Phase 54 proptest + cargo-mutants gates (mutation score ≥ threshold on the pure core), and the **full bats suite is green** on the Rust build for the ported surface with **no newly-skipped tests** (GATE-01).
   5. `master` stays shippable throughout; the core port is reversible per-phase (GATE-05).
 
-**Plans**: TBD
+**Plans**: 3 plans
+- [ ] 55-01-PLAN.md — Extend semver_shim (valid/satisfies + golden) + types.rs (DetectedAgent/tags/source_kind/Category) — the wave-1 unblocker
+- [ ] 55-02-PLAN.md — Port category.rs + pin_spec.rs + detect_gates.rs, each with its verbatim TS golden corpus + proptests (CORE-03)
+- [ ] 55-03-PLAN.md — CORE-01/02 re-assert + fold in decide_version (5-row golden), closing the classify.test.ts corpus
 
 ### Phase 56: Registry CLI Verbs + Subprocess Dispatcher
 
