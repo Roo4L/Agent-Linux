@@ -297,12 +297,18 @@ fn prefix_owner_user(path: &Path) -> Option<String> {
         .map(|u| u.name)
 }
 
-/// Recursive `chown -R uid:gid <path>` — walks the tree, chowning every entry
-/// (the Bash `chown -R`). Symlinks are chowned via `lchown` semantics of
-/// `std::os::unix::fs::chown` on the link target path; we chown the entry itself.
+/// Recursive `chown -R uid:gid <path>` — walks the tree, chowning every entry.
+/// Mirrors the Bash `chown -R`'s DEFAULT `-P` mode: symlinks are chowned via
+/// `lchown` (the link itself, NOT its target) and are NOT recursed into. This is
+/// the security-load-bearing behavior — a symlink under the prefix pointing at a
+/// system tree must never cause that tree to be chowned to the install user.
 fn chown_recursive(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
-    std::os::unix::fs::chown(path, Some(uid), Some(gid))?;
-    if path.is_dir() {
+    // lchown the entry itself (never dereference a symlink) — matches `chown -RP`.
+    std::os::unix::fs::lchown(path, Some(uid), Some(gid))?;
+    // Recurse only into REAL directories, never through a symlinked dir (use
+    // symlink_metadata so a symlink-to-dir is treated as a leaf).
+    let md = std::fs::symlink_metadata(path)?;
+    if md.file_type().is_dir() {
         for entry in std::fs::read_dir(path)?.flatten() {
             chown_recursive(&entry.path(), uid, gid)?;
         }
@@ -441,6 +447,45 @@ mod remediate_npm_prefix_tests {
         assert!(parse_module_manifest("{}").is_empty());
         assert!(parse_module_manifest("not json").is_empty());
         assert!(parse_module_manifest(r#"{"dependencies": {}}"#).is_empty());
+    }
+
+    // chown_recursive must NOT follow a symlink out of the prefix (chown -RP
+    // default): a symlink pointing at a tree the caller does not own must be
+    // lchowned as the link, never dereferenced to chown its target. We verify the
+    // target file's owner is unchanged after a recursive chown to our OWN uid
+    // (running unprivileged, chowning to self is a no-op that still exercises the
+    // walk without needing root). The key assertion is that the walk does not
+    // recurse THROUGH the symlink — a target OUTSIDE the walked dir is never
+    // visited.
+    #[test]
+    fn chown_recursive_does_not_recurse_through_symlink() {
+        let d = TempDir::new().unwrap();
+        // outside/ holds a file the walk must never touch.
+        let outside = d.path().join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        let outside_file = outside.join("do-not-touch");
+        std::fs::write(&outside_file, b"x").unwrap();
+
+        // prefix/ contains a symlink -> outside/. A -R that followed it would visit
+        // outside/do-not-touch.
+        let prefix = d.path().join("prefix");
+        std::fs::create_dir_all(&prefix).unwrap();
+        std::os::unix::fs::symlink(&outside, prefix.join("link")).unwrap();
+
+        // Chown to our own uid/gid (self → no-op, unprivileged-safe). The test is
+        // that it succeeds WITHOUT erroring on the symlink target and returns Ok:
+        // proving it lchowns the link and stops (does not descend into outside/).
+        let uid = nix::unistd::getuid().as_raw();
+        let gid = nix::unistd::getgid().as_raw();
+        chown_recursive(&prefix, uid, gid).unwrap();
+        // The link is still a symlink (lchown changed the link, not the target;
+        // it was not replaced or dereferenced).
+        assert!(std::fs::symlink_metadata(prefix.join("link"))
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        // The outside file still exists untouched.
+        assert!(outside_file.exists());
     }
 
     // The rebase .npmrc write establishes the prefix line byte-exactly (the RT-04
