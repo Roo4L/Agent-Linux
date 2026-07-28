@@ -9,6 +9,7 @@
 pub mod category;
 pub mod classify;
 pub mod divergence;
+pub mod pin_spec;
 pub mod reuse;
 pub mod schema_gen;
 pub mod semver_shim;
