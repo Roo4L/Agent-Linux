@@ -293,15 +293,17 @@ pub fn presence_gate(
     let version = semver_shim::valid(&detected.version);
     // adoptable replicates the reuse gate's non-location gates: window present
     // (Pitfall 4 — `!!` truthiness, empty string is absent) + version in window.
+    // The nonempty window is captured once, so the `version != null &&
+    // satisfies(...)` pair mirrors detect.ts:266-273 without re-deref juggling.
+    let window = entry
+        .compatibility_window
+        .as_deref()
+        .filter(|w| !w.is_empty());
     let adoptable = canonical_at
-        && entry
-            .compatibility_window
-            .as_deref()
-            .is_some_and(|w| !w.is_empty())
-        && version.is_some()
-        && version.as_deref().is_some_and(|v| {
-            semver_shim::satisfies(v, entry.compatibility_window.as_deref().unwrap_or(""))
-        });
+        && match (version.as_deref(), window) {
+            (Some(v), Some(w)) => semver_shim::satisfies(v, w),
+            _ => false,
+        };
     Some(PresenceHit {
         version,
         path: detected.path.clone(),
