@@ -104,6 +104,11 @@ pub fn reconcile_cross_wiring_with(
         let Some(rewire) = provider.rewire_recipe_path.as_deref() else {
             continue;
         };
+        // TRUST: provider.id + rewire_recipe_path are catalog-derived; the catalog
+        // is an installer-owned, root-written artifact under /opt/agentlinux/catalog
+        // and its schema constrains recipe paths — so no local traversal guard here
+        // (faithful to install.ts). If the catalog ever becomes caller-influenced,
+        // add a `..`/absolute reject mirroring catalog.rs preserve_paths.
         let recipe_path = std::path::Path::new(catalog_dir)
             .join("agents")
             .join(&provider.id)

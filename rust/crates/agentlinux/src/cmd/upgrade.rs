@@ -310,6 +310,10 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         let recipe = recipe_path(&catalog_dir, id, &entry.install_recipe_path);
         println!("{id}: reinstalling at {version} ({source})");
         let env = build_env(entry, &version, &catalog_dir, &user);
+        // PARITY: the unattended upgrade sweep dispatches recipes UN-timed
+        // (matches upgradeCmd in TS). A hung recipe wedges the sweep; a future
+        // sweep-scoped timeout (NOT dispatcher-global — interactive install needs
+        // TTY prompts) would target these stream=false calls.
         let result = (deps.dispatch)(&user, &recipe, &env, false);
         if result.exit_code != 0 {
             eprintln!("{id}: recipe failed (exit {})", result.exit_code);
@@ -456,6 +460,11 @@ fn build_env(
 }
 
 fn recipe_path(catalog_dir: &std::path::Path, id: &str, recipe: &str) -> String {
+    // TRUST: entry.id + install_recipe_path are catalog-derived; the catalog is
+    // an installer-owned, root-written artifact under /opt/agentlinux/catalog and
+    // its schema constrains recipe paths — so no local traversal guard here
+    // (faithful to install.ts). If the catalog ever becomes caller-influenced,
+    // add a `..`/absolute reject mirroring catalog.rs preserve_paths.
     catalog_dir
         .join("agents")
         .join(id)

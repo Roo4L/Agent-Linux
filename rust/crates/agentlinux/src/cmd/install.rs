@@ -470,6 +470,11 @@ fn build_env(
 
 /// `<catalog_dir>/agents/<id>/<recipe>` — the absolute recipe path (runner.ts:179).
 fn recipe_path(catalog_dir: &std::path::Path, id: &str, recipe: &str) -> String {
+    // TRUST: entry.id + install_recipe_path are catalog-derived; the catalog is
+    // an installer-owned, root-written artifact under /opt/agentlinux/catalog and
+    // its schema constrains recipe paths — so no local traversal guard here
+    // (faithful to install.ts). If the catalog ever becomes caller-influenced,
+    // add a `..`/absolute reject mirroring catalog.rs preserve_paths.
     catalog_dir
         .join("agents")
         .join(id)
