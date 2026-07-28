@@ -70,7 +70,11 @@ jobs:
       - name: Install cargo-mutants (pinned)
         if: steps.guard.outputs.ready == 'true'
         run: cargo install --locked --version 27.1.0 cargo-mutants
+      # --in-place required: two agentlinux-core tests read sibling files under
+      # plugin/catalog/ (outside the rust/ workspace); cargo-mutants' default
+      # copy-tree isolation would abort the baseline. Same rationale as the
+      # per-PR gate in test.yml.
       - name: Full-crate mutation score (agentlinux-core)
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
-        run: cargo mutants --package agentlinux-core --minimum-test-timeout 20 || echo "::warning::surviving mutants (nightly full-crate advisory)"
+        run: cargo mutants --package agentlinux-core --minimum-test-timeout 20 --in-place || echo "::warning::surviving mutants (nightly full-crate advisory)"

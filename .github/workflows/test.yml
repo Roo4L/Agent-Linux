@@ -215,10 +215,26 @@ jobs:
       # bypass — this is the enforcing merge gate. Exclude a justified survivor with
       # #[mutants::skip] + a comment in Rust rather than loosening the gate. The
       # full-crate score runs advisory nightly (nightly-mutation.yml).
+      # --in-place is REQUIRED, not optional: two agentlinux-core tests
+      # (schema_gen::schema_is_not_drifted, semver_shim::parity::…round_trip) read
+      # sibling files at CARGO_MANIFEST_DIR/../../../plugin/catalog/*, which live
+      # OUTSIDE the rust/ workspace. cargo-mutants' default copy-tree isolation
+      # copies only rust/, so those reads fail in the temp copy and the baseline
+      # aborts ("cargo test failed in an unmutated tree"). --in-place mutates the
+      # checked-out tree directly (disposable on a CI runner; cargo-mutants restores
+      # each mutation), so the out-of-workspace catalog reads resolve. Verified
+      # locally: reuse.rs → 10 mutants, 9 caught, 1 unviable, 0 survived.
       - name: cargo-mutants gate (pure core, --in-diff)
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
-        run: cargo mutants --package agentlinux-core --minimum-test-timeout 20 --in-diff <(git diff origin/master...HEAD -- 'crates/agentlinux-core/**')
+        # --relative is REQUIRED: the step runs from working-directory: rust, but
+        # `git diff` emits repo-root-relative paths (rust/crates/…). cargo-mutants
+        # matches --in-diff paths against the WORKSPACE root (rust/), so without
+        # --relative the paths never match and the gate silently passes every PR
+        # ("No mutants to filter", exit 0) — a false-green. --relative rewrites the
+        # diff paths to crates/… so the filter matches. Verified locally: a reuse.rs
+        # diff yields 10 mutants with --relative vs 0 without.
+        run: cargo mutants --package agentlinux-core --minimum-test-timeout 20 --in-place --in-diff <(git diff --relative origin/master...HEAD -- 'crates/agentlinux-core/**')
       - name: static musl build + ldd assertion (RUST-01)
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
