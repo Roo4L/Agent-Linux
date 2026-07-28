@@ -103,7 +103,7 @@ Plans:
 **Plans**: 4 plans
 
 - [x] 56-01-PLAN.md — Wave 0 scaffold: clap CLI skeleton + `RecipeEnv` typed source + the subprocess dispatcher (6-case parity) + the flag-gated Rust-bin bats staging override
-- [ ] 56-02-PLAN.md — Wave 1 read-only/state-only verbs: `list`/`pin`/`adopt` + the catalog/sentinel/cache/guard adapters (green on 40-registry-cli)
+- [x] 56-02-PLAN.md — Wave 1 read-only/state-only verbs: `list`/`pin`/`adopt` + the catalog/sentinel/cache/guard adapters (list+adopt green on 40-registry-cli vs the staged Rust bin; pin unit-green, bats-blocked only by the Plan-03 `install` setup fixture)
 - [ ] 56-03-PLAN.md — Wave 2 mutating verbs: `install`/`remove`/`upgrade` + probe/npm/rewire adapters (real recipe dispatch; VERB-02/03 end-to-end)
 - [ ] 56-04-PLAN.md — Wave 3 closeout: full CLI bats green on the Rust build + dispatcher-floor re-assert + Phase-59-deferred gated-case record (GATE-01/05)
 
@@ -160,7 +160,7 @@ Plans:
 | 53. Rust Scaffold + De-Risking Spike | 2/2 | ✅ Complete (verdict GO) | 2026-07-28 |
 | 54. Testing Bedrock | 3/3 | ✅ Complete | 2026-07-28 |
 | 55. Pure-Logic Core Parity | 3/3 | ✅ Complete | 2026-07-28 |
-| 56. Registry CLI Verbs + Dispatcher | 0/? | Not started | - |
+| 56. Registry CLI Verbs + Dispatcher | 2/4 | In progress | 56-01 (scaffold+dispatcher), 56-02 (list/pin/adopt + adapters) |
 | 57. Provisioner Port + Logic Consolidation | 0/? | Not started | - |
 | 58. Distribution — musl Tarball as Sole Channel | 0/? | Not started | - |
 | 59. Full Validation Gate | 0/? | Not started | - |

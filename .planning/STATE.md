@@ -5,15 +5,15 @@ milestone_name: Rust Rewrite
 current_phase: 56
 current_phase_name: Registry CLI Verbs + Subprocess Dispatcher
 status: planning
-stopped_at: Completed 56-01-PLAN.md
-last_updated: "2026-07-28T17:28:28.581Z"
+stopped_at: Completed 56-02-PLAN.md
+last_updated: "2026-07-28T18:04:37.467Z"
 last_activity: 2026-07-28
-last_activity_desc: Phase 56 Plan 01 complete — CLI skeleton + RecipeEnv + dispatcher + run.sh staging
+last_activity_desc: Plan 56-02 complete — list/pin/adopt verbs + file adapters
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 13
-  completed_plans: 10
+  completed_plans: 11
   percent: 46
 ---
 
@@ -29,10 +29,10 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 ## Current Position
 
 Phase: 56 — Registry CLI Verbs + Subprocess Dispatcher
-Plan: 56-01 ✓ complete (Wave 0 scaffold + dispatcher) — 56-02/03/04 pending
-Status: In progress — clap CLI skeleton (6 verbs + install --version shadow, CLI-01 version 0.3.6), RecipeEnv single-typed-source (6 AGENTLINUX_* names, VERB-03), the subprocess dispatcher (as_user buffered+streaming, invoker==target short-circuit, thread-per-pipe tee, SIGTERM→2000ms→SIGKILL, exit-map 124/1/0/code — all 6 dispatcher-stream.test.ts parity cases + escalation green, VERB-02), and tests/docker/run.sh per-file bats + flag-gated Rust-CLI symlink override with fail-loud guard (GATE-01/GATE-05). agentlinux-core untouched (all new I/O in the bin). cargo test --workspace 147 passed; clippy -D warnings clean; static-musl bin builds, --version → agentlinux 0.3.6, reuse-decision preserved (13-reuse.bats path intact). 4 atomic commits a73795e/a3e467f/2d86c42/1ead909. Two Rule 3 tooling deviations (shfmt normalize of one pre-existing run.sh block; test-module rename for clippy::module_inception). Wave 1 (Plans 02/03) verb adapters read cli.rs structs + call dispatcher::dispatch_recipe.
+Plan: 56-01 ✓ + 56-02 ✓ complete (Wave 0 scaffold+dispatcher; Wave 1 read-only/state-only verbs) — 56-03/04 pending
+Status: In progress — Plan 56-02 landed the four bin-side file adapters (guard.rs CLI-05 invoker guard; catalog.rs FullCatalogEntry + preserve_paths traversal reject T-56-06; sentinel.rs atomic write-path shape T-56-08; cache.rs detect-cache reader deferred from Phase 55, dual .agents/.components.agents shapes) + the three no-subprocess verbs (cmd/list.rs byte-compatible padded table with the em-dash INSTALLED suffixes + --by-category `## <label>` groups + --json Row array; cmd/pin.rs state-only pin via parse_pin_spec, 64/1 exit map; cmd/adopt.rs reuse/remediate gates + the host statSync in the adapter, [ADOPT]/[MIGRATE] literals). All consume the pure agentlinux-core gates (never re-derive); dispatch NO recipe. CLI-05 guard wired once in main::dispatch before every verb (TS preAction parity) → `agentlinux list` as root exits 64. agentlinux-core untouched. cargo test --workspace 64(bin)+121(core) pass; clippy -D warnings clean; fmt --check clean. 3 atomic commits 028ecfc/aabffd5/a84a4ff. On 40-registry-cli.bats vs the staged Rust musl bin: list + adopt @tests GREEN, guard (CLI-05) GREEN; pin bats-blocked ONLY by its `install` setup fixture (Plan 03 stub) — pin verb is unit-green. install/remove/upgrade are loud Wave-2 stubs (Plan 03). CLI-01 (which-path) is a run.sh staging-mechanic detail for Plan 04. Plan 56-03 reuses these same catalog/sentinel/cache/guard adapters for install/remove/upgrade.
 Milestone: v0.4.0 Rust Rewrite — reimplement the TS registry CLI (~2,800 LOC) + Bash provisioner (~4,363 LOC) as one Rust static binary (x86_64 musl) behind the language-agnostic bats spec (ADR-002). Like-for-like: nothing observable changes for users. Order respects the natural port dependency + de-risking sequence — spike first (53), testing bedrock (54), pure-logic core (55), CLI verbs + dispatcher (56), provisioner + logic consolidation (57), distribution (58), full-matrix validation gate (59). GATE-01 (green-bats-per-phase) + GATE-05 (master stays shippable / parallel track / per-phase rollback) are cross-cutting invariants folded into every phase's success criteria (anchored to Phase 53 for coverage). Recipes stay Bash behind a generated env-var contract; the fpm .deb path is dropped (ADR-006 flagged). Decision recorded 2026-07-27 in docs/research/v0.3.0/stack-reconsideration.md (Rust over Go and a runtime-bundled-JS binary).
-Last activity: 2026-07-28 — Phase 55 complete, transitioned to Phase 56
+Last activity: 2026-07-28 — Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
 
 ## Current Position (v0.3.4 — historical)
 
@@ -131,6 +131,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Plan | Duration | Tasks | Files |
 |------|----------|-------|-------|
 | Phase 56 P01 | 12min | 4 tasks | 6 files |
+| Phase 56 P02 | 45min | 4 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -416,6 +417,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-28T17:28:28.563Z
-Stopped at: Completed 56-01-PLAN.md
+Last session: 2026-07-28T18:04:37.445Z
+Stopped at: Completed 56-02-PLAN.md
 Resume file: None

@@ -92,7 +92,7 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | CORE-01 | Phase 55 | Complete |
 | CORE-02 | Phase 55 | Complete |
 | CORE-03 | Phase 55 | Complete |
-| VERB-01 | Phase 56 | In Progress (arg surface done Plan 56-01; verb bodies Plans 56-02/03) |
+| VERB-01 | Phase 56 | In Progress (arg surface done Plan 56-01; list/pin/adopt done Plan 56-02 — list+adopt green on 40-registry-cli, pin unit-green; install/remove/upgrade Plan 56-03) |
 | VERB-02 | Phase 56 | Complete |
 | VERB-03 | Phase 56 | Complete |
 | PROV-01 | Phase 57 | Pending |
