@@ -16,6 +16,7 @@
 mod cache;
 mod catalog;
 mod cli;
+mod cmd;
 mod dispatcher;
 mod guard;
 mod recipe_env;
@@ -126,9 +127,8 @@ fn main() -> ExitCode {
 /// else `/home/agent` (mirrors `agentHome()`, detect.ts:42-44). The env read is
 /// the I/O boundary; the pure gates receive the resolved string.
 ///
-/// Consumed by the Wave-1 verb adapters (this plan's Tasks 2/3); the allow defers
-/// the "not yet wired" lint at the Task-1 commit boundary.
-#[allow(dead_code)]
+/// Consumed by the Wave-1 verb adapters (`cmd/list.rs` here; `cmd/{pin,adopt}.rs`
+/// in Task 3).
 pub(crate) fn agent_home() -> String {
     std::env::var("AGENTLINUX_AGENT_HOME").unwrap_or_else(|_| "/home/agent".to_string())
 }
@@ -164,10 +164,19 @@ fn dispatch(command: Command) -> ExitCode {
         return guard;
     }
 
-    // Wave-1 verb bodies land in this plan's Tasks 2/3 (list, then pin/adopt).
-    // Until then every verb is a loud EX_SOFTWARE(70) not-implemented stub (Wave-0
-    // convention) — a premature invocation is a clean line, not a SIGABRT.
-    let verb = verb_name(&command);
-    eprintln!("agentlinux: '{verb}' is not implemented yet (Wave 1/2)");
-    ExitCode::from(70)
+    match command {
+        Command::List(args) => cmd::list::list(&args),
+        // pin + adopt land in Task 3; install/remove/upgrade are Plan 03. Until
+        // wired, a loud EX_SOFTWARE(70) stub — a premature invocation is a clean
+        // line, not a SIGABRT.
+        Command::Adopt(_)
+        | Command::Pin(_)
+        | Command::Install(_)
+        | Command::Remove(_)
+        | Command::Upgrade(_) => {
+            let verb = verb_name(&command);
+            eprintln!("agentlinux: '{verb}' is not implemented yet (Wave 1/2)");
+            ExitCode::from(70)
+        }
+    }
 }
