@@ -78,11 +78,7 @@ pub fn probe_installed_version(entry: &FullCatalogEntry) -> Option<String> {
 #[cfg(test)]
 mod probe_tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile::tempdir;
-
-    // NPM_CONFIG_PREFIX is process-global; serialize env-mutating tests.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn entry(id: &str, source_kind: &str, npm_package_name: Option<&str>) -> FullCatalogEntry {
         let mut json = serde_json::json!({
@@ -109,7 +105,7 @@ mod probe_tests {
 
     #[test]
     fn reads_installed_version_from_package_json() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let prefix = tempdir().unwrap();
         stage_package_json(
             prefix.path(),
@@ -126,7 +122,7 @@ mod probe_tests {
 
     #[test]
     fn normalizes_a_v_prefixed_version() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let prefix = tempdir().unwrap();
         stage_package_json(prefix.path(), "gsd-core", r#"{"version":"v1.37.1"}"#);
         std::env::set_var("NPM_CONFIG_PREFIX", prefix.path());
@@ -140,7 +136,7 @@ mod probe_tests {
 
     #[test]
     fn none_when_package_json_absent() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let prefix = tempdir().unwrap();
         std::env::set_var("NPM_CONFIG_PREFIX", prefix.path());
 
@@ -160,7 +156,7 @@ mod probe_tests {
 
     #[test]
     fn none_when_version_field_missing_or_not_semver() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let prefix = tempdir().unwrap();
         // Missing version field.
         stage_package_json(prefix.path(), "nover", r#"{"name":"nover"}"#);

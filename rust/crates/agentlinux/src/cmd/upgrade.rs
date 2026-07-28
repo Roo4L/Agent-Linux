@@ -492,10 +492,7 @@ fn format_epoch_utc(secs: u64) -> String {
 #[cfg(test)]
 mod upgrade_tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile::tempdir;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn opts(
         reset_all_curated: bool,
@@ -699,7 +696,7 @@ mod upgrade_tests {
 
     #[test]
     fn reconcile_continue_on_failure_exits_zero_and_preserves_sentinel() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog_two(cat.path());
@@ -750,7 +747,7 @@ mod upgrade_tests {
 
     #[test]
     fn report_only_default_does_not_mutate() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog_two(cat.path());

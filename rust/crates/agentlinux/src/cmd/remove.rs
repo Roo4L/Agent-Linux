@@ -153,10 +153,7 @@ fn recipe_path(catalog_dir: &std::path::Path, id: &str, recipe: &str) -> String 
 mod remove_tests {
     use super::*;
     use crate::sentinel::Sentinel;
-    use std::sync::Mutex;
     use tempfile::tempdir;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn write_catalog(dir: &std::path::Path) {
         std::fs::write(
@@ -198,7 +195,7 @@ mod remove_tests {
 
     #[test]
     fn unknown_agent_is_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -219,7 +216,7 @@ mod remove_tests {
 
     #[test]
     fn not_installed_without_force_is_1() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -240,7 +237,7 @@ mod remove_tests {
 
     #[test]
     fn not_installed_with_force_is_0_noop() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -261,7 +258,7 @@ mod remove_tests {
 
     #[test]
     fn installed_remove_dispatches_and_deletes_sentinel() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -291,7 +288,7 @@ mod remove_tests {
 
     #[test]
     fn recipe_failure_propagates_and_preserves_sentinel() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());

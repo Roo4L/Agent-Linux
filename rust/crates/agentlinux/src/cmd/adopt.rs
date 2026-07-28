@@ -261,10 +261,7 @@ fn format_epoch_utc(secs: u64) -> String {
 #[cfg(test)]
 mod adopt_tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile::tempdir;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn write_catalog(dir: &std::path::Path) {
         // A claude-code entry (canonical /home/agent/.local/bin/claude) + test-dummy.
@@ -293,7 +290,7 @@ mod adopt_tests {
 
     #[test]
     fn no_name_no_all_exits_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
         std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
@@ -306,7 +303,7 @@ mod adopt_tests {
 
     #[test]
     fn unknown_agent_exits_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
         std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
@@ -319,7 +316,7 @@ mod adopt_tests {
 
     #[test]
     fn test_only_without_include_test_exits_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
         std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
@@ -332,7 +329,7 @@ mod adopt_tests {
 
     #[test]
     fn greenfield_all_is_a_noop_exit_0() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -349,7 +346,7 @@ mod adopt_tests {
 
     #[test]
     fn adopts_present_in_window_agent_as_reused_sentinel() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         let bindir = tempdir().unwrap();

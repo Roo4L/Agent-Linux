@@ -166,11 +166,6 @@ pub fn full_child_env(
 #[cfg(test)]
 mod recipe_env_tests {
     use super::*;
-    use std::sync::Mutex;
-
-    // resolve_install_user reads a PROCESS-GLOBAL env var; serialize the tests
-    // that mutate it so they don't race under cargo's parallel test threads.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn sample() -> RecipeEnv {
         RecipeEnv {
@@ -227,7 +222,7 @@ mod recipe_env_tests {
 
     #[test]
     fn resolve_user_from_valid_env_override() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         std::env::set_var("AGENTLINUX_USER", "claude");
         assert_eq!(resolve_install_user(), "claude");
         std::env::remove_var("AGENTLINUX_USER");
@@ -235,7 +230,7 @@ mod recipe_env_tests {
 
     #[test]
     fn resolve_user_malformed_env_falls_back_to_agent() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         std::env::set_var("AGENTLINUX_USER", "Bad User!");
         assert_eq!(resolve_install_user(), "agent");
         std::env::remove_var("AGENTLINUX_USER");
@@ -243,7 +238,7 @@ mod recipe_env_tests {
 
     #[test]
     fn resolve_user_absent_everywhere_is_agent() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         std::env::remove_var("AGENTLINUX_USER");
         // On this dev host /etc/agentlinux.env is absent → default `agent`.
         // (If a host DID have the file, the env override being unset means the

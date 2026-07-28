@@ -176,3 +176,17 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Upgrade(args) => cmd::upgrade::upgrade(&args),
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::sync::{Mutex, MutexGuard};
+    /// Single process-wide lock serializing every test that mutates the
+    /// global AGENTLINUX_* env vars. A per-module lock cannot serialize
+    /// cross-module tests (they share one process), causing env races.
+    /// Poison-tolerant: a panic in one env test must not cascade-poison
+    /// the lock for the rest.
+    pub static ENV_LOCK: Mutex<()> = Mutex::new(());
+    pub fn env_guard() -> MutexGuard<'static, ()> {
+        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}

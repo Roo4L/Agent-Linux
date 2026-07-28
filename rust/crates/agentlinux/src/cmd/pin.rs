@@ -166,11 +166,7 @@ fn pin_not_installed(entry: &FullCatalogEntry) -> ExitCode {
 mod pin_tests {
     use super::*;
     use crate::sentinel::Sentinel;
-    use std::sync::Mutex;
     use tempfile::tempdir;
-
-    // pin drives process-global env seams (STATE_DIR + CATALOG_DIR); serialize.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn write_catalog(dir: &std::path::Path) {
         std::fs::write(
@@ -195,7 +191,7 @@ mod pin_tests {
 
     #[test]
     fn latest_then_curated_round_trip_mutates_sentinel_only() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -234,7 +230,7 @@ mod pin_tests {
 
     #[test]
     fn unknown_agent_exits_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
         std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
@@ -244,7 +240,7 @@ mod pin_tests {
 
     #[test]
     fn not_installed_exits_1() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());

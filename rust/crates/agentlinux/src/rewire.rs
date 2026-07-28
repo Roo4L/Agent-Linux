@@ -138,10 +138,7 @@ mod rewire_tests {
     use super::*;
     use crate::sentinel::Sentinel;
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::Mutex;
     use tempfile::tempdir;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn provider(id: &str, rewire: Option<&str>) -> FullCatalogEntry {
         let mut json = serde_json::json!({
@@ -183,7 +180,7 @@ mod rewire_tests {
     // provider's (rtk) rewire recipe exactly once, excluding the agent itself.
     #[test]
     fn rewires_installed_providers_into_new_agent() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let state = tempdir().unwrap();
         std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
 
@@ -219,7 +216,7 @@ mod rewire_tests {
     // A provider that is NOT installed (no sentinel) is skipped.
     #[test]
     fn skips_uninstalled_providers() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let state = tempdir().unwrap();
         std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
         // Only claude-code installed; rtk is in the catalog but has no sentinel.
@@ -242,7 +239,7 @@ mod rewire_tests {
     // A non-zero rewire exit does NOT panic or propagate — best-effort.
     #[test]
     fn failed_rewire_is_best_effort_no_panic() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let state = tempdir().unwrap();
         std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
         sentinel::write_sentinel(&Sentinel::new(

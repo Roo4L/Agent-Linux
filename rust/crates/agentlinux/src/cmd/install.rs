@@ -543,10 +543,7 @@ fn format_epoch_utc(secs: u64) -> String {
 #[cfg(test)]
 mod install_tests {
     use super::*;
-    use std::sync::Mutex;
     use tempfile::tempdir;
-
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     fn write_catalog(dir: &std::path::Path) {
         std::fs::write(
@@ -614,7 +611,7 @@ mod install_tests {
 
     #[test]
     fn dry_run_and_yes_is_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -632,7 +629,7 @@ mod install_tests {
 
     #[test]
     fn unknown_agent_is_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -650,7 +647,7 @@ mod install_tests {
 
     #[test]
     fn test_only_without_include_test_is_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -668,7 +665,7 @@ mod install_tests {
 
     #[test]
     fn bad_version_semver_is_64() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -695,7 +692,7 @@ mod install_tests {
 
     #[test]
     fn create_path_writes_curated_sentinel() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -717,7 +714,7 @@ mod install_tests {
 
     #[test]
     fn version_override_records_source_override() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -740,7 +737,7 @@ mod install_tests {
 
     #[test]
     fn idempotent_second_install_is_noop() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -767,7 +764,7 @@ mod install_tests {
 
     #[test]
     fn recipe_failure_propagates_exit_code() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
@@ -789,7 +786,7 @@ mod install_tests {
 
     #[test]
     fn dry_run_creates_no_sentinel_and_does_not_dispatch() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());

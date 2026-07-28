@@ -112,9 +112,6 @@ mod cache_tests {
     use std::sync::Mutex;
     use tempfile::tempdir;
 
-    // AGENTLINUX_DETECT_CACHE is process-global; serialize env-mutating tests.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
-
     fn with_cache(body: &str) -> (Mutex<()>, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let path = dir.path().join("detect.json");
@@ -125,7 +122,7 @@ mod cache_tests {
 
     #[test]
     fn parses_top_level_agents_shape() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let (_h, _dir) = with_cache(
             r#"{"agents":[{"id":"rtk","status":"healthy","path":"/home/agent/.local/bin/rtk","version":"0.42.4"}]}"#,
         );
@@ -137,7 +134,7 @@ mod cache_tests {
 
     #[test]
     fn parses_components_agents_wrapped_shape() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         // This is the exact shape the bats tests write (40-registry-cli.bats:180).
         let (_h, _dir) = with_cache(
             r#"{"components":{"agents":[{"id":"gsd","status":"healthy","path":"/home/agent/.claude/gsd-core/VERSION","version":"1.37.1"}]}}"#,
@@ -150,7 +147,7 @@ mod cache_tests {
 
     #[test]
     fn detect_cache_path_honors_env_override() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         std::env::set_var("AGENTLINUX_DETECT_CACHE", "/tmp/custom-detect.json");
         assert_eq!(
             detect_cache_path(),
@@ -163,7 +160,7 @@ mod cache_tests {
 
     #[test]
     fn null_on_absent_cache() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect-xyz.json");
         assert!(read_cache_agents().is_none());
         assert!(read_cached_agent_by_id("gsd").is_none());
@@ -172,7 +169,7 @@ mod cache_tests {
 
     #[test]
     fn null_on_unparseable_cache() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let (_h, _dir) = with_cache("{not valid json");
         assert!(read_cache_agents().is_none());
         std::env::remove_var("AGENTLINUX_DETECT_CACHE");
@@ -180,7 +177,7 @@ mod cache_tests {
 
     #[test]
     fn read_detected_agent_is_canonical_gated() {
-        let _g = ENV_LOCK.lock().unwrap();
+        let _g = crate::test_support::env_guard();
         let (_h, _dir) = with_cache(
             r#"{"agents":[{"id":"gsd","status":"healthy","path":"/home/agent/.npm-global/bin/gsd-core","version":"1.7.0"}]}"#,
         );
