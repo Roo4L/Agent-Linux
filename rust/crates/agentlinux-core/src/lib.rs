@@ -8,6 +8,7 @@
 
 pub mod category;
 pub mod classify;
+pub mod detect_gates;
 pub mod divergence;
 pub mod pin_spec;
 pub mod reuse;
