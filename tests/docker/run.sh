@@ -46,6 +46,17 @@ Environment:
                                       GATE-01/GATE-05 parallel track). When set
                                       but the Rust bin failed to build/stage, the
                                       run ABORTS (never false-green on TS).
+  AGENTLINUX_PROVISION_RUST=1         Run the staged Rust musl bin's `provision`
+                                      subcommand (as ROOT) AS the provisioner
+                                      instead of the Bash `agentlinux-install`
+                                      entrypoint, then run bats against the state
+                                      it produced (Phase 57 GATE-01/GATE-05). When
+                                      set but the Rust bin failed to build/stage
+                                      (or lacks the `provision` verb), the run
+                                      ABORTS non-zero — it NEVER silently falls
+                                      back to the Bash provisioner and reports a
+                                      false-green Rust pass. Flag-unset keeps the
+                                      Bash entrypoint authoritative on master.
 
 Exit codes:
   0   installer + bats both green
@@ -234,8 +245,64 @@ docker exec "$CID" bash -c '
   cp /opt/cli-prebuilt/package.json /opt/agentlinux-src/plugin/cli/package.json
 '
 
-echo "== run installer (agentlinux-install) =="
-docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install
+HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
+RUST_PROVISION_BIN_IN_CONTAINER=/usr/local/lib/agentlinux/provision/agentlinux
+
+# host_build_musl — ensure the static-musl `agentlinux` bin exists on the host
+# (build it if absent). Shared by the Phase-57 provisioner seam below and the
+# Phase-53 RUST-03 reuse staging further down. Non-fatal by itself: callers that
+# REQUIRE the bin (the provisioner seam) assert `-x $HOST_MUSL_BIN` afterward and
+# fail loud; callers that treat it as optional (the reuse staging) fall back.
+host_build_musl() {
+  [[ -x $HOST_MUSL_BIN ]] && return 0
+  echo "-- prebuilt musl binary absent; building on host --"
+  if command -v cargo >/dev/null 2>&1 || [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1091  # optional, path checked
+    [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+    (cd "$REPO_ROOT/rust" \
+      && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux) \
+      || echo "-- WARN: host musl build failed --"
+  else
+    echo "-- WARN: cargo unavailable --"
+  fi
+}
+
+# Phase 57 (PROV-01 / GATE-01 / GATE-05): flag-gated Rust-PROVISIONER seam. When
+# AGENTLINUX_PROVISION_RUST=1, run the staged Rust musl bin's `provision`
+# subcommand AS the provisioner (as ROOT — the container exec is root by default;
+# the Rust `provision` uses require_root, NOT the CLI-05 guard_agent_user) instead
+# of the Bash `agentlinux-install` entrypoint, then bats runs against the state it
+# produced.
+#
+# Fail-loud (no false-green / T-57-03): if the seam is REQUESTED but the Rust musl
+# bin cannot be built/staged, ABORT non-zero rather than silently running bats
+# against the Bash provisioner and reporting a false-green "Rust pass". Flag-unset
+# preserves TODAY's Bash `agentlinux-install` invocation verbatim (the Bash
+# entrypoint stays authoritative on master — GATE-05 rollback).
+if [[ -n ${AGENTLINUX_PROVISION_RUST:-} ]]; then
+  echo "== run Rust provisioner (agentlinux provision) [AGENTLINUX_PROVISION_RUST] =="
+  host_build_musl
+  if [[ ! -x $HOST_MUSL_BIN ]]; then
+    echo "ERROR: Rust provisioner staging requested (AGENTLINUX_PROVISION_RUST=1) but the musl bin is absent — refusing to fall back to the Bash provisioner and report false-green" >&2
+    exit 1
+  fi
+  # Stage the provisioner bin at a ROOT-owned path (it runs as root via
+  # require_root — NOT the agent-owned reuse path). Kept distinct from the
+  # RUST-03 reuse staging so the two seams never collide.
+  docker exec "$CID" install -d /usr/local/lib/agentlinux/provision
+  docker cp "$HOST_MUSL_BIN" "$CID:$RUST_PROVISION_BIN_IN_CONTAINER"
+  docker exec "$CID" chmod +x "$RUST_PROVISION_BIN_IN_CONTAINER"
+  # Invoke the `provision` verb as ROOT. The install user defaults to `agent`
+  # (the AGENTLINUX_USER contract resolve_install_user() honors); pass it
+  # explicitly for parity with the Bash entrypoint's target. The exact flag
+  # surface lands in Wave 5; a missing/unknown subcommand exits non-zero here, so
+  # the seam FAILS LOUD end-to-end until the entrypoint exists (never a
+  # silent false-green).
+  docker exec "$CID" "$RUST_PROVISION_BIN_IN_CONTAINER" provision --user agent --yes
+else
+  echo "== run installer (agentlinux-install) =="
+  docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install
+fi
 
 # Phase 53 (RUST-03 / GATE-01): stage the static-musl `agentlinux` Rust binary
 # into the container at an AGENT-OWNED path (NOT a /usr/local shim — that's the
@@ -250,19 +317,9 @@ docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install
 RUST_BIN_IN_CONTAINER=/home/agent/.local/bin/agentlinux
 RUST_BIN_STAGED=""
 echo "== stage Rust agentlinux binary (RUST-03 / GATE-01) =="
-HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
-if [[ ! -x $HOST_MUSL_BIN ]]; then
-  echo "-- prebuilt musl binary absent; building on host --"
-  if command -v cargo >/dev/null 2>&1 || [[ -f "$HOME/.cargo/env" ]]; then
-    # shellcheck disable=SC1091  # optional, path checked
-    [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
-    (cd "$REPO_ROOT/rust" \
-      && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux) \
-      || echo "-- WARN: host musl build failed; bats will use the bash fallback --"
-  else
-    echo "-- WARN: cargo unavailable; bats will use the bash fallback --"
-  fi
-fi
+# host_build_musl (defined above) is non-fatal here — a build failure just means
+# the bats suite runs the bash fallback, exactly as master did.
+host_build_musl
 if [[ -x $HOST_MUSL_BIN ]]; then
   docker exec "$CID" install -d -o agent -g agent /home/agent/.local/bin
   docker cp "$HOST_MUSL_BIN" "$CID:$RUST_BIN_IN_CONTAINER"
