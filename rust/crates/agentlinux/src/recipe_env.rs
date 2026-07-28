@@ -36,6 +36,18 @@ const AGENTLINUX_ENV_FILE: &str = "/etc/agentlinux.env";
 
 /// The typed recipe env — the SIX `AGENTLINUX_*` values the dispatcher injects.
 /// String-typed to match the process-env contract (all values are strings).
+///
+/// SECURITY (M1) — trust boundary: these values cross into the recipe child as
+/// ENVIRONMENT values (not argv, not shell text), so none can inject inside the
+/// dispatcher. But the ~25 Bash recipes `cd`/`source`/write to `catalog_dir`,
+/// `agent_home`, and `install_log`. That is safe ONLY because those fields are
+/// resolved upstream from trusted sources — `catalog_dir` from the catalog
+/// loader, `install_log` a hard-coded constant (`/var/log/agentlinux-install.log`,
+/// runner.ts:110), `agent_home` from the resolved install user — NOT from the raw
+/// CLI `<name>`/`<spec>`. When the Wave-1/2 verb adapters wire real callers, keep
+/// `install_log` a constant and do NOT let any of these become caller-supplied
+/// without the loader's path constraint, or a path-traversal/arbitrary-write
+/// reaches a recipe running under `sudo -u` (root-equivalent per ADR-012).
 #[derive(Debug, Clone)]
 pub struct RecipeEnv {
     pub pinned_version: String,
@@ -139,7 +151,10 @@ pub fn full_child_env(
     // Explicit canonical PATH + locale + npm prefix (Pitfall 3).
     env.push(("PATH".to_string(), canonical_path(&home)));
     env.push(("HOME".to_string(), home.clone()));
-    env.push(("NPM_CONFIG_PREFIX".to_string(), format!("{home}/.npm-global")));
+    env.push((
+        "NPM_CONFIG_PREFIX".to_string(),
+        format!("{home}/.npm-global"),
+    ));
     env.push(("LANG".to_string(), "C.UTF-8".to_string()));
     env.push(("LC_ALL".to_string(), "C.UTF-8".to_string()));
     // extraEnv appended last so it overrides base keys (dispatcher/consumer
@@ -175,13 +190,22 @@ mod recipe_env_tests {
         assert_eq!(pairs[0], ("AGENTLINUX_PINNED_VERSION", "2.1.7".to_string()));
         assert_eq!(
             pairs[1],
-            ("AGENTLINUX_CATALOG_DIR", "/opt/agentlinux/catalog/0.3.0".to_string())
+            (
+                "AGENTLINUX_CATALOG_DIR",
+                "/opt/agentlinux/catalog/0.3.0".to_string()
+            )
         );
-        assert_eq!(pairs[2], ("AGENTLINUX_AGENT_HOME", "/home/agent".to_string()));
+        assert_eq!(
+            pairs[2],
+            ("AGENTLINUX_AGENT_HOME", "/home/agent".to_string())
+        );
         assert_eq!(pairs[3], ("AGENTLINUX_SOURCE_KIND", "npm".to_string()));
         assert_eq!(
             pairs[4],
-            ("AGENTLINUX_INSTALL_LOG", "/var/log/agentlinux-install.log".to_string())
+            (
+                "AGENTLINUX_INSTALL_LOG",
+                "/var/log/agentlinux-install.log".to_string()
+            )
         );
         assert_eq!(pairs[5], ("AGENTLINUX_PRESERVE_PATHS", String::new()));
     }
@@ -271,14 +295,20 @@ mod recipe_env_tests {
         );
         // Helper: last value wins (mirrors the TS spread dedup).
         let get = |k: &str| -> Option<String> {
-            env.iter().rev().find(|(key, _)| key == k).map(|(_, v)| v.clone())
+            env.iter()
+                .rev()
+                .find(|(key, _)| key == k)
+                .map(|(_, v)| v.clone())
         };
         assert_eq!(
             get("PATH").as_deref(),
             Some("/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin")
         );
         assert_eq!(get("HOME").as_deref(), Some("/home/agent"));
-        assert_eq!(get("NPM_CONFIG_PREFIX").as_deref(), Some("/home/agent/.npm-global"));
+        assert_eq!(
+            get("NPM_CONFIG_PREFIX").as_deref(),
+            Some("/home/agent/.npm-global")
+        );
         assert_eq!(get("LC_ALL").as_deref(), Some("C.UTF-8"));
         assert_eq!(get("CUSTOM_VAR").as_deref(), Some("hello"));
         // extraEnv LANG overrides the base C.UTF-8.

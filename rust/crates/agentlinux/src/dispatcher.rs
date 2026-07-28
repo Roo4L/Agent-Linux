@@ -16,9 +16,20 @@
 //!   AND accumulates it, so the returned strings match the buffered contract.
 //! - **timeout escalation SIGTERM→(2000ms)→SIGKILL** (Pitfall 1): `Child::kill()`
 //!   is SIGKILL-only; we use `nix::sys::signal::kill` to send SIGTERM first, wait
-//!   a 2000ms grace, then SIGKILL if still alive — mapping the exit to 124 (GNU
-//!   `timeout` convention). Both the streaming AND buffered paths honor a timeout
-//!   (Open Q2: npm probes run buffered with timeout 30_000).
+//!   a 2000ms grace, then SIGKILL if still alive. Both paths honor a timeout
+//!   (Open Q2: npm probes run buffered with timeout 30_000), but their exit codes
+//!   differ FOR PARITY: the STREAMING path maps a timeout to 124 (GNU `timeout`
+//!   convention, dispatcher.ts:167), while the BUFFERED path maps it to 1 — the TS
+//!   buffered `execFile` timeout reports `code: null` which collapses to 1
+//!   (dispatcher.ts:100). No consumer branches on 124 vs 1 today; the split keeps
+//!   strict like-for-like.
+//!
+//! NOTE (security, M2): the CLI-05 EUID guard (`guardAgentUser`, `guard/user.ts`)
+//! — which refuses to run unless the invoker IS the configured install user, and
+//! is *why* `as_user` almost always hits the invoker==target short-circuit — has
+//! no Rust home yet. The Wave-1/2 verb layer (Plans 02/03) MUST port it before
+//! wiring these dispatch entry points into a real `main`, or the CLI silently
+//! loses the invoker check that bounds who can trigger a `sudo -u` recipe run.
 //!
 //! `dead_code` is allowed at module scope for this Wave-0 scaffold: the
 //! verb-layer entry points (`dispatch_recipe`, `dispatch_recipe_with_env`) are
@@ -39,6 +50,16 @@ use wait_timeout::ChildExt;
 
 /// The grace period between SIGTERM and the SIGKILL escalation (dispatcher.ts:139).
 const KILL_GRACE: Duration = Duration::from_millis(2000);
+
+/// Cap on captured child output, mirroring the TS `maxBuffer: 10 * 1024 * 1024`
+/// (dispatcher.ts:86). Without it a runaway recipe (a looping installer, npm
+/// debug spew, a recipe catting a large file) grows the parent heap until the
+/// OOM killer reaps the CLI — the buffered `npm ls -g --json` probe on the
+/// unattended `upgrade` path is the most exposed. Past the cap we stop growing
+/// the captured `String` (the live tee still forwards every byte, so the console
+/// is unaffected) and keep draining the pipe to EOF so a full pipe can't
+/// deadlock the child.
+const MAX_CAPTURE: usize = 10 * 1024 * 1024;
 
 /// The result shape mirroring `AsUserResult` — never an `Err`/panic on a
 /// non-zero child exit (Pitfall 5).
@@ -163,10 +184,18 @@ fn buffered(
         Some(ms) => match child.wait_timeout(Duration::from_millis(ms)) {
             Ok(Some(status)) => (status_to_code(status), false),
             Ok(None) => {
-                // Expired → escalate SIGTERM→grace→SIGKILL, map to 124.
+                // Expired → escalate SIGTERM→grace→SIGKILL. The BUFFERED path maps
+                // a timeout to exit_code 1 for strict parity: the TS buffered
+                // `execFile` timeout kills with SIGTERM and reports `code: null`,
+                // which `dispatcher.ts:100` collapses to 1 (only the STREAMING path
+                // returns 124). Log the timed-out command for the unattended path.
+                eprintln!(
+                    "agentlinux: recipe `{}` timed out after {}ms; sent SIGTERM…SIGKILL",
+                    cmd, ms
+                );
                 escalate_kill(&mut child);
                 let _ = child.wait();
-                (124, true)
+                (1, true)
             }
             Err(_) => {
                 let _ = child.kill();
@@ -179,7 +208,7 @@ fn buffered(
             Err(_) => (1, false),
         },
     };
-    let _ = timed_out; // exit_code already carries the 124 signal.
+    let _ = timed_out; // buffered timeout already collapses to exit_code 1.
 
     let stdout = out_rx.recv().unwrap_or_default();
     let stderr = err_rx.recv().unwrap_or_default();
@@ -223,6 +252,13 @@ fn stream_tee(
     // Timeout watchdog by polling try_wait so we can escalate SIGTERM→SIGKILL
     // even against a child that ignores SIGTERM (VALIDATION escalation case).
     let (exit_code, timed_out) = wait_with_timeout(&mut child, timeout_ms);
+    if timed_out {
+        eprintln!(
+            "agentlinux: recipe `{}` timed out after {}ms; sent SIGTERM…SIGKILL",
+            cmd,
+            timeout_ms.unwrap_or(0)
+        );
+    }
 
     let stdout = out_rx.recv().unwrap_or_default();
     let stderr = err_rx.recv().unwrap_or_default();
@@ -238,10 +274,7 @@ fn stream_tee(
 
 /// Poll `try_wait` until the child exits or `timeout_ms` elapses; on expiry
 /// escalate SIGTERM→(2000ms)→SIGKILL. Returns `(exit_code, timed_out)`.
-fn wait_with_timeout(
-    child: &mut std::process::Child,
-    timeout_ms: Option<u64>,
-) -> (i32, bool) {
+fn wait_with_timeout(child: &mut std::process::Child, timeout_ms: Option<u64>) -> (i32, bool) {
     match timeout_ms {
         None => match child.wait() {
             Ok(status) => (status_to_code(status), false),
@@ -270,6 +303,14 @@ fn wait_with_timeout(
 
 /// SIGTERM, wait up to KILL_GRACE for the child to die, then SIGKILL if it
 /// hasn't (Pitfall 1 — `nix::kill`, not std `Child::kill` which is SIGKILL-only).
+///
+/// Known parity behavior (matches dispatcher.ts `child.kill`): this signals only
+/// the DIRECT child PID (`bash <recipe>` or `sudo`), not its process group. A
+/// recipe's own grandchildren (npm/apt/git) are NOT torn down and reparent to
+/// init on timeout — a faithful port of the TS weakness, not a regression. A
+/// deliberate improvement (spawn in a new process group + signal the negated
+/// PGID to reap the whole subtree) is deferred to keep this like-for-like; if a
+/// future release wants a timeout to fully "stop the work," that's the change.
 fn escalate_kill(child: &mut std::process::Child) {
     let pid = Pid::from_raw(child.id() as i32);
     let _ = kill(pid, Signal::SIGTERM);
@@ -311,8 +352,14 @@ fn spawn_tee_reader<R: Read + Send + 'static>(
                 match r.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        let chunk = String::from_utf8_lossy(&buf[..n]);
-                        acc.push_str(&chunk);
+                        // Cap the captured string (MAX_CAPTURE) so a runaway child
+                        // can't OOM the parent; keep teeing + draining regardless.
+                        // The guard bounds growth to ≤ one extra chunk past the cap
+                        // (no mid-char `truncate`, which would panic).
+                        if acc.len() < MAX_CAPTURE {
+                            let chunk = String::from_utf8_lossy(&buf[..n]);
+                            acc.push_str(&chunk);
+                        }
                         // Live tee to the parent stream.
                         use std::io::Write;
                         match sink {
@@ -341,7 +388,20 @@ fn spawn_reader<R: Read + Send + 'static>(pipe: Option<R>) -> mpsc::Receiver<Str
     std::thread::spawn(move || {
         let mut acc = String::new();
         if let Some(mut r) = pipe {
-            let _ = r.read_to_string(&mut acc);
+            // Read to EOF (drain the pipe so the child can't deadlock) but stop
+            // GROWING the capture past MAX_CAPTURE — `read_to_string` is unbounded
+            // and would let a chatty child OOM the parent (npm ls JSON probe).
+            let mut buf = [0u8; 8192];
+            loop {
+                match r.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        if acc.len() < MAX_CAPTURE {
+                            acc.push_str(&String::from_utf8_lossy(&buf[..n]));
+                        }
+                    }
+                }
+            }
         }
         let _ = tx.send(acc);
     });
@@ -414,7 +474,13 @@ mod dispatcher_tests {
     // Case 2 (:64): stream propagates a non-zero exit without panicking.
     #[test]
     fn stream_non_zero_exit_no_panic() {
-        let r = as_user(&self_user(), &argv(&["bash", "-c", "echo hi; exit 7"]), &[], true, None);
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", "echo hi; exit 7"]),
+            &[],
+            true,
+            None,
+        );
         assert_eq!(r.exit_code, 7);
         assert!(r.streamed);
         assert!(r.stdout.contains("hi"));
@@ -423,7 +489,13 @@ mod dispatcher_tests {
     // Case 3 (:77): buffered captures output; streamed stays false.
     #[test]
     fn buffered_captures_streamed_false() {
-        let r = as_user(&self_user(), &argv(&["bash", "-c", "echo buffered"]), &[], false, None);
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", "echo buffered"]),
+            &[],
+            false,
+            None,
+        );
         assert_eq!(r.exit_code, 0);
         assert!(r.stdout.contains("buffered"));
         assert!(!r.streamed, "buffered path must not claim streamed");
@@ -497,9 +569,11 @@ mod dispatcher_tests {
     }
 
     // Buffered path ALSO honors a timeout (Open Q2: npm probes run buffered
-    // with timeout 30_000). A hung buffered child escalates to 124 too.
+    // with timeout 30_000), but maps it to exit_code 1 — strict parity with the
+    // TS buffered `execFile`, whose SIGTERM-kill reports `code: null` → 1
+    // (dispatcher.ts:100). Only the STREAMING path returns 124.
     #[test]
-    fn buffered_timeout_maps_to_124() {
+    fn buffered_timeout_maps_to_1() {
         let r = as_user(
             &self_user(),
             &argv(&["bash", "-c", "sleep 5"]),
@@ -507,7 +581,10 @@ mod dispatcher_tests {
             false,
             Some(300),
         );
-        assert_eq!(r.exit_code, 124, "buffered timeout also maps to 124");
+        assert_eq!(
+            r.exit_code, 1,
+            "buffered timeout maps to 1 (TS execFile parity)"
+        );
         assert!(!r.streamed);
     }
 
@@ -517,8 +594,11 @@ mod dispatcher_tests {
         // A recipe that just echoes proves the argv shape + env passthrough.
         let dir = std::env::temp_dir();
         let path = dir.join(format!("al-56-recipe-{}.sh", std::process::id()));
-        std::fs::write(&path, "#!/usr/bin/env bash\necho recipe-ran: $AGENTLINUX_SOURCE_KIND\n")
-            .unwrap();
+        std::fs::write(
+            &path,
+            "#!/usr/bin/env bash\necho recipe-ran: $AGENTLINUX_SOURCE_KIND\n",
+        )
+        .unwrap();
         let r = dispatch_recipe(
             &self_user(),
             path.to_str().unwrap(),
@@ -527,6 +607,10 @@ mod dispatcher_tests {
         );
         let _ = std::fs::remove_file(&path);
         assert_eq!(r.exit_code, 0);
-        assert!(r.stdout.contains("recipe-ran: npm"), "stdout={:?}", r.stdout);
+        assert!(
+            r.stdout.contains("recipe-ran: npm"),
+            "stdout={:?}",
+            r.stdout
+        );
     }
 }
