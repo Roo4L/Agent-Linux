@@ -19,7 +19,7 @@
 
 Execution is strictly sequential (53 → 59); the order respects the natural port dependency + de-risking sequence (spike first, testing bedrock next, then pure core → verbs → provisioner → distribution → full-matrix validation gate).
 
-- [ ] **Phase 53: Rust Scaffold + De-Risking Spike** - Stand up the cargo workspace + musl target + CI; port classify + divergence + one gnarly provisioner unit behind the existing bats tests; instrument agent-loop metrics. Establishes the GATE-01 / GATE-05 invariants.
+- [x] **Phase 53: Rust Scaffold + De-Risking Spike** - Stand up the cargo workspace + musl target + CI; port classify + divergence + one gnarly provisioner unit behind the existing bats tests; instrument agent-loop metrics. Establishes the GATE-01 / GATE-05 invariants. (completed 2026-07-28)
 - [ ] **Phase 54: Testing Bedrock** - proptest (property) + cargo-mutants (mutation gate on the pure core) + schemars schema-gen (kills catalog schema drift) + the node-semver → Rust `semver` parity audit — so the rigor exists before the bulk port.
 - [ ] **Phase 55: Pure-Logic Core Parity** - Port classify/decide, computeDivergence + resolveLatestFor, detect gates, pin-spec parsing, and category derivation to Rust with verdicts identical to TS across a golden corpus.
 - [ ] **Phase 56: Registry CLI Verbs + Subprocess Dispatcher** - Port list/install/remove/upgrade/pin/adopt + the sudo-u/streaming-tee/timeout/SIGTERM→SIGKILL dispatcher + the generated env-var recipe contract; CLI-* bats green.
@@ -144,7 +144,7 @@ Plans:
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 53. Rust Scaffold + De-Risking Spike | 0/2 | Not started | - |
+| 53. Rust Scaffold + De-Risking Spike | 2/2 | ✅ Complete (verdict GO) | 2026-07-28 |
 | 54. Testing Bedrock | 0/? | Not started | - |
 | 55. Pure-Logic Core Parity | 0/? | Not started | - |
 | 56. Registry CLI Verbs + Dispatcher | 0/? | Not started | - |
