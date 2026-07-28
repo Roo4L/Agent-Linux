@@ -21,3 +21,11 @@ agentlinux-core = { path = "../agentlinux-core" }
 # clap 4.6 (derive) — the Commander → clap arg-parse port (VERB-01). Package
 # Legitimacy Gate: verdict OK (source-backed, high-download, no postinstall).
 clap = { version = "4.6", features = ["derive"] }
+# nix 0.31 (signal + process) — SIGTERM-then-SIGKILL escalation the std
+# Child::kill() (SIGKILL-only, Pitfall 1) cannot express, plus getuid/User for
+# the invoker==target short-circuit. Package Legitimacy Gate: verdict OK.
+nix = { version = "0.31", features = ["signal", "process", "user"] }
+# wait-timeout 0.2 — bound the BUFFERED path's wait (Open Q2: npm ls/view run
+# with timeout 30_000), so a hung probe escalates like the streaming path.
+# Package Legitimacy Gate: verdict OK.
+wait-timeout = "0.2"
