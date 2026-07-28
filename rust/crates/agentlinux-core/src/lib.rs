@@ -6,6 +6,7 @@
 //! logic lives here as functions over borrowed/owned data returning values or
 //! typed errors; the `agentlinux` bin owns every side effect.
 
+pub mod category;
 pub mod classify;
 pub mod divergence;
 pub mod reuse;
