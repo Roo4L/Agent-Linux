@@ -119,6 +119,14 @@ mod tests {
     //! table (versions at divergence.test.ts:133). The `queryGlobalNpm` /
     //! `queryNpmViewLatest` suites are NOT ported — they are impure npm-dispatcher
     //! tests (Phase 56 scope), not pure-core parity.
+    //!
+    //! CORE-02 re-asserted (Phase 55, Plan 03): every pure `computeDivergence`
+    //! (8 rows) and `resolveLatestFor` (5 rows) assertion in divergence.test.ts
+    //! has a matching green `#[test]` below, INCLUDING both throw paths — the
+    //! zero-match `NoSatisfyingVersion` (divergence.test.ts:149-152) and the
+    //! empty-list `NoPublishedVersions` (divergence.test.ts:154-156). All version
+    //! ops route through `semver_shim::max_satisfying`; the production bodies never
+    //! call `semver::` directly. No logic change this plan — coverage re-assertion.
     use super::*;
     use crate::types::Status;
 
