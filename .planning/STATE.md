@@ -5,16 +5,16 @@ milestone_name: Rust Rewrite
 current_phase: 57
 current_phase_name: Provisioner Port + Logic Consolidation
 status: in_progress
-stopped_at: Completed 57-02-PLAN.md
-last_updated: "2026-07-28T20:21:53.539Z"
+stopped_at: Completed 57-03-PLAN.md (sudoers port)
+last_updated: "2026-07-28T20:31:02.633Z"
 last_activity: 2026-07-28
-last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
+last_activity_desc: Plan 57-03 complete (Wave 2 — 20-sudoers.sh port; visudo-gated 0440 root:root NOPASSWD drop-in; 22-agent-sudo.bats green on apt/dnf pair)
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 20
-  completed_plans: 14
-  percent: 43
+  completed_plans: 16
+  percent: 45
 ---
 
 # Project State
@@ -145,6 +145,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 56 P04 | ~45m | 2 tasks | 2 files |
 | Phase 57 P01 | 40 | 3 tasks | 6 files |
 | Phase 57 P02 | 12min | 2 tasks | 7 files |
+| Phase 57 P03 | 6.1min | 1 tasks | 3 files |
 
 ## Accumulated Context
 
@@ -385,6 +386,7 @@ Full decision log in PROJECT.md Key Decisions table. Recent decisions affecting 
 - [Phase ?]: Plan 28-03: rtk uninstall reverts the opt-in hook (rtk init --uninstall) BEFORE deleting the binary, then removes config/cache + settings.json.bak idempotently; no preserve_paths.json (remove deletes all); added compatibility_window >=0.42.0 <0.43.0 (REUSE-03); manifest version unchanged 0.3.4 (lockstep)
 - [Phase ?]: Phase 56 CLI-01 interactive failure was a harness-staging artifact (Rust bin named agentlinux at front-of-PATH .local/bin shadowed the canonical .npm-global/bin symlink); reconciled off-PATH in run.sh, not a source change (56-04)
 - [Phase ?]: 57-02: provision routes through require_root (EUID==0), NOT guard_agent_user (Pitfall 7/T-57-04) — a non-root invoker exits 64 before any privileged step; the six user-facing verbs keep the CLI-05 guard.
+- [Phase ?]: 57-03: visudo TOCTOU belt (validate-before + re-verify-after) around the atomic 0440 sudoers install; one install_or_overwrite helper for create+remediate
 
 ### Key Infrastructure Details
 
@@ -432,6 +434,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-28T20:21:03.327Z
-Stopped at: Completed 57-02-PLAN.md
+Last session: 2026-07-28T20:31:02.612Z
+Stopped at: Completed 57-03-PLAN.md (sudoers port)
 Resume file: None
