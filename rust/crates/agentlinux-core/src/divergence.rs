@@ -307,16 +307,19 @@ mod proptests {
                         v,
                         published
                     );
-                    // (b) re-verify it satisfies the constraint via the shim — a
-                    //     postcondition independent of the resolution path.
+                    // (b) re-verify it satisfies the constraint INDEPENDENTLY of
+                    //     resolve_latest_for / max_satisfying — via dtolnay
+                    //     VersionReq::matches directly, so a broken resolution
+                    //     path that returns an out-of-range version cannot pass
+                    //     by re-feeding itself through the same code under test.
                     let range = entry.version_constraint.as_deref().unwrap_or("*");
-                    let only = [v.clone()];
-                    let recheck = semver_shim::max_satisfying(&only, range)
-                        .expect("range parsed once already, must re-parse");
-                    prop_assert_eq!(
-                        recheck,
-                        Some(v.as_str()),
-                        "resolved version {:?} does not satisfy its own constraint {:?}",
+                    let req = semver::VersionReq::parse(&semver_shim::normalize_range(range))
+                        .expect("range parsed once already by resolve_latest_for");
+                    let parsed = semver_shim::parse_lenient(v.as_str())
+                        .expect("resolved version came from the parsed candidate set");
+                    prop_assert!(
+                        req.matches(&parsed),
+                        "resolved version {:?} does not satisfy its constraint {:?}",
                         v,
                         range
                     );

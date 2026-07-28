@@ -454,14 +454,20 @@ mod proptests {
                         best,
                         versions
                     );
-                    // soundness: the winner satisfies the range (re-check via a
-                    // single-element list — must return the same version).
-                    let only = [best.to_string()];
-                    let recheck = max_satisfying(&only, &range)
-                        .expect("range already parsed once");
-                    prop_assert_eq!(
-                        recheck, Some(best),
-                        "max_satisfying winner does not satisfy its own range"
+                    // soundness: the winner satisfies the range — verified
+                    // INDEPENDENTLY of max_satisfying via dtolnay
+                    // VersionReq::matches directly, NOT by re-calling the
+                    // function under test. A broken selection/filter loop that
+                    // returns an out-of-range winner cannot mask a non-match
+                    // here (a circular single-element re-check would).
+                    let req = VersionReq::parse(&normalize_range(&range))
+                        .expect("range parsed once already by max_satisfying");
+                    let winner = parse_lenient(best)
+                        .expect("winner came from the parsed, matched input set");
+                    prop_assert!(
+                        req.matches(&winner),
+                        "max_satisfying winner {:?} does not satisfy range {:?}",
+                        best, range
                     );
                 }
                 Ok(None) => {} // legal: nothing matched.

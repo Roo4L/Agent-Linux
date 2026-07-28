@@ -129,6 +129,16 @@ mod tests {
         "/../../../plugin/catalog/schema.json"
     );
 
+    // NOTE: this drift-check asserts byte-equality of committed vs generated
+    // schema — it does NOT itself assert the schema still REJECTS malformed
+    // catalog entries. That negative-case teeth lives in the ajv suite
+    // `plugin/cli/test/schema.test.ts` (10 negative fixtures — missing pin,
+    // unknown source_kind, npm-missing-package, lowercase secret_env, http
+    // endpoint_url, non-semver version, the `allOf` npm-requires case), run in
+    // the `cli-unit` CI job against this same committed schema.json. Because
+    // committed == generated, those negatives run transitively against the
+    // generated output. Keep both green: a schemars change that is byte-stable
+    // but semantically looser is caught by schema.test.ts, not here.
     #[test]
     fn schema_is_not_drifted() {
         let generated = schema_json();
