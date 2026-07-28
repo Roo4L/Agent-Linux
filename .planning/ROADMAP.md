@@ -22,7 +22,7 @@ Execution is strictly sequential (53 → 59); the order respects the natural por
 - [x] **Phase 53: Rust Scaffold + De-Risking Spike** - Stand up the cargo workspace + musl target + CI; port classify + divergence + one gnarly provisioner unit behind the existing bats tests; instrument agent-loop metrics. Establishes the GATE-01 / GATE-05 invariants. (completed 2026-07-28)
 - [x] **Phase 54: Testing Bedrock** - proptest (property) + cargo-mutants (mutation gate on the pure core) + schemars schema-gen (kills catalog schema drift) + the node-semver → Rust `semver` parity audit — so the rigor exists before the bulk port. (completed 2026-07-28)
 - [x] **Phase 55: Pure-Logic Core Parity** - Port classify/decide, computeDivergence + resolveLatestFor, detect gates, pin-spec parsing, and category derivation to Rust with verdicts identical to TS across a golden corpus. (completed 2026-07-28)
-- [ ] **Phase 56: Registry CLI Verbs + Subprocess Dispatcher** - Port list/install/remove/upgrade/pin/adopt + the sudo-u/streaming-tee/timeout/SIGTERM→SIGKILL dispatcher + the generated env-var recipe contract; CLI-* bats green.
+- [x] **Phase 56: Registry CLI Verbs + Subprocess Dispatcher** - Port list/install/remove/upgrade/pin/adopt + the sudo-u/streaming-tee/timeout/SIGTERM→SIGKILL dispatcher + the generated env-var recipe contract; CLI-* bats green. (completed 2026-07-28)
 - [ ] **Phase 57: Provisioner Port + Logic Consolidation** - Port agent-user/sudoers/nodejs/path-wiring/registry-staging + detect/remediate/reuse/idempotency; delete duplicated CANONICAL_PATHS/GSD_SYSTEM_PATH from Bash; RT-*/AGT-*/DET-* bats green across all six invocation modes on Ubuntu + AlmaLinux.
 - [ ] **Phase 58: Distribution — musl Tarball as Sole Channel** - Reproducible x86_64 musl static tarball + `.sha256` fetched/verified/installed by the curl-installer with no Node prerequisite; drop the legacy fpm `.deb` path; flag ADR-006 for update.
 - [ ] **Phase 59: Full Validation Gate** - The complete bats contract green on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) AND QEMU; zero uncovered behavior families; the canonical AGT-02 self-update-without-sudo acceptance test green against the live Anthropic CDN.
@@ -160,7 +160,7 @@ Plans:
 | 53. Rust Scaffold + De-Risking Spike | 2/2 | ✅ Complete (verdict GO) | 2026-07-28 |
 | 54. Testing Bedrock | 3/3 | ✅ Complete | 2026-07-28 |
 | 55. Pure-Logic Core Parity | 3/3 | ✅ Complete | 2026-07-28 |
-| 56. Registry CLI Verbs + Dispatcher | 2/4 | In progress | 56-01 (scaffold+dispatcher), 56-02 (list/pin/adopt + adapters) |
+| 56. Registry CLI Verbs + Dispatcher | 4/4 | ✅ Complete | 2026-07-28 |
 | 57. Provisioner Port + Logic Consolidation | 0/? | Not started | - |
 | 58. Distribution — musl Tarball as Sole Channel | 0/? | Not started | - |
 | 59. Full Validation Gate | 0/? | Not started | - |

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Rust Rewrite
-current_phase: 56
-current_phase_name: Registry CLI Verbs + Subprocess Dispatcher
-status: planning
-stopped_at: Completed 56-04-PLAN.md (phase closeout) — Phase 56 all 4 plans complete
-last_updated: "2026-07-28T18:52:21.756Z"
+current_phase: 57
+current_phase_name: Provisioner Port + Logic Consolidation
+status: ready
+stopped_at: Phase 56 COMPLETE + verified (GOAL ACHIEVED 8/8; de-flake fix proven 25/25) — advancing to Phase 57
+last_updated: "2026-07-28T19:20:00.000Z"
 last_activity: 2026-07-28
-last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
+last_activity_desc: Phase 56 complete — all 6 CLI verbs + dispatcher + env-var contract ported; verified + reviewed; test flake fixed
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 13
-  completed_plans: 12
-  percent: 43
+  completed_phases: 4
+  total_plans: 16
+  completed_plans: 16
+  percent: 57
 ---
 
 # Project State
@@ -24,12 +24,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights.
-**Current focus:** Phase 56 — Registry CLI Verbs + Subprocess Dispatcher (Phases 53–55 ✅ complete: spike GO, testing bedrock, pure-logic core parity — agentlinux-core is 121 tests, byte-for-byte TS parity)
+**Current focus:** Phase 57 — Provisioner Port + Logic Consolidation (Phases 53–56 ✅ complete: spike GO, testing bedrock, pure-logic core parity, CLI verbs + dispatcher — the Rust bin now runs all 6 registry verbs byte-compatibly on the bats suite)
 
 ## Current Position
 
-Phase: 56 — Registry CLI Verbs + Subprocess Dispatcher (ALL 4 PLANS COMPLETE)
-Plan: 56-01 ✓ + 56-02 ✓ + 56-03 ✓ + 56-04 ✓ complete (Wave 0 scaffold+dispatcher; Wave 1 read-only/state-only verbs; Wave 2 mutating verbs; Wave 3 closeout — GATE-01 phase gate met). Phase 56 ready for verification.
+Phase: 57 — Provisioner Port + Logic Consolidation (NOT STARTED — next up)
+Phase 56 ✅ COMPLETE + VERIFIED (2026-07-28): all 4 plans/4 waves done — clap CLI + RecipeEnv + dispatcher (W0), guard/catalog/sentinel/cache adapters + list/pin/adopt (W1), install/remove/upgrade + probe/npm/rewire adapters (W2), full-CLI-bats parity closeout (W3). gsd-verifier: GOAL ACHIEVED 8/8 (no masked parity regression; bats specs byte-for-byte unchanged; master untouched at f14c092). Wave-0 dispatcher + Wave-1/2 verb/adapter surface reviewed (reliability+security) — all findings faithful-port MEDIUM/LOW, 2 documented, 0 blocking. One real defect found + FIXED: the cargo-test parallel-runner env-race flake → single shared poison-tolerant test ENV_LOCK, proven 25/25 green (commits f4b87b6 + d63cb62). cargo test --workspace 228 pass reliably; clippy/fmt clean; agentlinux-core pure. AL-119→ next: AL-120 Done, file Phase-57 task.
 
 Plan 56-04 (Wave 3 — parity closeout): full CLI bats surface green on the Rust build (per-file, Docker-OOM-safe). Reconciled the last staging artifact — CLI-01 interactive `command -v agentlinux` resolved `.local/bin` (RUST-03 reuse-path stage shadows the canonical symlink on the front-of-PATH `.local/bin`) instead of `.npm-global/bin`; fixed HARNESS-side by relocating the flag-gated Rust bin off-PATH (`/opt/agentlinux/rust/agentlinux`) so the canonical `.npm-global/bin/agentlinux` symlink wins. 5/6 invocation modes green (interactive/sudo_u/sudo_u_i/systemd_user/cron); ssh is the sole env-gated mode (no agent ssh key in Docker → Phase-59 QEMU). Per-file: 40-registry-cli 27/29 (2 = CLI-01 ssh); 23-install-user 9/9; 10-installer 10/11 (INST-02 pure-installer test perturbed only by the flag's post-install symlink override — GREEN 11/11 on the TS path, resolves Phase 57); 50-agents 9/12 (3 = AGT-01 ssh). Dispatcher floor re-asserted (cargo test -p agentlinux dispatcher = 9 green) after all six verbs wired dispatch_recipe — VERB-02 floor holds. cargo test --workspace 228 pass; clippy -D warnings clean; fmt clean; agentlinux-core production code pure. VERB-01/02/03 + GATE-01/GATE-05 signed off. bats specs UNCHANGED; only tests/docker/run.sh changed (no rust/ or plugin/cli/ churn — master shippable). VALIDATION.md flipped nyquist_compliant:true + wave_0_complete:true. 1 commit 1ffbe2c.
 Status: In progress — Plan 56-02 landed the four bin-side file adapters (guard.rs CLI-05 invoker guard; catalog.rs FullCatalogEntry + preserve_paths traversal reject T-56-06; sentinel.rs atomic write-path shape T-56-08; cache.rs detect-cache reader deferred from Phase 55, dual .agents/.components.agents shapes) + the three no-subprocess verbs (cmd/list.rs byte-compatible padded table with the em-dash INSTALLED suffixes + --by-category `## <label>` groups + --json Row array; cmd/pin.rs state-only pin via parse_pin_spec, 64/1 exit map; cmd/adopt.rs reuse/remediate gates + the host statSync in the adapter, [ADOPT]/[MIGRATE] literals). All consume the pure agentlinux-core gates (never re-derive); dispatch NO recipe. CLI-05 guard wired once in main::dispatch before every verb (TS preAction parity) → `agentlinux list` as root exits 64. agentlinux-core untouched. cargo test --workspace 64(bin)+121(core) pass; clippy -D warnings clean; fmt --check clean. 3 atomic commits 028ecfc/aabffd5/a84a4ff. On 40-registry-cli.bats vs the staged Rust musl bin: list + adopt @tests GREEN, guard (CLI-05) GREEN; pin bats-blocked ONLY by its `install` setup fixture (Plan 03 stub) — pin verb is unit-green. install/remove/upgrade are loud Wave-2 stubs (Plan 03). CLI-01 (which-path) is a run.sh staging-mechanic detail for Plan 04. Plan 56-03 reuses these same catalog/sentinel/cache/guard adapters for install/remove/upgrade.
