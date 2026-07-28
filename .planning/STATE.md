@@ -3,16 +3,16 @@ gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Rust Rewrite
 current_phase: 54
-current_phase_name: Testing Bedrock
-status: planning
+current_phase_name: testing-bedrock
+status: executing
 stopped_at: Phase 52 context gathered
-last_updated: "2026-07-28T07:12:58.110Z"
+last_updated: "2026-07-28T07:41:16.257Z"
 last_activity: 2026-07-28
-last_activity_desc: Phase 53 complete, transitioned to Phase 54
+last_activity_desc: Phase 54 execution started
 progress:
   total_phases: 7
   completed_phases: 1
-  total_plans: 2
+  total_plans: 5
   completed_plans: 2
   percent: 14
 ---
@@ -24,15 +24,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights.
-**Current focus:** Phase 54 — Testing Bedrock (Phase 53 spike ✅ COMPLETE, verdict **GO** — 0 crate hallucinations, 0 cargo-timeouts, iterations-to-green=1/unit on Opus 4.8; 44 Rust tests + 13-reuse.bats 32/32 on the Rust build; static musl confirmed)
+**Current focus:** Phase 54 — testing-bedrock
 
 ## Current Position
 
-Phase: 54 — Testing Bedrock
-Plan: Not started
-Status: Ready to plan
+Phase: 54 (testing-bedrock) — EXECUTING
+Plan: 1 of 3
+Status: Executing Phase 54
 Milestone: v0.4.0 Rust Rewrite — reimplement the TS registry CLI (~2,800 LOC) + Bash provisioner (~4,363 LOC) as one Rust static binary (x86_64 musl) behind the language-agnostic bats spec (ADR-002). Like-for-like: nothing observable changes for users. Order respects the natural port dependency + de-risking sequence — spike first (53), testing bedrock (54), pure-logic core (55), CLI verbs + dispatcher (56), provisioner + logic consolidation (57), distribution (58), full-matrix validation gate (59). GATE-01 (green-bats-per-phase) + GATE-05 (master stays shippable / parallel track / per-phase rollback) are cross-cutting invariants folded into every phase's success criteria (anchored to Phase 53 for coverage). Recipes stay Bash behind a generated env-var contract; the fpm .deb path is dropped (ADR-006 flagged). Decision recorded 2026-07-27 in docs/research/v0.3.0/stack-reconsideration.md (Rust over Go and a runtime-bundled-JS binary).
-Last activity: 2026-07-28 — Phase 53 complete, transitioned to Phase 54
+Last activity: 2026-07-28 — Phase 54 execution started
 
 ## Current Position (v0.3.4 — historical)
 
