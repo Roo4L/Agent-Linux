@@ -101,7 +101,8 @@ Plans:
   5. `master` stays shippable; the verb port is reversible per-phase (GATE-05).
 
 **Plans**: 4 plans
-- [ ] 56-01-PLAN.md — Wave 0 scaffold: clap CLI skeleton + `RecipeEnv` typed source + the subprocess dispatcher (6-case parity) + the flag-gated Rust-bin bats staging override
+
+- [x] 56-01-PLAN.md — Wave 0 scaffold: clap CLI skeleton + `RecipeEnv` typed source + the subprocess dispatcher (6-case parity) + the flag-gated Rust-bin bats staging override
 - [ ] 56-02-PLAN.md — Wave 1 read-only/state-only verbs: `list`/`pin`/`adopt` + the catalog/sentinel/cache/guard adapters (green on 40-registry-cli)
 - [ ] 56-03-PLAN.md — Wave 2 mutating verbs: `install`/`remove`/`upgrade` + probe/npm/rewire adapters (real recipe dispatch; VERB-02/03 end-to-end)
 - [ ] 56-04-PLAN.md — Wave 3 closeout: full CLI bats green on the Rust build + dispatcher-floor re-assert + Phase-59-deferred gated-case record (GATE-01/05)
