@@ -11,3 +11,5 @@ pub mod adopt;
 pub mod install;
 pub mod list;
 pub mod pin;
+pub mod remove;
+pub mod upgrade;
