@@ -5,16 +5,16 @@ milestone_name: Rust Rewrite
 current_phase: 57
 current_phase_name: Provisioner Port + Logic Consolidation
 status: in_progress
-stopped_at: Completed 57-03-PLAN.md (sudoers port)
-last_updated: "2026-07-28T20:31:02.633Z"
+stopped_at: Completed 57-04-PLAN.md
+last_updated: "2026-07-28T20:45:04.658Z"
 last_activity: 2026-07-28
-last_activity_desc: Plan 57-03 complete (Wave 2 — 20-sudoers.sh port; visudo-gated 0440 root:root NOPASSWD drop-in; 22-agent-sudo.bats green on apt/dnf pair)
+last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 20
   completed_plans: 16
-  percent: 45
+  percent: 43
 ---
 
 # Project State
@@ -28,7 +28,9 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 ## Current Position
 
-Phase: 57 — Provisioner Port + Logic Consolidation (IN PROGRESS — Waves 0-1 done)
+Phase: 57 — Provisioner Port + Logic Consolidation (IN PROGRESS — Waves 0-3 done)
+
+Plan 57-04 ✅ COMPLETE (2026-07-28, Wave 3 — 30-nodejs.sh port: NodeSource pre-Node bootstrap + RT-01/RT-04 + REMEDIATE-01): landed the compiled-binary payoff — installing Node when NO Node exists. provision/nodejs.rs dispatches on RESOLUTIONS[node] (reuse|create). CREATE path = nodesource_prereqs → nodesource_module_reset → idempotent repo-add gated on nodesource_repo_paths (any family repo file present → short-circuit, no re-fetch) → pkg_install nodejs → RT-01 verify (parse node --version major, hard-fail Err if < 22 — the return-1-equiv that aborts loudly) → RT-04 npm-prefix layout (ensure_dir ~/.npm-global{,/bin,/lib} 0755 <user>:<user> unless reuse-with-warning) → ~/.npmrc create-if-absent 0644 + ensure_line_in_file "prefix=<home>/.npm-global" + re-chown/chmod. The npm-prefix REMEDIATE-01 dispatch runs UNCONDITIONALLY after the create/reuse split. The pre-Node crux holds: node --version runs directly (root, on PATH post-install, mirroring the root-executed Bash); the curl|bash setup + apt/dnf shelled EXTERNAL via the Wave-0 pkg verbs (base image ships curl/apt/dnf). provision/remediate_npm_prefix.rs — the remediate/nodejs.sh chown_or_rebase port: strategy selector (chown only when under-home + trivially-salvageable; else rebase + best-effort module migration via the Phase-56 dispatcher as_user; old prefix NEVER deleted) + is_trivially_salvageable allowlist gate + parse_module_manifest (npm ls -g --json, excludes npm + catalog agents). Wired provision::nodejs::run(&ctx) as step 30 in cmd/provision.rs (replacing the Wave-3 marker). LIVE-PROVEN on BOTH distros via direct container probes (NodeSource is a live fetch; sandbox has network): ubuntu-24.04 (deb.nodesource/apt) → node v22.23.1, .npmrc prefix=/home/agent/.npm-global, .npm-global{,/bin,/lib}=agent:agent 755, npm config get prefix=/home/agent/.npm-global; almalinux-9 (rpm.nodesource/dnf) → identical (ca-certificates-only prereqs [Pitfall 5], AppStream module reset ran, rpm repo added, dnf install nodejs v22.23.1). Idempotency (INST-02) proven: 2nd run short-circuits ("NodeSource repo already configured"), .npmrc keeps exactly one prefix line — both distros. 1 Rule-1 auto-fix: chown_recursive used is_dir()+chown (follows symlinks) → switched to lchown+symlink_metadata (chown -RP parity) so a symlink out of the prefix never chowns a system tree (+ test). 1 documented deviation: remediate_npm_prefix derives the old prefix from <install_home>/.npm-global + on-disk owner (the DETECT_NPM_PREFIX_PATH cache readers land Wave 5); observable mutation identical, token is Create in the Wave-3 seed so not live-exercised yet — unit tests pin the outcome. cargo test --workspace 308 pass (+21: 187 bin + 121 core); clippy -D warnings + fmt clean; only rust/ changed (Bash provisioner untouched — GATE-05); agentlinux-core pure. 2 atomic commits 344914b (feat) + c3de9f7 (fix). PROV-01/PROV-03/GATE-01/GATE-05 satisfied. NOT green: 30-runtime.bats six-mode iteration (RT-01/02/04 across interactive/ssh/cron/systemd_user/sudo_u/sudo_u_i) — those resolve node/cowsay via Wave-4 40-path-wiring profile.d (NOT yet ported) + ssh-keys/QEMU; the PATH-independent RT-02-no-EACCES + RT-03-uninstall bats PASS, proving Node+npm+the agent-owned prefix work. Six-mode cases = Wave 4 (interactive/ssh/sudo) + Phase-59 QEMU (systemd_user/cron), explicitly NOT claimed green from Docker. Wave 4 (path_wiring.rs) must write the profile.d/agentlinux.env PATH prepend (byte-identical to this ~/.npm-global/bin) for 30-runtime six-mode to go green.
 
 Plan 57-02 ✅ COMPLETE (2026-07-28, Wave 1 — provision orchestrator shell + 10-agent-user.sh port): stood up the `agentlinux provision` entrypoint every later wave plugs into, and landed the FIRST provisioner step. guard::require_root(euid: Option<u32>) — the PRE-Node EUID==0 entry guard (Pitfall 7 / T-57-04): provision routes through require_root, NOT the CLI-05 guard_agent_user (which rejects root); a non-root invoker exits 64. cli.rs Provision(ProvisionArgs) variant (--user/--yes/--no-yes/--dry-run/--report-only/--purge/--remove-nodejs/--report-format/--verbose) mirroring agentlinux-install parse_args; six-verb surface byte-stable (+3 cli_parse rows). cmd/provision.rs orchestrator reproducing the Bash main() order (validate flags → resolve+validate user via ported validate_user_name charset+reserved-denylist → distro detect → Resolutions::seed_create() → ordered step vec [agent_user, sudoers, nodejs, path_wiring, registry_cli]); Wave 1 wires agent_user, Waves 2-5 are LOUD not-yet-wired markers (T-57-03 fail-loud); --purge/--report-only/--dry-run are loud Wave-5 stubs (exit 0). provision/mod.rs shared Resolution/Resolutions/ProvisionCtx types + seed_create() (Wave-5 swap point). provision/agent_user.rs — the 10-agent-user.sh port: RESOLUTIONS[user] dispatch (Create runs ensure_user+ensure_dir 0755+locale_ensure C.UTF-8; Reuse/Remediate/ReuseWithWarning skip those, all still write DOC-02; Bail defensive error); DOC-02 CLAUDE.md via sysio::ensure_marker_block(agentlinux-doc-02, Top, DOC02_BODY byte-exact heredoc) then re-chmod 0644 + chown <user>:<user>; consumes the Wave-0 sysio+pkg primitives (first real consumer). DOC-02 byte-fidelity PROVEN: Rust-produced /home/agent/CLAUDE.md byte-identical to Bash-produced (both 2264 bytes, agent:agent 0644, diff empty). 20-agent-user.bats on the Rust provisioner: BHV-01 (identity + LANG/LC_ALL C.UTF-8 + locale -a) GREEN on BOTH ubuntu-24.04 AND almalinux-9; BHV-02 (path-wiring, ubuntu) is Wave-4 scope, BHV-04 (systemd) is Phase-59 QEMU — documented deviation, not force-passed. cargo test --workspace 287 pass (+16); clippy -D warnings + fmt clean; musl release builds; agentlinux-core untouched (pure); only rust/ changed (GATE-05). 1 atomic commit 26ba65f (both tasks — one compilable unit). PROV-01/GATE-01/GATE-05 satisfied. Wave 4 must land path-wiring for 20-agent-user.bats BHV-02 to go green.
 
@@ -146,6 +148,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 57 P01 | 40 | 3 tasks | 6 files |
 | Phase 57 P02 | 12min | 2 tasks | 7 files |
 | Phase 57 P03 | 6.1min | 1 tasks | 3 files |
+| Phase 57 P04 | 9 | 1 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -434,6 +437,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-28T20:31:02.612Z
-Stopped at: Completed 57-03-PLAN.md (sudoers port)
+Last session: 2026-07-28T20:45:04.636Z
+Stopped at: Completed 57-04-PLAN.md
 Resume file: None
