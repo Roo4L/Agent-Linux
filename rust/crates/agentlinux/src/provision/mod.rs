@@ -18,6 +18,8 @@
 #![allow(dead_code)]
 
 pub mod agent_user;
+pub mod nodejs;
+pub mod remediate_npm_prefix;
 pub mod sudoers;
 
 use crate::distro::Family;

@@ -152,10 +152,17 @@ fn run_steps(ctx: &ProvisionCtx) -> Result<(), ExitCode> {
         ExitCode::from(EX_SOFTWARE)
     })?;
 
-    // Steps 30-50 — loud not-yet-wired markers (each replaced by its wave). A
+    // Step 30 — nodejs (Wave 3). The NodeSource pre-Node bootstrap + RT-01 verify +
+    // RT-04 npm-prefix + REMEDIATE-01. Runs AFTER sudoers in numeric order (Node
+    // install needs no sudoers, but follows 10→20→30).
+    provision::nodejs::run(ctx).map_err(|e| {
+        eprintln!("agentlinux provision: 30-nodejs step failed: {e}");
+        ExitCode::from(EX_SOFTWARE)
+    })?;
+
+    // Steps 40-50 — loud not-yet-wired markers (each replaced by its wave). A
     // premature full run surfaces exactly what is missing instead of silently
     // skipping a step (T-57-03 fail-loud).
-    eprintln!("agentlinux provision: 30-nodejs step not-yet-wired (Wave 3)");
     eprintln!("agentlinux provision: 40-path-wiring step not-yet-wired (Wave 4)");
     eprintln!("agentlinux provision: 50-registry-cli step not-yet-wired (Wave 5)");
     Ok(())

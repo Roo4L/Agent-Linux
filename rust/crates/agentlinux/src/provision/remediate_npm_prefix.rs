@@ -1,0 +1,472 @@
+//! provision/remediate_npm_prefix.rs — REMEDIATE-01 npm-prefix handler, a port of
+//! `plugin/lib/remediate/nodejs.sh`'s `chown_or_rebase`.
+//!
+//! The state-overwriting action the `RESOLUTIONS[npm-prefix]=remediate` token
+//! selects (dispatched from `provision::nodejs::run`). The consent gate has already
+//! enforced `--yes` (or registered a bail) upstream before this runs.
+//!
+//! Strategy selector (remediate/nodejs.sh:64-81):
+//!   - `chown`  — the prefix is UNDER the install user's home AND trivially
+//!     salvageable (only allowlisted entries: `lib/`, `bin/`, `share/`, `etc/`,
+//!     `package.json`, `package-lock.json`, and `lib/node_modules` empty/absent).
+//!     One `chown -R <user>:<user> <prefix>`.
+//!   - `rebase` — otherwise (incl. system paths, or a prefix holding third-party
+//!     global modules). Create `~user/.npm-global` (bin/ + lib/), point
+//!     `~user/.npmrc` at it, migrate global modules best-effort; the OLD prefix is
+//!     NEVER deleted.
+//!
+//! Security (remediate/nodejs.sh:16-18): `chown -R` fires ONLY when all three of
+//! {prefix-under-home, trivially-salvageable} hold — so system paths (`/usr`,
+//! `/usr/local`) and prefixes containing third-party module trees are never chowned;
+//! they rebase instead.
+//!
+//! Port fidelity note (DEVIATION, documented for the plan): the Bash entry point
+//! reads `DETECT_NPM_PREFIX_PATH` / `DETECT_USER_HOME` / `DETECT_NPM_PREFIX_EFFECTIVE_OWNER`
+//! from the detect cache exports. Those detect READERS have no Rust home yet (they
+//! land with the full detect→decide wiring in Wave 5). Until then this port derives
+//! the prefix from the canonical `<install_home>/.npm-global` and the OLD owner from
+//! the prefix's on-disk owner — the observable mutation (chown the tree, or rebase
+//! npm's configured prefix + migrate modules) is identical; only the source of the
+//! "old prefix path" changes. Wave 5 swaps the derivation for the detect-cache read
+//! without touching the mutation body. The token is `Create` in the Wave-3 seed, so
+//! this path is not exercised by the live provisioner run yet; the unit tests pin the
+//! observable outcome (chown vs rebase strategy + the .npmrc prefix line).
+
+use crate::dispatcher;
+use crate::provision::ProvisionCtx;
+use crate::sysio;
+use std::io;
+use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::path::Path;
+
+/// The catalog agents excluded from module migration (they own their own install),
+/// plus `npm` itself — byte-for-byte with the Bash `excluded_json`
+/// (remediate/nodejs.sh:101-107).
+const MIGRATION_EXCLUDED: &[&str] = &[
+    "npm",
+    "@anthropic-ai/claude-code",
+    "get-shit-done-cc",
+    "@opengsd/gsd-core",
+    "@playwright/cli",
+];
+
+/// The migration strategy the selector picks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Strategy {
+    Chown,
+    Rebase,
+}
+
+/// `chown_or_rebase` — the REMEDIATE-01 entry point dispatched from
+/// `provision::nodejs::run`. Runs the strategy selector, then chowns or rebases so
+/// the prefix is writable by the install user and `npm install -g` never races root
+/// (remediate/nodejs.sh:198-228).
+pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
+    let user = &ctx.install_user;
+    let user_home = &ctx.install_home;
+    // The canonical prefix (see the DEVIATION note above — Wave 5 swaps this for the
+    // detect-cache `DETECT_NPM_PREFIX_PATH`).
+    let prefix = format!("{user_home}/.npm-global");
+
+    if prefix.is_empty() {
+        return Err(io::Error::other(
+            "[REMEDIATE-01:fail] reason=detect-cache-missing-prefix-path",
+        ));
+    }
+
+    // The OLD owner (the sudo target for `npm ls -g` — its npm view of the OLD
+    // prefix is canonical). Fall back to root when unknown/absent (rebase still
+    // works against an empty manifest) (remediate/nodejs.sh:204-216).
+    let old_owner = prefix_owner_user(Path::new(&prefix)).unwrap_or_else(|| "root".to_string());
+
+    match strategy_for(Path::new(&prefix), user_home) {
+        Strategy::Chown => apply_chown(&prefix, user),
+        Strategy::Rebase => apply_rebase(&prefix, user, user_home, &old_owner),
+    }
+}
+
+/// `remediate::nodejs::_strategy_for` port (remediate/nodejs.sh:64-81). `chown`
+/// only when the prefix is under `user_home` AND trivially salvageable; `rebase`
+/// otherwise. Under-home is a literal prefix-match (no readlink) — rebase is the
+/// safe default when symlinks would confuse containment.
+fn strategy_for(prefix: &Path, user_home: &str) -> Strategy {
+    let prefix_str = prefix.to_string_lossy();
+    let under_home = prefix_str.starts_with(&format!("{user_home}/"));
+    if !under_home {
+        return Strategy::Rebase;
+    }
+    if is_trivially_salvageable(prefix) {
+        Strategy::Chown
+    } else {
+        Strategy::Rebase
+    }
+}
+
+/// `remediate::nodejs::_is_trivially_salvageable` port (remediate/nodejs.sh:36-62).
+/// True iff `prefix` contains ONLY allowlisted entries (`lib/`, `bin/`, `share/`,
+/// `etc/`, `package.json`, `package-lock.json`) AND `lib/node_modules` is
+/// empty/absent. Any non-allowlist entry (e.g. a user-installed module) forces a
+/// rebase — this is the gate that prevents chown from clobbering third-party trees.
+/// A non-existent prefix is vacuously salvageable.
+fn is_trivially_salvageable(prefix: &Path) -> bool {
+    if !prefix.is_dir() {
+        return true;
+    }
+    const ALLOWED: &[&str] = &[
+        "lib",
+        "bin",
+        "share",
+        "etc",
+        "package.json",
+        "package-lock.json",
+    ];
+    let entries = match std::fs::read_dir(prefix) {
+        Ok(e) => e,
+        Err(_) => return true, // unreadable → the Bash `|| true` treats as no entry
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if !ALLOWED.contains(&name.as_ref()) {
+            return false;
+        }
+    }
+    // A populated lib/node_modules/<pkg>/ means a user installed a global module
+    // under the prefix — an agent-unwritable third-party tree we must NOT chown.
+    let node_modules = prefix.join("lib/node_modules");
+    if node_modules.is_dir() {
+        if let Ok(mut it) = std::fs::read_dir(&node_modules) {
+            if it.next().is_some() {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// `remediate::nodejs::_apply_chown` port (remediate/nodejs.sh:116-128).
+/// `chown -R <user>:<user> <prefix>`. Emits the `[REMEDIATE-01] strategy=chown`
+/// marker; a chown failure is a hard error with `[REMEDIATE-01:fail]`.
+fn apply_chown(prefix: &str, user: &str) -> io::Result<()> {
+    eprintln!("[REMEDIATE-01] strategy=chown path={prefix} new_owner={user}:{user}");
+    let (uid, gid) = resolve_user_group(user)?;
+    if let Err(e) = chown_recursive(Path::new(prefix), uid, gid) {
+        eprintln!("[REMEDIATE-01:fail] reason=chown-denied path={prefix}");
+        return Err(e);
+    }
+    eprintln!("[REMEDIATE-01] chown complete: {prefix} now {user}:{user}");
+    Ok(())
+}
+
+/// `remediate::nodejs::_apply_rebase` port (remediate/nodejs.sh:136-192). Create
+/// `~user/.npm-global` (bin/ + lib/), point `~user/.npmrc` at it, then migrate
+/// global modules from the OLD prefix best-effort (per-module failures logged
+/// `[REMEDIATE-01:partial]`, no abort). The OLD prefix is NEVER deleted.
+fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) -> io::Result<()> {
+    let new_prefix = format!("{user_home}/.npm-global");
+    eprintln!("[REMEDIATE-01] strategy=rebase from={old_prefix} to={new_prefix}");
+
+    let owner = format!("{user}:{user}");
+    // ensure_dir creates OR re-asserts mode+ownership, so a partial prior rebase
+    // converges to the canonical state.
+    if sysio::ensure_dir(Path::new(&new_prefix), 0o755, &owner).is_err()
+        || sysio::ensure_dir(Path::new(&format!("{new_prefix}/bin")), 0o755, &owner).is_err()
+        || sysio::ensure_dir(Path::new(&format!("{new_prefix}/lib")), 0o755, &owner).is_err()
+    {
+        eprintln!("[REMEDIATE-01:fail] reason=mkdir-denied path={new_prefix}");
+        return Err(io::Error::other(format!(
+            "[REMEDIATE-01:fail] reason=mkdir-denied path={new_prefix}"
+        )));
+    }
+
+    // ~user/.npmrc with the prefix line: atomic create-if-absent, then idempotent
+    // ensure_line_in_file, then re-assert ownership+mode.
+    let npmrc = format!("{user_home}/.npmrc");
+    let npmrc_path = Path::new(&npmrc);
+    if !npmrc_path.exists() {
+        if let Err(e) = create_if_absent_0644(npmrc_path, &owner) {
+            eprintln!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
+            return Err(e);
+        }
+    }
+    sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), npmrc_path)?;
+    std::fs::set_permissions(npmrc_path, std::fs::Permissions::from_mode(0o644))?;
+    chown_by_name(npmrc_path, &owner)?;
+    eprintln!("[REMEDIATE-01] wrote ~{user}/.npmrc with prefix={new_prefix}");
+
+    // Enumerate + migrate modules from the OLD prefix, best-effort.
+    let modules = enumerate_modules(old_owner, old_prefix);
+    let (mut migrated, mut failed) = (0u32, 0u32);
+    if modules.is_empty() {
+        eprintln!(
+            "[REMEDIATE-01] no modules to migrate from {old_prefix} \
+             (empty or only catalog/npm entries)"
+        );
+    } else {
+        eprintln!(
+            "[REMEDIATE-01] migrating {} modules from {old_prefix}",
+            modules.len()
+        );
+        for pkg_at_ver in &modules {
+            // The npm-level `--` stops a `-flag@1` package name being reparsed as an
+            // npm flag (remediate/nodejs.sh:178).
+            let argv: Vec<String> = ["npm", "install", "-g", "--", pkg_at_ver]
+                .iter()
+                .map(|s| s.to_string())
+                .collect();
+            let r = dispatcher::as_user(user, &argv, &[], false, None);
+            if r.exit_code == 0 {
+                eprintln!("[REMEDIATE-01:migrated] module={pkg_at_ver}");
+                migrated += 1;
+            } else {
+                eprintln!("[REMEDIATE-01:partial] module={pkg_at_ver} reason=npm-install-failed");
+                failed += 1;
+            }
+        }
+    }
+
+    eprintln!(
+        "[REMEDIATE-01] rebase complete: migrated={migrated} failed={failed} \
+         old_prefix={old_prefix} (NOT deleted; user cleanup)"
+    );
+    Ok(())
+}
+
+/// `remediate::nodejs::_enumerate_modules` port (remediate/nodejs.sh:83-114).
+/// `npm ls -g --json --depth=0` as the OLD owner with `NPM_CONFIG_PREFIX=<old_prefix>`,
+/// parse the top-level dependency ids to `pkg@version`, minus npm + the catalog
+/// agents. A failure yields an empty manifest (the Bash `|| printf '{}'`).
+fn enumerate_modules(old_owner: &str, old_prefix: &str) -> Vec<String> {
+    let argv: Vec<String> = ["npm", "ls", "-g", "--json", "--depth=0"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let env = vec![("NPM_CONFIG_PREFIX".to_string(), old_prefix.to_string())];
+    let r = dispatcher::as_user(old_owner, &argv, &env, false, None);
+    let raw = if r.exit_code == 0 && !r.stdout.trim().is_empty() {
+        r.stdout
+    } else {
+        "{}".to_string()
+    };
+    parse_module_manifest(&raw)
+}
+
+/// Parse the `npm ls -g --json` output into `pkg@version` lines, excluding the
+/// catalog agents + npm. Pure — the JSON-shape half of `_enumerate_modules`
+/// (the `jq` filter), unit-testable without a live npm.
+fn parse_module_manifest(raw: &str) -> Vec<String> {
+    let val: serde_json::Value = match serde_json::from_str(raw) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let deps = match val.get("dependencies").and_then(|d| d.as_object()) {
+        Some(d) => d,
+        None => return Vec::new(),
+    };
+    deps.iter()
+        .filter(|(k, _)| !MIGRATION_EXCLUDED.contains(&k.as_str()))
+        .map(|(k, v)| {
+            let ver = v
+                .get("version")
+                .and_then(|s| s.as_str())
+                .unwrap_or("latest");
+            format!("{k}@{ver}")
+        })
+        .collect()
+}
+
+/// Atomic create-if-absent at 0644 <user>:<user> (mirrors the Bash
+/// `install -m 0644 -o <user> -g <user> /dev/null <path>`).
+fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    std::fs::File::create(path)?;
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
+    chown_by_name(path, owner)
+}
+
+/// The on-disk owner USER of `path` (the LHS of the Bash `user:group`), resolved
+/// from the metadata uid → the passwd name. `None` if the path is absent or the uid
+/// has no passwd entry.
+fn prefix_owner_user(path: &Path) -> Option<String> {
+    let uid = std::fs::metadata(path).ok()?.uid();
+    nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
+        .ok()
+        .flatten()
+        .map(|u| u.name)
+}
+
+/// Recursive `chown -R uid:gid <path>` — walks the tree, chowning every entry
+/// (the Bash `chown -R`). Symlinks are chowned via `lchown` semantics of
+/// `std::os::unix::fs::chown` on the link target path; we chown the entry itself.
+fn chown_recursive(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
+    std::os::unix::fs::chown(path, Some(uid), Some(gid))?;
+    if path.is_dir() {
+        for entry in std::fs::read_dir(path)?.flatten() {
+            chown_recursive(&entry.path(), uid, gid)?;
+        }
+    }
+    Ok(())
+}
+
+/// Resolve `<user>` → its (uid, gid) via the passwd entry (the user's primary group).
+fn resolve_user_group(user: &str) -> io::Result<(u32, u32)> {
+    let u = nix::unistd::User::from_name(user)
+        .map_err(|e| io::Error::other(format!("resolve_user_group: user {user}: {e}")))?
+        .ok_or_else(|| io::Error::other(format!("resolve_user_group: unknown user {user}")))?;
+    Ok((u.uid.as_raw(), u.gid.as_raw()))
+}
+
+/// `chown <user>:<group> <path>` by name — resolve the passwd/group entries and
+/// apply via `std::os::unix::fs::chown`. Shared shape with nodejs.rs / agent_user.rs.
+fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
+    let (user, group) = owner.split_once(':').ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "chown: owner must be user:group",
+        )
+    })?;
+    let uid = nix::unistd::User::from_name(user)
+        .map_err(|e| io::Error::other(format!("chown: user {user}: {e}")))?
+        .ok_or_else(|| io::Error::other(format!("chown: unknown user {user}")))?
+        .uid
+        .as_raw();
+    let gid = nix::unistd::Group::from_name(group)
+        .map_err(|e| io::Error::other(format!("chown: group {group}: {e}")))?
+        .ok_or_else(|| io::Error::other(format!("chown: unknown group {group}")))?
+        .gid
+        .as_raw();
+    std::os::unix::fs::chown(path, Some(uid), Some(gid))
+        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
+}
+
+#[cfg(test)]
+mod remediate_npm_prefix_tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    // strategy_for: a prefix OUTSIDE the user home always rebases (system paths
+    // like /usr/local are never chowned) — remediate/nodejs.sh:71-73.
+    #[test]
+    fn strategy_system_path_outside_home_rebases() {
+        assert_eq!(
+            strategy_for(Path::new("/usr/local"), "/home/agent"),
+            Strategy::Rebase
+        );
+        assert_eq!(
+            strategy_for(Path::new("/opt/node"), "/home/agent"),
+            Strategy::Rebase
+        );
+    }
+
+    // strategy_for: a prefix UNDER home that is trivially salvageable → chown.
+    #[test]
+    fn strategy_under_home_salvageable_chowns() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().to_string_lossy().into_owned();
+        let prefix = d.path().join(".npm-global");
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        std::fs::create_dir_all(prefix.join("lib")).unwrap();
+        assert_eq!(strategy_for(&prefix, &home), Strategy::Chown);
+    }
+
+    // strategy_for: a prefix under home holding a THIRD-PARTY global module tree
+    // (lib/node_modules/<pkg>) is NOT salvageable → rebase (never chown a
+    // third-party tree) — remediate/nodejs.sh:55-60.
+    #[test]
+    fn strategy_under_home_with_third_party_module_rebases() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().to_string_lossy().into_owned();
+        let prefix = d.path().join(".npm-global");
+        std::fs::create_dir_all(prefix.join("lib/node_modules/cowsay")).unwrap();
+        assert_eq!(strategy_for(&prefix, &home), Strategy::Rebase);
+    }
+
+    // strategy_for: a NON-ALLOWLIST entry at the top level (e.g. a stray file) forces
+    // a rebase — remediate/nodejs.sh:42-52.
+    #[test]
+    fn strategy_under_home_with_stray_entry_rebases() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().to_string_lossy().into_owned();
+        let prefix = d.path().join(".npm-global");
+        std::fs::create_dir_all(&prefix).unwrap();
+        std::fs::write(prefix.join("random-file.txt"), b"x").unwrap();
+        assert_eq!(strategy_for(&prefix, &home), Strategy::Rebase);
+    }
+
+    // is_trivially_salvageable: a non-existent prefix is vacuously salvageable
+    // (remediate/nodejs.sh:40).
+    #[test]
+    fn salvageable_missing_prefix_is_vacuously_true() {
+        assert!(is_trivially_salvageable(Path::new(
+            "/no/such/prefix/agentlinux-xyzzy"
+        )));
+    }
+
+    // is_trivially_salvageable: an empty lib/node_modules is fine (only becomes
+    // unsalvageable once a module directory lands under it).
+    #[test]
+    fn salvageable_empty_node_modules_ok() {
+        let d = TempDir::new().unwrap();
+        let prefix = d.path().join(".npm-global");
+        std::fs::create_dir_all(prefix.join("lib/node_modules")).unwrap();
+        std::fs::create_dir_all(prefix.join("bin")).unwrap();
+        assert!(is_trivially_salvageable(&prefix));
+    }
+
+    // parse_module_manifest: parses top-level deps to pkg@version, excluding the
+    // catalog agents + npm (remediate/nodejs.sh:108-113).
+    #[test]
+    fn parse_manifest_emits_pkg_at_version_excluding_catalog() {
+        let raw = r#"{
+            "dependencies": {
+                "npm": {"version": "10.0.0"},
+                "@anthropic-ai/claude-code": {"version": "1.2.3"},
+                "cowsay": {"version": "1.6.0"},
+                "left-pad": {"version": "1.3.0"}
+            }
+        }"#;
+        let mut mods = parse_module_manifest(raw);
+        mods.sort();
+        assert_eq!(mods, vec!["cowsay@1.6.0", "left-pad@1.3.0"]);
+    }
+
+    // parse_module_manifest: a version-less dep defaults to `latest`; an empty /
+    // malformed manifest yields no modules.
+    #[test]
+    fn parse_manifest_defaults_latest_and_handles_empty() {
+        let raw = r#"{"dependencies": {"foo": {}}}"#;
+        assert_eq!(parse_module_manifest(raw), vec!["foo@latest"]);
+        assert!(parse_module_manifest("{}").is_empty());
+        assert!(parse_module_manifest("not json").is_empty());
+        assert!(parse_module_manifest(r#"{"dependencies": {}}"#).is_empty());
+    }
+
+    // The rebase .npmrc write establishes the prefix line byte-exactly (the RT-04
+    // shape) and is idempotent. Exercised unprivileged against a temp home so it
+    // pins the observable outcome without needing the module-migration shell-out.
+    #[test]
+    fn rebase_npmrc_prefix_line_is_written_and_idempotent() {
+        let d = TempDir::new().unwrap();
+        let home = d.path().to_string_lossy().into_owned();
+        let uid = nix::unistd::getuid();
+        let gid = nix::unistd::getgid();
+        let uname = nix::unistd::User::from_uid(uid).unwrap().unwrap().name;
+        let gname = nix::unistd::Group::from_gid(gid).unwrap().unwrap().name;
+        let owner = format!("{uname}:{gname}");
+
+        let new_prefix = format!("{home}/.npm-global");
+        let npmrc = Path::new(d.path()).join(".npmrc");
+        sysio::ensure_dir(Path::new(&new_prefix), 0o755, &owner).unwrap();
+        create_if_absent_0644(&npmrc, &owner).unwrap();
+        sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), &npmrc).unwrap();
+        let after_first = std::fs::read_to_string(&npmrc).unwrap();
+        assert_eq!(after_first, format!("prefix={new_prefix}\n"));
+
+        // Re-run → byte-identical (no duplicate prefix line).
+        create_if_absent_0644(&npmrc, &owner).unwrap();
+        sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), &npmrc).unwrap();
+        assert_eq!(std::fs::read_to_string(&npmrc).unwrap(), after_first);
+    }
+}
