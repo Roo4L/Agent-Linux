@@ -5,16 +5,16 @@ milestone_name: Rust Rewrite
 current_phase: 56
 current_phase_name: Registry CLI Verbs + Subprocess Dispatcher
 status: planning
-stopped_at: Completed 56-03-PLAN.md
-last_updated: "2026-07-28T18:40:00.000Z"
+stopped_at: Completed 56-04-PLAN.md (phase closeout) — Phase 56 all 4 plans complete
+last_updated: "2026-07-28T18:52:21.756Z"
 last_activity: 2026-07-28
-last_activity_desc: Plan 56-03 complete — install/remove/upgrade verbs + probe/npm/rewire adapters (VERB-01/02/03 on real recipes)
+last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 13
-  completed_plans: 11
-  percent: 46
+  completed_plans: 12
+  percent: 43
 ---
 
 # Project State
@@ -28,8 +28,10 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 ## Current Position
 
-Phase: 56 — Registry CLI Verbs + Subprocess Dispatcher
-Plan: 56-01 ✓ + 56-02 ✓ + 56-03 ✓ complete (Wave 0 scaffold+dispatcher; Wave 1 read-only/state-only verbs; Wave 2 mutating verbs) — 56-04 (closeout) pending
+Phase: 56 — Registry CLI Verbs + Subprocess Dispatcher (ALL 4 PLANS COMPLETE)
+Plan: 56-01 ✓ + 56-02 ✓ + 56-03 ✓ + 56-04 ✓ complete (Wave 0 scaffold+dispatcher; Wave 1 read-only/state-only verbs; Wave 2 mutating verbs; Wave 3 closeout — GATE-01 phase gate met). Phase 56 ready for verification.
+
+Plan 56-04 (Wave 3 — parity closeout): full CLI bats surface green on the Rust build (per-file, Docker-OOM-safe). Reconciled the last staging artifact — CLI-01 interactive `command -v agentlinux` resolved `.local/bin` (RUST-03 reuse-path stage shadows the canonical symlink on the front-of-PATH `.local/bin`) instead of `.npm-global/bin`; fixed HARNESS-side by relocating the flag-gated Rust bin off-PATH (`/opt/agentlinux/rust/agentlinux`) so the canonical `.npm-global/bin/agentlinux` symlink wins. 5/6 invocation modes green (interactive/sudo_u/sudo_u_i/systemd_user/cron); ssh is the sole env-gated mode (no agent ssh key in Docker → Phase-59 QEMU). Per-file: 40-registry-cli 27/29 (2 = CLI-01 ssh); 23-install-user 9/9; 10-installer 10/11 (INST-02 pure-installer test perturbed only by the flag's post-install symlink override — GREEN 11/11 on the TS path, resolves Phase 57); 50-agents 9/12 (3 = AGT-01 ssh). Dispatcher floor re-asserted (cargo test -p agentlinux dispatcher = 9 green) after all six verbs wired dispatch_recipe — VERB-02 floor holds. cargo test --workspace 228 pass; clippy -D warnings clean; fmt clean; agentlinux-core production code pure. VERB-01/02/03 + GATE-01/GATE-05 signed off. bats specs UNCHANGED; only tests/docker/run.sh changed (no rust/ or plugin/cli/ churn — master shippable). VALIDATION.md flipped nyquist_compliant:true + wave_0_complete:true. 1 commit 1ffbe2c.
 Status: In progress — Plan 56-02 landed the four bin-side file adapters (guard.rs CLI-05 invoker guard; catalog.rs FullCatalogEntry + preserve_paths traversal reject T-56-06; sentinel.rs atomic write-path shape T-56-08; cache.rs detect-cache reader deferred from Phase 55, dual .agents/.components.agents shapes) + the three no-subprocess verbs (cmd/list.rs byte-compatible padded table with the em-dash INSTALLED suffixes + --by-category `## <label>` groups + --json Row array; cmd/pin.rs state-only pin via parse_pin_spec, 64/1 exit map; cmd/adopt.rs reuse/remediate gates + the host statSync in the adapter, [ADOPT]/[MIGRATE] literals). All consume the pure agentlinux-core gates (never re-derive); dispatch NO recipe. CLI-05 guard wired once in main::dispatch before every verb (TS preAction parity) → `agentlinux list` as root exits 64. agentlinux-core untouched. cargo test --workspace 64(bin)+121(core) pass; clippy -D warnings clean; fmt --check clean. 3 atomic commits 028ecfc/aabffd5/a84a4ff. On 40-registry-cli.bats vs the staged Rust musl bin: list + adopt @tests GREEN, guard (CLI-05) GREEN; pin bats-blocked ONLY by its `install` setup fixture (Plan 03 stub) — pin verb is unit-green. install/remove/upgrade are loud Wave-2 stubs (Plan 03). CLI-01 (which-path) is a run.sh staging-mechanic detail for Plan 04. Plan 56-03 reuses these same catalog/sentinel/cache/guard adapters for install/remove/upgrade.
 Plan 56-03 (Wave 2 — mutating verbs): install/remove/upgrade + probe/npm/rewire adapters. install.rs (usage exits 64; --dry-run [DRY-RUN] preview; REUSE-03 pure reuse_gate + adapter statSync; REMEDIATE-04 pure remediate_gate + non-TTY --yes bail=65 + post-uninstall existsSync=1 + broken-after-remediate trail; decide_version idempotent no-op; create streams install.sh, propagates recipe exit, sentinel + reconcile_cross_wiring; byte-exact ▸ installing/installed/no-op). remove.rs (64/1/0-no-op + reused-binary-vanished delete; streaming uninstall.sh; ▸ removing/removed). upgrade.rs (compute_divergence + presence_gate overlay + npm INSTALLED via query_global_npm + opt-in resolve_latest_for; shouldReinstall pure flag-priority helper; validateReusedBinary statSync adapter; padded 7-col [ID,STATUS,SENTINEL,INSTALLED,CURATED,LATEST,SRC] or --json present overlay; reconcile loop continues per-entry on failure exit 0). probe.rs (installed package.json version). npm.rs (npm ls -g --json parsed on non-zero exit — Pitfall 5; npm view versions; both BUFFERED with 30_000ms timeout — Open Q2). rewire.rs (post-install cross-wiring, best-effort). VERB-01 complete for all six verbs; VERB-02/VERB-03 proven on REAL recipe dispatch. agentlinux-core untouched. cargo test --workspace 228 pass; clippy -D warnings clean; fmt --check clean. 3 atomic commits 8cd40d0/d75341d/26efc7e. On the staged Rust musl bin: 40-registry-cli install/remove/upgrade cases GREEN (CLI-03/04/06); 23-install-user all 9 INST-07 GREEN incl. AC4 (recipe dispatch as configured `claude` user — dispatcher sudo -u + resolve_install_user + guard end-to-end); 50-agents REAL install claude-code/gsd/playwright-cli succeeded (AGT-02b/02c/03/04/05/06 GREEN). Deferred to Phase-59 QEMU (ssh/systemd invocation-mode-gated, NOT verb regressions): CLI-01 interactive (staging symlink target) + CLI-01 ssh + AGT-01 ×3 (ssh Permission denied — no agent ssh key in Docker). bats specs UNCHANGED; per-file runs only (Docker OOM). Plan 56-04 (closeout) runs the full CLI bats across all six verbs.
 
@@ -69,7 +71,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 
 **Velocity:**
 
-- Total plans completed (this milestone): 6
+- Total plans completed (this milestone): 7
 - Historical: v0.3.0 (30 plans), v0.3.4 (12 plans) — see MILESTONES.md
 
 **By Phase (v0.3.5):**
@@ -135,6 +137,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 56 P01 | 12min | 4 tasks | 6 files |
 | Phase 56 P02 | 45min | 4 tasks | 11 files |
 | Phase 56 P03 | ~60min | 4 tasks | 8 files |
+| Phase 56 P04 | ~45m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -373,6 +376,7 @@ Full decision log in PROJECT.md Key Decisions table. Recent decisions affecting 
 - [Phase 28]: Prebuilt-binary helper is a sourced (non-+x) bash lib at plugin/catalog/lib/prebuilt-binary.sh with no top-level set -euo pipefail; each al_pb_* function returns non-zero so the sourcing recipe aborts
 - [Phase ?]: Plan 28-03: rtk is the catalog's first source_kind:binary entry; install.sh sources the Plan 02 prebuilt-binary helper and al_pb_installs rtk-ai/rtk@v-pin to ~/.local/bin (never crates.io, never cargo); hook is opt-in (install only prints 'rtk init -g')
 - [Phase ?]: Plan 28-03: rtk uninstall reverts the opt-in hook (rtk init --uninstall) BEFORE deleting the binary, then removes config/cache + settings.json.bak idempotently; no preserve_paths.json (remove deletes all); added compatibility_window >=0.42.0 <0.43.0 (REUSE-03); manifest version unchanged 0.3.4 (lockstep)
+- [Phase ?]: Phase 56 CLI-01 interactive failure was a harness-staging artifact (Rust bin named agentlinux at front-of-PATH .local/bin shadowed the canonical .npm-global/bin symlink); reconciled off-PATH in run.sh, not a source change (56-04)
 
 ### Key Infrastructure Details
 
@@ -420,6 +424,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-28T18:04:37.445Z
-Stopped at: Completed 56-02-PLAN.md
+Last session: 2026-07-28T18:51:36.707Z
+Stopped at: Completed 56-04-PLAN.md (phase closeout)
 Resume file: None

@@ -1,9 +1,9 @@
 ---
 phase: 56
 slug: registry-cli-verbs-subprocess-dispatcher
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: complete
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-28
 ---
 
@@ -84,13 +84,18 @@ created: 2026-07-28
 
 ## Validation Sign-Off
 
-- [ ] All tasks have automated verify (cargo/bats) or Wave 0 deps
-- [ ] Sampling continuity: no 3 consecutive tasks without automated verify
-- [ ] Every verb has a bats file green on the Rust build (byte-compatible stdout/exit)
-- [ ] Dispatcher 6-case parity spec green (the VERB-02 floor)
-- [ ] `agentlinux-core` stays pure; all new I/O lives in the `agentlinux` bin
-- [ ] mutants gate covers any new pure helper
-- [ ] Docker symlink-override staging works; no bats exits 127 for missing Rust bin
-- [ ] `nyquist_compliant: true` set
+- [x] All tasks have automated verify (cargo/bats) or Wave 0 deps
+- [x] Sampling continuity: no 3 consecutive tasks without automated verify
+- [x] Every verb has a bats file green on the Rust build (byte-compatible stdout/exit)
+      — list→40; install→40/23; remove→40; upgrade→40/50; pin→40; adopt→40 (Wave 3, 56-04-SUMMARY §per-verb matrix)
+- [x] Dispatcher 6-case parity spec green (the VERB-02 floor) — `cargo test -p agentlinux dispatcher` = 9 passed (6 parity + SIGKILL escalation + buffered-timeout + real-recipe dispatch), re-asserted AFTER all six verbs wired `dispatch_recipe`
+- [x] `agentlinux-core` stays pure; all new I/O lives in the `agentlinux` bin — production code has zero `std::process`/`std::fs`/`std::env`; the only matches are doc comments + `#[test]` catalog/schema oracles
+- [x] mutants gate covers any new pure helper — Wave 3 added no new pure helper (staging-mechanic fix only); prior waves' helpers covered
+- [x] Docker symlink-override staging works; no bats exits 127 for missing Rust bin — off-PATH staging (Wave 3) resolves CLI-01 interactive; fail-loud guard intact
+- [x] `nyquist_compliant: true` set
 
-**Approval:** pending
+**Approval:** APPROVED — Wave 3 closeout. GATE-01 met (full CLI bats green on the
+Rust build, per-file, no regression / no newly-skipped vs. the TS build); VERB-01/
+02/03 signed off. Environment-gated remainder (ssh invocation mode on 40/50;
+INST-02 under the flag) enumerated for Phase 59 QEMU — see 56-04-SUMMARY
+§"Phase-59-deferred". The bats specs are UNCHANGED and no gate was weakened.

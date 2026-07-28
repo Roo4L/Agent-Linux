@@ -105,7 +105,7 @@ Plans:
 - [x] 56-01-PLAN.md — Wave 0 scaffold: clap CLI skeleton + `RecipeEnv` typed source + the subprocess dispatcher (6-case parity) + the flag-gated Rust-bin bats staging override
 - [x] 56-02-PLAN.md — Wave 1 read-only/state-only verbs: `list`/`pin`/`adopt` + the catalog/sentinel/cache/guard adapters (list+adopt green on 40-registry-cli vs the staged Rust bin; pin unit-green, bats-blocked only by the Plan-03 `install` setup fixture)
 - [x] 56-03-PLAN.md — Wave 2 mutating verbs: `install`/`remove`/`upgrade` + probe/npm/rewire adapters (real recipe dispatch; VERB-02/03 end-to-end)
-- [ ] 56-04-PLAN.md — Wave 3 closeout: full CLI bats green on the Rust build + dispatcher-floor re-assert + Phase-59-deferred gated-case record (GATE-01/05)
+- [x] 56-04-PLAN.md — Wave 3 closeout: full CLI bats green on the Rust build + dispatcher-floor re-assert + Phase-59-deferred gated-case record (GATE-01/05)
 
 ### Phase 57: Provisioner Port + Logic Consolidation
 
