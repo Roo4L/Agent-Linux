@@ -1,108 +1,181 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentlinux.org/schemas/catalog.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "AgentLinux Catalog",
   "description": "Catalog of available agents. Each entry is opt-in (CAT-02). Stability-first pinning (ADR-011): every entry carries a required pinned_version.",
   "type": "object",
-  "required": ["version", "agents"],
-  "additionalProperties": false,
   "properties": {
-    "version": {
-      "type": "string",
-      "description": "Catalog manifest version (not an agent version)"
-    },
     "agents": {
       "type": "array",
-      "items": { "$ref": "#/$defs/agent" }
+      "items": {
+        "$ref": "#/$defs/agent"
+      }
+    },
+    "version": {
+      "type": "string"
     }
   },
+  "$comment": "GENERATED from rust/crates/agentlinux-core/src/schema_gen.rs (TEST-03). Do not hand-edit — regenerate with `UPDATE_SCHEMA=1 cargo test -p agentlinux-core schema` and commit.",
+  "additionalProperties": false,
+  "required": [
+    "version",
+    "agents"
+  ],
   "$defs": {
     "agent": {
       "type": "object",
-      "required": [
-        "id",
-        "display_name",
-        "description",
-        "pinned_version",
-        "install_recipe_path",
-        "uninstall_recipe_path",
-        "source_kind"
-      ],
-      "additionalProperties": false,
       "properties": {
-        "id": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
-        "display_name": { "type": "string", "minLength": 1 },
-        "description": { "type": "string", "minLength": 1 },
-        "homepage": { "type": "string", "format": "uri" },
-        "license": { "type": "string" },
-        "source_kind": { "type": "string", "enum": ["npm", "script", "binary", "mcp"] },
-        "npm_package_name": {
-          "type": "string",
-          "pattern": "^(@[a-z0-9-]+/)?[a-z0-9][a-z0-9_-]*$"
+        "compatibility_window": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
         },
-        "requires_secret": {
-          "type": "boolean",
-          "description": "ENABLE-02: true when this entry needs a credential to function. Declarative metadata — the recipe prints the post-install instruction; the secret is never baked into the recipe/snapshot. Introduced for MCP-server entries but usable by any source_kind that needs a post-install credential. Absent → no secret required."
-        },
-        "secret_env": {
+        "description": {
           "type": "string",
-          "pattern": "^[A-Z][A-Z0-9_]*$",
-          "description": "ENABLE-02: name of the environment variable that carries this entry's credential (e.g. CONTEXT7_API_KEY). Set when a secret is used at all — required or optional. The user supplies it post-install; it is never baked."
+          "minLength": 1
+        },
+        "display_name": {
+          "type": "string",
+          "minLength": 1
         },
         "endpoint_url": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "uri",
-          "pattern": "^https://",
-          "description": "ENABLE-02 remote-http: the pinned HTTPS endpoint of a hosted remote MCP server (e.g. https://api.githubcopilot.com/mcp/). A hosted MCP is a rolling service with no semver — the URL is its stability contract, and pinned_version names the curated upstream server release the endpoint is validated against. Absent for npm/script/binary and stdio-mcp entries."
+          "pattern": "^https://"
         },
-        "pinned_version": {
-          "type": "string",
-          "description": "Exact semver pinned by this catalog release (CAT-04 / ADR-011). For a hosted remote-http MCP with no downloadable release (endpoint_url set, no upstream package), this instead carries the endpoint's GA date shaped as YYYY.M.D (e.g. 2026.2.17) — the validated-against marker, since the URL is the real stability contract.",
-          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        "homepage": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
         },
-        "version_constraint": {
+        "id": {
           "type": "string",
-          "description": "Optional semver range (e.g. '^2.1') that --all-latest upper-bounds against"
-        },
-        "compatibility_window": {
-          "type": "string",
-          "description": "Semver range (e.g., '>=2.0.0 <3.0.0'); REUSE-03 adopts a detected install whose version satisfies it. Optional.",
-          "minLength": 1
+          "pattern": "^[a-z][a-z0-9-]*$"
         },
         "install_recipe_path": {
           "type": "string",
           "pattern": "^[a-z0-9_./-]+\\.sh$"
         },
+        "license": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "npm_package_name": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^(@[a-z0-9-]+/)?[a-z0-9][a-z0-9_-]*$"
+        },
+        "pinned_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+(?:-[0-9A-Za-z.-]+)?(?:\\+[0-9A-Za-z.-]+)?$"
+        },
+        "post_install_verify": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "preserve_paths_file": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9_./-]+\\.json$"
+        },
+        "requires_secret": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rewire_recipe_path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[a-z0-9_./-]+\\.sh$"
+        },
+        "secret_env": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^[A-Z][A-Z0-9_]*$"
+        },
+        "source_kind": {
+          "type": "string",
+          "enum": [
+            "npm",
+            "script",
+            "binary",
+            "mcp"
+          ]
+        },
+        "tags": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "test_only": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
         "uninstall_recipe_path": {
           "type": "string",
           "pattern": "^[a-z0-9_./-]+\\.sh$"
         },
-        "rewire_recipe_path": {
-          "type": "string",
-          "pattern": "^[a-z0-9_./-]+\\.sh$",
-          "description": "WIRE-02: optional re-wire recipe for a cross-agent provider (rtk, a fan-out MCP server). The CLI re-runs it after a later coding-agent install so the provider fans out into the new agent (install-order-independence) without reinstalling the provider. Absent for non-providers."
-        },
-        "post_install_verify": {
-          "type": "string",
-          "description": "Optional shell one-liner for smoke-test"
-        },
-        "preserve_paths_file": {
-          "type": "string",
-          "pattern": "^[a-z0-9_./-]+\\.json$",
-          "description": "Optional path (relative to the agent's catalog dir) to a sibling preserve_paths.json. The loader injects the listed paths into AGENTLINUX_PRESERVE_PATHS for uninstall.sh (CAT-04). Absent → nothing preserved across REMEDIATE-04 reinstall."
-        },
-        "tags": { "type": "array", "items": { "type": "string" } },
-        "test_only": {
-          "type": "boolean",
-          "default": false,
-          "description": "Hide from default `list`; exercised by bats"
+        "version_constraint": {
+          "type": [
+            "string",
+            "null"
+          ]
         }
       },
+      "additionalProperties": false,
       "allOf": [
         {
-          "if": { "properties": { "source_kind": { "const": "npm" } }, "required": ["source_kind"] },
-          "then": { "required": ["npm_package_name"] }
+          "if": {
+            "properties": {
+              "source_kind": {
+                "const": "npm"
+              }
+            },
+            "required": [
+              "source_kind"
+            ]
+          },
+          "then": {
+            "required": [
+              "npm_package_name"
+            ]
+          }
         }
+      ],
+      "required": [
+        "id",
+        "display_name",
+        "description",
+        "source_kind",
+        "pinned_version",
+        "install_recipe_path",
+        "uninstall_recipe_path"
       ]
     }
   }
