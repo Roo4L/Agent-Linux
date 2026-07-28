@@ -274,6 +274,120 @@ mod tests {
 }
 
 #[cfg(test)]
+mod parity {
+    //! TEST-04 — node-semver ⇄ dtolnay `semver 1.0.28` behavior-parity golden
+    //! tests. Every fn name contains `parity` so `cargo test -p agentlinux-core
+    //! parity` selects exactly this module. Companion audit doc:
+    //! `docs/audits/v0.4.0/TEST-04-node-semver-parity.md`.
+    //!
+    //! The oracle is the COMMITTED TypeScript corpora (node deps stay
+    //! uninstalled by design): the `maxSatisfying` verdicts are recorded verbatim
+    //! from `plugin/cli/test/divergence.test.ts:133-151`. Every comparison routes
+    //! through `semver_shim` (never `semver::` directly) so parity stays isolated.
+    use super::*;
+
+    /// The `divergence.test.ts:133` version list, reused verbatim as the oracle.
+    fn corpus_versions() -> Vec<String> {
+        ["1.0.0", "1.1.0", "1.2.0", "2.0.0", "2.1.0"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect()
+    }
+
+    // --- Corpus case: max_satisfying verdicts == recorded node-semver verdicts ---
+
+    #[test]
+    fn parity_corpus_max_satisfying_matches_node_semver() {
+        let v = corpus_versions();
+        // node semver.maxSatisfying(v, "^1.0") === "1.2.0"  (caret upper bound)
+        assert_eq!(max_satisfying(&v, "^1.0").unwrap(), Some("1.2.0"));
+        // node semver.maxSatisfying(v, "~1.1") === "1.1.0"  (tilde bound)
+        assert_eq!(max_satisfying(&v, "~1.1").unwrap(), Some("1.1.0"));
+        // no-constraint (resolveLatestFor default "*") === "2.1.0"  (newest)
+        assert_eq!(max_satisfying(&v, "*").unwrap(), Some("2.1.0"));
+        // node semver.maxSatisfying(v, "^9.0") === null  (zero-match)
+        assert_eq!(max_satisfying(&v, "^9.0").unwrap(), None);
+    }
+
+    // --- Loose-shape case: parse_lenient parity with node-semver's loose accept ---
+
+    #[test]
+    fn parity_loose_shapes_parse_like_node_semver() {
+        // node semver.eq("v1.0.0","1.0.0") === true (v-prefix stripped)
+        assert_eq!(
+            parse_lenient("v1.0.0").unwrap(),
+            parse_lenient("1.0.0").unwrap()
+        );
+        // node coerces "2.1" → "2.1.0" in range/version context
+        assert_eq!(
+            parse_lenient("2.1").unwrap(),
+            parse_lenient("2.1.0").unwrap()
+        );
+        // GA-date "pins" are ordinary 3-part numeric semver — parse without error.
+        for ga in ["2026.2.17", "2025.5.1", "2026.2.4"] {
+            let parsed = parse_lenient(ga)
+                .unwrap_or_else(|e| panic!("GA-date pin {ga:?} failed to parse: {e}"));
+            // sanity: the major component is the year (>= 2025).
+            assert!(parsed.major >= 2025, "GA-date {ga} parsed as {parsed}");
+        }
+    }
+
+    // --- Catalog-driven case: every LIVE catalog range/pin round-trips the shim ---
+
+    /// Reads the real `plugin/catalog/catalog.json` (CARGO_MANIFEST_DIR-relative)
+    /// and asserts every `pinned_version` `parse_lenient`-parses and every
+    /// `version_constraint` / `compatibility_window` `normalize_range`-then-parses.
+    /// A future catalog edit introducing a range shape the shim mis-handles fails
+    /// HERE — this is the regression guard TEST-04 exists to provide.
+    #[test]
+    fn parity_catalog_ranges_all_round_trip_the_shim() {
+        use semver::VersionReq;
+
+        const CATALOG_PATH: &str = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../../plugin/catalog/catalog.json"
+        );
+        let raw = std::fs::read_to_string(CATALOG_PATH)
+            .unwrap_or_else(|e| panic!("cannot read catalog at {CATALOG_PATH}: {e}"));
+        let catalog: serde_json::Value =
+            serde_json::from_str(&raw).expect("catalog.json is valid JSON");
+        let agents = catalog["agents"]
+            .as_array()
+            .expect("catalog.json has an `agents` array");
+        assert!(!agents.is_empty(), "catalog has at least one agent");
+
+        for agent in agents {
+            let id = agent["id"].as_str().unwrap_or("<no-id>");
+
+            // pinned_version: must parse via the lenient version parser.
+            if let Some(pin) = agent["pinned_version"].as_str() {
+                parse_lenient(pin).unwrap_or_else(|e| {
+                    panic!("[{id}] pinned_version {pin:?} failed parse_lenient: {e}")
+                });
+            }
+
+            // version_constraint + compatibility_window: normalize_range then
+            // VersionReq::parse must succeed (the shim's range-handling contract).
+            for (field, name) in [
+                (&agent["version_constraint"], "version_constraint"),
+                (&agent["compatibility_window"], "compatibility_window"),
+            ] {
+                if let Some(range) = field.as_str() {
+                    let normalized = normalize_range(range);
+                    VersionReq::parse(&normalized).unwrap_or_else(|e| {
+                        panic!(
+                            "[{id}] {name} {range:?} → normalize_range {normalized:?} \
+                             failed VersionReq::parse: {e} — a range shape the shim \
+                             does not handle; extend semver_shim + TEST-04"
+                        )
+                    });
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
 mod proptests {
     //! Property test P4 (TEST-01) — `semver_shim` parse/normalize/max_satisfying
     //! totality + idempotence. The crate's no-panic contract (threat T-53-01)
