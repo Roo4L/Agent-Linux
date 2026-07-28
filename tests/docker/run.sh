@@ -207,10 +207,53 @@ docker exec "$CID" bash -c '
 echo "== run installer (agentlinux-install) =="
 docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install
 
+# Phase 53 (RUST-03 / GATE-01): stage the static-musl `agentlinux` Rust binary
+# into the container at an AGENT-OWNED path (NOT a /usr/local shim — that's the
+# self-update anti-pattern) so 13-reuse.bats exercises the REAL Rust
+# reuse-decision path, not just the bash fallback. The shim
+# (plugin/lib/reuse/agents.sh) still falls back to in-shell logic if the binary
+# is missing, so a build failure here is non-fatal — it just means the bats
+# suite runs the fallback (exactly as master did).
+#
+# Real per-distro in-container staging lands in Phase 56/57; this host-build +
+# copy is the spike's CI proof that the Rust path is green.
+RUST_BIN_IN_CONTAINER=/home/agent/.local/bin/agentlinux
+RUST_BIN_STAGED=""
+echo "== stage Rust agentlinux binary (RUST-03 / GATE-01) =="
+HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
+if [[ ! -x $HOST_MUSL_BIN ]]; then
+  echo "-- prebuilt musl binary absent; building on host --"
+  if command -v cargo >/dev/null 2>&1 || [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1091  # optional, path checked
+    [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+    (cd "$REPO_ROOT/rust" \
+      && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux) \
+      || echo "-- WARN: host musl build failed; bats will use the bash fallback --"
+  else
+    echo "-- WARN: cargo unavailable; bats will use the bash fallback --"
+  fi
+fi
+if [[ -x $HOST_MUSL_BIN ]]; then
+  docker exec "$CID" install -d -o agent -g agent /home/agent/.local/bin
+  docker cp "$HOST_MUSL_BIN" "$CID:$RUST_BIN_IN_CONTAINER"
+  docker exec "$CID" chown agent:agent "$RUST_BIN_IN_CONTAINER"
+  docker exec "$CID" chmod +x "$RUST_BIN_IN_CONTAINER"
+  RUST_BIN_STAGED=$RUST_BIN_IN_CONTAINER
+  echo "-- staged $RUST_BIN_IN_CONTAINER (Rust reuse path active) --"
+else
+  echo "-- Rust binary not staged; bats will exercise the bash fallback --"
+fi
+
 echo "== run bats suite (tests/bats/) =="
-# cd into the staged sources so bats discovers helpers/ relatively.
+# cd into the staged sources so bats discovers helpers/ relatively. When the
+# Rust binary was staged, export AGENTLINUX_RUST_BIN so the reuse shim resolves
+# the absolute path (its security-L1 guard rejects a bare relative name).
+BATS_ENV=()
+if [[ -n $RUST_BIN_STAGED ]]; then
+  BATS_ENV=(env "AGENTLINUX_RUST_BIN=$RUST_BIN_STAGED")
+fi
 set +e
-docker exec "$CID" bash -c 'cd /opt/agentlinux-src && bats tests/bats/'
+docker exec "$CID" bash -c 'cd /opt/agentlinux-src && '"${BATS_ENV[*]:+${BATS_ENV[*]} }"'bats tests/bats/'
 BATS_STATUS=$?
 set -e
 
