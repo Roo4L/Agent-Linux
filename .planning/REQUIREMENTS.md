@@ -24,8 +24,8 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 
 ### Pure-Logic Core Parity (CORE)
 
-- [ ] **CORE-01**: Six-state version classification returns verdicts identical to the TS `classify` across a golden corpus of `(sentinel, installed, pinned, sticky)` inputs.
-- [ ] **CORE-02**: `computeDivergence` + `resolveLatestFor` (semver `maxSatisfying`) match TS outputs across the golden corpus, including the zero-match error path.
+- [x] **CORE-01**: Six-state version classification returns verdicts identical to the TS `classify` across a golden corpus of `(sentinel, installed, pinned, sticky)` inputs.
+- [x] **CORE-02**: `computeDivergence` + `resolveLatestFor` (semver `maxSatisfying`) match TS outputs across the golden corpus, including the zero-match error path.
 - [x] **CORE-03**: Detect gates (reuse/remediate/presence), pin-spec parsing, and category derivation match TS outputs across the golden corpus.
 
 ### Registry CLI Verbs (VERB)
@@ -89,8 +89,8 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | TEST-02 | Phase 54 | Complete |
 | TEST-03 | Phase 54 | Complete |
 | TEST-04 | Phase 54 | Complete |
-| CORE-01 | Phase 55 | Pending |
-| CORE-02 | Phase 55 | Pending |
+| CORE-01 | Phase 55 | Complete |
+| CORE-02 | Phase 55 | Complete |
 | CORE-03 | Phase 55 | Complete |
 | VERB-01 | Phase 56 | Pending |
 | VERB-02 | Phase 56 | Pending |
