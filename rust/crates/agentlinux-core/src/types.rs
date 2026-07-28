@@ -1,10 +1,11 @@
 //! Rust mirrors of the TS `plugin/cli/src/types.ts` shapes the pure core consumes.
 //!
 //! `CatalogEntry` and `Sentinel` are modelled as plain `#[derive(Deserialize)]`
-//! structs (not builder-wrapped) so Phase 54's `#[derive(JsonSchema)]` bolts on
-//! without reshaping (RESEARCH §Phase-54-readiness). Only the fields the ported
-//! classify/divergence units actually read are mirrored — the full catalog schema
-//! is Phase 55 scope.
+//! structs. Only the fields the ported classify/divergence units actually read
+//! are mirrored — the full catalog field set is Phase 55 scope. The catalog
+//! schema (TEST-03) is NOT generated from these lean types: Plan 54-02 uses a
+//! dedicated codegen-only struct in `schema_gen.rs` that carries the full field
+//! set, so these core types stay minimal and free of schema-derive concerns.
 
 use serde::{Deserialize, Serialize};
 

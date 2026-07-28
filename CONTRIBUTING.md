@@ -70,6 +70,14 @@ available, but do not substitute another agent's CLI.
   That's the recursive-shim anti-pattern that breaks self-update.
 - **Pre-commit must stay green.** If a hook fires on your change, fix the
   underlying issue rather than skipping the hook.
+- **`plugin/catalog/schema.json` is generated — never hand-edit it (TEST-03).**
+  It is emitted from the Rust catalog types in
+  `rust/crates/agentlinux-core/src/schema_gen.rs` (the single source of truth).
+  After changing a catalog field or constraint there, regenerate and commit the
+  result with `UPDATE_SCHEMA=1 cargo test -p agentlinux-core schema` (run from
+  `rust/`). A CI drift-check fails if the committed `schema.json` differs from
+  freshly-generated output, so a hand-edit or a forgotten regeneration is caught
+  at review time.
 
 ## License & contributor agreement
 

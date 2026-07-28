@@ -17,10 +17,12 @@ thiserror = "1"
 # manifest. The `#[derive(JsonSchema)]` on the catalog types lands in Plan 02;
 # an unused dep does not fail the build, so carrying it now is inert.
 schemars = { version = "1.2.2", features = ["derive"] }
+# Plan 54-02: schema_gen::schema_json() pretty-prints the generated schema in
+# NON-test code, so serde_json must be a normal dependency (it is already a
+# transitive dep of schemars, so this adds nothing to the build graph). The
+# TEST-04 golden case + drift-check test reuse it.
+serde_json = "1"
 
 [dev-dependencies]
 # TEST-01: property tests + shrinking + regression persistence over the pure core.
 proptest = "1.11"
-# TEST-04: the catalog-driven golden case deserializes plugin/catalog/catalog.json.
-# Also used by Plan 54-02's schema-gen drift-check (staged here, dev-only).
-serde_json = "1"
