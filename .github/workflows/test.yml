@@ -139,6 +139,7 @@ jobs:
   rust:
     needs: changes
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     permissions:
       contents: read
     steps:
@@ -180,7 +181,11 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y musl-tools
+          # Transient apt mirror hiccups shouldn't fail the whole gate — retry.
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
           cargo build --release --target x86_64-unknown-linux-musl -p agentlinux
           BIN=target/x86_64-unknown-linux-musl/release/agentlinux
           # Authoritative static check: no dynamic NEEDED entries. `ldd` wording is
