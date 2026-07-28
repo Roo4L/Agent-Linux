@@ -59,6 +59,7 @@ jobs:
               - 'packaging/**'
               - 'tests/**'
               - 'scripts/**'
+              - 'rust/**'
               - '.github/workflows/**'
               - '.pre-commit-config.yaml'
               - '.gitleaks.toml'
@@ -125,6 +126,65 @@ jobs:
         working-directory: plugin/cli
         shell: bash
         run: pnpm exec node --test dist-test/test/*.test.js
+
+  # RUST-02 (v0.4.0 Phase 53 spike): gated Rust job. Mirrors the cli-unit
+  # guard-then-steps shape — the job always runs and reports (so the required
+  # check context stays reported), but its costly steps are gated behind a
+  # guard that sets ready=false when no AgentLinux code changed OR rust/Cargo.toml
+  # is absent. GATE-05: gating means a red Rust spike can NEVER block a master
+  # hotfix that touches no Rust — the rust track is additive and revertible.
+  # This is the LITERAL RUST-02 reading (research Open-Q1/A6): a separate gated
+  # rust job on every PR. The per-distro in-container musl build is Phase 59's
+  # GATE-02 endgame, explicitly out of scope here.
+  rust:
+    needs: changes
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+      - name: Skip if no AgentLinux code changed or rust/ absent
+        id: guard
+        env:
+          CODE_CHANGED: ${{ needs.changes.outputs.code }}
+        run: |
+          if [ "$CODE_CHANGED" != "true" ] || [ ! -f rust/Cargo.toml ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "No AgentLinux code changed or rust/ absent — skipping Rust steps"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install Rust toolchain (pinned via rust-toolchain.toml)
+        if: steps.guard.outputs.ready == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        if: steps.guard.outputs.ready == 'true'
+        with:
+          workspaces: rust
+      - name: rustfmt --check
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: cargo fmt --all -- --check
+      - name: clippy (deny warnings)
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: cargo clippy --all-targets -- -D warnings
+      - name: unit tests
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: cargo test --all
+      - name: static musl build + ldd assertion (RUST-01)
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y musl-tools
+          cargo build --release --target x86_64-unknown-linux-musl -p agentlinux
+          BIN=target/x86_64-unknown-linux-musl/release/agentlinux
+          ldd "$BIN" 2>&1 | grep -q "not a dynamic executable" \
+            || { echo "RUST-01 FAIL: binary is dynamically linked"; ldd "$BIN"; exit 1; }
 
   # SEC-05 (v0.4.0 Phase 8): full-history gitleaks gate. The pre-commit job
   # above runs gitleaks against staged files only (fast-feedback path). This
