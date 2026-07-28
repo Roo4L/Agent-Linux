@@ -11,9 +11,9 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 
 ### Rust Foundation (RUST)
 
-- [ ] **RUST-01**: `cargo build --release --target x86_64-unknown-linux-musl` produces a single fully-static `agentlinux` binary with no dynamic libc dependency (verified by `ldd` reporting "not a dynamic executable").
+- [x] **RUST-01**: `cargo build --release --target x86_64-unknown-linux-musl` produces a single fully-static `agentlinux` binary with no dynamic libc dependency (verified by `ldd` reporting "not a dynamic executable").
 - [ ] **RUST-02**: CI builds, `clippy`-lints, `rustfmt`-checks, and unit-tests the Rust binary on every PR; the Rust job is added to the Docker matrix and TS jobs retire per-area as code ports over.
-- [ ] **RUST-03**: A de-risking spike ports `classify` + `divergence` + one gnarly provisioner unit (e.g. `detect/nodejs.sh` or npm-prefix reconciliation) to Rust behind the existing bats tests, and records measured agent-loop metrics (iterations-to-green, token cost, cargo-timeout + crate-hallucination incidents) to calibrate the remaining port.
+- [x] **RUST-03**: A de-risking spike ports `classify` + `divergence` + one gnarly provisioner unit (e.g. `detect/nodejs.sh` or npm-prefix reconciliation) to Rust behind the existing bats tests, and records measured agent-loop metrics (iterations-to-green, token cost, cargo-timeout + crate-hallucination incidents) to calibrate the remaining port.
 
 ### Testing Bedrock (TEST)
 
@@ -51,7 +51,7 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 - [ ] **GATE-02**: The complete bats behavior contract passes on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) **and** the QEMU release gate.
 - [ ] **GATE-03**: Every existing requirement ID / behavior family (BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC) retains behavior or harness evidence on the Rust build (`behavior-coverage-auditor` reports zero uncovered).
 - [ ] **GATE-04**: The canonical acceptance test — agent `claude` self-update without sudo, zero EACCES — passes on the Rust build against the live Anthropic CDN.
-- [ ] **GATE-05**: `master` stays shippable throughout — the rewrite lands on a parallel track with a per-phase rollback path; a broken Rust phase never blocks a hotfix release from `master`. *Cross-cutting invariant — folded into every phase's success criteria; anchored (traceability) to Phase 53 where it is first established.*
+- [x] **GATE-05**: `master` stays shippable throughout — the rewrite lands on a parallel track with a per-phase rollback path; a broken Rust phase never blocks a hotfix release from `master`. *Cross-cutting invariant — folded into every phase's success criteria; anchored (traceability) to Phase 53 where it is first established.*
 
 ## v2 Requirements
 
@@ -82,9 +82,9 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| RUST-01 | Phase 53 | Pending |
+| RUST-01 | Phase 53 | Complete |
 | RUST-02 | Phase 53 | Pending |
-| RUST-03 | Phase 53 | Pending |
+| RUST-03 | Phase 53 | Complete |
 | TEST-01 | Phase 54 | Pending |
 | TEST-02 | Phase 54 | Pending |
 | TEST-03 | Phase 54 | Pending |
@@ -104,9 +104,10 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | GATE-02 | Phase 59 | Pending |
 | GATE-03 | Phase 59 | Pending |
 | GATE-04 | Phase 59 | Pending |
-| GATE-05 | Phase 53 (cross-cutting — every phase) | Pending |
+| GATE-05 | Phase 53 (cross-cutting — every phase) | Complete |
 
 **Coverage:**
+
 - v1 requirements: 23 total
 - Mapped to phases: 23 (100%) ✓
 - Unmapped: 0 ✓
