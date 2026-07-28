@@ -19,7 +19,10 @@ mod cli;
 mod cmd;
 mod dispatcher;
 mod guard;
+mod npm;
+mod probe;
 mod recipe_env;
+mod rewire;
 mod sentinel;
 
 use clap::Parser;
