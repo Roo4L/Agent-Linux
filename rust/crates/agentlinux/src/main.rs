@@ -24,6 +24,7 @@ mod probe;
 mod recipe_env;
 mod rewire;
 mod sentinel;
+mod sysio;
 
 use clap::Parser;
 use cli::{Cli, Command};
