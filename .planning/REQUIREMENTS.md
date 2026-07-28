@@ -18,8 +18,8 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 ### Testing Bedrock (TEST)
 
 - [x] **TEST-01**: The pure-logic core has `proptest` property tests asserting its invariants (e.g. classify is total & deterministic; `sticky ⇒ status ∈ {synced, pinned-override}`; latest-resolution output always satisfies the constraint or returns a typed error).
-- [ ] **TEST-02**: `cargo-mutants` runs on the pure-logic crate in CI and reports a mutation score; the score is gated at an agreed threshold (advisory → gate) — the practice that motivated the rewrite is operational, not aspirational.
-- [ ] **TEST-03**: The catalog JSON Schema is generated from the Rust catalog types via `schemars` (single source of truth); CI fails if the committed `schema.json` drifts from the generated output.
+- [x] **TEST-02**: `cargo-mutants` runs on the pure-logic crate in CI and reports a mutation score; the score is gated at an agreed threshold (advisory → gate) — the practice that motivated the rewrite is operational, not aspirational.
+- [x] **TEST-03**: The catalog JSON Schema is generated from the Rust catalog types via `schemars` (single source of truth); CI fails if the committed `schema.json` drifts from the generated output.
 - [x] **TEST-04**: A `node-semver` → Rust `semver` behavior-parity audit documents every range/prerelease case the catalog uses, backed by a golden test asserting identical `satisfies`/`maxSatisfying`/`valid` verdicts on the current catalog's version fields.
 
 ### Pure-Logic Core Parity (CORE)
@@ -86,8 +86,8 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | RUST-02 | Phase 53 | Complete |
 | RUST-03 | Phase 53 | Complete |
 | TEST-01 | Phase 54 | Complete |
-| TEST-02 | Phase 54 | Pending |
-| TEST-03 | Phase 54 | Pending |
+| TEST-02 | Phase 54 | Complete |
+| TEST-03 | Phase 54 | Complete |
 | TEST-04 | Phase 54 | Complete |
 | CORE-01 | Phase 55 | Pending |
 | CORE-02 | Phase 55 | Pending |

@@ -79,11 +79,15 @@ reconciliation in `semver_shim.rs`.
   both here and by `parity_loose_shapes_parse_like_node_semver`.
 - **Rows 8-9, 13:** golden loose-shape test
   `parity_loose_shapes_parse_like_node_semver` + the `parse_lenient` unit tests.
-- **Rows 10, 14-15:** the existing `semver_shim` unit tests
+- **Rows 10, 14-15:** the *specific verdict* (typed-error / no-panic on the
+  named input) is carried by the concrete `semver_shim` unit tests
   (`parse_lenient_malformed_returns_err_no_panic`,
-  `max_satisfying_malformed_range_returns_err`) plus the P4 totality property
-  (`proptests::p4_*`), which machine-checks the no-panic contract across the
-  generated loose-input space.
+  `max_satisfying_malformed_range_returns_err`) — these are the load-bearing
+  proof. The P4 totality property (`proptests::p4_*`) *additionally*
+  machine-checks only the **no-panic totality** contract across the generated
+  loose-input space; it does not assert the row's specific verdict (that is the
+  unit tests' job), so it is corroborating, not the primary evidence for these
+  rows.
 
 ---
 
