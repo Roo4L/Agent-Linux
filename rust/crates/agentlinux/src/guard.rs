@@ -26,6 +26,33 @@ use std::process::ExitCode;
 /// EX_USAGE (sysexits.h) — the guard's fail-fast exit code (guard/user.ts:23).
 const EX_USAGE: u8 = 64;
 
+/// `require_root` — the PRE-Node provisioner entry guard (Pitfall 7).
+///
+/// Byte-for-behavior port of `plugin/bin/agentlinux-install:305-310`
+/// (`require_root`). The `provision` entrypoint runs BEFORE any Node/agent-user
+/// exists and performs privileged systems I/O (useradd, chown, locale files), so
+/// it must assert EUID==0 — NOT `guard_agent_user`, which resolves the invoker's
+/// passwd entry and REJECTS root (the provisioner's REQUIRED invoker). Routing
+/// `provision` through the wrong guard would make every real `sudo agentlinux
+/// provision` exit 64 (Pitfall 7 / T-57-04).
+///
+/// Returns `ExitCode::SUCCESS` when EUID==0; else prints the diagnostic to stderr
+/// and returns `ExitCode::from(64)` (mirrors the Bash `exit "$EX_USAGE"`).
+///
+/// `euid` is `None` in production (resolve the real EUID) or `Some` in tests (the
+/// DI seam mirroring `guard_agent_user`'s `invoker` param convention).
+#[must_use]
+pub fn require_root(euid: Option<u32>) -> ExitCode {
+    let euid = euid.unwrap_or_else(|| geteuid().as_raw());
+    if euid == 0 {
+        ExitCode::SUCCESS
+    } else {
+        // Byte-for-byte with agentlinux-install:307.
+        eprintln!("agentlinux provision must run as root (EUID != 0). Re-run under sudo.");
+        ExitCode::from(EX_USAGE)
+    }
+}
+
 /// Resolve the invoker username from the EFFECTIVE uid (mirrors TS
 /// `os.userInfo().username`). Falls back to the numeric euid as a string when the
 /// passwd lookup yields nothing (no matching entry) — a value that will never
@@ -126,5 +153,20 @@ mod guard_tests {
             let code = guard_agent_user("list", Some("root"));
             assert_eq!(code, ExitCode::from(EX_USAGE));
         }
+    }
+
+    // --- require_root (Pitfall 7): the provision entry guard is the INVERSE of
+    // guard_agent_user — EUID==0 proceeds, a non-root invoker exits 64.
+
+    #[test]
+    fn require_root_success_for_euid_zero() {
+        assert_eq!(require_root(Some(0)), ExitCode::SUCCESS);
+    }
+
+    #[test]
+    fn require_root_exits_64_for_nonroot() {
+        // A regular login uid (1000) → EX_USAGE(64), the opposite of the CLI-05
+        // guard (which would ACCEPT a matching non-root invoker). Pitfall 7.
+        assert_eq!(require_root(Some(1000)), ExitCode::from(EX_USAGE));
     }
 }

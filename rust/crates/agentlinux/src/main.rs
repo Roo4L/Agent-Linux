@@ -23,6 +23,7 @@ mod guard;
 mod npm;
 mod pkg;
 mod probe;
+mod provision;
 mod recipe_env;
 mod rewire;
 mod sentinel;
@@ -149,6 +150,10 @@ fn verb_name(command: &Command) -> &'static str {
         Command::Remove(_) => "remove",
         Command::Upgrade(_) => "upgrade",
         Command::Pin(_) => "pin",
+        // `provision` never reaches the CLI-05 `guard_agent_user` (it is routed
+        // through `require_root` instead — Pitfall 7); a name is provided for
+        // completeness/exhaustiveness.
+        Command::Provision(_) => "provision",
     }
 }
 
@@ -163,8 +168,23 @@ fn verb_name(command: &Command) -> &'static str {
 /// Wave-1 (this plan) wires `list`/`adopt`/`pin`; `install`/`remove`/`upgrade`
 /// remain loud EX_SOFTWARE(70) not-implemented stubs until Plan 03.
 fn dispatch(command: Command) -> ExitCode {
-    // The guard runs for every verb (CLI-05). Production passes `None` → resolve
-    // the real EUID username.
+    // `provision` is the PRE-Node provisioner entrypoint: it runs privileged
+    // systems I/O BEFORE any agent user exists, so it dispatches through
+    // `require_root` (EUID==0), NOT the CLI-05 `guard_agent_user` (which resolves
+    // the invoker's passwd entry and REJECTS root — the provisioner's REQUIRED
+    // invoker). Pitfall 7 / T-57-04: routing it through the wrong guard would make
+    // every real `sudo agentlinux provision` exit 64. Handled BEFORE the blanket
+    // guard so the six user-facing verbs keep their CLI-05 guard.
+    if let Command::Provision(args) = &command {
+        let guard = guard::require_root(None);
+        if guard != ExitCode::SUCCESS {
+            return guard;
+        }
+        return cmd::provision::provision(args);
+    }
+
+    // The CLI-05 guard runs for every OTHER verb. Production passes `None` →
+    // resolve the real EUID username.
     let guard = guard::guard_agent_user(verb_name(&command), None);
     if guard != ExitCode::SUCCESS {
         return guard;
@@ -177,6 +197,8 @@ fn dispatch(command: Command) -> ExitCode {
         Command::Install(args) => cmd::install::install(&args.name.clone(), &args),
         Command::Remove(args) => cmd::remove::remove(&args.name.clone(), &args),
         Command::Upgrade(args) => cmd::upgrade::upgrade(&args),
+        // Provision is handled above (require_root arm); unreachable here.
+        Command::Provision(_) => unreachable!("provision handled via require_root arm"),
     }
 }
 

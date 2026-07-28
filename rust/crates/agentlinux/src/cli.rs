@@ -53,6 +53,12 @@ pub enum Command {
     Upgrade(UpgradeArgs),
     /// Set sticky override: <name>=curated|latest|x.y.z.
     Pin(PinArgs),
+    /// Provision the agent user + environment (PRE-Node; runs as root).
+    ///
+    /// The Phase-57 Rust provisioner entrypoint (`plugin/bin/agentlinux-install`).
+    /// Dispatched through `require_root` (EUID==0), NOT the CLI-05
+    /// `guard_agent_user` (Pitfall 7) — see `main::dispatch`.
+    Provision(ProvisionArgs),
 }
 
 /// `list` — index.ts:38-47. Four boolean `--long` flags, no positional.
@@ -150,6 +156,43 @@ pub struct UpgradeArgs {
 pub struct PinArgs {
     /// <name>=curated|latest|x.y.z
     pub spec: String,
+}
+
+/// `provision [flags]` — the Phase-57 provisioner entrypoint, mirroring
+/// `plugin/bin/agentlinux-install`'s `parse_args` flag set
+/// (agentlinux-install:196-290). No positional; `--user` takes a value, the rest
+/// are bools. The `--yes`×`--no-yes` and `--dry-run`×`--yes` contradictions are
+/// enforced in `cmd::provision::provision` (mapped to EX_USAGE=64), matching the
+/// Bash parse_args which exits 64 on either contradiction.
+#[derive(Debug, Parser)]
+pub struct ProvisionArgs {
+    /// install-user name to provision (default: agent / $AGENTLINUX_USER)
+    #[arg(long)]
+    pub user: Option<String>,
+    /// non-TTY consent for state-overwriting remediations
+    #[arg(long)]
+    pub yes: bool,
+    /// explicit opposite of --yes (default); contradicts --yes
+    #[arg(long)]
+    pub no_yes: bool,
+    /// run detection + decisions, print report, exit 0 without mutating host state
+    #[arg(long)]
+    pub dry_run: bool,
+    /// detection pass + report only; exit 0 without running provisioners
+    #[arg(long)]
+    pub report_only: bool,
+    /// remove the agent user + installer-placed files (destructive)
+    #[arg(long)]
+    pub purge: bool,
+    /// used WITH --purge: also remove the nodejs package
+    #[arg(long)]
+    pub remove_nodejs: bool,
+    /// report output format: text (default) or json
+    #[arg(long)]
+    pub report_format: Option<String>,
+    /// enable DEBUG-level logging
+    #[arg(long)]
+    pub verbose: bool,
 }
 
 #[cfg(test)]
@@ -292,6 +335,64 @@ mod cli_parse {
         match parse(&["agentlinux", "pin", "test-dummy=latest"]) {
             Command::Pin(a) => assert_eq!(a.spec, "test-dummy=latest"),
             other => panic!("expected Pin, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn provision_all_flags() {
+        // The Phase-57 provision verb: --user takes a value, the rest are bools.
+        // The two contradiction pairs (--yes/--no-yes, --dry-run/--yes) PARSE
+        // here — the contradiction is enforced downstream in cmd::provision and
+        // asserted by `provision_contradictions_*` there, matching the Bash
+        // parse_args (clap parses, the body maps to exit 64).
+        let cmd = parse(&[
+            "agentlinux",
+            "provision",
+            "--user",
+            "claude",
+            "--yes",
+            "--report-format",
+            "json",
+            "--verbose",
+        ]);
+        match cmd {
+            Command::Provision(a) => {
+                assert_eq!(a.user.as_deref(), Some("claude"));
+                assert!(a.yes);
+                assert!(!a.no_yes);
+                assert!(!a.dry_run);
+                assert_eq!(a.report_format.as_deref(), Some("json"));
+                assert!(a.verbose);
+            }
+            other => panic!("expected Provision, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn provision_defaults_are_all_false_and_user_none() {
+        match parse(&["agentlinux", "provision"]) {
+            Command::Provision(a) => {
+                assert_eq!(a.user, None);
+                assert!(!a.yes && !a.no_yes && !a.dry_run && !a.report_only);
+                assert!(!a.purge && !a.remove_nodejs && !a.verbose);
+                assert_eq!(a.report_format, None);
+            }
+            other => panic!("expected Provision, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn provision_contradiction_pairs_parse_at_clap_layer() {
+        // clap accepts both flags; the contradiction is a semantic check in the
+        // command body (exit 64), NOT a clap conflict — assert clap parses them
+        // so the downstream check is the single enforcement point.
+        match parse(&["agentlinux", "provision", "--yes", "--no-yes"]) {
+            Command::Provision(a) => assert!(a.yes && a.no_yes),
+            other => panic!("expected Provision, got {other:?}"),
+        }
+        match parse(&["agentlinux", "provision", "--dry-run", "--yes"]) {
+            Command::Provision(a) => assert!(a.dry_run && a.yes),
+            other => panic!("expected Provision, got {other:?}"),
         }
     }
 
