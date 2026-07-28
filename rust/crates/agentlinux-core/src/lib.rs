@@ -11,3 +11,11 @@ pub mod divergence;
 pub mod reuse;
 pub mod semver_shim;
 pub mod types;
+
+/// Shared proptest strategy generators (TEST-01), consumed by the `proptests`
+/// modules in classify/divergence/semver_shim/reuse. Test-only — compiled out of
+/// the shipped crate. dtolnay `semver` ships no proptest/Arbitrary support, so
+/// these are hand-written string strategies kept catalog-realistic (RESEARCH
+/// §proptest Invariants).
+#[cfg(test)]
+pub mod proptest_strategies;

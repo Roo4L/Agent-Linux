@@ -267,3 +267,72 @@ mod tests {
         assert!(matches!(err, DivergenceError::NoPublishedVersions { .. }));
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    //! Property test P3 (TEST-01) over `resolve_latest_for` — the strong
+    //! postcondition the 5 example rows cannot express: the result is EITHER an
+    //! `Ok(v)` that is a published version AND re-verified to satisfy the range,
+    //! OR one of the three typed `DivergenceError` variants — never a panic, and
+    //! never an `Ok` that violates the constraint.
+    use super::*;
+    use crate::proptest_strategies::{range_str, version_str};
+    use crate::semver_shim;
+    use proptest::prelude::*;
+
+    /// An entry whose `version_constraint` is a generated range (or absent, →`*`).
+    fn entry_with_range() -> impl Strategy<Value = CatalogEntry> {
+        proptest::option::of(range_str()).prop_map(|vc| CatalogEntry {
+            id: "foo".to_string(),
+            pinned_version: "1.0.0".to_string(),
+            version_constraint: vc,
+            npm_package_name: Some("foo".to_string()),
+            compatibility_window: None,
+        })
+    }
+
+    proptest! {
+        // P3 — resolve_latest_for output satisfies the constraint OR is a typed error.
+        #[test]
+        fn p3_resolve_latest_satisfies_or_typed_error(
+            entry in entry_with_range(),
+            published in proptest::collection::vec(version_str(), 0..8),
+        ) {
+            match resolve_latest_for(&entry, &published) {
+                Ok(v) => {
+                    // (a) the chosen version is one of the published versions.
+                    prop_assert!(
+                        published.iter().any(|p| p == &v),
+                        "resolved {:?} not in published list {:?}",
+                        v,
+                        published
+                    );
+                    // (b) re-verify it satisfies the constraint via the shim — a
+                    //     postcondition independent of the resolution path.
+                    let range = entry.version_constraint.as_deref().unwrap_or("*");
+                    let only = [v.clone()];
+                    let recheck = semver_shim::max_satisfying(&only, range)
+                        .expect("range parsed once already, must re-parse");
+                    prop_assert_eq!(
+                        recheck,
+                        Some(v.as_str()),
+                        "resolved version {:?} does not satisfy its own constraint {:?}",
+                        v,
+                        range
+                    );
+                }
+                Err(e) => {
+                    // The ONLY legal failures are the three typed variants — the
+                    // match itself proves no other error shape (and no panic) escapes.
+                    let is_typed = matches!(
+                        e,
+                        DivergenceError::NoPublishedVersions { .. }
+                            | DivergenceError::NoSatisfyingVersion { .. }
+                            | DivergenceError::InvalidConstraint { .. }
+                    );
+                    prop_assert!(is_typed, "unexpected error shape: {:?}", e);
+                }
+            }
+        }
+    }
+}

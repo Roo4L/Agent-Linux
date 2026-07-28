@@ -253,3 +253,38 @@ mod tests {
         assert_eq!(Decision::Create.as_str(), "create");
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    //! Property test (TEST-01) — `agent_decision` totality. The fn is
+    //! branch-total (every path returns a `Decision`); this proves it across
+    //! arbitrary id/status/path strings, including the empty-string and
+    //! unknown-id boundaries, without panicking.
+    use super::*;
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn agent_decision_is_total(
+            id in ".*",
+            status in ".*",
+            detected_path in proptest::option::of(".*"),
+            canonical in proptest::option::of(".*"),
+            gsd_system_path in ".*",
+        ) {
+            // The call returning a Decision without unwinding IS the totality
+            // assertion; assert it is one of the three tokens as a smoke check.
+            let decision = agent_decision(
+                &id,
+                &status,
+                detected_path.as_deref(),
+                canonical.as_deref(),
+                &gsd_system_path,
+            );
+            prop_assert!(matches!(
+                decision,
+                Decision::Reuse | Decision::Remediate | Decision::Create
+            ));
+        }
+    }
+}

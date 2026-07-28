@@ -272,3 +272,92 @@ mod tests {
         assert!(eq("v1.0.0", "1.0.0").unwrap());
     }
 }
+
+#[cfg(test)]
+mod proptests {
+    //! Property test P4 (TEST-01) — `semver_shim` parse/normalize/max_satisfying
+    //! totality + idempotence. The crate's no-panic contract (threat T-53-01)
+    //! becomes machine-checked over the generated loose-input space, not just the
+    //! handful of example rows.
+    use super::*;
+    use crate::proptest_strategies::{loose_version_str, range_str, version_str};
+    use proptest::prelude::*;
+
+    proptest! {
+        // P4a — normalize_range is IDEMPOTENT: normalizing an already-normalized
+        // range is a fixpoint. Generalizes the single #[test] fixpoint case above.
+        #[test]
+        fn p4_normalize_range_idempotent(range in range_str()) {
+            let once = normalize_range(&range);
+            let twice = normalize_range(&once);
+            prop_assert_eq!(once, twice);
+        }
+
+        // P4a' — idempotence must hold for ARBITRARY strings too, not only the
+        // catalog-realistic range shapes (normalize_range is a total string fn).
+        #[test]
+        fn p4_normalize_range_idempotent_arbitrary(range in ".*") {
+            let once = normalize_range(&range);
+            let twice = normalize_range(&once);
+            prop_assert_eq!(once, twice);
+        }
+
+        // P4b — parse_lenient never PANICS on loose inputs: Ok or a typed Err.
+        // The match arms are the assertion; reaching either without unwinding
+        // proves totality (T-53-01).
+        #[test]
+        fn p4_parse_lenient_total_on_loose(v in loose_version_str()) {
+            match parse_lenient(&v) {
+                Ok(_) => {}
+                Err(SemverError::Version { .. }) => {}
+                Err(other) => prop_assert!(
+                    false,
+                    "parse_lenient returned an unexpected error variant: {:?}",
+                    other
+                ),
+            }
+        }
+
+        // P4b' — parse_lenient never panics on ARBITRARY (adversarial) strings.
+        #[test]
+        fn p4_parse_lenient_total_on_arbitrary(v in ".*") {
+            let _ = parse_lenient(&v);
+        }
+
+        // P4c — max_satisfying never panics, and any returned version is a member
+        // of the input list AND actually satisfies the range (output soundness).
+        #[test]
+        fn p4_max_satisfying_total_and_sound(
+            versions in proptest::collection::vec(version_str(), 0..8),
+            range in range_str(),
+        ) {
+            match max_satisfying(&versions, &range) {
+                Ok(Some(best)) => {
+                    // membership: the winner is one of the inputs.
+                    prop_assert!(
+                        versions.iter().any(|v| v == best),
+                        "max_satisfying returned {:?} not in {:?}",
+                        best,
+                        versions
+                    );
+                    // soundness: the winner satisfies the range (re-check via a
+                    // single-element list — must return the same version).
+                    let only = [best.to_string()];
+                    let recheck = max_satisfying(&only, &range)
+                        .expect("range already parsed once");
+                    prop_assert_eq!(
+                        recheck, Some(best),
+                        "max_satisfying winner does not satisfy its own range"
+                    );
+                }
+                Ok(None) => {} // legal: nothing matched.
+                Err(SemverError::Range { .. }) => {} // legal: malformed range.
+                Err(other) => prop_assert!(
+                    false,
+                    "max_satisfying returned an unexpected error variant: {:?}",
+                    other
+                ),
+            }
+        }
+    }
+}

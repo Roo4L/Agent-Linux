@@ -91,6 +91,13 @@ coverage/
 # workspace, lockfile is authoritative — but the target/ tree is never committed).
 rust/target/
 
+# v0.4.0 Phase 54 (TEST-02, staged in Plan 54-01 for Plan 54-03): cargo-mutants
+# scratch output. NOTE: the proptest regression-seed dir is deliberately NOT
+# ignored — those committed counterexample seeds must replay on every future run
+# (TEST-01), so no rule below matches it.
+rust/**/mutants.out
+rust/**/mutants.out.old
+
 # Python (in case any contributor lands a script that needs it)
 __pycache__/
 *.pyc
