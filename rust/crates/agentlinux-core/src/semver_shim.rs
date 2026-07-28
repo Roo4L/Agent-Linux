@@ -271,6 +271,77 @@ mod tests {
         // node semver.eq("v1.0.0","1.0.0") === true
         assert!(eq("v1.0.0", "1.0.0").unwrap());
     }
+
+    // --- valid: STRICT node semver.valid parity (Pitfall 6 / Assumption A1) ---
+    //
+    // node `semver.valid(x)` returns the NORMALIZED version string or null:
+    //   - accepts full versions + prereleases,
+    //   - accepts a leading `v` (normalizing it away),
+    //   - REJECTS partials ("2.1") and ranges ("^2.1") — pins are version
+    //     points, not ranges (pin.ts:66-69).
+    // The shim's `valid` must therefore NOT reuse parse_lenient's partial
+    // coercion, which would wrongly accept "2.1".
+
+    #[test]
+    fn valid_accepts_full_version_returns_normalized() {
+        // valid("2.1.7") → Some("2.1.7")
+        assert_eq!(valid("2.1.7"), Some("2.1.7".to_string()));
+    }
+
+    #[test]
+    fn valid_accepts_prerelease() {
+        // valid("2.1.7-beta.1") → Some("2.1.7-beta.1") (prereleases accepted)
+        assert_eq!(valid("2.1.7-beta.1"), Some("2.1.7-beta.1".to_string()));
+    }
+
+    #[test]
+    fn valid_strips_and_normalizes_v_prefix() {
+        // A1 cross-check row: valid("v1.2.3") → Some("1.2.3") (leading v stripped,
+        // the NORMALIZED form is returned — Pitfall 6).
+        assert_eq!(valid("v1.2.3"), Some("1.2.3".to_string()));
+    }
+
+    #[test]
+    fn valid_rejects_two_component_partial() {
+        // A1 cross-check row: valid("2.1") → None. This is the strict subtlety —
+        // it must NOT coerce "2.1" → "2.1.0" the way parse_lenient does. node
+        // semver.valid("2.1") === null.
+        assert_eq!(valid("2.1"), None);
+    }
+
+    #[test]
+    fn valid_rejects_range_and_garbage_and_empty() {
+        // valid("^2.1") → None (a range, not a version point)
+        assert_eq!(valid("^2.1"), None);
+        // valid("bogus") → None
+        assert_eq!(valid("bogus"), None);
+        // valid("") → None
+        assert_eq!(valid(""), None);
+    }
+
+    // --- satisfies: total node semver.satisfies parity (detect.ts:179,273) ---
+
+    #[test]
+    fn satisfies_compound_range_in_and_out_of_window() {
+        // satisfies("2.5.0", ">=2.0.0 <3.0.0") → true (compound via normalize_range)
+        assert!(satisfies("2.5.0", ">=2.0.0 <3.0.0"));
+        // satisfies("3.0.0", ">=2.0.0 <3.0.0") → false
+        assert!(!satisfies("3.0.0", ">=2.0.0 <3.0.0"));
+    }
+
+    #[test]
+    fn satisfies_lenient_parses_version_v_prefix() {
+        // satisfies("v1.37.1", ">=1.37.0 <2.0.0") → true (version lenient-parsed)
+        assert!(satisfies("v1.37.1", ">=1.37.0 <2.0.0"));
+    }
+
+    #[test]
+    fn satisfies_malformed_inputs_return_false_never_panic() {
+        // satisfies("x", "^1") → false (version unparseable)
+        assert!(!satisfies("x", "^1"));
+        // satisfies("1.0.0", "not a range") → false (range unparseable, no panic)
+        assert!(!satisfies("1.0.0", "not a range"));
+    }
 }
 
 #[cfg(test)]
@@ -307,6 +378,35 @@ mod parity {
         assert_eq!(max_satisfying(&v, "*").unwrap(), Some("2.1.0"));
         // node semver.maxSatisfying(v, "^9.0") === null  (zero-match)
         assert_eq!(max_satisfying(&v, "^9.0").unwrap(), None);
+    }
+
+    // --- valid/satisfies case: A1 STRICT-valid + satisfies parity ---
+
+    #[test]
+    fn parity_valid_strict_rejects_partials_accepts_prerelease() {
+        // The A1 cross-check the pin.test.ts corpus does NOT exercise — added
+        // here as the parity oracle boundary. node semver.valid semantics:
+        //   semver.valid("2.1.7")        === "2.1.7"
+        //   semver.valid("2.1.7-beta.1") === "2.1.7-beta.1"
+        //   semver.valid("v1.2.3")       === "1.2.3"   (normalized)
+        //   semver.valid("2.1")          === null      (partial REJECTED)
+        //   semver.valid("^2.1")         === null      (range REJECTED)
+        assert_eq!(valid("2.1.7"), Some("2.1.7".to_string()));
+        assert_eq!(valid("2.1.7-beta.1"), Some("2.1.7-beta.1".to_string()));
+        assert_eq!(valid("v1.2.3"), Some("1.2.3".to_string()));
+        assert_eq!(valid("2.1"), None);
+        assert_eq!(valid("^2.1"), None);
+    }
+
+    #[test]
+    fn parity_satisfies_matches_node_semver_over_window() {
+        // node semver.satisfies(version, compatibility_window) verdicts.
+        //   satisfies("2.5.0", ">=2.0.0 <3.0.0") === true
+        //   satisfies("3.0.0", ">=2.0.0 <3.0.0") === false
+        //   satisfies("v1.37.1", ">=1.37.0 <2.0.0") === true (lenient version)
+        assert!(satisfies("2.5.0", ">=2.0.0 <3.0.0"));
+        assert!(!satisfies("3.0.0", ">=2.0.0 <3.0.0"));
+        assert!(satisfies("v1.37.1", ">=1.37.0 <2.0.0"));
     }
 
     // --- Loose-shape case: parse_lenient parity with node-semver's loose accept ---
@@ -436,6 +536,42 @@ mod proptests {
         #[test]
         fn p4_parse_lenient_total_on_arbitrary(v in ".*") {
             let _ = parse_lenient(&v);
+        }
+
+        // P4d — valid never PANICS on loose inputs: Some(normalized) or None.
+        // And any Some(_) it returns is itself a strictly-valid version (feeding
+        // valid's own output back in is a fixpoint: idempotent normalization).
+        #[test]
+        fn p4_valid_total_and_idempotent_on_loose(v in loose_version_str()) {
+            match valid(&v) {
+                Some(normalized) => {
+                    // idempotent: the normalized form is itself valid and stable.
+                    prop_assert_eq!(valid(&normalized), Some(normalized));
+                }
+                None => {} // legal: a partial/range/garbage input.
+            }
+        }
+
+        // P4d' — valid never panics on ARBITRARY (adversarial) strings.
+        #[test]
+        fn p4_valid_total_on_arbitrary(v in ".*") {
+            let _ = valid(&v);
+        }
+
+        // P4e — satisfies is TOTAL: any (version, range) yields a bool, never
+        // panics (malformed range/version → false). Threat T-55-02.
+        #[test]
+        fn p4_satisfies_total_on_loose(
+            v in loose_version_str(),
+            range in range_str(),
+        ) {
+            let _: bool = satisfies(&v, &range);
+        }
+
+        // P4e' — satisfies never panics on ARBITRARY (adversarial) inputs.
+        #[test]
+        fn p4_satisfies_total_on_arbitrary(v in ".*", range in ".*") {
+            let _: bool = satisfies(&v, &range);
         }
 
         // P4c — max_satisfying never panics, and any returned version is a member
