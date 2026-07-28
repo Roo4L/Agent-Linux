@@ -254,16 +254,23 @@ RUST_PROVISION_BIN_IN_CONTAINER=/usr/local/lib/agentlinux/provision/agentlinux
 # REQUIRE the bin (the provisioner seam) assert `-x $HOST_MUSL_BIN` afterward and
 # fail loud; callers that treat it as optional (the reuse staging) fall back.
 host_build_musl() {
-  [[ -x $HOST_MUSL_BIN ]] && return 0
-  echo "-- prebuilt musl binary absent; building on host --"
+  # When cargo is available, ALWAYS (re)build — cargo's incremental compilation
+  # makes this a near-noop when nothing changed, and it correctly refreshes a
+  # STALE binary after a source edit. The previous `[[ -x ]] && return 0` early
+  # return silently staged a stale bin across waves (a false green/red risk on
+  # the acceptance oracle). Fall back to an existing prebuilt bin only when cargo
+  # is absent (the CI prebuilt-stage path).
   if command -v cargo >/dev/null 2>&1 || [[ -f "$HOME/.cargo/env" ]]; then
     # shellcheck disable=SC1091  # optional, path checked
     [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+    echo "-- building/refreshing host musl binary (cargo incremental) --"
     (cd "$REPO_ROOT/rust" \
       && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux) \
       || echo "-- WARN: host musl build failed --"
+  elif [[ -x $HOST_MUSL_BIN ]]; then
+    echo "-- cargo unavailable; using existing prebuilt musl binary --"
   else
-    echo "-- WARN: cargo unavailable --"
+    echo "-- WARN: cargo unavailable and no prebuilt musl binary --"
   fi
 }
 
