@@ -8,5 +8,6 @@
 //! upgrade).
 
 pub mod adopt;
+pub mod install;
 pub mod list;
 pub mod pin;

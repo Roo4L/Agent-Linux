@@ -171,10 +171,10 @@ fn dispatch(command: Command) -> ExitCode {
         Command::List(args) => cmd::list::list(&args),
         Command::Adopt(args) => cmd::adopt::adopt(args.name.as_deref(), &args),
         Command::Pin(args) => cmd::pin::pin(&args.spec),
-        // install/remove/upgrade are Plan 03 (Wave 2). Until wired, a loud
-        // EX_SOFTWARE(70) stub — a premature invocation is a clean line, not a
-        // SIGABRT.
-        Command::Install(_) | Command::Remove(_) | Command::Upgrade(_) => {
+        Command::Install(args) => cmd::install::install(&args.name.clone(), &args),
+        // remove/upgrade are Task 3 (Wave 2). Until wired, a loud EX_SOFTWARE(70)
+        // stub — a premature invocation is a clean line, not a SIGABRT.
+        Command::Remove(_) | Command::Upgrade(_) => {
             let verb = verb_name(&command);
             eprintln!("agentlinux: '{verb}' is not implemented yet (Wave 2)");
             ExitCode::from(70)
