@@ -36,7 +36,7 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 
 ### Provisioner (PROV)
 
-- [ ] **PROV-01**: Provisioning (agent-user creation, sudoers drop-in, NodeSource Node, PATH/env wiring to `/etc/agentlinux.env`, registry-CLI staging) leaves the system in the same observable state as the Bash provisioner — verified by the `RT-*` / `AGT-*` bats across all six invocation modes (interactive login, non-interactive SSH, cron, systemd `User=agent`, `sudo -u`, `sudo -u -i`).
+- [x] **PROV-01**: Provisioning (agent-user creation, sudoers drop-in, NodeSource Node, PATH/env wiring to `/etc/agentlinux.env`, registry-CLI staging) leaves the system in the same observable state as the Bash provisioner — verified by the `RT-*` / `AGT-*` bats across all six invocation modes (interactive login, non-interactive SSH, cron, systemd `User=agent`, `sudo -u`, `sudo -u -i`).
 - [ ] **PROV-02**: Detection / remediation / reuse / idempotency logic is consolidated into the Rust binary; the duplicated `CANONICAL_PATHS` / `GSD_SYSTEM_PATH` maps are deleted from Bash (single source of truth in Rust).
 - [ ] **PROV-03**: Distro detection and the aware-install reuse/remediate/bail paths behave identically to today on Ubuntu 22.04/24.04/26.04 **and** AlmaLinux 9 (`DET-*` / `REUSE-*` / `REMEDIATE-*` bats green).
 
@@ -95,7 +95,7 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | VERB-01 | Phase 56 | Complete (arg surface Plan 56-01; list/pin/adopt Plan 56-02; install/remove/upgrade Plan 56-03 — all six verbs green on 40-registry-cli/23-install-user + real installs on 50-agents against the staged Rust bin) |
 | VERB-02 | Phase 56 | Complete |
 | VERB-03 | Phase 56 | Complete |
-| PROV-01 | Phase 57 | Pending |
+| PROV-01 | Phase 57 | Complete |
 | PROV-02 | Phase 57 | Pending |
 | PROV-03 | Phase 57 | Pending |
 | DIST-01 | Phase 58 | Pending |

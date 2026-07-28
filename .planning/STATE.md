@@ -5,16 +5,16 @@ milestone_name: Rust Rewrite
 current_phase: 57
 current_phase_name: Provisioner Port + Logic Consolidation
 status: in_progress
-stopped_at: Completed 57-01-PLAN.md
-last_updated: "2026-07-28T20:05:03.177Z"
+stopped_at: Completed 57-02-PLAN.md
+last_updated: "2026-07-28T20:21:53.539Z"
 last_activity: 2026-07-28
-last_activity_desc: "Plan 57-01 complete (Wave 0 — sysio/distro/pkg provisioner I/O foundation + AGENTLINUX_PROVISION_RUST seam + PROV-02 gate)"
+last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 20
   completed_plans: 14
-  percent: 45
+  percent: 43
 ---
 
 # Project State
@@ -28,7 +28,9 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 ## Current Position
 
-Phase: 57 — Provisioner Port + Logic Consolidation (IN PROGRESS — Wave 0 done)
+Phase: 57 — Provisioner Port + Logic Consolidation (IN PROGRESS — Waves 0-1 done)
+
+Plan 57-02 ✅ COMPLETE (2026-07-28, Wave 1 — provision orchestrator shell + 10-agent-user.sh port): stood up the `agentlinux provision` entrypoint every later wave plugs into, and landed the FIRST provisioner step. guard::require_root(euid: Option<u32>) — the PRE-Node EUID==0 entry guard (Pitfall 7 / T-57-04): provision routes through require_root, NOT the CLI-05 guard_agent_user (which rejects root); a non-root invoker exits 64. cli.rs Provision(ProvisionArgs) variant (--user/--yes/--no-yes/--dry-run/--report-only/--purge/--remove-nodejs/--report-format/--verbose) mirroring agentlinux-install parse_args; six-verb surface byte-stable (+3 cli_parse rows). cmd/provision.rs orchestrator reproducing the Bash main() order (validate flags → resolve+validate user via ported validate_user_name charset+reserved-denylist → distro detect → Resolutions::seed_create() → ordered step vec [agent_user, sudoers, nodejs, path_wiring, registry_cli]); Wave 1 wires agent_user, Waves 2-5 are LOUD not-yet-wired markers (T-57-03 fail-loud); --purge/--report-only/--dry-run are loud Wave-5 stubs (exit 0). provision/mod.rs shared Resolution/Resolutions/ProvisionCtx types + seed_create() (Wave-5 swap point). provision/agent_user.rs — the 10-agent-user.sh port: RESOLUTIONS[user] dispatch (Create runs ensure_user+ensure_dir 0755+locale_ensure C.UTF-8; Reuse/Remediate/ReuseWithWarning skip those, all still write DOC-02; Bail defensive error); DOC-02 CLAUDE.md via sysio::ensure_marker_block(agentlinux-doc-02, Top, DOC02_BODY byte-exact heredoc) then re-chmod 0644 + chown <user>:<user>; consumes the Wave-0 sysio+pkg primitives (first real consumer). DOC-02 byte-fidelity PROVEN: Rust-produced /home/agent/CLAUDE.md byte-identical to Bash-produced (both 2264 bytes, agent:agent 0644, diff empty). 20-agent-user.bats on the Rust provisioner: BHV-01 (identity + LANG/LC_ALL C.UTF-8 + locale -a) GREEN on BOTH ubuntu-24.04 AND almalinux-9; BHV-02 (path-wiring, ubuntu) is Wave-4 scope, BHV-04 (systemd) is Phase-59 QEMU — documented deviation, not force-passed. cargo test --workspace 287 pass (+16); clippy -D warnings + fmt clean; musl release builds; agentlinux-core untouched (pure); only rust/ changed (GATE-05). 1 atomic commit 26ba65f (both tasks — one compilable unit). PROV-01/GATE-01/GATE-05 satisfied. Wave 4 must land path-wiring for 20-agent-user.bats BHV-02 to go green.
 
 Plan 57-01 ✅ COMPLETE (2026-07-28, Wave 0 — provisioner systems-I/O foundation + staging seam + PROV-02 gate): ported the pre-Node Bash provisioner's I/O floor to the Rust bin byte-faithfully. sysio.rs (PROV-01) — the six idempotency.sh primitives (write_file_atomic same-dir atomic rename + RAII tmpguard; ensure_line_in_file grep -Fxq; ensure_marker_block awk-strip Top/Bottom emit order + exact `# >>> {tag} begin >>>` markers via write_file_atomic(0o644); ensure_user id-gated useradd; ensure_dir create-or-reassert drift correction; visudo_validate). distro.rs (PROV-03) — Family{Debian,Rhel} + detect_distro exact-ID (ubuntu 22.04/24.04/26.04; almalinux 9|9.*; Rocky/EL8/EL10 refused) + both bats seams. pkg.rs (PROV-03) — 9 apt↔dnf verbs, each single match-family (Pattern 2, zero call-site family-if), ARGV factored into pure builders; rhel nodesource_prereqs ONLY ca-certificates (never curl, Pitfall 5); nodesource_repo_paths byte-identical to pkg.sh:144-160; nodesource_module_reset rhel-only (Pitfall 4); locale_ensure C.UTF-8-only, rhel writes /etc/locale.conf via sysio::write_file_atomic. tests/docker/run.sh — AGENTLINUX_PROVISION_RUST=1 seam runs `agentlinux provision` (root, require_root) instead of the Bash entrypoint, fail-loud on absent bin (T-57-03 no false-green), flag-unset keeps Bash authoritative (GATE-05). scripts/check-no-bash-canonical-map.sh — PROV-02 single-source gate, green from Wave 0 (one Bash def in the retained plugin/lib/reuse/agents.sh per plan-check B-1), documented teeth self-test verified live. sysio 17 + distro 14 + pkg 12 new tests; cargo test --workspace 121(core)+150(bin) pass; clippy -D warnings + fmt clean; agentlinux-core zero changes (pure core untouched); no new crates (nix 0.31.3, used std::os::unix::fs::chown since nix `fs` feature off). 3 atomic commits dc3e7aa/90c11dd/f2eadc6. Unblocks Waves 1-5.
 
@@ -142,6 +144,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 56 P03 | ~60min | 4 tasks | 8 files |
 | Phase 56 P04 | ~45m | 2 tasks | 2 files |
 | Phase 57 P01 | 40 | 3 tasks | 6 files |
+| Phase 57 P02 | 12min | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -381,6 +384,7 @@ Full decision log in PROJECT.md Key Decisions table. Recent decisions affecting 
 - [Phase ?]: Plan 28-03: rtk is the catalog's first source_kind:binary entry; install.sh sources the Plan 02 prebuilt-binary helper and al_pb_installs rtk-ai/rtk@v-pin to ~/.local/bin (never crates.io, never cargo); hook is opt-in (install only prints 'rtk init -g')
 - [Phase ?]: Plan 28-03: rtk uninstall reverts the opt-in hook (rtk init --uninstall) BEFORE deleting the binary, then removes config/cache + settings.json.bak idempotently; no preserve_paths.json (remove deletes all); added compatibility_window >=0.42.0 <0.43.0 (REUSE-03); manifest version unchanged 0.3.4 (lockstep)
 - [Phase ?]: Phase 56 CLI-01 interactive failure was a harness-staging artifact (Rust bin named agentlinux at front-of-PATH .local/bin shadowed the canonical .npm-global/bin symlink); reconciled off-PATH in run.sh, not a source change (56-04)
+- [Phase ?]: 57-02: provision routes through require_root (EUID==0), NOT guard_agent_user (Pitfall 7/T-57-04) — a non-root invoker exits 64 before any privileged step; the six user-facing verbs keep the CLI-05 guard.
 
 ### Key Infrastructure Details
 
@@ -428,6 +432,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-28T20:05:03.156Z
-Stopped at: Completed 57-01-PLAN.md
+Last session: 2026-07-28T20:21:03.327Z
+Stopped at: Completed 57-02-PLAN.md
 Resume file: None
