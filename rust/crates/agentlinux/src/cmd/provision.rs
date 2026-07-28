@@ -145,10 +145,16 @@ fn run_steps(ctx: &ProvisionCtx) -> Result<(), ExitCode> {
         ExitCode::from(EX_SOFTWARE)
     })?;
 
-    // Steps 20-50 — loud not-yet-wired markers (each replaced by its wave). A
+    // Step 20 — sudoers (Wave 2). The user must exist before granting it sudo, so
+    // this runs AFTER agent_user in the ordered vec.
+    provision::sudoers::run(ctx).map_err(|e| {
+        eprintln!("agentlinux provision: 20-sudoers step failed: {e}");
+        ExitCode::from(EX_SOFTWARE)
+    })?;
+
+    // Steps 30-50 — loud not-yet-wired markers (each replaced by its wave). A
     // premature full run surfaces exactly what is missing instead of silently
     // skipping a step (T-57-03 fail-loud).
-    eprintln!("agentlinux provision: 20-sudoers step not-yet-wired (Wave 2)");
     eprintln!("agentlinux provision: 30-nodejs step not-yet-wired (Wave 3)");
     eprintln!("agentlinux provision: 40-path-wiring step not-yet-wired (Wave 4)");
     eprintln!("agentlinux provision: 50-registry-cli step not-yet-wired (Wave 5)");

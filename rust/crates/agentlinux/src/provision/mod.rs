@@ -18,6 +18,7 @@
 #![allow(dead_code)]
 
 pub mod agent_user;
+pub mod sudoers;
 
 use crate::distro::Family;
 
