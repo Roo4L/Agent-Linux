@@ -1,0 +1,130 @@
+//! guard.rs — the CLI-05 invoker guard (GATE / T-56-07).
+//!
+//! Port of `plugin/cli/src/guard/user.ts` (`guardAgentUser`). The registry CLI
+//! must run as the CONFIGURED install user (`resolve_install_user()` — env /
+//! `/etc/agentlinux.env`, default `agent`). When the invoker differs, print the
+//! exact two-line stderr diagnostic and exit 64 (EX_USAGE), matching the
+//! `plugin/bin/agentlinux-install` convention.
+//!
+//! # The invoker is geteuid-backed, NOT an env var (T-56-07)
+//! The TS invoker is `os.userInfo().username`, which resolves the EFFECTIVE uid's
+//! passwd entry — intentionally NOT a caller-controlled `$USER`, so a hostile
+//! caller cannot spoof the guard by exporting `USER=agent`. In Rust that is
+//! `nix::unistd::User::from_uid(geteuid())`. The username is exposed as an
+//! optional param PURELY as a test DI seam (mirroring the TS default-param
+//! signature); production callers pass `None` to resolve the real EUID.
+//!
+//! # Wired before every verb (index.ts:34-36)
+//! The TS `preAction` hook runs `guardAgentUser(actionCommand.name())` before ANY
+//! subcommand — including the read-only `list`. So `main.rs` calls this guard for
+//! every verb (CLI-05: `agentlinux list` as root → exit 64).
+
+use crate::recipe_env::resolve_install_user;
+use nix::unistd::{geteuid, User};
+use std::process::ExitCode;
+
+/// EX_USAGE (sysexits.h) — the guard's fail-fast exit code (guard/user.ts:23).
+const EX_USAGE: u8 = 64;
+
+/// Resolve the invoker username from the EFFECTIVE uid (mirrors TS
+/// `os.userInfo().username`). Falls back to the numeric euid as a string when the
+/// passwd lookup yields nothing (no matching entry) — a value that will never
+/// equal a POSIX install-user name, so the guard still fails closed.
+fn effective_username() -> String {
+    match User::from_uid(geteuid()) {
+        Ok(Some(user)) => user.name,
+        // No passwd entry for the euid (or lookup error): fail closed — return a
+        // token that cannot equal the configured user, so the guard denies.
+        _ => geteuid().to_string(),
+    }
+}
+
+/// The pure guard decision (testable without touching `process::exit`): does the
+/// invoker match the configured install user? Returns `Ok(())` on match, or
+/// `Err((install_user, invoker))` carrying the two names the diagnostic needs.
+fn guard_decision(invoker: &str, install_user: &str) -> Result<(), (String, String)> {
+    if invoker == install_user {
+        Ok(())
+    } else {
+        Err((install_user.to_string(), invoker.to_string()))
+    }
+}
+
+/// CLI-05 guard: fail fast (exit 64) when the invoker is not the configured
+/// install user. Port of `guardAgentUser` (guard/user.ts:13-25).
+///
+/// Returns `ExitCode::SUCCESS` on a match (the caller proceeds to run the verb);
+/// prints the two-line stderr diagnostic and returns `ExitCode::from(64)` on a
+/// mismatch (the caller returns it immediately — this mirrors the TS
+/// `process.exit(64)`, but returning an `ExitCode` keeps the bin's single
+/// `main -> ExitCode` exit path).
+///
+/// `invoker` is `None` in production (resolve the real EUID username) or `Some`
+/// in tests (the DI seam mirroring the TS default param).
+#[must_use]
+pub fn guard_agent_user(subcommand: &str, invoker: Option<&str>) -> ExitCode {
+    let install_user = resolve_install_user();
+    let invoker = invoker.map_or_else(effective_username, str::to_string);
+    match guard_decision(&invoker, &install_user) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err((install_user, invoker)) => {
+            // Byte-for-byte with guard/user.ts:19-22 — two eprintln lines.
+            eprintln!(
+                "agentlinux: {subcommand} must run as user '{install_user}' (invoker: '{invoker}')"
+            );
+            eprintln!("  try: sudo -u {install_user} -H agentlinux {subcommand}");
+            ExitCode::from(EX_USAGE)
+        }
+    }
+}
+
+#[cfg(test)]
+mod guard_tests {
+    use super::*;
+
+    // guard_decision is the pure heart of the guard; test the DECISION (not the
+    // process exit) so a mismatch is asserted without spawning a subprocess.
+
+    #[test]
+    fn matching_invoker_is_ok() {
+        assert!(guard_decision("agent", "agent").is_ok());
+    }
+
+    #[test]
+    fn mismatched_invoker_is_err_with_both_names() {
+        // CLI-05: root invoking a verb configured for `agent` → denied, and the
+        // diagnostic carries BOTH names (install user + invoker).
+        let err = guard_decision("root", "agent").unwrap_err();
+        assert_eq!(err, ("agent".to_string(), "root".to_string()));
+    }
+
+    #[test]
+    fn mismatch_against_a_configured_non_agent_user() {
+        // A `--user=claude` install gates on `claude` (AL-50 AC4): an `agent`
+        // invoker is now the MISMATCH.
+        let err = guard_decision("agent", "claude").unwrap_err();
+        assert_eq!(err, ("claude".to_string(), "agent".to_string()));
+    }
+
+    #[test]
+    fn guard_agent_user_returns_success_when_invoker_matches() {
+        // With the DI seam we can drive the full public fn without a real EUID.
+        // resolve_install_user() defaults to `agent` on this host (no env / no
+        // /etc/agentlinux.env), so an `agent` invoker matches → SUCCESS.
+        std::env::remove_var("AGENTLINUX_USER");
+        if !std::path::Path::new("/etc/agentlinux.env").exists() {
+            let code = guard_agent_user("list", Some("agent"));
+            assert_eq!(code, ExitCode::SUCCESS);
+        }
+    }
+
+    #[test]
+    fn guard_agent_user_returns_64_when_invoker_mismatches() {
+        std::env::remove_var("AGENTLINUX_USER");
+        if !std::path::Path::new("/etc/agentlinux.env").exists() {
+            // root invoking against the default `agent` user → EX_USAGE(64).
+            let code = guard_agent_user("list", Some("root"));
+            assert_eq!(code, ExitCode::from(EX_USAGE));
+        }
+    }
+}

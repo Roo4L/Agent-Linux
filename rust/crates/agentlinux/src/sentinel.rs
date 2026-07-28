@@ -1,0 +1,294 @@
+//! sentinel.rs — per-agent install-record read/write (I/O boundary).
+//!
+//! Port of `plugin/cli/src/state/sentinel.ts`. Per-agent files under
+//! `<state_dir>/installed.d/<id>.json`. The write is ATOMIC (tmp + `rename(2)`)
+//! per POSIX (T-56-08) so a timeout-killed op can never leave a torn sentinel the
+//! next op trusts (sentinel.ts:47-49).
+//!
+//! # Full write-path shape
+//! The pure `agentlinux_core::types::Sentinel` is a lean 4-field READ subset
+//! (id/version/source/sticky). The bin needs the FULL write-path shape
+//! (`installed_at`, `status`, `binary_path`, `detected_source`, `reused_at`,
+//! `remediated_at`, `decline_reason`, …) to WRITE sentinels — field names
+//! byte-identical to `types.ts:57-89` so the SAME `installed.d/<id>.json`
+//! round-trips with no migration (RESEARCH §"What is NOT yet in agentlinux-core",
+//! item 2).
+//!
+//! # Env seam
+//! `AGENTLINUX_STATE_DIR` overrides the default `/opt/agentlinux/state/installed.d`
+//! (sentinel.ts:24-26) — the bats seam. Resolved lazily on each call so a test
+//! that mutates the env after import still takes effect.
+//!
+//! # `#[serde(skip_serializing_if)]` parity
+//! The TS `JSON.stringify(entry, null, 2)` omits `undefined` fields entirely. The
+//! optional fields carry `skip_serializing_if = "Option::is_none"` so a sentinel
+//! with no `status`/`binary_path`/… serializes to the SAME bytes the TS writes
+//! (no `"status": null` noise) — the round-trip is byte-stable.
+//!
+//! `#![allow(dead_code)]`: the read/write/delete/list surface is consumed by the
+//! Wave-1 verb adapters (this plan's Tasks 2/3) and Plan 03's mutating verbs. The
+//! `#[cfg(test)]` module exercises every item now; the allow only defers the "not
+//! yet wired into a non-test caller" lint at the Task-1 commit boundary.
+#![allow(dead_code)]
+
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+
+const DEFAULT_INSTALLED_DIR: &str = "/opt/agentlinux/state/installed.d";
+
+/// Resolve the installed.d dir lazily: `$AGENTLINUX_STATE_DIR` (bats seam) else
+/// the default. Port of `installedDir()` (sentinel.ts:24-26).
+fn installed_dir() -> PathBuf {
+    match std::env::var("AGENTLINUX_STATE_DIR") {
+        Ok(v) if !v.is_empty() => PathBuf::from(v),
+        _ => PathBuf::from(DEFAULT_INSTALLED_DIR),
+    }
+}
+
+/// The full write-path sentinel — field names byte-identical to `types.ts:57-89`.
+///
+/// The four core fields (`id`/`version`/`source`/`sticky`) are always present; the
+/// rest are `Option` and skipped when `None` so the serialized JSON matches the TS
+/// `JSON.stringify` output (which omits `undefined`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Sentinel {
+    pub id: String,
+    pub version: String,
+    /// `"curated" | "override" | "latest" | "pinned"`. Plain `String` (not an
+    /// enum) so an inherited/unknown source round-trips, mirroring the core.
+    pub source: String,
+    pub sticky: bool,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub installed_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub decline_reason: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub binary_path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detected_source: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub reused_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub compatibility_window_at_reuse: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub remediated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub remediate_failure_reason: Option<String>,
+}
+
+impl Sentinel {
+    /// Convenience constructor for the four required fields; all optional fields
+    /// default to `None`. Callers set the optional fields fluently (the verb
+    /// layer builds reused/pinned sentinels this way).
+    #[must_use]
+    pub fn new(id: String, version: String, source: String, sticky: bool) -> Self {
+        Self {
+            id,
+            version,
+            source,
+            sticky,
+            installed_at: None,
+            status: None,
+            decline_reason: None,
+            binary_path: None,
+            detected_source: None,
+            reused_at: None,
+            compatibility_window_at_reuse: None,
+            remediated_at: None,
+            remediate_failure_reason: None,
+        }
+    }
+}
+
+/// Read `<installed.d>/<id>.json`, or `None` when absent (ENOENT). Port of
+/// `readSentinel` (sentinel.ts:28-36).
+pub fn read_sentinel(id: &str) -> std::io::Result<Option<Sentinel>> {
+    let path = installed_dir().join(format!("{id}.json"));
+    match std::fs::read_to_string(&path) {
+        Ok(data) => {
+            let s: Sentinel = serde_json::from_str(&data)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            Ok(Some(s))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// Write a sentinel ATOMICALLY (tmp + `rename`) — T-56-08. Port of `writeSentinel`
+/// (sentinel.ts:38-49): mkdir -p the installed.d dir, write `<id>.json.tmp.<pid>`
+/// with a trailing newline, then `rename` into place (atomic on the same
+/// filesystem per POSIX). Modes 0755 (dir) / 0644 (file) mirror the provisioner.
+pub fn write_sentinel(entry: &Sentinel) -> std::io::Result<()> {
+    let dir = installed_dir();
+    std::fs::create_dir_all(&dir)?;
+    set_mode(&dir, 0o755);
+    let target = dir.join(format!("{}.json", entry.id));
+    let tmp = dir.join(format!("{}.json.tmp.{}", entry.id, std::process::id()));
+    // `JSON.stringify(entry, null, 2)\n` — 2-space pretty + a trailing newline.
+    let body = format!("{}\n", serde_json::to_string_pretty(entry)?);
+    std::fs::write(&tmp, body)?;
+    set_mode(&tmp, 0o644);
+    // Atomic on the same filesystem (POSIX rename(2)); overwrites any existing
+    // target in one step so a reader never sees a torn file.
+    std::fs::rename(&tmp, &target)?;
+    Ok(())
+}
+
+/// Delete `<installed.d>/<id>.json`, tolerating ENOENT (idempotent). Port of
+/// `deleteSentinel` (sentinel.ts:51-58).
+///
+/// Wave-1 consumer: none (Plan 03's `remove` verb is the first non-test caller).
+/// The `#[cfg(test)]` module exercises it, so it is not truly unreachable — the
+/// allow only silences the "not yet wired into a non-test caller" lint until
+/// Plan 03 imports it (mirrors the recipe_env/dispatcher Wave-0 pattern).
+#[allow(dead_code)]
+pub fn delete_sentinel(id: &str) -> std::io::Result<()> {
+    let path = installed_dir().join(format!("{id}.json"));
+    match std::fs::remove_file(&path) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(e),
+    }
+}
+
+/// List every sentinel under installed.d. Missing dir → empty (ENOENT-tolerant).
+/// Port of `listSentinels` (sentinel.ts:60-72).
+pub fn list_sentinels() -> std::io::Result<Vec<Sentinel>> {
+    let dir = installed_dir();
+    let entries = match std::fs::read_dir(&dir) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut out = Vec::new();
+    for entry in entries {
+        let entry = entry?;
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        // Only `<id>.json` (skip the transient `.json.tmp.<pid>` during a
+        // concurrent write, and any non-json file).
+        if let Some(id) = name.strip_suffix(".json") {
+            if id.is_empty() || id.contains(".json.tmp.") {
+                continue;
+            }
+            if let Some(s) = read_sentinel(id)? {
+                out.push(s);
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Set the unix mode on `path`, best-effort (a mode-set failure on a tmp dir a
+/// test owns is non-fatal — the atomic rename is the load-bearing guarantee).
+#[cfg(unix)]
+fn set_mode(path: &std::path::Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
+}
+
+#[cfg(not(unix))]
+fn set_mode(_path: &std::path::Path, _mode: u32) {}
+
+#[cfg(test)]
+mod sentinel_tests {
+    use super::*;
+    use std::sync::Mutex;
+    use tempfile::tempdir;
+
+    // AGENTLINUX_STATE_DIR is process-global; serialize the tests that mutate it.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn atomic_round_trip_write_then_read() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+
+        let mut s = Sentinel::new("gsd".into(), "1.7.0".into(), "curated".into(), false);
+        s.installed_at = Some("2026-07-28T00:00:00Z".into());
+        s.status = Some("reused".into());
+        s.binary_path = Some("/home/agent/.npm-global/bin/gsd-core".into());
+        write_sentinel(&s).unwrap();
+
+        let back = read_sentinel("gsd").unwrap().unwrap();
+        assert_eq!(back, s);
+
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+    }
+
+    #[test]
+    fn serialize_omits_none_fields_like_ts_json_stringify() {
+        // A minimal (curated, non-sticky) sentinel with no optional fields must
+        // serialize with NO `"status": null` etc. — byte-parity with the TS
+        // JSON.stringify that drops `undefined`.
+        let s = Sentinel::new("x".into(), "1.0.0".into(), "curated".into(), false);
+        let json = serde_json::to_string_pretty(&s).unwrap();
+        assert!(!json.contains("status"), "should omit None status: {json}");
+        assert!(
+            !json.contains("binary_path"),
+            "should omit None binary_path"
+        );
+        // The four core fields ARE present.
+        assert!(json.contains("\"id\": \"x\""));
+        assert!(json.contains("\"sticky\": false"));
+    }
+
+    #[test]
+    fn write_produces_trailing_newline() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        let s = Sentinel::new("x".into(), "1.0.0".into(), "curated".into(), false);
+        write_sentinel(&s).unwrap();
+        let body = std::fs::read_to_string(dir.path().join("x.json")).unwrap();
+        assert!(body.ends_with("}\n"), "trailing newline expected: {body:?}");
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+    }
+
+    #[test]
+    fn delete_is_enoent_tolerant_and_list_skips_missing() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+
+        // Delete before any write — idempotent no-op.
+        delete_sentinel("ghost").unwrap();
+        // Empty dir → empty list.
+        assert!(list_sentinels().unwrap().is_empty());
+
+        let a = Sentinel::new("a".into(), "1.0.0".into(), "curated".into(), false);
+        let b = Sentinel::new("b".into(), "2.0.0".into(), "latest".into(), true);
+        write_sentinel(&a).unwrap();
+        write_sentinel(&b).unwrap();
+        let mut ids: Vec<String> = list_sentinels()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        ids.sort();
+        assert_eq!(ids, vec!["a".to_string(), "b".to_string()]);
+
+        delete_sentinel("a").unwrap();
+        let ids: Vec<String> = list_sentinels()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        assert_eq!(ids, vec!["b".to_string()]);
+
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+    }
+
+    #[test]
+    fn read_missing_is_none() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let dir = tempdir().unwrap();
+        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        assert!(read_sentinel("nope").unwrap().is_none());
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+    }
+}

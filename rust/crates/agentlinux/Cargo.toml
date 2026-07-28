@@ -29,3 +29,18 @@ nix = { version = "0.31", features = ["signal", "process", "user"] }
 # with timeout 30_000), so a hung probe escalates like the streaming path.
 # Package Legitimacy Gate: verdict OK.
 wait-timeout = "0.2"
+# serde/serde_json — the Wave-1 file adapters (catalog/sentinel/cache) deserialize
+# the SAME catalog.json / installed.d/<id>.json / detect-cache JSON the TS reads,
+# and the list/adopt verbs serialize the Row/AdoptResult arrays (`--json`).
+# serde_json is already a normal (non-dev) dep of agentlinux-core.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# thiserror — typed adapter errors (CatalogError) mirroring the pure core's
+# convention (agentlinux-core already uses thiserror 1).
+thiserror = "1"
+
+[dev-dependencies]
+# tempfile — per-adapter unit tests inject tmp dirs for the AGENTLINUX_STATE_DIR /
+# AGENTLINUX_CATALOG_DIR / AGENTLINUX_DETECT_CACHE seams (sentinel atomic
+# round-trip, catalog load, cache dual-shape parse).
+tempfile = "3"

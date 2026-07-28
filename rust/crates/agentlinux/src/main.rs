@@ -13,9 +13,13 @@
 //! `agentlinux_core::reuse`. `agentlinux-core` stays free of `std::env`,
 //! `std::fs`, and `std::process` — all new I/O in this phase lives in the bin.
 
+mod cache;
+mod catalog;
 mod cli;
 mod dispatcher;
+mod guard;
 mod recipe_env;
+mod sentinel;
 
 use clap::Parser;
 use cli::{Cli, Command};
@@ -24,14 +28,14 @@ use std::process::ExitCode;
 /// GSD's deployed-system VERSION path — a second valid canonical presence for
 /// `gsd` (npx form). MUST stay byte-identical to `REUSE_GSD_SYSTEM_PATH` in
 /// `plugin/lib/reuse/agents.sh` and `GSD_SYSTEM_PATH` in `detect.ts`.
-const GSD_SYSTEM_PATH: &str = "/home/agent/.claude/gsd-core/VERSION";
+pub(crate) const GSD_SYSTEM_PATH: &str = "/home/agent/.claude/gsd-core/VERSION";
 
 /// Canonical binary path for a catalog id, or `None` for an unknown id.
 ///
 /// Mirrors `REUSE_AGENT_CANONICAL_PATHS` in `plugin/lib/reuse/agents.sh` (and
 /// `CANONICAL_PATHS` in `detect.ts`). The bash map is deliberately kept (it is
 /// iterated by `remediate.sh:288`); this is its Rust twin for the decision path.
-fn canonical_path(id: &str) -> Option<&'static str> {
+pub(crate) fn canonical_path(id: &str) -> Option<&'static str> {
     match id {
         "claude-code" => Some("/home/agent/.local/bin/claude"),
         "gsd" => Some("/home/agent/.npm-global/bin/gsd-core"),
@@ -118,21 +122,52 @@ fn main() -> ExitCode {
     dispatch(cli.command)
 }
 
-/// Route a parsed verb to its handler. The Wave-1/2 verb bodies (Plans 02/03)
-/// replace these stubs; for now each prints a not-yet-implemented marker to
-/// stderr and exits non-zero so a premature invocation is loud, not silently
-/// green. The stub deliberately does NOT `todo!()`-panic — a panic would abort
-/// with SIGABRT (exit 134) and a backtrace, which is worse UX than a clean
-/// "not implemented" line for a verb that is simply not wired yet.
-fn dispatch(command: Command) -> ExitCode {
-    let verb = match command {
+/// Agent home for the presence/managed-dir heuristics — `$AGENTLINUX_AGENT_HOME`
+/// else `/home/agent` (mirrors `agentHome()`, detect.ts:42-44). The env read is
+/// the I/O boundary; the pure gates receive the resolved string.
+///
+/// Consumed by the Wave-1 verb adapters (this plan's Tasks 2/3); the allow defers
+/// the "not yet wired" lint at the Task-1 commit boundary.
+#[allow(dead_code)]
+pub(crate) fn agent_home() -> String {
+    std::env::var("AGENTLINUX_AGENT_HOME").unwrap_or_else(|_| "/home/agent".to_string())
+}
+
+/// The name clap gives each verb — used for the CLI-05 guard diagnostic
+/// (`actionCommand.name()`, index.ts:35).
+fn verb_name(command: &Command) -> &'static str {
+    match command {
         Command::List(_) => "list",
         Command::Install(_) => "install",
         Command::Adopt(_) => "adopt",
         Command::Remove(_) => "remove",
         Command::Upgrade(_) => "upgrade",
         Command::Pin(_) => "pin",
-    };
+    }
+}
+
+/// Route a parsed verb to its handler.
+///
+/// CLI-05 (index.ts:34-36): the guard runs BEFORE any verb — including the
+/// read-only `list` — so a non-install-user invoker fails fast (exit 64) before
+/// any command body runs. `guard_agent_user` returns `SUCCESS` on a match; on a
+/// mismatch it prints the diagnostic and returns `ExitCode::from(64)`, which we
+/// propagate immediately.
+///
+/// Wave-1 (this plan) wires `list`/`adopt`/`pin`; `install`/`remove`/`upgrade`
+/// remain loud EX_SOFTWARE(70) not-implemented stubs until Plan 03.
+fn dispatch(command: Command) -> ExitCode {
+    // The guard runs for every verb (CLI-05). Production passes `None` → resolve
+    // the real EUID username.
+    let guard = guard::guard_agent_user(verb_name(&command), None);
+    if guard != ExitCode::SUCCESS {
+        return guard;
+    }
+
+    // Wave-1 verb bodies land in this plan's Tasks 2/3 (list, then pin/adopt).
+    // Until then every verb is a loud EX_SOFTWARE(70) not-implemented stub (Wave-0
+    // convention) — a premature invocation is a clean line, not a SIGABRT.
+    let verb = verb_name(&command);
     eprintln!("agentlinux: '{verb}' is not implemented yet (Wave 1/2)");
-    ExitCode::from(70) // EX_SOFTWARE — internal not-yet-wired state.
+    ExitCode::from(70)
 }
