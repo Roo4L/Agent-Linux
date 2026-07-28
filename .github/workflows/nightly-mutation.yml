@@ -41,3 +41,36 @@ jobs:
       - uses: actions/checkout@v5
       - name: Run bash mutator
         run: bash tests/mutation/bash-mutator.sh || echo "::warning::bash-mutator below target (advisory in v0.3.0)"
+
+  # TEST-02 (v0.4.0 Phase 54): full-crate cargo-mutants score on the pure
+  # agentlinux-core crate, out-of-band and advisory (continue-on-error, like the
+  # stryker/bash-mutator jobs above) so a nightly regression surfaces as a
+  # warning without blocking. The ENFORCING merge gate is the per-PR --in-diff
+  # step in test.yml's rust job; this job reports the FULL-crate score the
+  # bounded --in-diff run cannot.
+  rust-mutants:
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - name: Skip if rust/ absent
+        id: guard
+        run: |
+          if [ -f rust/Cargo.toml ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "rust/Cargo.toml absent — skipping rust-mutants (advisory)"
+          fi
+      - name: Install Rust toolchain
+        if: steps.guard.outputs.ready == 'true'
+        uses: dtolnay/rust-toolchain@stable
+      # Pinned + --locked (T-54-SC): same version as the per-PR gate so the
+      # nightly full-crate score and the merge gate share one mutation set.
+      - name: Install cargo-mutants (pinned)
+        if: steps.guard.outputs.ready == 'true'
+        run: cargo install --locked --version 27.1.0 cargo-mutants
+      - name: Full-crate mutation score (agentlinux-core)
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: cargo mutants --package agentlinux-core --minimum-test-timeout 20 || echo "::warning::surviving mutants (nightly full-crate advisory)"
