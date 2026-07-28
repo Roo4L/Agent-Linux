@@ -7,5 +7,6 @@
 //! them dispatch a recipe — all recipe dispatch is Plan 03 (install/remove/
 //! upgrade).
 
+pub mod adopt;
 pub mod list;
-// pin + adopt land in Task 3 (this plan).
+pub mod pin;

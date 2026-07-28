@@ -166,16 +166,14 @@ fn dispatch(command: Command) -> ExitCode {
 
     match command {
         Command::List(args) => cmd::list::list(&args),
-        // pin + adopt land in Task 3; install/remove/upgrade are Plan 03. Until
-        // wired, a loud EX_SOFTWARE(70) stub — a premature invocation is a clean
-        // line, not a SIGABRT.
-        Command::Adopt(_)
-        | Command::Pin(_)
-        | Command::Install(_)
-        | Command::Remove(_)
-        | Command::Upgrade(_) => {
+        Command::Adopt(args) => cmd::adopt::adopt(args.name.as_deref(), &args),
+        Command::Pin(args) => cmd::pin::pin(&args.spec),
+        // install/remove/upgrade are Plan 03 (Wave 2). Until wired, a loud
+        // EX_SOFTWARE(70) stub — a premature invocation is a clean line, not a
+        // SIGABRT.
+        Command::Install(_) | Command::Remove(_) | Command::Upgrade(_) => {
             let verb = verb_name(&command);
-            eprintln!("agentlinux: '{verb}' is not implemented yet (Wave 1/2)");
+            eprintln!("agentlinux: '{verb}' is not implemented yet (Wave 2)");
             ExitCode::from(70)
         }
     }
