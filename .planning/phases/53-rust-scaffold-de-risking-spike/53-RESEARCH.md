@@ -601,9 +601,16 @@ additive behind the bats spec until Phase 59.
 | A5 | crt-static is the musl default for a pure-Rust tree (belt-and-braces flag set anyway) | CI | Low — flag makes it explicit; `ldd` assertion is the real gate |
 | A6 | RUST-02 "Docker matrix" is satisfied by adding the rust job to test.yml (option a) | CI | Medium — planner should confirm reading (a) vs (b); (a) meets the literal checkbox, (b) is Phase-59 endgame |
 
-## Open Questions
+## Open Questions (RESOLVED)
 
-1. **RUST-02 "added to the Docker matrix" — literal or endgame?**
+> Resolved during planning (plan-checker APPROVED 2026-07-28). Each resolution is
+> carried in both PLAN.md files' "Resolved decisions (from research open questions)"
+> section: Q1 → literal reading (separate gated `rust` job on every PR; per-distro
+> in-container musl build deferred to Phase 59/GATE-02); Q2 → keep both CANONICAL_PATHS
+> maps in sync, delete-from-bash/TS deferred to Phase 57; Q3 → full node-semver
+> prerelease audit is TEST-04 (Phase 54); the spike covers only the catalog's current ranges.
+
+1. **RUST-02 "added to the Docker matrix" — literal or endgame?** → RESOLVED: literal.
    - Known: the roadmap/REQUIREMENTS say "the Rust job is added to the Docker matrix."
    - Unclear: whether the spike must build the musl binary *inside* each bats-docker container, or
      just add a separate `rust` job that runs on every PR.
