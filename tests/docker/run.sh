@@ -288,16 +288,46 @@ fi
 # (exit 127 on every agentlinux invocation) or silently keep the TS bundle and
 # report a false-green "Rust pass". On master (flag unset) this whole block is
 # skipped and the existing non-fatal TS path is preserved.
+#
+# CLI-01 interactive-mode reconciliation (Phase 56 Wave 3 / GATE-01): the RUST-03
+# reuse-path staging above places the Rust bin at ~agent/.local/bin/agentlinux.
+# That path is FIRST on the agent's interactive login PATH (Ubuntu's skel
+# ~/.profile prepends ~/.local/bin ahead of /etc/profile.d/agentlinux.sh's
+# .npm-global/bin), so a bin literally named `agentlinux` there SHADOWS the
+# canonical ~agent/.npm-global/bin/agentlinux symlink. On master (TS) nothing is
+# staged at .local/bin, so CLI-01's `command -v agentlinux` resolves the
+# .npm-global/bin symlink as the contract requires; under the flag it would
+# otherwise resolve .local/bin — a HARNESS-staging artifact, NOT a CLI behavior
+# change. Fix: when the CLI override is active, RELOCATE the staged bin OFF the
+# agent PATH (to /opt/agentlinux/rust/agentlinux, an absolute path the reuse
+# shim's AGENTLINUX_RUST_BIN accepts verbatim), drop the front-of-PATH
+# .local/bin/agentlinux copy, and point the .npm-global/bin symlink at the
+# relocated bin. `command -v agentlinux` then resolves the canonical
+# .npm-global/bin symlink (byte-identical to master's TS resolution) while the
+# CLI + reuse shim both exercise the Rust bin. The default (flag-unset)
+# .local/bin staging for 13-reuse.bats is UNTOUCHED.
 CLI_SYMLINK=/home/agent/.npm-global/bin/agentlinux
+RUST_BIN_OFFPATH=/opt/agentlinux/rust/agentlinux
 if [[ -n ${AGENTLINUX_STAGE_RUST_CLI:-} ]]; then
   if [[ -z $RUST_BIN_STAGED ]]; then
     echo "ERROR: Rust CLI staging requested (AGENTLINUX_STAGE_RUST_CLI=1) but the musl bin is absent — refusing to run bats against the TS bundle and report false-green" >&2
     exit 1
   fi
-  echo "== override CLI symlink -> Rust musl bin (AGENTLINUX_STAGE_RUST_CLI) =="
+  echo "== relocate Rust bin off the agent PATH + override CLI symlink (AGENTLINUX_STAGE_RUST_CLI) =="
+  # Relocate the staged bin off-PATH so it cannot shadow the canonical symlink
+  # by name. cp (not mv) then rm the .local/bin copy so the RUST-03 stage's
+  # ownership/mode are preserved on the relocated copy.
+  docker exec "$CID" install -d -o agent -g agent /opt/agentlinux/rust
+  docker exec "$CID" cp "$RUST_BIN_STAGED" "$RUST_BIN_OFFPATH"
+  docker exec "$CID" chown agent:agent "$RUST_BIN_OFFPATH"
+  docker exec "$CID" chmod +x "$RUST_BIN_OFFPATH"
+  # Drop the front-of-PATH .local/bin/agentlinux copy that would otherwise win
+  # `command -v agentlinux` in interactive/login modes.
+  docker exec "$CID" rm -f "$RUST_BIN_STAGED"
+  RUST_BIN_STAGED=$RUST_BIN_OFFPATH
   docker exec "$CID" ln -sfn "$RUST_BIN_STAGED" "$CLI_SYMLINK"
   docker exec "$CID" chown -h agent:agent "$CLI_SYMLINK"
-  echo "-- $CLI_SYMLINK now -> $RUST_BIN_STAGED (CLI bats exercise the Rust bin) --"
+  echo "-- $CLI_SYMLINK now -> $RUST_BIN_STAGED (off-PATH; CLI bats exercise the Rust bin without shadowing the canonical symlink) --"
 fi
 
 echo "== run bats suite (${BATS_TARGET_PATH}) =="
