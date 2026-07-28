@@ -110,6 +110,48 @@ pub fn gt(a: &str, b: &str) -> Result<bool, SemverError> {
     Ok(parse_lenient(a)? > parse_lenient(b)?)
 }
 
+/// Validate a concrete version string mirroring node `semver.valid`: returns the
+/// NORMALIZED version string, or `None`.
+///
+/// STRICT on partials (Assumption A1 / Pitfall 6): node `semver.valid` accepts
+/// full versions and prereleases (`"2.1.7-beta.1"`), accepts and normalizes a
+/// leading `v` (`"v1.2.3"` → `"1.2.3"`), but REJECTS partials (`"2.1"` → `null`)
+/// and ranges (`"^2.1"` → `null`). Pins are version points, not ranges
+/// (pin.ts:66-69).
+///
+/// Unlike [`parse_lenient`], this does NOT route through [`coerce_partial`] — a
+/// bare `"2.1"` must NOT be coerced to `"2.1.0"` and accepted, because the TS
+/// `parsePinSpec` rejects it. We trim, strip a single leading `v`/`V` (node's one
+/// loose allowance), then call `Version::parse` DIRECTLY; on success return the
+/// normalized `to_string()` form, on parse error return `None`.
+#[must_use]
+pub fn valid(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let stripped = trimmed
+        .strip_prefix('v')
+        .or_else(|| trimmed.strip_prefix('V'))
+        .unwrap_or(trimmed);
+    Version::parse(stripped).ok().map(|v| v.to_string())
+}
+
+/// Does `version` satisfy `node_range`? (node `semver.satisfies`, detect.ts:179,273).
+///
+/// TOTAL: returns a bool for any input, never `Err`, never panics (threat
+/// T-55-02). The range is normalized via [`normalize_range`] so the node
+/// space→comma compound-range divergence is handled; a malformed range → `false`.
+/// The version is lenient-parsed via [`parse_lenient`] so a cache version like
+/// `"v1.37.1"` satisfies; an unparseable version → `false`.
+#[must_use]
+pub fn satisfies(version: &str, node_range: &str) -> bool {
+    let Ok(req) = VersionReq::parse(&normalize_range(node_range)) else {
+        return false;
+    };
+    match parse_lenient(version) {
+        Ok(v) => req.matches(&v),
+        Err(_) => false,
+    }
+}
+
 /// Highest version in `versions` satisfying `node_range` (node
 /// `semver.maxSatisfying`). `node_range` is normalized before parse. Versions
 /// that fail lenient parse are skipped (mirrors node ignoring invalid entries).
@@ -543,12 +585,11 @@ mod proptests {
         // valid's own output back in is a fixpoint: idempotent normalization).
         #[test]
         fn p4_valid_total_and_idempotent_on_loose(v in loose_version_str()) {
-            match valid(&v) {
-                Some(normalized) => {
-                    // idempotent: the normalized form is itself valid and stable.
-                    prop_assert_eq!(valid(&normalized), Some(normalized));
-                }
-                None => {} // legal: a partial/range/garbage input.
+            // Some(normalized) → idempotent (feeding valid's output back in is a
+            // fixpoint); None is legal (partial/range/garbage). Reaching either
+            // arm without unwinding is the totality proof.
+            if let Some(normalized) = valid(&v) {
+                prop_assert_eq!(valid(&normalized), Some(normalized));
             }
         }
 
