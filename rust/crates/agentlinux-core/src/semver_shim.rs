@@ -45,11 +45,18 @@ pub enum SemverError {
 ///
 /// `">=2.0.0 <3.0.0"` → `">=2.0.0, <3.0.0"`. A single comparator (`"^2.1"`,
 /// `"*"`, `"~1.1"`) has no interior whitespace and passes through unchanged.
-/// Idempotent for already-comma'd input because the split collapses the empty
-/// token produced by a trailing comma is avoided (we split on whitespace only).
+///
+/// Idempotent: an already-comma'd range (`">=2.0.0, <3.0.0"`) round-trips
+/// unchanged. We split on any run of whitespace *and/or* commas, drop empty
+/// tokens, then re-join with ", " — so a comma already present does not produce
+/// a doubled `",,"` separator that `VersionReq::parse` would reject.
 #[must_use]
 pub fn normalize_range(node_range: &str) -> String {
-    node_range.split_whitespace().collect::<Vec<_>>().join(", ")
+    node_range
+        .split(|c: char| c.is_whitespace() || c == ',')
+        .filter(|tok| !tok.is_empty())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Lenient version parse mirroring node-semver's loose acceptance of the shapes
@@ -148,6 +155,18 @@ mod tests {
         assert_eq!(normalize_range("^2.1"), "^2.1");
         assert_eq!(normalize_range("*"), "*");
         assert_eq!(normalize_range("~1.1"), "~1.1");
+    }
+
+    #[test]
+    fn normalize_range_is_idempotent_on_comma_form() {
+        // Feeding an already-normalized range back through must NOT produce a
+        // doubled ",," separator (which VersionReq::parse rejects).
+        let once = normalize_range(">=2.0.0 <3.0.0");
+        assert_eq!(once, ">=2.0.0, <3.0.0");
+        assert_eq!(normalize_range(&once), ">=2.0.0, <3.0.0");
+        // And the comma-form range still parses + matches after a round-trip.
+        let versions = vec!["2.5.0".to_string(), "3.0.0".to_string()];
+        assert_eq!(max_satisfying(&versions, &once).unwrap(), Some("2.5.0"));
     }
 
     #[test]
