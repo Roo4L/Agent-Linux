@@ -183,8 +183,15 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y musl-tools
           cargo build --release --target x86_64-unknown-linux-musl -p agentlinux
           BIN=target/x86_64-unknown-linux-musl/release/agentlinux
-          ldd "$BIN" 2>&1 | grep -q "not a dynamic executable" \
-            || { echo "RUST-01 FAIL: binary is dynamically linked"; ldd "$BIN"; exit 1; }
+          # Authoritative static check: no dynamic NEEDED entries. `ldd` wording is
+          # libc-version-dependent — "not a dynamic executable" on a musl host but
+          # "statically linked" for a static-pie binary on glibc 2.39+ (the CI runner) —
+          # so gate on readelf and accept either ldd phrasing.
+          if readelf -d "$BIN" 2>/dev/null | grep -q 'NEEDED'; then
+            echo "RUST-01 FAIL: binary has dynamic NEEDED entries"; readelf -d "$BIN"; exit 1
+          fi
+          ldd "$BIN" 2>&1 | grep -Eq "not a dynamic executable|statically linked" \
+            || { echo "RUST-01 FAIL: ldd did not confirm static linkage"; ldd "$BIN"; exit 1; }
 
   # SEC-05 (v0.4.0 Phase 8): full-history gitleaks gate. The pre-commit job
   # above runs gitleaks against staged files only (fast-feedback path). This
