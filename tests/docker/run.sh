@@ -23,14 +23,29 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9>
+usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9> [bats-file]
 
 Builds the matching Docker image, runs agentlinux-install inside, runs the
 bats suite inside, and exits with the bats exit code.
 
+Arguments:
+  <target>    the distro image to build + boot (required).
+  [bats-file] OPTIONAL: a single bats file to run instead of the whole
+              tests/bats/ directory (dodges the Docker OOM the full suite hits
+              in some VMs). Accepts a bare basename with or without the .bats
+              suffix, e.g. `40-registry-cli` or `40-registry-cli.bats`.
+
 Environment:
   AGENTLINUX_DOCKER_KEEP_CONTAINER=1  Skip cleanup (container kept running for
                                       interactive docker exec debugging).
+  AGENTLINUX_STAGE_RUST_CLI=1         Re-point the `agentlinux` command symlink
+                                      (~agent/.npm-global/bin/agentlinux) at the
+                                      staged Rust musl bin AFTER the installer
+                                      runs, so the CLI bats exercise the Rust
+                                      binary instead of the TS bundle (Phase 56
+                                      GATE-01/GATE-05 parallel track). When set
+                                      but the Rust bin failed to build/stage, the
+                                      run ABORTS (never false-green on TS).
 
 Exit codes:
   0   installer + bats both green
@@ -57,6 +72,21 @@ case "$TARGET" in
     ;;
 esac
 
+# Optional second positional: a single bats file to run (Docker OOM dodge —
+# MEMORY: the full suite OOMs ~test 131 in this VM). Normalize to a bare
+# basename with a .bats suffix so both `40-registry-cli` and
+# `40-registry-cli.bats` resolve to tests/bats/40-registry-cli.bats. Absent →
+# whole-directory run (today's default, unchanged on master).
+BATS_FILE=${2:-}
+BATS_TARGET_PATH="tests/bats/"
+if [[ -n $BATS_FILE ]]; then
+  # Strip any leading path + trailing .bats, then re-add the suffix so a stray
+  # `tests/bats/40-registry-cli.bats` arg still works.
+  BATS_FILE=${BATS_FILE##*/}
+  BATS_FILE=${BATS_FILE%.bats}
+  BATS_TARGET_PATH="tests/bats/${BATS_FILE}.bats"
+fi
+
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$HERE/../.." && pwd)
 IMG="agentlinux-test:${TARGET}"
@@ -70,8 +100,8 @@ fi
 # Test-secret forwarding. Append rows here in lockstep with .env.local.example
 # and docs/internals/test-secrets.md.
 SECRET_ALLOWLIST=(
-  ANTHROPIC_API_KEY  # interactive Claude Code behavioral tests
-  FOO                # test-secrets convention smoke
+  ANTHROPIC_API_KEY # interactive Claude Code behavioral tests
+  FOO               # test-secrets convention smoke
 )
 
 # Source .env.local if present so the allowlist sees vars set there.
@@ -244,7 +274,33 @@ else
   echo "-- Rust binary not staged; bats will exercise the bash fallback --"
 fi
 
-echo "== run bats suite (tests/bats/) =="
+# Phase 56 (GATE-01/GATE-05): flag-gated Rust-CLI symlink override. When
+# AGENTLINUX_STAGE_RUST_CLI=1, re-point the `agentlinux` command symlink that the
+# provisioner (50-registry-cli.sh:124) set to the TS bundle
+# (~agent/.npm-global/bin/agentlinux -> dist/index.js) so it instead points at
+# the staged Rust musl bin. This makes the CLI bats (40-registry-cli, etc.)
+# exercise the Rust binary AS the `agentlinux` command, not the TS bundle —
+# WITHOUT touching plugin/provisioner/50-registry-cli.sh (the provisioner keeps
+# symlinking the TS bundle until Phase 57/58). This is a TEST-HARNESS override.
+#
+# Fail-loud (exit-127 guard / T-56-05): if the override is REQUESTED but the
+# Rust bin failed to build/stage, ABORT rather than leave a dangling symlink
+# (exit 127 on every agentlinux invocation) or silently keep the TS bundle and
+# report a false-green "Rust pass". On master (flag unset) this whole block is
+# skipped and the existing non-fatal TS path is preserved.
+CLI_SYMLINK=/home/agent/.npm-global/bin/agentlinux
+if [[ -n ${AGENTLINUX_STAGE_RUST_CLI:-} ]]; then
+  if [[ -z $RUST_BIN_STAGED ]]; then
+    echo "ERROR: Rust CLI staging requested (AGENTLINUX_STAGE_RUST_CLI=1) but the musl bin is absent — refusing to run bats against the TS bundle and report false-green" >&2
+    exit 1
+  fi
+  echo "== override CLI symlink -> Rust musl bin (AGENTLINUX_STAGE_RUST_CLI) =="
+  docker exec "$CID" ln -sfn "$RUST_BIN_STAGED" "$CLI_SYMLINK"
+  docker exec "$CID" chown -h agent:agent "$CLI_SYMLINK"
+  echo "-- $CLI_SYMLINK now -> $RUST_BIN_STAGED (CLI bats exercise the Rust bin) --"
+fi
+
+echo "== run bats suite (${BATS_TARGET_PATH}) =="
 # cd into the staged sources so bats discovers helpers/ relatively. When the
 # Rust binary was staged, export AGENTLINUX_RUST_BIN so the reuse shim resolves
 # the absolute path (its security-L1 guard rejects a bare relative name).
@@ -253,7 +309,7 @@ if [[ -n $RUST_BIN_STAGED ]]; then
   BATS_ENV=(env "AGENTLINUX_RUST_BIN=$RUST_BIN_STAGED")
 fi
 set +e
-docker exec "$CID" bash -c 'cd /opt/agentlinux-src && '"${BATS_ENV[*]:+${BATS_ENV[*]} }"'bats tests/bats/'
+docker exec "$CID" bash -c 'cd /opt/agentlinux-src && '"${BATS_ENV[*]:+${BATS_ENV[*]} }"'bats '"$BATS_TARGET_PATH"
 BATS_STATUS=$?
 set -e
 
