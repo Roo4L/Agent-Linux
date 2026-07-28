@@ -87,6 +87,10 @@ coverage/
 # TypeScript build cache
 *.tsbuildinfo
 
+# v0.4.0 Rust rewrite: cargo build output (rust/Cargo.lock IS committed — app/bin
+# workspace, lockfile is authoritative — but the target/ tree is never committed).
+rust/target/
+
 # Python (in case any contributor lands a script that needs it)
 __pycache__/
 *.pyc
