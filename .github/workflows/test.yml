@@ -143,7 +143,14 @@ jobs:
     permissions:
       contents: read
     steps:
+      # W1 (TEST-02 --in-diff): full history so the mutation gate's diff base
+      # (origin/master) resolves. The default fetch-depth: 1 shallow clone leaves
+      # no origin/master ref, so `git diff origin/master...HEAD` would error or
+      # silently no-op the gate on a real PR. fetch-depth: 0 + an explicit fetch
+      # below guarantee the merge-base is present.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
       - name: Skip if no AgentLinux code changed or rust/ absent
         id: guard
         env:
@@ -177,6 +184,41 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
         run: cargo test --all
+      # TEST-02: mutation gate on the pure agentlinux-core crate. Pinned +
+      # --locked (T-54-SC: a silent upstream bump cannot change the mutation
+      # set mid-milestone). Swatinem/rust-cache above caches ~/.cargo incl. this
+      # binary, so warm runs are a no-op.
+      - name: Install cargo-mutants (pinned, cached)
+        if: steps.guard.outputs.ready == 'true'
+        run: cargo install --locked --version 27.1.0 cargo-mutants
+      # W1: assert the diff base resolves BEFORE the gate runs, so a shallow
+      # clone (or a missing origin/master) fails loudly here instead of letting
+      # `--in-diff` silently mutate an empty diff (a false-green gate). fetch-depth: 0
+      # above should make this a no-op, but the explicit fetch + assertion keep
+      # the gate honest on any runner.
+      - name: Ensure mutation diff base (origin/master) is available (W1)
+        if: steps.guard.outputs.ready == 'true'
+        run: |
+          git fetch --no-tags --depth=0 origin master || git fetch --no-tags origin master
+          if ! git rev-parse --verify --quiet origin/master >/dev/null; then
+            echo "TEST-02 FAIL: origin/master not resolvable — cannot compute --in-diff base"; exit 1
+          fi
+          if git merge-base origin/master HEAD >/dev/null 2>&1; then
+            echo "diff base OK: $(git merge-base origin/master HEAD)"
+          else
+            echo "TEST-02 FAIL: no merge-base between origin/master and HEAD"; exit 1
+          fi
+      # TEST-02 GATE (not advisory): mutate only diff-touched lines of the pure
+      # crate; a surviving un-skipped mutant FAILS the step. --minimum-test-timeout 20
+      # (T-54-06) floors the per-mutant timeout so an infinite-loop mutant is killed
+      # rather than hanging under the job's 15-min cap. No `|| echo ::warning::`
+      # bypass — this is the enforcing merge gate. Exclude a justified survivor with
+      # #[mutants::skip] + a comment in Rust rather than loosening the gate. The
+      # full-crate score runs advisory nightly (nightly-mutation.yml).
+      - name: cargo-mutants gate (pure core, --in-diff)
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: cargo mutants --package agentlinux-core --minimum-test-timeout 20 --in-diff <(git diff origin/master...HEAD -- 'crates/agentlinux-core/**')
       - name: static musl build + ldd assertion (RUST-01)
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
