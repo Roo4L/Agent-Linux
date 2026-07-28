@@ -149,6 +149,98 @@ mod tests {
 }
 
 #[cfg(test)]
+mod decide_version_tests {
+    //! Golden corpus ported verbatim from `plugin/cli/test/classify.test.ts:96-121`
+    //! (the five `decideVersion()` rows across three branches: override wins /
+    //! sticky preserved / curated default). Each row `assert_eq!`s the full
+    //! `VersionDecision`, closing the classify.test.ts corpus (CORE-01 complete).
+    //!
+    //! `decide_version` is a pure field dispatch — no I/O, no semver — so the five
+    //! example rows below are total over the branch space (override present, sticky
+    //! sentinel, non-sticky sentinel, absent sentinel); no proptest is needed.
+    use super::*;
+    use crate::types::VersionDecision;
+
+    fn base_entry() -> CatalogEntry {
+        CatalogEntry {
+            id: "foo".to_string(),
+            pinned_version: "1.0.0".to_string(),
+            version_constraint: None,
+            npm_package_name: Some("foo".to_string()),
+            compatibility_window: None,
+            tags: Vec::new(),
+            source_kind: None,
+        }
+    }
+
+    fn sentinel(version: &str, source: &str, sticky: bool) -> Sentinel {
+        Sentinel {
+            id: "foo".to_string(),
+            version: version.to_string(),
+            source: source.to_string(),
+            sticky,
+        }
+    }
+
+    fn decision(version: &str, source: &str, sticky: bool) -> VersionDecision {
+        VersionDecision {
+            version: version.to_string(),
+            source: source.to_string(),
+            sticky,
+        }
+    }
+
+    // classify.test.ts:97-100 — override flag wins regardless of sentinel.
+    #[test]
+    fn override_flag_wins_regardless_of_sentinel() {
+        assert_eq!(
+            decide_version(&base_entry(), Some("2.0.0"), None),
+            decision("2.0.0", "override", false)
+        );
+    }
+
+    // classify.test.ts:102-105 — override flag wins even over a sticky sentinel.
+    #[test]
+    fn override_flag_wins_even_with_sticky_sentinel() {
+        let s = sentinel("1.1.0", "pinned", true);
+        assert_eq!(
+            decide_version(&base_entry(), Some("2.0.0"), Some(&s)),
+            decision("2.0.0", "override", false)
+        );
+    }
+
+    // classify.test.ts:107-109 — sticky sentinel preserved when no override; the
+    // source is INHERITED from the sentinel ("pinned"), not hardcoded.
+    #[test]
+    fn sticky_sentinel_preserved_source_inherited() {
+        let s = sentinel("1.1.0", "pinned", true);
+        assert_eq!(
+            decide_version(&base_entry(), None, Some(&s)),
+            decision("1.1.0", "pinned", true)
+        );
+    }
+
+    // classify.test.ts:112-115 — no override + non-sticky sentinel → catalog pin.
+    #[test]
+    fn default_curated_non_sticky_sentinel_uses_pin() {
+        let s = sentinel("0.9.0", "curated", false);
+        assert_eq!(
+            decide_version(&base_entry(), None, Some(&s)),
+            decision("1.0.0", "curated", false)
+        );
+    }
+
+    // classify.test.ts:117-119 — no override + no sentinel → catalog pin.
+    #[test]
+    fn default_curated_no_sentinel_uses_pin() {
+        assert_eq!(
+            decide_version(&base_entry(), None, None),
+            decision("1.0.0", "curated", false)
+        );
+    }
+}
+
+#[cfg(test)]
 mod proptests {
     //! Property tests (TEST-01) over `classify` — invariants the 44 example
     //! rows cannot express: totality, determinism, and the sticky invariant.

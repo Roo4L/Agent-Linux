@@ -92,6 +92,20 @@ pub struct Sentinel {
     pub sticky: bool,
 }
 
+/// Mirror of `VersionDecision` (`plugin/cli/src/types.ts:91-95`) — the pure
+/// companion to [`crate::classify::classify`]: which version the CLI asks the
+/// recipe to install, plus the sentinel `source` label and whether that choice
+/// is sticky. Derives `PartialEq, Eq, Serialize` to match the
+/// [`DivergenceReport`] convention (assert_eq! golden + byte-identical JSON).
+/// `source` stays a plain `String` (not an enum) so an inherited sticky-sentinel
+/// source deserializes/serializes cleanly, mirroring `Sentinel::source`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct VersionDecision {
+    pub version: String,
+    pub source: String,
+    pub sticky: bool,
+}
+
 /// The six-state divergence status. Serde-renamed to the TS kebab strings so a
 /// serialized `Status` is byte-identical to the TS `Status` union.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
