@@ -2,13 +2,17 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Rust Rewrite
-status: planning
-last_updated: "2026-07-27T22:00:00.000Z"
-last_activity: 2026-07-27
+current_phase: 53
+current_phase_name: rust-scaffold-de-risking-spike
+status: executing
+stopped_at: Phase 52 context gathered
+last_updated: "2026-07-28T06:07:22.533Z"
+last_activity: 2026-07-28
+last_activity_desc: Phase 53 execution started
 progress:
   total_phases: 7
   completed_phases: 0
-  total_plans: 0
+  total_plans: 2
   completed_plans: 0
   percent: 0
 ---
@@ -20,15 +24,15 @@ progress:
 See: .planning/PROJECT.md (updated 2026-06-27)
 
 **Core value:** An agent can be dropped into any supported Linux system and just work — a dedicated agent user with correctly-owned Node.js, agent binaries, and config paths, so self-updates, global npm installs, and tool provisioning happen without permission fights.
-**Current focus:** v0.3.6 Catalog Expansion — through Phase 37 COMPLETE (incl. the **ADR-017 thin-installer reframe**: MCP entries register the bare server, bake NO credential, user auths in-client; helper credential-free). **Phases 38 (gitlab-mcp) + 39 (brave-search-mcp) DROPPED** on the ADR-017 source-selection gate (gitlab endpoint paywalled; brave lost its card-free tier Feb 2026) — MCP-05 + MCP-06 deferred. **Phase 40 (firecrawl-mcp) COMPLETE + Docker-green** — first MCP entry to *clear* the free-tier gate (card-free recurring 1,000 credits/month), hosted keyless bare-URL thin installer; AL-87 Done. **Phase 41 (slack-mcp) COMPLETE + Docker-green** — official first-party hosted `mcp.slack.com` bare-URL thin installer (supersedes the roadmap's third-party stealth-token plan); AL-88 Done. **Phase 42 (linear-mcp) COMPLETE + Docker-green** — official first-party hosted `mcp.linear.app` bare-URL thin installer (free-tier confirmed); AL-89 Done. **Phase 43 (jira-atlassian-mcp) COMPLETE** — official Atlassian Rovo hosted `mcp.atlassian.com` bare-URL thin installer (free-tier 500/hr confirmed; cloud-only); review + Docker pending. **This closes the `/gsd-autonomous --from 36 --to 43` range** (36-37 shipped earlier; 38-39 dropped on the free-tier gate; 40-43 shipped). **Then 2026-07-14: Phases 45 (claude-flow) + 46 (bmad) DROPPED** (maintainer decision — too niche for the first-release cohort; spec-kit + GSD cover the structured/spec-driven-workflow need and are far more popular; not a source-gate failure; WORK-04/05 deferred, cheaply revisitable via the ENABLE-07 growth-kit template). Milestone now ships **22 new entries** (26 shortlisted − 4 in-flight drops: gitlab/brave/claude-flow/bmad). Remaining shippable phases: **44 spec-kit → 47 openclaw → 48 hermes-agent → 49 growth-kit capstone** (45/46 skipped). Resuming via `/gsd-autonomous --from 44`.
+**Current focus:** Phase 53 — rust-scaffold-de-risking-spike
 
 ## Current Position
 
-Phase: 53 — Rust Scaffold + De-Risking Spike (roadmap created; not started)
-Plan: —
-Status: Roadmap created — 7 phases (53–59) derived from the v0.4.0 RUST/TEST/CORE/VERB/PROV/DIST/GATE requirement families; all 23 v1 requirements mapped (0 orphans). Ready to plan Phase 53 (the de-risking spike).
+Phase: 53 (rust-scaffold-de-risking-spike) — EXECUTING
+Plan: 1 of 2
+Status: Executing Phase 53
 Milestone: v0.4.0 Rust Rewrite — reimplement the TS registry CLI (~2,800 LOC) + Bash provisioner (~4,363 LOC) as one Rust static binary (x86_64 musl) behind the language-agnostic bats spec (ADR-002). Like-for-like: nothing observable changes for users. Order respects the natural port dependency + de-risking sequence — spike first (53), testing bedrock (54), pure-logic core (55), CLI verbs + dispatcher (56), provisioner + logic consolidation (57), distribution (58), full-matrix validation gate (59). GATE-01 (green-bats-per-phase) + GATE-05 (master stays shippable / parallel track / per-phase rollback) are cross-cutting invariants folded into every phase's success criteria (anchored to Phase 53 for coverage). Recipes stay Bash behind a generated env-var contract; the fpm .deb path is dropped (ADR-006 flagged). Decision recorded 2026-07-27 in docs/research/v0.3.0/stack-reconsideration.md (Rust over Go and a runtime-bundled-JS binary).
-Last activity: 2026-07-27 — v0.4.0 roadmap created (phases 53–59); requirements traceability filled
+Last activity: 2026-07-28 — Phase 53 execution started
 
 ## Current Position (v0.3.4 — historical)
 
