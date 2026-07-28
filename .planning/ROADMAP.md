@@ -39,7 +39,11 @@ Execution is strictly sequential (53 → 59); the order respects the natural por
   3. The spike ports `classify` + `divergence` + one gnarly provisioner unit (e.g. `detect/nodejs.sh` or npm-prefix reconciliation) to Rust; the **full bats behavior suite is green** on the Rust build for that ported surface, with **no newly-skipped tests** (RUST-03, GATE-01).
   4. Measured agent-loop metrics — iterations-to-green, token cost, cargo-timeout + crate-hallucination incidents — are recorded to calibrate the remaining port (RUST-03).
   5. The spike lands on a **parallel track**; `master` remains shippable and a per-phase rollback path exists (a broken spike never blocks a `master` hotfix) (GATE-05).
-**Plans**: TBD
+**Plans**: 2 plans
+
+Plans:
+- [ ] 53-01-PLAN.md — Cargo workspace + static-musl build (RUST-01) + port classify/divergence + semver_shim into agentlinux-core with the TS golden corpus (RUST-03 pure core)
+- [ ] 53-02-PLAN.md — Port reuse::agent_decision behind the agents.sh shim + bats acceptance checkpoint (RUST-03 provisioner, GATE-01) + gated rust CI job (RUST-02) + 53-METRICS.md agent-loop cost & GATE-05 rollback note
 
 ### Phase 54: Testing Bedrock
 **Goal**: Stand up the property + mutation + schema-generation + semver-parity machinery on the pure-logic core *before* the bulk port, so the practice that motivated the whole rewrite is operational — not aspirational — and every later port lands behind a real testing gate.
@@ -118,7 +122,7 @@ Execution is strictly sequential (53 → 59); the order respects the natural por
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 53. Rust Scaffold + De-Risking Spike | 0/? | Not started | - |
+| 53. Rust Scaffold + De-Risking Spike | 0/2 | Not started | - |
 | 54. Testing Bedrock | 0/? | Not started | - |
 | 55. Pure-Logic Core Parity | 0/? | Not started | - |
 | 56. Registry CLI Verbs + Dispatcher | 0/? | Not started | - |
