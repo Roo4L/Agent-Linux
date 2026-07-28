@@ -546,20 +546,25 @@ if deadline_exceeded {
 
 **All A1/A2/A6 crate versions are `[ASSUMED]` until §Package Legitimacy Audit + `cargo search` run at plan time.**
 
-## Open Questions
+## Open Questions (RESOLVED at plan time)
 
-1. **Does any CLI bats assert exact `--help`/usage text?**
-   - Known: `CLI-01 --version` asserts the version number (fine for clap `.version()`).
-   - Unclear: whether a `--help` body or a Commander-specific usage line is grepped.
-   - Recommendation: `grep -nE 'Usage:|Options:|--help' tests/bats/{40,23,10,50}*.bats` in Wave 0; if found, use a clap custom help template or a per-verb hand-written help.
+All three were resolved during planning + plan-check (verdict `56-PLAN-CHECK.md`); recorded here for provenance.
 
-2. **Buffered timeout: is any buffered caller time-bounded?**
-   - `queryGlobalNpm`/`queryNpmViewLatest` pass `timeout: 30_000` (npm_ls.ts:78,119) to the **buffered** `asUser` (not streaming). The TS buffered path honors `execFile`'s `timeout` option (dispatcher.ts:85).
-   - Recommendation: the Rust buffered path must ALSO honor a timeout (30s for npm) — use `wait-timeout` or a `try_wait` loop + SIGKILL. Pin this; it's easy to miss since the streaming test dominates attention.
+1. **Does any CLI bats assert exact `--help`/usage text?** — **RESOLVED: No.**
+   The plan-checker independently grepped the CLI bats: only `CLI-01 --version`
+   asserts the version *number* (satisfied by clap `.version()`), and CLI-03
+   exercises the `install --version 9.9.9` shadow — no `--help` body / Commander
+   usage line is asserted. clap's default help is safe; no custom help template needed.
 
-3. **Where does `shouldReinstall` + `validateReusedBinary` (upgrade.ts:33-101) land?**
-   - `shouldReinstall` is pure (flag priority); `validateReusedBinary` does a `statSync` (I/O).
-   - Recommendation: `shouldReinstall` → a small pure helper (bin or core); `validateReusedBinary`'s stat → the upgrade adapter. Split them.
+2. **Buffered timeout: is any buffered caller time-bounded?** — **RESOLVED: Yes, honor it.**
+   `queryGlobalNpm`/`queryNpmViewLatest` pass `timeout: 30_000` (npm_ls.ts:78,119)
+   to the **buffered** path (dispatcher.ts:85). Pinned in `56-03` Task 1: the Rust
+   buffered path honors a 30s timeout (executor picks `wait-timeout` vs. a `try_wait`
+   loop + SIGKILL — open item, not a blocker).
+
+3. **Where do `shouldReinstall` + `validateReusedBinary` (upgrade.ts:33-101) land?** — **RESOLVED: split.**
+   `shouldReinstall` (pure flag priority) → a bin helper; `validateReusedBinary`'s
+   `statSync` → the upgrade adapter. Baked into `56-01`/`56-03`.
 
 ## Environment Availability
 
