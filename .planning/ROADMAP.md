@@ -63,9 +63,10 @@ Plans:
   5. The **full bats behavior suite stays green** on the Rust build for the ported surface with **no behavior-contract regression and no newly-skipped tests** (GATE-01); `master` stays shippable with a rollback path (GATE-05).
 
 **Plans**: 3 plans
-- [ ] 54-01-PLAN.md — proptest invariants (TEST-01) + node-semver parity audit doc & golden test (TEST-04) on the pure core; stages Cargo.toml deps [Wave 1]
-- [ ] 54-02-PLAN.md — schemars-generated catalog schema + drift-check, functional-equivalence gate keeping the 3 ajv consumers/12 fixtures green (TEST-03) [Wave 2]
-- [ ] 54-03-PLAN.md — cargo-mutants per-PR --in-diff gate in the guarded rust job + full-crate nightly score (TEST-02, GATE-05) [Wave 2]
+
+- [x] 54-01-PLAN.md — proptest invariants (TEST-01) + node-semver parity audit doc & golden test (TEST-04) on the pure core; stages Cargo.toml deps [Wave 1]
+- [x] 54-02-PLAN.md — schemars-generated catalog schema + drift-check, functional-equivalence gate keeping the 3 ajv consumers/12 fixtures green (TEST-03) [Wave 2]
+- [x] 54-03-PLAN.md — cargo-mutants per-PR --in-diff gate in the guarded rust job + full-crate nightly score (TEST-02, GATE-05) [Wave 2]
 
 ### Phase 55: Pure-Logic Core Parity
 
