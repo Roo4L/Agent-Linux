@@ -58,8 +58,12 @@ pub fn classify(
 #[cfg(test)]
 mod tests {
     //! Golden corpus ported verbatim from `plugin/cli/test/classify.test.ts:36-93`
-    //! (the six `classify()` states). The `decideVersion` suite is NOT ported —
-    //! `decideVersion` is Phase 55/56 scope, not part of this spike's pure core.
+    //! (the seven `classify()` rows across the six states). CORE-01 re-asserted:
+    //! every `classify()` assertion in classify.test.ts has a matching `#[test]`
+    //! below (not-installed ×2 / synced / drift-undeclared / override-ahead /
+    //! override-behind / pinned-override). The `decideVersion` suite
+    //! (classify.test.ts:96-121) is now ported too — see the `decide_version`
+    //! function and its `decide_version_tests` module below (Phase 55, Plan 03).
     use super::*;
 
     fn base_entry() -> CatalogEntry {
