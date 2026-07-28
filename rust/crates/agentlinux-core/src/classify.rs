@@ -11,7 +11,7 @@
 //!   5. installed > pinned ? OverrideAhead : OverrideBehind
 
 use crate::semver_shim;
-use crate::types::{CatalogEntry, Sentinel, Status};
+use crate::types::{CatalogEntry, Sentinel, Status, VersionDecision};
 
 /// Classify the divergence between the catalog pin, the sentinel record, and the
 /// version actually installed on disk. Mirrors the TS `classify()` verdict for
@@ -52,6 +52,51 @@ pub fn classify(
         Status::OverrideAhead
     } else {
         Status::OverrideBehind
+    }
+}
+
+/// Decide which version the CLI asks the recipe to install. Mirrors the TS
+/// `decideVersion` (classify.ts:34-50) — pure (no I/O, no semver), a straight
+/// field dispatch over three branches in verbatim order (classify.ts:39-49):
+///
+///   1. `version_override` (the `--version` flag) always wins →
+///      `{ version: override, source: "override", sticky: false }`.
+///   2. else if the sentinel is present AND sticky → preserve it, INHERITING the
+///      sentinel's `source` (NOT hardcoded) → `{ sentinel.version,
+///      sentinel.source, sticky: true }`.
+///   3. else → the curated catalog pin →
+///      `{ entry.pinned_version, source: "curated", sticky: false }`.
+///
+/// This is the pure companion to [`classify`]: `classify` reports the divergence
+/// verdict; `decide_version` reports the install-version decision.
+#[must_use]
+pub fn decide_version(
+    entry: &CatalogEntry,
+    version_override: Option<&str>,
+    existing_sentinel: Option<&Sentinel>,
+) -> VersionDecision {
+    if let Some(version) = version_override {
+        return VersionDecision {
+            version: version.to_string(),
+            source: "override".to_string(),
+            sticky: false,
+        };
+    }
+    if let Some(sentinel) = existing_sentinel {
+        if sentinel.sticky {
+            return VersionDecision {
+                version: sentinel.version.clone(),
+                // Inherit the sentinel's source — mirrors TS
+                // `source: existingSentinel.source` (classify.ts:45).
+                source: sentinel.source.clone(),
+                sticky: true,
+            };
+        }
+    }
+    VersionDecision {
+        version: entry.pinned_version.clone(),
+        source: "curated".to_string(),
+        sticky: false,
     }
 }
 
