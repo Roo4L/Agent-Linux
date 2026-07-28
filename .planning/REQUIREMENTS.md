@@ -30,7 +30,7 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 
 ### Registry CLI Verbs (VERB)
 
-- [ ] **VERB-01**: `list / install / remove / upgrade / pin / adopt` produce contract-equivalent stdout + exit codes to the TS CLI — verified green by the existing `CLI-*` and `50-agents`/list/upgrade/pin bats tests. _(Wave 0 / Plan 56-01 ships the clap arg surface — 6 verbs, 23 flags, 4 positionals, install --version shadow — with verb bodies as stubs; full contract-equivalent stdout closes when the verb adapters land in Plans 56-02/03.)_
+- [x] **VERB-01**: `list / install / remove / upgrade / pin / adopt` produce contract-equivalent stdout + exit codes to the TS CLI — verified green by the existing `CLI-*` and `50-agents`/list/upgrade/pin bats tests. _(Wave 0 / Plan 56-01 ships the clap arg surface — 6 verbs, 23 flags, 4 positionals, install --version shadow — with verb bodies as stubs; full contract-equivalent stdout closes when the verb adapters land in Plans 56-02/03.)_
 - [x] **VERB-02**: The subprocess dispatcher runs recipes as the target user (`sudo -u`), streams output (tee), enforces a timeout, and escalates SIGTERM→SIGKILL — verified by the dispatcher/streaming behavior tests.
 - [x] **VERB-03**: The recipe env-var contract (the six `AGENTLINUX_*` names) is generated from a single typed Rust source, and the ~25 unchanged Bash recipes run correctly against it (a rename cannot silently desync CLI and recipes).
 
@@ -92,7 +92,7 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | CORE-01 | Phase 55 | Complete |
 | CORE-02 | Phase 55 | Complete |
 | CORE-03 | Phase 55 | Complete |
-| VERB-01 | Phase 56 | In Progress (arg surface done Plan 56-01; list/pin/adopt done Plan 56-02 — list+adopt green on 40-registry-cli, pin unit-green; install/remove/upgrade Plan 56-03) |
+| VERB-01 | Phase 56 | Complete (arg surface Plan 56-01; list/pin/adopt Plan 56-02; install/remove/upgrade Plan 56-03 — all six verbs green on 40-registry-cli/23-install-user + real installs on 50-agents against the staged Rust bin) |
 | VERB-02 | Phase 56 | Complete |
 | VERB-03 | Phase 56 | Complete |
 | PROV-01 | Phase 57 | Pending |

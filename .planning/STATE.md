@@ -5,10 +5,10 @@ milestone_name: Rust Rewrite
 current_phase: 56
 current_phase_name: Registry CLI Verbs + Subprocess Dispatcher
 status: planning
-stopped_at: Completed 56-02-PLAN.md
-last_updated: "2026-07-28T18:04:37.467Z"
+stopped_at: Completed 56-03-PLAN.md
+last_updated: "2026-07-28T18:40:00.000Z"
 last_activity: 2026-07-28
-last_activity_desc: Plan 56-02 complete — list/pin/adopt verbs + file adapters
+last_activity_desc: Plan 56-03 complete — install/remove/upgrade verbs + probe/npm/rewire adapters (VERB-01/02/03 on real recipes)
 progress:
   total_phases: 7
   completed_phases: 3
@@ -29,8 +29,10 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 ## Current Position
 
 Phase: 56 — Registry CLI Verbs + Subprocess Dispatcher
-Plan: 56-01 ✓ + 56-02 ✓ complete (Wave 0 scaffold+dispatcher; Wave 1 read-only/state-only verbs) — 56-03/04 pending
+Plan: 56-01 ✓ + 56-02 ✓ + 56-03 ✓ complete (Wave 0 scaffold+dispatcher; Wave 1 read-only/state-only verbs; Wave 2 mutating verbs) — 56-04 (closeout) pending
 Status: In progress — Plan 56-02 landed the four bin-side file adapters (guard.rs CLI-05 invoker guard; catalog.rs FullCatalogEntry + preserve_paths traversal reject T-56-06; sentinel.rs atomic write-path shape T-56-08; cache.rs detect-cache reader deferred from Phase 55, dual .agents/.components.agents shapes) + the three no-subprocess verbs (cmd/list.rs byte-compatible padded table with the em-dash INSTALLED suffixes + --by-category `## <label>` groups + --json Row array; cmd/pin.rs state-only pin via parse_pin_spec, 64/1 exit map; cmd/adopt.rs reuse/remediate gates + the host statSync in the adapter, [ADOPT]/[MIGRATE] literals). All consume the pure agentlinux-core gates (never re-derive); dispatch NO recipe. CLI-05 guard wired once in main::dispatch before every verb (TS preAction parity) → `agentlinux list` as root exits 64. agentlinux-core untouched. cargo test --workspace 64(bin)+121(core) pass; clippy -D warnings clean; fmt --check clean. 3 atomic commits 028ecfc/aabffd5/a84a4ff. On 40-registry-cli.bats vs the staged Rust musl bin: list + adopt @tests GREEN, guard (CLI-05) GREEN; pin bats-blocked ONLY by its `install` setup fixture (Plan 03 stub) — pin verb is unit-green. install/remove/upgrade are loud Wave-2 stubs (Plan 03). CLI-01 (which-path) is a run.sh staging-mechanic detail for Plan 04. Plan 56-03 reuses these same catalog/sentinel/cache/guard adapters for install/remove/upgrade.
+Plan 56-03 (Wave 2 — mutating verbs): install/remove/upgrade + probe/npm/rewire adapters. install.rs (usage exits 64; --dry-run [DRY-RUN] preview; REUSE-03 pure reuse_gate + adapter statSync; REMEDIATE-04 pure remediate_gate + non-TTY --yes bail=65 + post-uninstall existsSync=1 + broken-after-remediate trail; decide_version idempotent no-op; create streams install.sh, propagates recipe exit, sentinel + reconcile_cross_wiring; byte-exact ▸ installing/installed/no-op). remove.rs (64/1/0-no-op + reused-binary-vanished delete; streaming uninstall.sh; ▸ removing/removed). upgrade.rs (compute_divergence + presence_gate overlay + npm INSTALLED via query_global_npm + opt-in resolve_latest_for; shouldReinstall pure flag-priority helper; validateReusedBinary statSync adapter; padded 7-col [ID,STATUS,SENTINEL,INSTALLED,CURATED,LATEST,SRC] or --json present overlay; reconcile loop continues per-entry on failure exit 0). probe.rs (installed package.json version). npm.rs (npm ls -g --json parsed on non-zero exit — Pitfall 5; npm view versions; both BUFFERED with 30_000ms timeout — Open Q2). rewire.rs (post-install cross-wiring, best-effort). VERB-01 complete for all six verbs; VERB-02/VERB-03 proven on REAL recipe dispatch. agentlinux-core untouched. cargo test --workspace 228 pass; clippy -D warnings clean; fmt --check clean. 3 atomic commits 8cd40d0/d75341d/26efc7e. On the staged Rust musl bin: 40-registry-cli install/remove/upgrade cases GREEN (CLI-03/04/06); 23-install-user all 9 INST-07 GREEN incl. AC4 (recipe dispatch as configured `claude` user — dispatcher sudo -u + resolve_install_user + guard end-to-end); 50-agents REAL install claude-code/gsd/playwright-cli succeeded (AGT-02b/02c/03/04/05/06 GREEN). Deferred to Phase-59 QEMU (ssh/systemd invocation-mode-gated, NOT verb regressions): CLI-01 interactive (staging symlink target) + CLI-01 ssh + AGT-01 ×3 (ssh Permission denied — no agent ssh key in Docker). bats specs UNCHANGED; per-file runs only (Docker OOM). Plan 56-04 (closeout) runs the full CLI bats across all six verbs.
+
 Milestone: v0.4.0 Rust Rewrite — reimplement the TS registry CLI (~2,800 LOC) + Bash provisioner (~4,363 LOC) as one Rust static binary (x86_64 musl) behind the language-agnostic bats spec (ADR-002). Like-for-like: nothing observable changes for users. Order respects the natural port dependency + de-risking sequence — spike first (53), testing bedrock (54), pure-logic core (55), CLI verbs + dispatcher (56), provisioner + logic consolidation (57), distribution (58), full-matrix validation gate (59). GATE-01 (green-bats-per-phase) + GATE-05 (master stays shippable / parallel track / per-phase rollback) are cross-cutting invariants folded into every phase's success criteria (anchored to Phase 53 for coverage). Recipes stay Bash behind a generated env-var contract; the fpm .deb path is dropped (ADR-006 flagged). Decision recorded 2026-07-27 in docs/research/v0.3.0/stack-reconsideration.md (Rust over Go and a runtime-bundled-JS binary).
 Last activity: 2026-07-28 — Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
 
@@ -132,6 +134,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 |------|----------|-------|-------|
 | Phase 56 P01 | 12min | 4 tasks | 6 files |
 | Phase 56 P02 | 45min | 4 tasks | 11 files |
+| Phase 56 P03 | ~60min | 4 tasks | 8 files |
 
 ## Accumulated Context
 
