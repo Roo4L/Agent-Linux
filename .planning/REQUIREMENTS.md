@@ -48,7 +48,7 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 ### Validation Gate (GATE)
 
 - [x] **GATE-01**: Every phase ships behind a **green full bats suite** — no phase merges with a red or newly-skipped behavior test (validation is per-phase, first-class). *Cross-cutting invariant — folded into every phase's success criteria; anchored (traceability) to Phase 53 where it is first established.*
-- [ ] **GATE-02**: The complete bats behavior contract passes on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) **and** the QEMU release gate.
+- [x] **GATE-02**: The complete bats behavior contract passes on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) **and** the QEMU release gate.
 - [ ] **GATE-03**: Every existing requirement ID / behavior family (BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC) retains behavior or harness evidence on the Rust build (`behavior-coverage-auditor` reports zero uncovered).
 - [ ] **GATE-04**: The canonical acceptance test — agent `claude` self-update without sudo, zero EACCES — passes on the Rust build against the live Anthropic CDN.
 - [x] **GATE-05**: `master` stays shippable throughout — the rewrite lands on a parallel track with a per-phase rollback path; a broken Rust phase never blocks a hotfix release from `master`. *Cross-cutting invariant — folded into every phase's success criteria; anchored (traceability) to Phase 53 where it is first established.*
@@ -101,7 +101,7 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | DIST-01 | Phase 58 | Complete |
 | DIST-02 | Phase 58 | Complete |
 | GATE-01 | Phase 53 (cross-cutting — every phase) | Complete |
-| GATE-02 | Phase 59 | Pending |
+| GATE-02 | Phase 59 | Complete |
 | GATE-03 | Phase 59 | Pending |
 | GATE-04 | Phase 59 | Pending |
 | GATE-05 | Phase 53 (cross-cutting — every phase) | Complete |
