@@ -5,16 +5,16 @@ milestone_name: Rust Rewrite
 current_phase: 58
 current_phase_name: Distribution — musl Tarball as Sole Channel
 status: in_progress
-stopped_at: Completed 58-01-PLAN.md (Wave 1 — musl producer swap + DIST-02 deletions)
-last_updated: "2026-07-29T07:27:44.974Z"
-last_activity: 2026-07-28
-last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
+stopped_at: Completed 58-02-PLAN.md
+last_updated: "2026-07-29T07:58:46.011Z"
+last_activity: 2026-07-29
+last_activity_desc: Plan 58-02 complete (coupled staging swap — musl bin is the default staged agentlinux command; install.sh execs musl provision; coupled bats re-pointed, green both distros)
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 24
-  completed_plans: 18
-  percent: 43
+  completed_plans: 20
+  percent: 45
 ---
 
 # Project State
@@ -28,7 +28,9 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 ## Current Position
 
-Phase: 58 — Distribution — musl Tarball as Sole Channel (🚧 IN PROGRESS — Wave 1 of 3 done)
+Phase: 58 — Distribution — musl Tarball as Sole Channel (🚧 IN PROGRESS — Wave 2 of 3 done)
+
+Plan 58-02 ✅ COMPLETE (2026-07-29, Wave 2 — THE COUPLED STAGING SWAP, the #1 risk): made the static musl binary the DEFAULT shipped + staged `agentlinux` command. **registry_cli.rs** (Rust provisioner step-50): malformed-tarball sanity checks re-pointed from `dist/index.js`/`node_modules`/`package.json` → the musl bin at `src_root()/bin/agentlinux` (exists + regular-file + executable; KEPT the `catalog.json` check); CLI stage → `install -m0755` the single static bin at `/opt/agentlinux/cli/<ver>/bin/agentlinux` (replacing the `cp -R dist/node_modules/package.json`; `copy_tree_contents`/`chmod_recursive_ugo` retained for the UNCHANGED catalog stage); symlink target `dist/index.js` → `bin/agentlinux`; catalog snapshot + state dir + as-user `test -x` verify UNCHANGED (CAT-01/02/03/05 + CLI-01 hold). **install.sh**: exec target re-pointed from the Bash `plugin/bin/agentlinux-install` → `exec "${inst}/plugin/bin/agentlinux" provision --user "$target_user" --yes "$@"` (Open Q2 `--yes` non-interactive consent, matching run.sh:308; no Node bootstrap before the bin runs); added `: "${AGENTLINUX_USER:=agent}"`. **CRITICAL RULE HELD:** the sha256-before-exec gate (install.sh:210-211) is UNTOUCHED — verify (210) precedes extract (221) precedes exec (242); tamper still fails closed. **Coupled bats re-pointed (each a minimal equivalent-property re-point, NOT a dropped assertion):** 60-curl-installer fixture → `build/plugin/bin/agentlinux` bin stub + happy-path asserts the `agentlinux provision` exec handoff (sentinel survives); 10-installer INST-02 shebang-hash → whole staged-musl-bin `sha256sum` (equal-or-stronger idempotency) + the re-run made regime-matched (re-run the SAME provisioner that produced the state: musl `<bin> provision --user agent --yes` else the Bash entrypoint — the real missed-coupling W-1 warned about; without it the surviving symlink-target check flips regimes and false-fails); 13-reuse REUSE-03 both blocks resolve the CLI via `sudo -u agent -H bash --login -c 'command -v agentlinux'` (the staged musl command on PATH) instead of globbing `dist/index.js`, list-suffix guard is `__fail` not `skip` (REUSE-03 NOT silently skipped); 40-registry-cli comment-only correction. **Harness deviation** (tests/docker/run.sh, NOT a bats spec): the `AGENTLINUX_PROVISION_RUST` seam now splices the built musl bin into `/opt/agentlinux-src/plugin/bin/agentlinux` so the swapped `registry_cli.rs` sanity-check finds the artifact it stages (payload/exec/stage triad; Wave 3 folds it into the default). **GREEN on the Rust build on BOTH ubuntu-24.04 AND almalinux-9:** 60-curl-installer 4/4, 10-installer 11/11 (INST-02 incl.), 40-registry-cli 29/29, 23-install-user 9/9, 13-reuse 31/32 (ONLY the pre-existing #29 schema red, Phase-57 deferred, red on both builds, out of scope) — no newly-red / no newly-skipped (GATE-01). cargo test --workspace 338 pass; clippy -p agentlinux -D warnings clean; fmt clean; agentlinux-core pure (0 files); `plugin/cli/` (TS oracle) + `plugin/bin/agentlinux-install` (Bash rollback) retained (GATE-05). 2 atomic commits 7a3da01 (feat swap) + bc08d62 (test bats re-point + run.sh deviation). DIST-01 staging-swap half + GATE-01/GATE-05 satisfied; Wave 3 (58-03) folds the flags + adds AGENTLINUX_LEGACY_TS=1 rollback lever + 61-no-node-prereq.
 
 Plan 58-01 ✅ COMPLETE (2026-07-29, Wave 1 — build-release.sh musl producer swap + DIST-02 deletion sweep): rewired `scripts/build-release.sh` to build the static `x86_64-unknown-linux-musl` `agentlinux` bin and ship it at `plugin/bin/agentlinux` (+ `plugin/catalog/` verbatim) in a `mktemp` staging tree, archived with the retained reproducible-tar recipe + `sha256sum` sidecar — DROPPING the pnpm/TS-bundle build (no pnpm/npm on the producer path; `plugin/cli/` stays in-repo only as the parity oracle). Reproducibility (DIST-01/Pitfall 6): added `[profile.release] strip = true` to `rust/Cargo.toml` + release-only RUSTFLAGS (`--remap-path-prefix` $PWD/$CARGO_HOME/$HOME + `-Wl,--build-id=none`); two builds same-HEAD → byte-identical `.sha256`, and cross-$PWD with a pinned SOURCE_DATE_EPOCH → byte-identical tarball (the musl bin itself is byte-identical cross-$PWD). Version lock (Open Q3 option a/Pitfall 3): added a `rust/crates/agentlinux/Cargo.toml` version-parity leg (a throwaway 9.9.9 bump fails the build). Static-link assertion uses `readelf` NEEDED+INTERP (musl links static-PIE; the naive `if ldd` false-positives — Rule-1 fix). DIST-02: `git rm packaging/deb/` (postinst.sh + .gitkeep); removed the release.yml fpm step + `agentlinux_*.deb` glob; deleted the HRN-01 `packaging/deb` @test (00-layout.bats green 19/19); dropped `SKIP_DEB=1 --no-deb` from boot.sh + rc-sandbox.sh; updated docs/HARNESS.md + AGENTS.md to sole-channel; flagged ADR-006 Superseded-in-part (channel-1 curl-pipe-bash + mandatory .sha256 survive). Zero LIVE (non-comment) fpm/.deb/SKIP_DEB refs remain. cargo test --workspace 338 pass; clippy -D warnings + fmt clean; agentlinux-core untouched (GATE-05: master's Bash+TS distribution unchanged on master — this branch only). 2 atomic commits e2710f0 (feat producer) + f66c41d (chore DIST-02 sweep). Two pre-existing unrelated harness reds (HRN-05/HRN-06) logged to deferred-items.md. DIST-01 (producer half) + DIST-02 satisfied; Wave 2 (58-02) does the registry_cli/install.sh staging swap; Wave 3 (58-03) folds the flags + rollback lever.
 
@@ -159,6 +161,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 57 P04 | 9 | 1 tasks | 4 files |
 | Phase 57 P06 | 4h | 2 tasks | 9 files |
 | Phase 58 P01 | 30m | 2 tasks | 11 files |
+| Phase 58 P02 | 25m | 2 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -450,6 +453,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-29T07:26:50.907Z
-Stopped at: Completed 58-01-PLAN.md (Wave 1)
+Last session: 2026-07-29T07:58:45.990Z
+Stopped at: Completed 58-02-PLAN.md
 Resume file: None
