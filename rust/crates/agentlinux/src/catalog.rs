@@ -36,11 +36,14 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// The USER-FACING catalog version segment of the default catalog dir. Mirrors
-/// `defaultCatalogDir` (loader.ts:17-20): `$AGENTLINUX_VERSION` else the bin's
-/// `CARGO_PKG_VERSION` (the CLI-01 version, 0.4.0).
+/// `defaultCatalogDir` (loader.ts:17-20): normalized `$AGENTLINUX_VERSION` else
+/// the bin's `CARGO_PKG_VERSION` (the CLI-01 version, 0.4.0). MUST resolve to the
+/// SAME string the provisioner staged at — so it shares the one normalized source
+/// (`registry_cli::agentlinux_version`) rather than duplicating the env logic.
+/// This is the runtime half of the OBS-05 fix: a tag like `v0.4.0-rc1` staged at
+/// `/opt/agentlinux/catalog/0.4.0/` must be found here too.
 fn default_catalog_dir() -> PathBuf {
-    let ver = std::env::var("AGENTLINUX_VERSION")
-        .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
+    let ver = crate::provision::registry_cli::agentlinux_version();
     PathBuf::from(format!("/opt/agentlinux/catalog/{ver}"))
 }
 

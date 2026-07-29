@@ -93,13 +93,35 @@ fn looks_like_plugin_root(root: &Path) -> bool {
     root.join("bin/agentlinux").is_file() && root.join("catalog").is_dir()
 }
 
-/// The staging version — `$AGENTLINUX_VERSION` else the bin's `CARGO_PKG_VERSION`
-/// (synced to plugin/cli/package.json → 0.4.0). MUST match the version
-/// `10-installer.bats` reads from package.json so the staged
-/// `/opt/agentlinux/{cli,catalog}/<ver>/` paths line up. Public so the
-/// orchestrator's banner + `--purge` recipe-path derivation share the one source.
+/// Strip a version string down to its bare `X.Y.Z` base for use as an on-disk
+/// path segment: drop a leading `v` and anything from the first `-` (pre-release
+/// suffix). `v0.4.0-rc1` → `0.4.0`, `v0.4.0` → `0.4.0`, `0.4.0` → `0.4.0`.
+///
+/// OBS-05: the curl-installer passes `AGENTLINUX_VERSION=<tag>` (e.g.
+/// `v0.4.0-rc1`) into `provision`, which drove the `/opt/agentlinux/{cli,catalog}/
+/// <ver>/` staging paths. But at RUNTIME the agent shell has no `AGENTLINUX_VERSION`,
+/// so the catalog resolver fell back to `CARGO_PKG_VERSION` (`0.4.0`) and looked
+/// in a DIFFERENT dir than staging wrote — `agentlinux list` then failed
+/// "catalog.json not found". Normalizing both sides to the bare base reconciles
+/// them: the release version-lock guarantees the tag base == `CARGO_PKG_VERSION`,
+/// so `normalize(tag) == CARGO_PKG_VERSION` and staging == runtime. `run.sh` never
+/// caught this because it leaves the var unset (both sides already `0.4.0`).
+pub(crate) fn normalize_version(v: &str) -> String {
+    let no_v = v.strip_prefix('v').unwrap_or(v);
+    no_v.split('-').next().unwrap_or(no_v).to_string()
+}
+
+/// The staging version — normalized `$AGENTLINUX_VERSION` else the bin's
+/// `CARGO_PKG_VERSION` (synced to plugin/cli/package.json → 0.4.0). MUST match
+/// the version `10-installer.bats` reads from package.json AND the runtime
+/// `catalog::default_catalog_dir()` resolver so the staged
+/// `/opt/agentlinux/{cli,catalog}/<ver>/` paths line up on BOTH sides (OBS-05).
+/// Public so the orchestrator's banner, the `--purge` recipe-path derivation,
+/// and the runtime catalog resolver all share this one normalized source.
 pub fn agentlinux_version() -> String {
-    std::env::var("AGENTLINUX_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
+    let raw =
+        std::env::var("AGENTLINUX_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
+    normalize_version(&raw)
 }
 
 /// `run` — the 50-registry-cli.sh port.
@@ -401,6 +423,29 @@ mod registry_cli_tests {
         assert_eq!(agentlinux_version(), env!("CARGO_PKG_VERSION"));
         std::env::set_var("AGENTLINUX_VERSION", "9.9.9");
         assert_eq!(agentlinux_version(), "9.9.9");
+        std::env::remove_var("AGENTLINUX_VERSION");
+    }
+
+    #[test]
+    fn normalize_version_strips_v_prefix_and_prerelease_suffix() {
+        // OBS-05 regression: a release/RC tag must reduce to the bare X.Y.Z base
+        // so the staging path == the runtime CARGO_PKG_VERSION lookup.
+        assert_eq!(normalize_version("v0.4.0-rc1"), "0.4.0");
+        assert_eq!(normalize_version("v0.4.0"), "0.4.0");
+        assert_eq!(normalize_version("0.4.0"), "0.4.0");
+        assert_eq!(normalize_version("0.4.0-rc.2"), "0.4.0");
+        assert_eq!(normalize_version("v9.9.9-test"), "9.9.9");
+        // Bare fixture versions bats uses are unaffected.
+        assert_eq!(normalize_version("9.9.9"), "9.9.9");
+    }
+
+    #[test]
+    fn agentlinux_version_normalizes_a_tag_to_its_base() {
+        // The curl-installer sets AGENTLINUX_VERSION to the raw tag; staging must
+        // resolve to the bare base so it matches the runtime catalog lookup.
+        let _g = crate::test_support::env_guard();
+        std::env::set_var("AGENTLINUX_VERSION", "v0.4.0-rc1");
+        assert_eq!(agentlinux_version(), "0.4.0");
         std::env::remove_var("AGENTLINUX_VERSION");
     }
 
