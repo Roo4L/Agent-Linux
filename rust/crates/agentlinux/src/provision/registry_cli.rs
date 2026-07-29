@@ -45,13 +45,41 @@ use std::path::{Path, PathBuf};
 /// installer / a non-default layout.
 const DEFAULT_SRC_ROOT: &str = "/opt/agentlinux-src/plugin";
 
-/// Resolve the plugin source root: `$AGENTLINUX_SRC_ROOT` (nonempty) else the
-/// container default. This is the Rust analogue of the Bash `BIN_DIR/..`.
+/// Resolve the plugin source root — the Rust analogue of the Bash `BIN_DIR/..`.
+/// Precedence:
+///   1. `$AGENTLINUX_SRC_ROOT` (nonempty) — the explicit override.
+///   2. The running bin's own grandparent, when it looks like a plugin root.
+///      The shipped tarball lays the bin at `<plugin>/bin/agentlinux`, so
+///      `current_exe()/../..` is the `<plugin>` dir holding `bin/` + `catalog/`.
+///      This is what makes the SOLE distribution path work: the curl-installer
+///      extracts to `/opt/agentlinux/install/<ver>/plugin` and execs the bin
+///      WITHOUT setting the env var (OBS-04) — deriving from the bin's location
+///      is the Bash `BIN_DIR/..` behavior the earlier port dropped.
+///   3. `DEFAULT_SRC_ROOT` — the container-test default (`run.sh` stages the
+///      tree there and runs the provisioner bin from an unrelated off-tree path,
+///      so its grandparent is NOT a plugin root and correctly falls through).
 fn src_root() -> PathBuf {
-    match std::env::var("AGENTLINUX_SRC_ROOT") {
-        Ok(v) if !v.is_empty() => PathBuf::from(v),
-        _ => PathBuf::from(DEFAULT_SRC_ROOT),
+    if let Ok(v) = std::env::var("AGENTLINUX_SRC_ROOT") {
+        if !v.is_empty() {
+            return PathBuf::from(v);
+        }
     }
+    if let Some(root) = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().and_then(Path::parent).map(Path::to_path_buf))
+        .filter(|root| looks_like_plugin_root(root))
+    {
+        return root;
+    }
+    PathBuf::from(DEFAULT_SRC_ROOT)
+}
+
+/// A dir is a plugin root if it holds the two things the staging step copies:
+/// the `bin/agentlinux` payload and the `catalog/` tree. Guards the current_exe
+/// derivation so an off-tree provisioner bin (run.sh) falls through to the
+/// container default instead of pointing staging at a bogus root.
+fn looks_like_plugin_root(root: &Path) -> bool {
+    root.join("bin/agentlinux").is_file() && root.join("catalog").is_dir()
 }
 
 /// The staging version — `$AGENTLINUX_VERSION` else the bin's `CARGO_PKG_VERSION`
@@ -320,10 +348,39 @@ mod registry_cli_tests {
     fn src_root_honors_env_else_default() {
         let _g = crate::test_support::env_guard();
         std::env::remove_var("AGENTLINUX_SRC_ROOT");
+        // With the env var unset the current_exe derivation runs first, but the
+        // test runner's own bin is not laid out as a plugin root (no sibling
+        // bin/agentlinux + catalog/), so it correctly falls through to the
+        // container default.
         assert_eq!(src_root(), PathBuf::from(DEFAULT_SRC_ROOT));
         std::env::set_var("AGENTLINUX_SRC_ROOT", "/tmp/x/plugin");
         assert_eq!(src_root(), PathBuf::from("/tmp/x/plugin"));
         std::env::remove_var("AGENTLINUX_SRC_ROOT");
+    }
+
+    #[test]
+    fn looks_like_plugin_root_matches_the_shipped_tarball_layout() {
+        // OBS-04 regression: the real curl-installer extracts the tarball to
+        // <inst>/plugin (bin/agentlinux + catalog/) and execs the bin WITHOUT
+        // AGENTLINUX_SRC_ROOT — so src_root must be able to recognize a plugin
+        // root by its payload and derive staging from the bin's own location.
+        let dir = tempdir().unwrap();
+        let plugin = dir.path().join("plugin");
+        // Not a plugin root until BOTH payload markers exist.
+        std::fs::create_dir_all(plugin.join("bin")).unwrap();
+        assert!(!looks_like_plugin_root(&plugin), "bin/ alone is not a root");
+        std::fs::write(plugin.join("bin/agentlinux"), b"#!/bin/true\n").unwrap();
+        assert!(
+            !looks_like_plugin_root(&plugin),
+            "bin/agentlinux without catalog/ is not a root"
+        );
+        std::fs::create_dir_all(plugin.join("catalog")).unwrap();
+        assert!(
+            looks_like_plugin_root(&plugin),
+            "bin/agentlinux + catalog/ IS the shipped plugin root"
+        );
+        // A bare unrelated dir is never a plugin root.
+        assert!(!looks_like_plugin_root(dir.path()));
     }
 
     #[test]
