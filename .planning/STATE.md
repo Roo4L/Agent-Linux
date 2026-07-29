@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Rust Rewrite
-current_phase: 58
-current_phase_name: Distribution — musl Tarball as Sole Channel
-status: in_progress
-stopped_at: Completed 58-03-PLAN.md
-last_updated: "2026-07-29T08:30:28.319Z"
+current_phase: 59
+current_phase_name: Full Validation Gate
+status: ready
+stopped_at: Phase 58 COMPLETE + verified (GOAL ACHIEVED 12/12; reproducible musl tarball, sha256-verify intact, no-Node-prereq, .deb dropped, rollback lever) — advancing to Phase 59 (final)
+last_updated: "2026-07-29T09:08:00.000Z"
 last_activity: 2026-07-29
-last_activity_desc: Plan 58-03 complete (flag-fold + AGENTLINUX_LEGACY_TS rollback lever + 61-no-node-prereq — Phase 58 Wave 3 closeout; all 3 waves done)
+last_activity_desc: Phase 58 complete — musl binary is the sole shipped + default artifact (no Node prereq); reproducible tarball + .sha256; fpm .deb dropped; AGENTLINUX_LEGACY_TS rollback lever
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 24
-  completed_plans: 21
-  percent: 45
+  completed_phases: 6
+  total_plans: 25
+  completed_plans: 25
+  percent: 86
 ---
 
 # Project State

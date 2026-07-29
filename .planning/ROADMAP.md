@@ -24,7 +24,7 @@ Execution is strictly sequential (53 → 59); the order respects the natural por
 - [x] **Phase 55: Pure-Logic Core Parity** - Port classify/decide, computeDivergence + resolveLatestFor, detect gates, pin-spec parsing, and category derivation to Rust with verdicts identical to TS across a golden corpus. (completed 2026-07-28)
 - [x] **Phase 56: Registry CLI Verbs + Subprocess Dispatcher** - Port list/install/remove/upgrade/pin/adopt + the sudo-u/streaming-tee/timeout/SIGTERM→SIGKILL dispatcher + the generated env-var recipe contract; CLI-* bats green. (completed 2026-07-28)
 - [x] **Phase 57: Provisioner Port + Logic Consolidation** ✅ COMPLETE (2026-07-29) - Ported agent-user/sudoers/nodejs/path-wiring/registry-staging + detect/remediate/reuse/idempotency to Rust; PROV-02 consolidated (Rust canonical_path map is the authoritative in-process per-agent source; the Bash reuse shim/map/iterators RETAINED per plan-check B-1 as the 13-reuse/14-remediate spec contract + GATE-05 fallback, single-source grep gate green). Full Docker-runnable provisioner-surface bats GREEN on the Rust provisioner across the apt/dnf matrix (ubuntu-24.04 + almalinux-9 floor, 22.04/26.04 spot-checks), six invocation modes; systemd/cron/ssh QEMU gate → Phase 59. 6/6 plans done; PROV-01/02/03 + GATE-01/05 signed off.
-- [ ] **Phase 58: Distribution — musl Tarball as Sole Channel** - Reproducible x86_64 musl static tarball + `.sha256` fetched/verified/installed by the curl-installer with no Node prerequisite; drop the legacy fpm `.deb` path; flag ADR-006 for update.
+- [x] **Phase 58: Distribution — musl Tarball as Sole Channel** ✅ COMPLETE (2026-07-29) - Reproducible x86_64 musl static tarball + `.sha256` fetched/verified/installed by the curl-installer with no Node prerequisite; drop the legacy fpm `.deb` path; flag ADR-006 for update.
 - [ ] **Phase 59: Full Validation Gate** - The complete bats contract green on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) AND QEMU; zero uncovered behavior families; the canonical AGT-02 self-update-without-sudo acceptance test green against the live Anthropic CDN.
 
 ## Phase Details
@@ -173,7 +173,7 @@ Plans:
 | 55. Pure-Logic Core Parity | 3/3 | ✅ Complete | 2026-07-28 |
 | 56. Registry CLI Verbs + Dispatcher | 4/4 | ✅ Complete | 2026-07-28 |
 | 57. Provisioner Port + Logic Consolidation | 6/6 | ✅ Complete | 2026-07-29 |
-| 58. Distribution — musl Tarball as Sole Channel | 0/? | Not started | - |
+| 58. Distribution — musl Tarball as Sole Channel | 3/3 | ✅ Complete | 2026-07-29 |
 | 59. Full Validation Gate | 0/? | Not started | - |
 
 ## Current Milestone: v0.3.6 Catalog Expansion
