@@ -1,0 +1,428 @@
+== build agentlinux-test:ubuntu-24.04 from /home/agent/agent-linux/.claude/worktrees/stack-revisiting/tests/docker/Dockerfile.ubuntu-24.04 ==
+#0 building with "default" instance using docker driver
+
+#1 [internal] load build definition from Dockerfile.ubuntu-24.04
+#1 transferring dockerfile: 7.84kB done
+#1 DONE 0.0s
+
+#2 [internal] load metadata for docker.io/library/ubuntu:24.04
+#2 DONE 0.0s
+
+#3 [internal] load metadata for docker.io/library/node:22-slim
+#3 DONE 0.8s
+
+#4 [internal] load .dockerignore
+#4 transferring context: 2B done
+#4 DONE 0.0s
+
+#5 [stage-1 1/8] FROM docker.io/library/ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90
+#5 resolve docker.io/library/ubuntu:24.04@sha256:4fbb8e6a8395de5a7550b33509421a2bafbc0aab6c06ba2cef9ebffbc7092d90 0.0s done
+#5 DONE 0.0s
+
+#6 [cli-builder 1/6] FROM docker.io/library/node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3
+#6 resolve docker.io/library/node:22-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3 0.0s done
+#6 DONE 0.0s
+
+#7 [internal] load build context
+#7 transferring context: 1.61kB done
+#7 DONE 0.0s
+
+#8 [cli-builder 4/6] COPY plugin/cli/tsconfig.json ./
+#8 CACHED
+
+#9 [cli-builder 3/6] COPY plugin/cli/package.json plugin/cli/pnpm-lock.yaml ./
+#9 CACHED
+
+#10 [stage-1 2/8] RUN apt-get update &&     apt-get install -y --no-install-recommends       systemd systemd-sysv       cron openssh-server       bats locales sudo       dbus       expect       jq       git       curl       python3       file       ca-certificates bash coreutils util-linux       shellcheck &&     apt-get clean && rm -rf /var/lib/apt/lists/*
+#10 CACHED
+
+#11 [cli-builder 5/6] COPY plugin/cli/src ./src
+#11 CACHED
+
+#12 [stage-1 3/8] RUN rm -f /lib/systemd/system/multi-user.target.wants/* &&     systemctl mask       systemd-logind.service       systemd-resolved.service       systemd-networkd.service       systemd-tmpfiles-setup.service       systemd-tmpfiles-clean.service       systemd-tmpfiles-clean.timer
+#12 CACHED
+
+#13 [stage-1 4/8] RUN mkdir -p /run/sshd && ssh-keygen -A
+#13 CACHED
+
+#14 [stage-1 5/8] RUN locale-gen C.UTF-8 || true && update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
+#14 CACHED
+
+#15 [stage-1 7/8] COPY --from=cli-builder /build/cli/node_modules /opt/cli-prebuilt/node_modules
+#15 CACHED
+
+#16 [cli-builder 2/6] WORKDIR /build/cli
+#16 CACHED
+
+#17 [cli-builder 6/6] RUN corepack enable     && corepack prepare pnpm@latest --activate     && pnpm install --frozen-lockfile     && pnpm run build     && pnpm prune --prod
+#17 CACHED
+
+#18 [stage-1 6/8] COPY --from=cli-builder /build/cli/dist /opt/cli-prebuilt/dist
+#18 CACHED
+
+#19 [stage-1 8/8] COPY --from=cli-builder /build/cli/package.json /opt/cli-prebuilt/package.json
+#19 CACHED
+
+#20 exporting to image
+#20 exporting layers done
+#20 exporting manifest sha256:81ad9b5405afa38986afa4565b5ba06d8fb4ad1173dc5903961f8db2169918ae done
+#20 exporting config sha256:7f928edeb833ab0b5b87b03e551a76fa87b8b8233d643314e401a9af3de26c53 done
+#20 exporting attestation manifest sha256:84c5c1891b331c9de2e80025047f64b7522035c225ff732c03049e4a028eda00 0.0s done
+#20 exporting manifest list sha256:21f27531a80e169062f66c42829023f43ab80ccc6c616508da5596fedfcdadf8 0.0s done
+#20 naming to docker.io/library/agentlinux-test:ubuntu-24.04 done
+#20 unpacking to docker.io/library/agentlinux-test:ubuntu-24.04 0.0s done
+#20 DONE 0.2s
+== run systemd container from agentlinux-test:ubuntu-24.04 ==
+== wait for systemd (up to 30s) ==
+== stage sources into container ==
+== splice pre-built CLI bundle (dist/ + node_modules/ + package.json) into staged sources ==
+== run Rust provisioner (agentlinux provision) [default] ==
+-- building/refreshing host musl binary (cargo incremental) --
+    Finished `release` profile [optimized] target(s) in 0.16s
+agentlinux-install v0.3.6 starting
+agentlinux provision: 10-agent-user
+Generating locales (this might take a while)...
+  C.UTF-8... done
+Generation complete.
+10-agent-user: wrote DOC-02 CLAUDE.md to /home/agent/CLAUDE.md
+agentlinux provision: 20-sudoers
+20-sudoers: starting
+/etc/sudoers.d/.agentlinux-sudoers.143.1785319790305071987.0: parsed OK
+/etc/sudoers.d/agentlinux: parsed OK
+20-sudoers: [REMEDIATE-03] component=sudoers action=install path=/etc/sudoers.d/agentlinux (mode 0440 root:root — ADR-012)
+20-sudoers: install user 'agent' now has passwordless sudo (scope: ALL commands) — INST-06
+20-sudoers: done
+agentlinux provision: 30-nodejs
+30-nodejs: starting
+Get:1 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+Get:2 http://archive.ubuntu.com/ubuntu noble InRelease [256 kB]
+Get:3 http://security.ubuntu.com/ubuntu noble-security/multiverse amd64 Packages [50.0 kB]
+Get:4 http://security.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1587 kB]
+Get:5 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1522 kB]
+Get:6 http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages [1110 kB]
+Get:7 http://archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+Get:8 http://archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+Get:9 http://archive.ubuntu.com/ubuntu noble/multiverse amd64 Packages [331 kB]
+Get:10 http://archive.ubuntu.com/ubuntu noble/restricted amd64 Packages [117 kB]
+Get:11 http://archive.ubuntu.com/ubuntu noble/universe amd64 Packages [19.3 MB]
+Get:12 http://archive.ubuntu.com/ubuntu noble/main amd64 Packages [1808 kB]
+Get:13 http://archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Packages [55.8 kB]
+Get:14 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [2135 kB]
+Get:15 http://archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1700 kB]
+Get:16 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1433 kB]
+Get:17 http://archive.ubuntu.com/ubuntu noble-backports/main amd64 Packages [48.9 kB]
+Get:18 http://archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Packages [671 B]
+Get:19 http://archive.ubuntu.com/ubuntu noble-backports/universe amd64 Packages [37.7 kB]
+Fetched 31.9 MB in 5s (5854 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (8.5.0-2ubuntu10.11).
+ca-certificates is already the newest version (20260601~24.04.1).
+The following additional packages will be installed:
+  dirmngr gnupg-utils gpg gpg-agent gpgconf gpgsm keyboxd libksba8
+  pinentry-curses
+Suggested packages:
+  dbus-user-session libpam-systemd pinentry-gnome3 tor parcimonie xloadimage
+  gpg-wks-server scdaemon pinentry-doc
+Recommended packages:
+  gnupg-l10n gpg-wks-client
+The following NEW packages will be installed:
+  apt-transport-https dirmngr gnupg gnupg-utils gpg gpg-agent gpgconf gpgsm
+  keyboxd libksba8 pinentry-curses
+0 upgraded, 11 newly installed, 0 to remove and 18 not upgraded.
+Need to get 2158 kB of archives.
+After this operation, 4946 kB of additional disk space will be used.
+Get:1 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 apt-transport-https all 2.8.3 [3970 B]
+Get:2 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gpgconf amd64 2.4.4-2ubuntu17.4 [104 kB]
+Get:3 http://archive.ubuntu.com/ubuntu noble/main amd64 libksba8 amd64 1.6.6-1build1 [122 kB]
+Get:4 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 dirmngr amd64 2.4.4-2ubuntu17.4 [323 kB]
+Get:5 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gnupg-utils amd64 2.4.4-2ubuntu17.4 [109 kB]
+Get:6 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gpg amd64 2.4.4-2ubuntu17.4 [565 kB]
+Get:7 http://archive.ubuntu.com/ubuntu noble/main amd64 pinentry-curses amd64 1.2.1-3ubuntu5 [35.2 kB]
+Get:8 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gpg-agent amd64 2.4.4-2ubuntu17.4 [227 kB]
+Get:9 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gpgsm amd64 2.4.4-2ubuntu17.4 [232 kB]
+Get:10 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 keyboxd amd64 2.4.4-2ubuntu17.4 [78.3 kB]
+Get:11 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gnupg all 2.4.4-2ubuntu17.4 [359 kB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 2158 kB in 1s (1560 kB/s)
+Selecting previously unselected package apt-transport-https.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 11879 files and directories currently installed.)
+Preparing to unpack .../00-apt-transport-https_2.8.3_all.deb ...
+Unpacking apt-transport-https (2.8.3) ...
+Selecting previously unselected package gpgconf.
+Preparing to unpack .../01-gpgconf_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gpgconf (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package libksba8:amd64.
+Preparing to unpack .../02-libksba8_1.6.6-1build1_amd64.deb ...
+Unpacking libksba8:amd64 (1.6.6-1build1) ...
+Selecting previously unselected package dirmngr.
+Preparing to unpack .../03-dirmngr_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking dirmngr (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package gnupg-utils.
+Preparing to unpack .../04-gnupg-utils_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gnupg-utils (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package gpg.
+Preparing to unpack .../05-gpg_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gpg (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package pinentry-curses.
+Preparing to unpack .../06-pinentry-curses_1.2.1-3ubuntu5_amd64.deb ...
+Unpacking pinentry-curses (1.2.1-3ubuntu5) ...
+Selecting previously unselected package gpg-agent.
+Preparing to unpack .../07-gpg-agent_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gpg-agent (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package gpgsm.
+Preparing to unpack .../08-gpgsm_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gpgsm (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package keyboxd.
+Preparing to unpack .../09-keyboxd_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking keyboxd (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package gnupg.
+Preparing to unpack .../10-gnupg_2.4.4-2ubuntu17.4_all.deb ...
+Unpacking gnupg (2.4.4-2ubuntu17.4) ...
+Setting up libksba8:amd64 (1.6.6-1build1) ...
+Setting up pinentry-curses (1.2.1-3ubuntu5) ...
+Setting up apt-transport-https (2.8.3) ...
+Setting up gpgconf (2.4.4-2ubuntu17.4) ...
+Setting up gpg (2.4.4-2ubuntu17.4) ...
+Setting up gnupg-utils (2.4.4-2ubuntu17.4) ...
+Setting up gpg-agent (2.4.4-2ubuntu17.4) ...
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent.socket → /usr/lib/systemd/user/gpg-agent.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-ssh.socket → /usr/lib/systemd/user/gpg-agent-ssh.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-extra.socket → /usr/lib/systemd/user/gpg-agent-extra.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-browser.socket → /usr/lib/systemd/user/gpg-agent-browser.socket.
+Setting up gpgsm (2.4.4-2ubuntu17.4) ...
+Setting up dirmngr (2.4.4-2ubuntu17.4) ...
+Created symlink /etc/systemd/user/sockets.target.wants/dirmngr.socket → /usr/lib/systemd/user/dirmngr.socket.
+Setting up keyboxd (2.4.4-2ubuntu17.4) ...
+Created symlink /etc/systemd/user/sockets.target.wants/keyboxd.socket → /usr/lib/systemd/user/keyboxd.socket.
+Setting up gnupg (2.4.4-2ubuntu17.4) ...
+Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
+30-nodejs: NodeSource repo absent — running setup_22.x
+[38;5;79m2026-07-29 10:10:03 - Installing pre-requisites[0m
+
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Reading package lists...
+Building dependency tree...
+Reading state information...
+18 packages can be upgraded. Run 'apt list --upgradable' to see them.
+
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+
+Reading package lists...
+Building dependency tree...
+Reading state information...
+apt-transport-https is already the newest version (2.8.3).
+ca-certificates is already the newest version (20260601~24.04.1).
+curl is already the newest version (8.5.0-2ubuntu10.11).
+gnupg is already the newest version (2.4.4-2ubuntu17.4).
+0 upgraded, 0 newly installed, 0 to remove and 18 not upgraded.
+
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Get:2 https://deb.nodesource.com/node_22.x nodistro InRelease [12.1 kB]
+Hit:3 http://archive.ubuntu.com/ubuntu noble InRelease
+Get:4 https://deb.nodesource.com/node_22.x nodistro/main amd64 Packages [11.4 kB]
+Hit:5 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:6 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Fetched 23.5 kB in 0s (50.2 kB/s)
+Reading package lists...
+Building dependency tree...
+Reading state information...
+18 packages can be upgraded. Run 'apt list --upgradable' to see them.
+[1;34m2026-07-29 10:10:09 - Repository configured successfully.[0m
+[38;5;79m2026-07-29 10:10:09 - To install Node.js, run: apt install nodejs -y[0m
+[38;5;79m2026-07-29 10:10:09 - You can use N|solid Runtime as a node.js alternative[0m
+[1;32m2026-07-29 10:10:09 - To install N|solid Runtime, run: apt install nsolid -y
+[0m
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:2 https://deb.nodesource.com/node_22.x nodistro InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:5 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following NEW packages will be installed:
+  nodejs
+0 upgraded, 1 newly installed, 0 to remove and 18 not upgraded.
+Need to get 37.8 MB of archives.
+After this operation, 236 MB of additional disk space will be used.
+Get:1 https://deb.nodesource.com/node_22.x nodistro/main amd64 nodejs amd64 22.23.1-1nodesource1 [37.8 MB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 37.8 MB in 1s (71.0 MB/s)
+Selecting previously unselected package nodejs.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 12036 files and directories currently installed.)
+Preparing to unpack .../nodejs_22.23.1-1nodesource1_amd64.deb ...
+Unpacking nodejs (22.23.1-1nodesource1) ...
+Setting up nodejs (22.23.1-1nodesource1) ...
+30-nodejs: Node.js v22 installed (RT-01 — v22 LTS)
+30-nodejs: wrote /home/agent/.npmrc (prefix=/home/agent/.npm-global — RT-04)
+30-nodejs: done
+agentlinux provision: 40-path-wiring
+40-path-wiring: starting
+40-path-wiring: wrote /etc/profile.d/agentlinux.sh
+40-path-wiring: wrote agentlinux-path marker block to /home/agent/.bashrc (--top)
+40-path-wiring: wrote /etc/agentlinux.env (systemd EnvironmentFile + cron header template)
+40-path-wiring: wrote /etc/cron.d/agentlinux (PATH + locale header; no default jobs)
+40-path-wiring: done (four artefacts written)
+agentlinux provision: 50-registry-cli
+50-registry-cli: starting
+50-registry-cli: symlinked /home/agent/.npm-global/bin/agentlinux -> /opt/agentlinux/cli/0.3.6/bin/agentlinux
+50-registry-cli: done (CLI-01 + CAT-01..05 + INST-02 staging complete)
+agentlinux provision: adopting pre-existing reuse-eligible agents as agent (agentlinux adopt --all)
+agentlinux provision: agentlinux adopt --all reported a problem (continuing; run it manually to retry)
+agentlinux-install complete (transcript: /var/log/agentlinux-install.log)
+== stage Rust agentlinux binary off the login PATH (RUST-03 / GATE-01) ==
+-- building/refreshing host musl binary (cargo incremental) --
+    Finished `release` profile [optimized] target(s) in 0.05s
+-- staged /opt/agentlinux/rust/agentlinux off the login PATH (Rust reuse path active; no CLI-01 shadow) --
+== seed BHV-02 ssh keypair + sshd (idempotent; unblocks the six-mode iteration) ==
+== run bats suite (tests/bats/) ==
+1..369
+ok 1 TST-08: require_secret skips yellow when FOO unset, asserts FOO=bar when set # skip FOO not provisioned; see docs/internals/test-secrets.md
+ok 2 INST-01: installer log file exists after initial run
+ok 3 INST-01: installer log contains success banner
+ok 4 INST-02: re-running the installer is byte-stable (idempotency)
+ok 5 INST-05: installer log has no apt 'no installation candidate' / 'unable to locate package' (AL-37 regression guard)
+ok 6 INST-05: installer log contains no EACCES or 'permission denied' lines
+ok 7 DOC-02: /home/agent/CLAUDE.md exists and is owned by agent:agent
+ok 8 DOC-02: /home/agent/CLAUDE.md warns against /usr/local/bin shims
+ok 9 DOC-02: /home/agent/CLAUDE.md warns against sudo npm install -g
+ok 10 DOC-02: /home/agent/CLAUDE.md warns against second Node.js install
+ok 11 CAT-05: catalog snapshot staged at /opt/agentlinux/catalog/<version>/catalog.json
+ok 12 CAT-05: staged catalog is byte-stable against tarball source (Pitfall 8 anti-drift)
+ok 13 REUSE-01 detector: detect::user_can_sudo_apt exits 0 when agent has NOPASSWD-for-apt on post-installer host
+ok 14 REUSE-01 detector: detect::user_can_sudo_apt exits non-zero when DETECT_USER_CAN_SUDO_APT=false
+ok 15 REUSE-01 detector: --report-only JSON includes .components.user.can_sudo_apt boolean (true on post-installer host)
+ok 16 REUSE-01 detector: --report-only text emits [DET-01] user.can_sudo_apt= marker line
+ok 17 REUSE-01: reuse::user_decision returns 'reuse' on post-installer host (5 predicates pass)
+ok 18 REUSE-01: reuse::user_decision returns 'create' when DETECT_USER_PRESENT=false (greenfield)
+ok 19 REUSE-01: reuse::user_decision returns 'remediate' when sudo_apt=false but other predicates hold
+ok 20 REUSE-01: reuse::user_decision returns 'bail' when shell is /usr/sbin/nologin (irreconcilable)
+ok 21 REUSE-01: reuse::user_decision returns 'bail' when home is not writable (irreconcilable)
+ok 22 REUSE-01: reuse::user_decision returns 'bail' when --user=NAME mismatches DETECT_USER_NAME
+ok 23 REUSE-02: reuse::nodejs_decision returns 'reuse' when DETECT exports satisfy BOTH predicates (Node 22 + writable prefix)
+ok 24 REUSE-02: reuse::nodejs_decision returns 'create' on post-installer host (Node 22 present but /usr prefix not agent-writable)
+ok 25 REUSE-02: reuse::nodejs_decision returns 'create' when DETECT_NODEJS_COUNT=0 (greenfield no-node)
+ok 26 REUSE-02: reuse::nodejs_decision returns 'create' when Node version is < 22 (Node 20 case)
+ok 27 REUSE-01 + REUSE-02: agentlinux-install sources reuse.sh AFTER detect.sh (entrypoint order)
+ok 28 REUSE-01: re-running installer on post-installer host emits [REUSE-01] marker (REUSE branch fires)
+ok 29 REUSE-01: re-run REUSE branch still ensures DOC-02 CLAUDE.md marker block (additive against existing user)
+ok 30 REUSE-01: case-branch in 10-agent-user.sh dispatches on RESOLUTIONS[user] (Phase 14 DECIDE-THEN-ACT)
+ok 31 REUSE-02: case-branch in 30-nodejs.sh dispatches on RESOLUTIONS[node] (Phase 14 DECIDE-THEN-ACT)
+ok 32 REUSE-01 + REUSE-02: no --reuse-strict / --reuse-best-effort / --no-reuse flags introduced (per-component, no mode flags)
+ok 33 REUSE: greenfield invariant preserved — bats @test count unchanged from baseline (defense against accidental @test deletion)
+ok 34 REUSE-03: reuse::agent_decision returns 'create' when DETECT_AGENT_<ID>_STATUS=absent
+ok 35 REUSE-03: reuse::agent_decision returns 'reuse' when status=healthy AND path matches canonical
+ok 36 REUSE-03: reuse::agent_decision returns 'remediate' when status=healthy BUT path != canonical (path-mismatch)
+ok 37 REUSE-03 / DET-04: reuse::agent_decision returns 'reuse' for gsd at the deployed-system VERSION path (npx form)
+ok 38 REUSE-03: reuse::agent_decision returns 'remediate' when status=broken
+ok 39 REUSE-03: reuse::agent_decision returns 'create' on unknown catalog id (defensive)
+ok 40 REUSE-03: every non-test catalog entry carries compatibility_window (test_only entries do not)
+ok 41 REUSE-03: schema.json declares compatibility_window field
+ok 42 REUSE-03: plugin/lib/reuse.sh sources reuse/agents.sh (dispatch surface includes catalog-agent decision)
+# [brownfield] purging any existing AgentLinux state (idempotent)
+# [brownfield] creating agent user (useradd -m -s /bin/bash)
+# [brownfield] installing NOPASSWD-for-package-manager sudoers fragment
+# [brownfield] ensuring NodeSource Node 22 (distro_install_node22)
+# [brownfield] installing claude-code 2.1.98 via official native installer (canonical path)
+# [brownfield] setup complete
+ok 43 REUSE-03 brownfield E2E: agentlinux-install on pre-populated host fires REUSE-01 + adopt-on-install writes reused sentinel (AL-61)
+ok 44 REUSE-03 brownfield E2E: agentlinux list shows (reused — managed) suffix on the reused entry
+ok 45 REMEDIATE foundation: plugin/lib/remediate.sh sources cleanly after log+detect+reuse libs
+ok 46 REMEDIATE foundation: remediate::register_bail appends entry to BAILED_COMPONENTS (additive, no dedup)
+ok 47 REMEDIATE foundation: flush_bails_or_continue returns 0 silently when BAILED_COMPONENTS is empty
+ok 48 REMEDIATE foundation: flush_bails_or_continue with N=1 prints structured bail message + exits 65
+ok 49 REMEDIATE foundation: flush_bails_or_continue with N=2 aggregates BOTH [BAIL] lines + exits 65
+ok 50 REMEDIATE foundation: remediate_action_overwrites_state predicate matrix (overwriting vs additive)
+ok 51 REMEDIATE foundation: per-component handler files source + define their [REMEDIATE-NN] handler functions
+ok 52 REMEDIATE foundation: reuse::user_decision predicate behavior unchanged from Phase 13
+ok 53 REMEDIATE foundation: reuse::npm_prefix_decision returns reuse|remediate|create per DETECT exports
+ok 54 REMEDIATE foundation: zero 'register_bail $VAR' matches in remediate/*.sh + Plan-14-01 provisioners (T-14-06)
+ok 55 REMEDIATE foundation: collect_all_decisions populates RESOLUTIONS + makes ZERO host mutations (DECIDE-THEN-ACT atomicity)
+ok 56 UX-05: agentlinux-install --help output contains 'Exit codes:' section listing 0/1/64/65 + mnemonics
+ok 57 UX-03: agentlinux-install --yes on post-installer (greenfield-ish) host completes with no [BAIL] / no [REMEDIATE-NN] lines
+ok 58 UX-03: agentlinux-install --no-yes on post-installer host completes (default; explicit-no opposite of --yes)
+ok 59 UX-05 (T-14-02): agentlinux-install --yes --no-yes exits 64 with contradictory-flags error
+ok 60 UX-05 (T-14-02): agentlinux-install --no-yes --yes ALSO exits 64 (no 'last flag wins' silent acceptance)
+ok 61 UX-05: agentlinux-install --frobnicate (unknown flag) exits 64
+ok 62 UX-03 (T-14-01): zero AGENTLINUX_YES / ALWAYS_YES / ASSUME_YES / CONFIRM_INSTALL matches in installer + remediate libs
+ok 63 UX-03 (T-14-13) / UX-04 (D-15-08): NO-MUTATION SNAPSHOT — wrong-shell user bail leaves /etc/sudoers.d /home /etc/passwd byte-identical
+ok 64 UX-03 (T-14-13): NO-MUTATION SNAPSHOT — sudoers drift bail leaves host byte-identical
+ok 65 UX-03 (T-14-13): NO-MUTATION SNAPSHOT — wrong-owner npm-prefix bail leaves host byte-identical
+ok 66 UX-03 (T-14-13): NO-MUTATION SNAPSHOT — aggregated bail (sudoers drift + npm-prefix wrong-owner) prints BOTH [BAIL] lines + leaves host byte-identical
+ok 67 UX-03: agentlinux-install --yes on drifted-sudoers brownfield host passes the gate (stub fires; installer exits 0)
+ok 68 UX-05: 'readonly EX_USAGE=64' and 'readonly EX_DATAERR=65' present in plugin/bin/agentlinux-install
+ok 69 UX-03: main() flow ordering — collect_all_decisions → flush_bails_or_continue → run_provisioners (grep-shape)
+ok 70 UX-03: provisioners 10/20/30 dispatch on RESOLUTIONS[<component>] (no direct reuse::*_decision case)
+ok 71 REMEDIATE-01: _is_trivially_salvageable returns 0 (true) on allowlist-only prefix
+ok 72 REMEDIATE-01 (T-14-03): _is_trivially_salvageable returns 1 (false) on lib/node_modules/<user-pkg>
+ok 73 REMEDIATE-01: _strategy_for returns 'chown' for under-home + trivially salvageable
+ok 74 REMEDIATE-01 (T-14-08): _strategy_for returns 'rebase' for prefix OUTSIDE user home (system path)
+ok 75 REMEDIATE-01 (T-14-03): _strategy_for returns 'rebase' for under-home + non-salvageable
+ok 76 REMEDIATE-01: _enumerate_modules filters catalog agents + npm from migration list
+ok 77 REMEDIATE-01: BROWNFIELD chown E2E — under-home + empty prefix → chown -R; prefix becomes agent:agent
+ok 78 REMEDIATE-01: BROWNFIELD rebase E2E — prefix outside home → ~user/.npm-global created; OLD prefix UNTOUCHED
+ok 79 REMEDIATE-01: BROWNFIELD rebase migrates pre-existing global modules via npm install -g
+ok 80 REMEDIATE-01: rebase migration loop EXCLUDES catalog agents (get-shit-done-cc not migrated via REMEDIATE-01)
+ok 81 REMEDIATE-01: rebase migration loop EXCLUDES 'npm' itself (system-managed)
+ok 82 REMEDIATE-01 (T-14-08): chown NEVER fires for prefix /usr (system path, outside any user home)
+ok 83 REMEDIATE-01 (T-14-03): BROWNFIELD chown REFUSED when prefix has non-allowlist entry → falls back to rebase
+ok 84 REMEDIATE-01: source code never deletes old prefix (CONTEXT Area 2 Q4)
+ok 85 REMEDIATE-03: install_or_overwrite is defined; missing-file install writes canonical ADR-012 file
+ok 86 REMEDIATE-03: install_or_overwrite OVERWRITES drifted sudoers with canonical ADR-012 line
+ok 87 REMEDIATE-03 (T-14-02): install_or_overwrite REFUSES to install when visudo -cf rejects the tmpfile
+ok 88 REMEDIATE-03: missing sudoers — additive install fires WITHOUT --yes (no consent gate consulted)
+ok 89 REMEDIATE-03: drifted sudoers + NO --yes → exit 65 + [BAIL] component=sudoers reason=drift
+ok 90 REMEDIATE-02: PATH wiring re-attaches to brownfield user; pre-existing .bashrc content preserved
+ok 91 REMEDIATE-02: re-running on a REUSED-user host is byte-stable (additive primitives converge)
+ok 92 REMEDIATE-03: 20-sudoers.sh BOTH create and remediate arms call install_or_overwrite (refactor invariant)
+ok 93 REMEDIATE-03: 20-sudoers.sh post-refactor produces byte-identical /etc/sudoers.d/agentlinux across re-run (BHV-07)
+ok 94 REMEDIATE-04 CAT-04: claude-code uninstall.sh preserves ~/.claude/test-file via AGENTLINUX_PRESERVE_PATHS=.claude
+ok 95 REMEDIATE-04 CAT-04: gsd uninstall.sh preserves ~/.gsd + ~/.config/get-shit-done fixture dirs
+ok 96 REMEDIATE-04 CAT-04: playwright-cli uninstall.sh preserves ~/.cache/ms-playwright fixture
+ok 97 REMEDIATE-04 E2E: brownfield PATH-MISMATCH claude-code reinstalls at canonical path; ~/.claude/ user data survives
+ok 98 REMEDIATE-04 E2E: brownfield uninstall.sh exit 1 → [REMEDIATE-04:uninstall-fail] + exit 1; install NOT dispatched
+ok 99 REMEDIATE-04 E2E: brownfield uninstall OK + install.sh exit 1 → broken-after-remediate sentinel + list suffix
+ok 100 REMEDIATE-04 E2E: brownfield PATH-MISMATCH WITHOUT --yes in non-TTY → [BAIL] + exit 65
+ok 101 DET-01: --report-only --report-format=json reports install user UID + shell + home_writable
+ok 102 DET-01: text format includes [DET-01] markers for user.uid + user.shell + user.home
+ok 103 DET-05: sudoers drop-in metadata captured (path + present + sha256 + nopasswd_line_present)
+ok 104 DET-05: sudoers file SHA256 unchanged across detection pass (read-only invariant on sudoers)
+ok 105 DET-06: --report-format=json emits valid JSON parseable by jq (object at top level)
+ok 106 DET-06: text format contains [DET-NN] markers for grep stability (DET-01 + DET-05 wired in this plan)
+ok 107 DET-06: --report-only exits 0 and skips run_provisioners (no /opt/agentlinux/cli/<v>/dist edits during report)
+ok 108 DET-02: nodejs probe enumerates NodeSource install on post-installer host
+ok 109 DET-02: nodejs probe enumerates nvm install when fixture sets ~/.nvm
+ok 110 DET-02: a /usr/local/bin/node symlinked to nvm does not double-count
+ok 111 DET-03: npm prefix surfaces user / system / effective values as separate JSON fields
+ok 112 DET-03: npm prefix probe runs via as_user_login (NPM_CONFIG_PREFIX user-shell export observed)
+ok 113 DET-03: effective prefix ownership + writability captured for the install user
+ok 114 DET-04: claude classified healthy when present and --version exits 0
+ok 115 DET-04: get-shit-done-cc classified healthy when --help banner parseable
+ok 116 DET-04: gsd classified healthy at the deployed-system VERSION path when the bootstrapper binary is absent (npx form)
+ok 117 DET-04: playwright-cli classified absent when binary missing from install user PATH
+ok 118 DET-04: classifier returns broken when binary present but --help non-zero
+ok 119 DET-01..06: detection writes zero bytes to /etc /home /usr/local/bin /opt
+ok 120 DET-06: text format renders [DET-NN] markers for every captured field
+ok 121 DET-06: json format parses via jq with every captured field reachable
+ok 122 DET-06: json output contains NO schema_version / $schema / version field at top level
+ok 123 DET-06: NO_COLOR env var honored — zero ANSI escapes in text output
+ok 124 DET-06: piped (non-TTY) text output strips ANSI color escapes
+ok 125 DET-01..06: greenfield baseline preserved — bats run-line count matches expected
+ok 126 UX-01 (D-15-01): agentlinux-install --dry-run on greenfield exits 0 + detection runs + no provisioner runs
+ok 127 UX-01 (D-15-01): agentlinux-install --dry-run on brownfield with REMEDIATE candidates exits 0 (bails surface IN report)
+ok 128 UX-01 (T-15-01-02): NO-MUTATION SNAPSHOT — agentlinux-install --dry-run on brownfield combo leaves /etc/sudoers.d /home /etc/passwd byte-identical
+ok 129 UX-01 (D-15-04 / T-15-01-06): agentlinux-install --dry-run --yes exits 64 with contradictory-flags error
+ok 130 UX-01 (D-15-04 symmetric): agentlinux-install --yes --dry-run ALSO exits 64 (symmetric contradictory-flags rejection)
+ok 131 UX-01 (idempotency): re-running agentlinux-install --dry-run produces stable DET markers (sorted-equal)
+       ok 132 UX-02 (D-15-06 accept-all): TTY prompt with REMEDIATE-01 + REMEDIATE-03; answer Y to both → both mutations land + no DECLINED markers
