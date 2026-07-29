@@ -93,6 +93,12 @@ fn resolve_argv(user: &str, argv: &[String]) -> Vec<String> {
             "-u".to_string(),
             user.to_string(),
             "-H".to_string(),
+            // `-E` preserves the INVOKER's env into the child. That is leak-safe
+            // ONLY because `base_command` `env_clear()`s first (dispatcher.rs
+            // ~L140), so the invoker env is already reduced to exactly the caller-
+            // supplied pairs — no ambient root secret (SSH_AUTH_SOCK, tokens,
+            // SUDO_*) exists to be preserved. These two lines are COUPLED: dropping
+            // `env_clear` would turn `-E` into a root→child env-leak. Keep both.
             "-E".to_string(),
             "--".to_string(),
         ];

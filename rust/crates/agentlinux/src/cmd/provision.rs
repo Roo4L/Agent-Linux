@@ -198,21 +198,82 @@ fn run_steps(ctx: &ProvisionCtx) -> Result<(), ExitCode> {
 /// via `agentlinux adopt --all` AS the install user. Best-effort: a failure must
 /// NOT fail an otherwise-successful install (the Bash `|| log_warn`). The command
 /// is dispatched through the Phase-56 dispatcher as the install user.
-fn run_agent_adoption(user: &str) {
+///
+/// Two departures from a bare `["agentlinux","adopt","--all"]` dispatch — both
+/// required because the dispatcher runs `sudo -u <user>` NON-login (the Bash used
+/// `as_user_login`, which sourced the agent profile + `/etc/agentlinux.env`):
+///   1. Invoke the ABSOLUTE staged symlink (`<home>/.npm-global/bin/agentlinux`),
+///      not the bare name. `sudo`'s `secure_path` governs command lookup and does
+///      NOT include the agent's `~/.npm-global/bin`, so a bare name is ENOENT →
+///      exit 1 → a spurious "reported a problem" on EVERY greenfield provision
+///      (OBS-01). An absolute path bypasses PATH lookup entirely.
+///   2. Supply an explicit child env — the canonical PATH/HOME plus any inherited
+///      `AGENTLINUX_*` seams — so the child resolves the state/catalog dirs the
+///      same way the login shell would (real runs fall through to the `/opt`
+///      defaults; the bats harness's seam vars are forwarded).
+fn run_agent_adoption(user: &str, home: &str) {
     log::line(&format!(
         "agentlinux provision: adopting pre-existing reuse-eligible agents as {user} (agentlinux adopt --all)"
     ));
-    let argv: Vec<String> = ["agentlinux", "adopt", "--all"]
+    let bin = format!("{home}/.npm-global/bin/agentlinux");
+    let argv: Vec<String> = [bin.as_str(), "adopt", "--all"]
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let r = crate::dispatcher::as_user(user, &argv, &[], false, None);
+    let env = adoption_child_env(home);
+    // Bound the wait: this is the LAST step of an unattended greenfield provision,
+    // so an adopt that ever hangs (a probe that shells out, an NFS-backed home)
+    // must not hang the whole installer after the real work is already done. A
+    // buffered timeout collapses to exit 1 → the best-effort warning below.
+    let r = crate::dispatcher::as_user(user, &argv, &env, false, Some(ADOPTION_TIMEOUT_MS));
     if r.exit_code != 0 {
-        log::line(
+        // Now that the ENOENT false-positive is gone (absolute path + resolvable
+        // env), a non-zero here is a REAL adopt failure — surface the exit code +
+        // a trimmed stderr so an operator can diagnose it without re-running.
+        // Collapse whitespace + cap length (char-boundary-safe — never slice by
+        // byte index, which panics mid-UTF-8) so a noisy stderr stays one log line.
+        let detail: String = r
+            .stderr
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ")
+            .chars()
+            .take(200)
+            .collect();
+        log::line(&format!(
             "agentlinux provision: agentlinux adopt --all reported a problem \
-             (continuing; run it manually to retry)",
-        );
+             (exit {}; continuing; run it manually to retry){}",
+            r.exit_code,
+            if detail.is_empty() {
+                String::new()
+            } else {
+                format!(": {detail}")
+            },
+        ));
     }
+}
+
+/// Bound on the best-effort post-provision adoption dispatch (see
+/// `run_agent_adoption`). Generous — `adopt --all` is normally sub-second — but
+/// finite so a hung adopt can never wedge an unattended install.
+const ADOPTION_TIMEOUT_MS: u64 = 60_000;
+
+/// The child environment for the best-effort adoption dispatch: the canonical
+/// `PATH`/`HOME` for the install home, plus every `AGENTLINUX_*` variable present
+/// in the provisioner's own environment (the bats seams + any release override).
+/// Forwarding the seams — rather than an empty env — is what lets the child
+/// resolve the same state/catalog dirs a login-shell invocation would.
+fn adoption_child_env(home: &str) -> Vec<(String, String)> {
+    let mut env: Vec<(String, String)> = vec![
+        ("PATH".to_string(), crate::recipe_env::canonical_path(home)),
+        ("HOME".to_string(), home.to_string()),
+    ];
+    for (k, v) in std::env::vars() {
+        if k.starts_with("AGENTLINUX_") {
+            env.push((k, v));
+        }
+    }
+    env
 }
 
 /// `agentlinux provision` — the orchestrator entrypoint. Reproduces the Bash
@@ -318,7 +379,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //    complete` banner (INST-01) + run best-effort agent adoption.
     match run_steps(&ctx) {
         Ok(()) => {
-            run_agent_adoption(&ctx.install_user);
+            run_agent_adoption(&ctx.install_user, &ctx.install_home);
             // M-3: only name the transcript path when it was actually persisted;
             // if log::init could not open the file, the banner must not assert a
             // file that does not exist.
@@ -631,6 +692,37 @@ mod provision_tests {
         // every host.
         assert!(!provision::probe::user_adoptable("root"));
         assert!(!provision::probe::user_adoptable("daemon"));
+    }
+
+    #[test]
+    fn adoption_child_env_has_resolvable_path_and_home() {
+        // OBS-01 regression: the adoption dispatch must supply a child PATH that
+        // includes the agent's `~/.npm-global/bin` (where `agentlinux` is
+        // symlinked) and a HOME. Empty env was the ENOENT root cause.
+        let env = adoption_child_env("/home/agent");
+        let path = env
+            .iter()
+            .find(|(k, _)| k == "PATH")
+            .map(|(_, v)| v.as_str())
+            .expect("PATH present");
+        assert!(
+            path.contains("/home/agent/.npm-global/bin"),
+            "PATH must include the npm-global bin dir, got {path}"
+        );
+        assert!(env.iter().any(|(k, v)| k == "HOME" && v == "/home/agent"));
+    }
+
+    #[test]
+    fn adoption_child_env_forwards_agentlinux_seams() {
+        // The bats harness sets AGENTLINUX_* seams; the non-login child must
+        // inherit them (the login shell would have sourced /etc/agentlinux.env).
+        let _g = crate::test_support::env_guard();
+        std::env::set_var("AGENTLINUX_STATE_DIR", "/tmp/fixture-state");
+        let env = adoption_child_env("/home/agent");
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        assert!(env
+            .iter()
+            .any(|(k, v)| k == "AGENTLINUX_STATE_DIR" && v == "/tmp/fixture-state"));
     }
 
     #[test]
