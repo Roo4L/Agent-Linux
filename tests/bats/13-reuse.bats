@@ -549,8 +549,21 @@ __source_lib_chain_with_reuse() {
   # validation passes — bats only grep-asserts the declaration here since the
   # CLI test suite covers full validate-catalog.mjs round-tripping).
   local schema=/opt/agentlinux-src/plugin/catalog/schema.json
-  jq -e '.["$defs"].agent.properties.compatibility_window.type == "string"' "$schema" >/dev/null \
-    || __fail "REUSE-03" 'schema.json $defs.agent.properties.compatibility_window is type=string' "$(jq '.["$defs"].agent.properties.compatibility_window // {}' "$schema")" "$schema"
+  # The compatibility_window type is GENERATED from schemars, not hand-written:
+  # `schema_gen.rs:79` declares `compatibility_window: Option<String>`, which
+  # schemars canonically serializes to the nullable union `["string","null"]`
+  # (with `minLength:1`). The generated schema.json is BYTE-LOCKED by the
+  # `schema_is_not_drifted` drift-check (schema_gen.rs:143-158, enforced by the
+  # rust + cli-unit CI jobs), making the schema the TEST-03 source-of-truth. The
+  # earlier bare-scalar `== "string"` assertion predates the schemars generation
+  # (Phase-54-02 origin) and was stale — the schema CANNOT be hand-edited (or the
+  # Rust type changed to `String`) to satisfy it without failing the drift-check
+  # AND making the field required (breaking the test_only-entries-omit-it
+  # invariant at :521-543). So the TEST tracks the authoritative schema here:
+  # accept the nullable union `["string","null"]` (or a bare `"string"`, or any
+  # array containing "string", to stay robust if schemars' emission normalizes).
+  jq -e '(.["$defs"].agent.properties.compatibility_window.type) as $t | ($t == ["string","null"]) or ($t == "string") or (($t | type=="array") and (any($t[]; . == "string")))' "$schema" >/dev/null \
+    || __fail "REUSE-03" 'schema.json $defs.agent.properties.compatibility_window.type is the schemars nullable-string union ["string","null"] (or "string")' "$(jq '.["$defs"].agent.properties.compatibility_window // {}' "$schema")" "$schema"
 }
 
 @test "REUSE-03: plugin/lib/reuse.sh sources reuse/agents.sh (dispatch surface includes catalog-agent decision)" {
