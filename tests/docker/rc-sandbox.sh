@@ -131,7 +131,7 @@ cmd_install() {
   fi
   [[ -n "$tarball" && -f "$tarball" ]] \
     || die "no RC tarball found — build one first, e.g.:
-    SKIP_DEB=1 scripts/build-release.sh v0.3.6-rc1 --no-deb
+    scripts/build-release.sh v0.3.6-rc1
   (then re-run: $(basename "$0") install)"
   [[ -f "${tarball}.sha256" ]] \
     || die "missing sidecar ${tarball}.sha256 (rebuild via scripts/build-release.sh)"

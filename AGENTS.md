@@ -24,7 +24,7 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
 - `tests/harness/` — harness meta-tests (Phase 1 acceptance gate)
 - `tests/docker/` — fast CI harness (Ubuntu 22.04 + 24.04 + 26.04 matrix, every PR)
 - `tests/qemu/` — release-gate harness (fresh cloud images, nightly + release)
-- `packaging/` — curl-pipe-bash installer + optional fpm .deb wrapper
+- `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (the sole distribution channel; the optional fpm .deb wrapper was removed in Phase 58 / DIST-02)
 - `docs/` — reference documentation (`HARNESS.md`, `codex.md`, `decisions/`, `research/`, `proposals/`, `reviews/`)
 - `.planning/` — GSD workflow state (PLAN.md, STATE.md, ROADMAP.md) — not documentation
 - `.claude/agents/` — portable project-scoped reviewer role prompts used by the

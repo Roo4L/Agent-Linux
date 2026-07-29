@@ -13,8 +13,8 @@ name: release
 #                           — includes 51-*.bats → TST-05 inside QEMU)
 #   gate-4-pinned-combo    (tests/docker/run.sh ubuntu-24.04 with pinned catalog
 #                           combo — 50-agents.bats + 51-*.bats → TST-08)
-#   build                  (scripts/build-release.sh <tag> — tarball + .sha256
-#                           + catalog snapshot + optional .deb; uploads dist/)
+#   build                  (scripts/build-release.sh <tag> — reproducible musl
+#                           tarball + .sha256 + catalog snapshot; uploads dist/)
 #   publish                (softprops/action-gh-release@v2.6.2 — Node-20 pin;
 #                           only runs on tag push, skipped on workflow_dispatch)
 
@@ -254,10 +254,16 @@ jobs:
       - name: Pinned catalog combo + 50-agents.bats + 51-*.bats (TST-08)
         run: bash tests/docker/run.sh ubuntu-24.04
 
-  # Build — only after all 4 gates green. Reproducible tarball + sha256 sidecar
-  # + catalog snapshot + optional .deb (SKIP_DEB=1 if fpm install fails).
-  # Uploads dist/ as an Actions artifact so the publish job can download it
-  # without re-running the build (matches download-artifact@v4 major).
+  # Build — only after all 4 gates green. Reproducible musl tarball + sha256
+  # sidecar + catalog snapshot (Phase 58 DIST-01/02 — the sole channel; the
+  # optional fpm .deb path was removed). Uploads dist/ as an Actions artifact so
+  # the publish job can download it without re-running the build (matches
+  # download-artifact@v4 major).
+  #
+  # setup-node is retained: the pre-commit / catalog-schema tooling and the
+  # plugin/cli parity oracle still need Node in CI, even though build-release.sh
+  # itself is now cargo-driven and needs no Node. The Rust toolchain is provided
+  # by the runner image + rust/rust-toolchain.toml (pinned 1.97.1 + musl target).
   build:
     needs: [resolve, gate-4-pinned-combo]
     runs-on: ubuntu-24.04
@@ -267,20 +273,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
-
-      # fpm is optional per ADR-006 — .deb is a nice-to-have for v0.3.0, not a
-      # release-blocker. Install failure falls back to SKIP_DEB=1 with a
-      # ::warning so the build proceeds with just the tarball + sha256 +
-      # catalog snapshot. build-release.sh honors SKIP_DEB.
-      - name: Install fpm (optional .deb — ADR-006, Pitfall 6)
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ruby-dev build-essential
-          if ! sudo gem install --no-document fpm; then
-            echo "::warning::fpm install failed — proceeding with SKIP_DEB=1 (.deb will not be published)"
-            echo "SKIP_DEB=1" >> "$GITHUB_ENV"
-          fi
 
       - name: Build release artifacts
         env:
@@ -319,10 +311,9 @@ jobs:
   # upgrade after Actions' Node-24 migration completes.
   #
   # The files glob uploads every asset type produced by the build:
-  #   - agentlinux-*.tar.gz            (canonical distribution tarball)
+  #   - agentlinux-*.tar.gz            (canonical distribution tarball — the sole channel)
   #   - agentlinux-*.tar.gz.sha256     (INST-03 — required sibling for curl-installer)
   #   - catalog-*.json                 (CAT-05 — versioned catalog snapshot)
-  #   - agentlinux_*.deb               (optional — absent if SKIP_DEB=1; glob tolerates)
   publish:
     needs: [resolve, build]
     if: startsWith(github.ref, 'refs/tags/v')
@@ -353,5 +344,4 @@ jobs:
             dist/agentlinux-*.tar.gz
             dist/agentlinux-*.tar.gz.sha256
             dist/catalog-*.json
-            dist/agentlinux_*.deb
             dist/VERSION

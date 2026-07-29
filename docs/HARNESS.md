@@ -52,10 +52,9 @@ agent-linux/                            # Workspace root
 │           ├── claude-code/install.sh
 │           ├── gsd/install.sh
 │           └── playwright-cli/install.sh         # Browser-access tool for agents
-├── packaging/                          # Distribution wrappers
-│   ├── curl-installer/
-│   │   └── install.sh                  # SHA256-verified downloader; execs plugin/bin/agentlinux-install
-│   └── deb/                            # Optional fpm wrapper for .deb distribution
+├── packaging/                          # Distribution wrapper (sole channel)
+│   └── curl-installer/
+│       └── install.sh                  # SHA256-verified downloader for the reproducible musl tarball
 ├── tests/                              # Behavior-contract test suite (primary v0.3.0 deliverable)
 │   ├── bats/                           # Behavior-contract files (IDs in test names)
 │   │   └── helpers/                    # Shared assertions and fixtures
@@ -87,7 +86,7 @@ agent-linux/                            # Workspace root
 │   └── workflows/
 │       ├── test.yml                    # Docker test matrix on every PR
 │       ├── nightly-qemu.yml            # QEMU release-gate suite
-│       └── release.yml                 # Tag → build tarball + .deb → GitHub Release
+│       └── release.yml                 # Tag → build reproducible musl tarball → GitHub Release
 └── packer/                             # (existing v0.2.0 — retired with pivot, keep for reference)
 ```
 
@@ -195,10 +194,10 @@ Four test layers. Each answers a different question. Mutation testing is the met
 ### 1.4 Build Configuration
 
 - **Plugin bash scripts:** no build step. `plugin/bin/` and `plugin/lib/` ship as-is (after `shfmt` check).
-- **Registry CLI:** `plugin/cli/` builds to a single JS bundle via `esbuild --bundle --platform=node --target=node22`. Output goes to `plugin/cli/dist/index.cjs`. The release tarball includes `dist/`, not `src/` — no `node_modules/` ships.
-- **Release tarball:** `scripts/build-release.sh` assembles `plugin/bin/`, `plugin/lib/`, `plugin/provisioner/`, `plugin/catalog/`, `plugin/cli/dist/`, and a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`.
-- **.deb (optional):** `packaging/deb/build.sh` wraps the same tarball with `fpm -s dir -t deb` (carries forward from v0.2.0).
-- **GitHub Releases workflow:** tag `vX.Y.Z` → build tarball + .deb → upload both + sha256 to the release.
+- **Registry CLI:** `plugin/cli/` (TypeScript) is retained in-repo as the parity oracle for the bats suite until the Phase-59 cutover; its bundle **no longer ships** in the release tarball (Phase 58 DIST-01 — the shipped `agentlinux` is the Rust musl bin).
+- **Release tarball:** `scripts/build-release.sh` builds the static `x86_64-unknown-linux-musl` `agentlinux` bin and assembles `plugin/bin/agentlinux` (the bin) + `plugin/catalog/` (catalog.json + the ~25 Bash recipes) + a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`. The tarball is byte-reproducible (SOURCE_DATE_EPOCH-pinned tar + `strip`/`--remap-path-prefix`/`--build-id=none` on the bin).
+- **Distribution channel:** the reproducible musl tarball + `.sha256` is the **sole** channel. The optional fpm `.deb` wrapper was removed in Phase 58 (DIST-02; ADR-006 flagged superseded-in-part).
+- **GitHub Releases workflow:** tag `vX.Y.Z` → build tarball → upload tarball + sha256 + catalog snapshot to the release.
 
 ---
 
@@ -257,7 +256,7 @@ Decisions to seed immediately (already captured in `.planning/PROJECT.md` Key De
 - ADR-003: No default agents installed in v0.3.0
 - ADR-004: Per-user npm prefix (`~/.npm-global`) as the keystone ownership decision
 - ADR-005: System Node.js (NodeSource) over version managers (nvm/fnm/volta)
-- ADR-006: curl-pipe-bash primary + optional `.deb` distribution
+- ADR-006: curl-pipe-bash distribution (the optional `.deb` channel superseded by Phase 58 DIST-02 — sole channel is the reproducible musl tarball + `.sha256`)
 - ADR-007: Docker (fast) + QEMU (release gate) test harness; Docker-only is disqualified
 - ADR-008: Commander.js for the registry CLI
 - ADR-009: Snap is structurally disqualified as a distribution mechanism

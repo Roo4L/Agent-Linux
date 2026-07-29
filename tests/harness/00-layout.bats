@@ -42,9 +42,9 @@
   [ -d packaging/curl-installer ]
 }
 
-@test "HRN-01: packaging/deb directory exists" {
-  [ -d packaging/deb ]
-}
+# HRN-01: packaging/deb was removed in Phase 58 (DIST-02) — the optional fpm .deb
+# channel is superseded by the reproducible musl tarball + .sha256 (the sole
+# channel). The layout contract no longer enumerates packaging/deb.
 
 @test "HRN-01: tests/bats/helpers directory exists" {
   [ -d tests/bats/helpers ]

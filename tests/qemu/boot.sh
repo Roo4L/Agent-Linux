@@ -474,18 +474,18 @@ if [[ "$FAMILY" == rhel ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. Build the plugin tarball via Plan 06-01's build-release.sh.
-#    The three-way version lock (tag == plugin/cli/package.json.version ==
-#    plugin/catalog/catalog.json.version) is sacred — do NOT invent a
-#    v0.0.0-qemu tag; use the current repo version so the lock passes.
-#    SKIP_DEB=1 because fpm is optional and the QEMU harness only needs the
-#    .tar.gz (the .deb path is validated in release.yml, not here).
+# 9. Build the plugin tarball via build-release.sh.
+#    The version lock (tag == plugin/cli/package.json.version ==
+#    plugin/catalog/catalog.json.version == rust/crates/agentlinux/Cargo.toml
+#    version) is sacred — do NOT invent a v0.0.0-qemu tag; use the current repo
+#    version so the lock passes. The reproducible musl tarball + .sha256 is the
+#    sole channel (Phase 58 DIST-02 removed the optional fpm .deb path).
 # ---------------------------------------------------------------------------
 REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
 VERSION=$(jq -r .version "${REPO_ROOT}/plugin/cli/package.json")
 TAG="v${VERSION}"
 printf 'building release tarball for tag=%s via scripts/build-release.sh\n' "$TAG"
-SKIP_DEB=1 bash "${REPO_ROOT}/scripts/build-release.sh" "$TAG" --no-deb
+bash "${REPO_ROOT}/scripts/build-release.sh" "$TAG"
 
 TARBALL="${REPO_ROOT}/dist/agentlinux-${TAG}.tar.gz"
 if [[ ! -f "$TARBALL" ]]; then
