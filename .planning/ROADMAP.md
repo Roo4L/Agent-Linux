@@ -163,7 +163,8 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 59-01-PLAN.md — Wave 1: resolve the 3 carried reds (13-reuse #29 stale-test fix — schema is the TEST-03 SoT; HRN-05 restore the durable .planning/research/SUMMARY.md; HRN-06 sudoers-0440 rubric) → tests/harness/run.sh green (GATE-01)
+
+- [x] 59-01-PLAN.md — Wave 1: resolve the 3 carried reds (13-reuse #29 stale-test fix — schema is the TEST-03 SoT; HRN-05 restore the durable .planning/research/SUMMARY.md; HRN-06 sudoers-0440 rubric) → tests/harness/run.sh green (GATE-01)
 - [ ] 59-02-PLAN.md — Wave 2: re-point tests/qemu/boot.sh at the Rust musl `provision` (mirror run.sh:337) + static-musl provisioner-identity assertion (closes the #1 false-GATE-02 risk) + AGENTLINUX_LEGACY_TS rollback branch; confirm test.yml/release.yml Docker gates run Rust (GATE-02)
 - [ ] 59-03-PLAN.md — Wave 3: behavior-coverage-auditor → 59-COVERAGE.md zero-uncovered (GATE-03) + AGT-02 zero-EACCES on the Rust chain via run.sh default, isolated-invocation trap avoided (GATE-04) + 59-GATE-DECLARATION.md master-ready, TS/Bash rollback retained, no cutover deletion (GATE-05)
 

@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Rust Rewrite
-current_phase: 59
+current_phase: 58
 current_phase_name: Full Validation Gate
 status: ready
-stopped_at: Phase 58 COMPLETE + verified (GOAL ACHIEVED 12/12; reproducible musl tarball, sha256-verify intact, no-Node-prereq, .deb dropped, rollback lever) — advancing to Phase 59 (final)
-last_updated: "2026-07-29T09:08:00.000Z"
+stopped_at: Completed 59-01-PLAN.md
+last_updated: "2026-07-29T09:36:32.717Z"
 last_activity: 2026-07-29
-last_activity_desc: Phase 58 complete — musl binary is the sole shipped + default artifact (no Node prereq); reproducible tarball + .sha256; fpm .deb dropped; AGENTLINUX_LEGACY_TS rollback lever
+last_activity_desc: Plan 59-01 complete (Wave 1 — 3 carried reds cleared; 13-reuse 32/32, tests/harness/run.sh 118/118 green)
 progress:
   total_phases: 7
-  completed_phases: 6
-  total_plans: 25
-  completed_plans: 25
-  percent: 86
+  completed_phases: 3
+  total_plans: 28
+  completed_plans: 22
+  percent: 44
 ---
 
 # Project State
@@ -27,6 +27,10 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 **Current focus:** Phase 57 — Provisioner Port + Logic Consolidation ✅ COMPLETE (all 6 waves; the Rust bin now runs the full pre-Node provisioner byte-compatibly on the bats suite across the apt/dnf matrix). Next: Phase 58 (Distribution — swap the registry_cli TS-bundle symlink for the musl binary, Q1 hand-off).
 
 ## Current Position
+
+Phase: 59 — Full Validation Gate (🚧 Wave 1 DONE — Waves 2/3 pending)
+
+Plan 59-01 ✅ COMPLETE (2026-07-29, Wave 1 — resolve the 3 carried, non-environment reds so the validation gate is genuinely green: GATE-01 no-red / no-newly-skipped). **13-reuse #29 (the ONLY carried BEHAVIOR-matrix red):** fixed the stale assertion at `13-reuse.bats:552` — it asserted `compatibility_window.type == "string"`, but the field is schemars-generated from `Option<String>`, which serializes to the nullable union `["string","null"]` (byte-locked by the `schema_is_not_drifted` drift-check, the TEST-03 source-of-truth). Spec-tracks-the-authoritative-schema fix: corrected the TEST (accept the nullable union / bare scalar / any array-containing-"string") with an inline comment documenting WHY; the schema, Rust type, and 13-reuse tests :521-543 are UNTOUCHED (editing the schema/type would fail the drift-check AND make the field required, breaking the test_only-entries-omit-it invariant). `13-reuse` now **32/32** (was 31/32) on the Rust build (DEFAULT, no override) on BOTH ubuntu-24.04 AND almalinux-9. **HRN-05:** restored `.planning/research/SUMMARY.md` as a byte-identical copy of `docs/research/v0.3.0/SUMMARY.md` (the RHS of the `40-adrs-and-research.bats:88` byte-match) — restore-beats-re-scope: `research` is a durable ALLOWED dir in `check-planning-clean.sh:44` so the restored source survives merge; the byte-match invariant is preserved, not dropped. **HRN-06:** added a genuine sudoers drop-in review line (mode `0440 root:root`, narrow NOPASSWD per ADR-012) to `.claude/agents/security-engineer.md` so the security reviewer covers the privilege surface the Rust provisioner writes; satisfies `50-agents-and-skills.bats:71`. **`bash tests/harness/run.sh` now 118/118 GREEN (0 not-ok)** — the two carried harness reds cleared. Deviation (Rule 3, mandated by AGENTS.md sync contract + HRN-07 codex-sync test + pre-commit hook): regenerated `.codex/agents/security-engineer.toml` via `scripts/sync-codex-agents.sh` alongside the `security-engineer.md` edit. cargo test --workspace 338 pass (unaffected). Scope: only the 3 enumerated files + the codex mirror; no schema, Rust source, or `tests/harness/*.bats` spec changed; TS oracle (`plugin/cli/`) + Bash entrypoint retained (GATE-05). 2 atomic commits bc16b03 (test 13-reuse) + 8d40531 (docs HRN-05/06 + codex sync). GATE-01 precondition met for Wave 2 (QEMU re-wire) + Wave 3 (coverage audit + AGT-02 + declare-ready).
 
 Phase: 58 — Distribution — musl Tarball as Sole Channel (🚧 ALL 3 WAVES DONE — ready for phase verification)
 
@@ -165,6 +169,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 58 P01 | 30m | 2 tasks | 11 files |
 | Phase 58 P02 | 25m | 2 tasks | 7 files |
 | Phase 58 P03 | 55m | 2 tasks | 2 files |
+| Phase 59 P01 | 10m | 2 tasks | 4 files |
 
 ## Accumulated Context
 
@@ -456,6 +461,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-29T08:30:28.299Z
-Stopped at: Completed 58-03-PLAN.md
+Last session: 2026-07-29T09:36:32.699Z
+Stopped at: Completed 59-01-PLAN.md
 Resume file: None
