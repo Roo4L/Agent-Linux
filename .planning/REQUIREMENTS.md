@@ -37,8 +37,8 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 ### Provisioner (PROV)
 
 - [x] **PROV-01**: Provisioning (agent-user creation, sudoers drop-in, NodeSource Node, PATH/env wiring to `/etc/agentlinux.env`, registry-CLI staging) leaves the system in the same observable state as the Bash provisioner — verified by the `RT-*` / `AGT-*` bats across all six invocation modes (interactive login, non-interactive SSH, cron, systemd `User=agent`, `sudo -u`, `sudo -u -i`).
-- [ ] **PROV-02**: Detection / remediation / reuse / idempotency logic is consolidated into the Rust binary; the duplicated `CANONICAL_PATHS` / `GSD_SYSTEM_PATH` maps are deleted from Bash (single source of truth in Rust).
-- [ ] **PROV-03**: Distro detection and the aware-install reuse/remediate/bail paths behave identically to today on Ubuntu 22.04/24.04/26.04 **and** AlmaLinux 9 (`DET-*` / `REUSE-*` / `REMEDIATE-*` bats green).
+- [x] **PROV-02**: Detection / remediation / reuse / idempotency logic is consolidated into the Rust binary; the duplicated `CANONICAL_PATHS` / `GSD_SYSTEM_PATH` maps are deleted from Bash (single source of truth in Rust). *(Satisfied per plan-check B-1's conservative re-scope: the Rust `canonical_path` map is the AUTHORITATIVE in-process per-agent source [the provisioner iterates it, never a Bash map]; the ONE remaining Bash definition in `plugin/lib/reuse/agents.sh` + its `reuse::agent_decision` shim + the `remediate.sh`/`prompt.sh` iterators are RETAINED as the 13-reuse/14-remediate/15-preflight spec contract + master's GATE-05 rollback fallback — deleting any would break a live bats spec. `scripts/check-no-bash-canonical-map.sh` enforces exactly-one Bash definition. The Bash iterators + shim are retired at the Phase-59 entrypoint cutover.)*
+- [x] **PROV-03**: Distro detection and the aware-install reuse/remediate/bail paths behave identically to today on Ubuntu 22.04/24.04/26.04 **and** AlmaLinux 9 (`DET-*` / `REUSE-*` / `REMEDIATE-*` bats green).
 
 ### Distribution (DIST)
 
@@ -96,8 +96,8 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | VERB-02 | Phase 56 | Complete |
 | VERB-03 | Phase 56 | Complete |
 | PROV-01 | Phase 57 | Complete |
-| PROV-02 | Phase 57 | Pending |
-| PROV-03 | Phase 57 | Pending |
+| PROV-02 | Phase 57 | Complete |
+| PROV-03 | Phase 57 | Complete |
 | DIST-01 | Phase 58 | Pending |
 | DIST-02 | Phase 58 | Pending |
 | GATE-01 | Phase 53 (cross-cutting — every phase) | Complete |

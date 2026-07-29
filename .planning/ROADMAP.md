@@ -23,7 +23,7 @@ Execution is strictly sequential (53 → 59); the order respects the natural por
 - [x] **Phase 54: Testing Bedrock** - proptest (property) + cargo-mutants (mutation gate on the pure core) + schemars schema-gen (kills catalog schema drift) + the node-semver → Rust `semver` parity audit — so the rigor exists before the bulk port. (completed 2026-07-28)
 - [x] **Phase 55: Pure-Logic Core Parity** - Port classify/decide, computeDivergence + resolveLatestFor, detect gates, pin-spec parsing, and category derivation to Rust with verdicts identical to TS across a golden corpus. (completed 2026-07-28)
 - [x] **Phase 56: Registry CLI Verbs + Subprocess Dispatcher** - Port list/install/remove/upgrade/pin/adopt + the sudo-u/streaming-tee/timeout/SIGTERM→SIGKILL dispatcher + the generated env-var recipe contract; CLI-* bats green. (completed 2026-07-28)
-- [ ] **Phase 57: Provisioner Port + Logic Consolidation** - Port agent-user/sudoers/nodejs/path-wiring/registry-staging + detect/remediate/reuse/idempotency; delete duplicated CANONICAL_PATHS/GSD_SYSTEM_PATH from Bash; RT-*/AGT-*/DET-* bats green across all six invocation modes on Ubuntu + AlmaLinux.
+- [x] **Phase 57: Provisioner Port + Logic Consolidation** ✅ COMPLETE (2026-07-29) - Ported agent-user/sudoers/nodejs/path-wiring/registry-staging + detect/remediate/reuse/idempotency to Rust; PROV-02 consolidated (Rust canonical_path map is the authoritative in-process per-agent source; the Bash reuse shim/map/iterators RETAINED per plan-check B-1 as the 13-reuse/14-remediate spec contract + GATE-05 fallback, single-source grep gate green). Full Docker-runnable provisioner-surface bats GREEN on the Rust provisioner across the apt/dnf matrix (ubuntu-24.04 + almalinux-9 floor, 22.04/26.04 spot-checks), six invocation modes; systemd/cron/ssh QEMU gate → Phase 59. 6/6 plans done; PROV-01/02/03 + GATE-01/05 signed off.
 - [ ] **Phase 58: Distribution — musl Tarball as Sole Channel** - Reproducible x86_64 musl static tarball + `.sha256` fetched/verified/installed by the curl-installer with no Node prerequisite; drop the legacy fpm `.deb` path; flag ADR-006 for update.
 - [ ] **Phase 59: Full Validation Gate** - The complete bats contract green on the Rust build across the Docker matrix (Ubuntu 22.04/24.04/26.04 + AlmaLinux 9) AND QEMU; zero uncovered behavior families; the canonical AGT-02 self-update-without-sudo acceptance test green against the live Anthropic CDN.
 
@@ -127,7 +127,7 @@ Plans:
 - [x] 57-03-PLAN.md — Wave 2: `provision/sudoers.rs` (20-sudoers: visudo-gated 0440 root:root NOPASSWD drop-in)
 - [x] 57-04-PLAN.md — Wave 3: `provision/nodejs.rs` (30-nodejs: NodeSource pre-Node bootstrap + RT-01 verify + RT-04 npm prefix + REMEDIATE-01)
 - [ ] 57-05-PLAN.md — Wave 4: `provision/path_wiring.rs` (40-path-wiring: the four six-mode PATH artefacts, byte-faithful)
-- [ ] 57-06-PLAN.md — Wave 5: `provision/registry_cli.rs` + detect→decide→act wiring + PROV-02 Bash-map deletion + `--purge`/`--dry-run` parity + full-surface bats closeout
+- [x] 57-06-PLAN.md — Wave 5: `provision/registry_cli.rs` + detect→decide→act wiring + PROV-02 Bash-map deletion + `--purge`/`--dry-run` parity + full-surface bats closeout
 
 ### Phase 58: Distribution — musl Tarball as Sole Channel
 

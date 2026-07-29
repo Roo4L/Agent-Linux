@@ -1,10 +1,22 @@
 ---
 phase: 57
 slug: provisioner-port-logic-consolidation
-status: draft
-nyquist_compliant: false
-wave_0_complete: false
+status: signed-off
+nyquist_compliant: true
+wave_0_complete: true
 created: 2026-07-28
+signed_off: 2026-07-29
+sign_off_note: >-
+  Wave-5 closeout (57-06) completed the full-surface bats verification on the Rust
+  provisioner across the 4-distro matrix. The Docker-runnable provisioner surface
+  (10/13/14/15/18-*/20/22/23/30-six-mode/50) is GREEN on ubuntu-24.04 +
+  almalinux-9 (apt/dnf floor) with ubuntu-22.04/26.04 18-pkg-dispatch spot-checks
+  green; NO regression / NO newly-skipped vs the Bash provisioner (GATE-01). The
+  six-mode iteration (incl. sudo_u/sudo_u_i, masked in Wave 4) is confirmed via
+  the run.sh ssh-keypair seed. Remaining: the pre-existing 13-reuse #29 schema
+  failure (red on BOTH builds; Phase-54-02 origin, out of scope) and the
+  systemd/cron/ssh QEMU gate -> Phase 59. Sampling continuity held: every per-step
+  wave's bats greened end-to-end here.
 ---
 
 # Phase 57 — Validation Strategy
