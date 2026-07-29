@@ -19,6 +19,7 @@
 
 pub mod agent_user;
 pub mod nodejs;
+pub mod path_wiring;
 pub mod remediate_npm_prefix;
 pub mod sudoers;
 

@@ -160,10 +160,18 @@ fn run_steps(ctx: &ProvisionCtx) -> Result<(), ExitCode> {
         ExitCode::from(EX_SOFTWARE)
     })?;
 
-    // Steps 40-50 — loud not-yet-wired markers (each replaced by its wave). A
-    // premature full run surfaces exactly what is missing instead of silently
-    // skipping a step (T-57-03 fail-loud).
-    eprintln!("agentlinux provision: 40-path-wiring step not-yet-wired (Wave 4)");
+    // Step 40 — path wiring (Wave 4). The four six-mode PATH artefacts
+    // (profile.d + <home>/.bashrc --top + /etc/agentlinux.env + /etc/cron.d).
+    // Runs AFTER nodejs (40 follows 30): it references the .npm-global prefix
+    // established by Wave 3. Additive/unconditional — no RESOLUTIONS dispatch.
+    provision::path_wiring::run(ctx).map_err(|e| {
+        eprintln!("agentlinux provision: 40-path-wiring step failed: {e}");
+        ExitCode::from(EX_SOFTWARE)
+    })?;
+
+    // Step 50 — loud not-yet-wired marker (replaced by Wave 5). A premature full
+    // run surfaces exactly what is missing instead of silently skipping a step
+    // (T-57-03 fail-loud).
     eprintln!("agentlinux provision: 50-registry-cli step not-yet-wired (Wave 5)");
     Ok(())
 }

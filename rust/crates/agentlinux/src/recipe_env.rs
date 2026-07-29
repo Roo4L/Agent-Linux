@@ -126,7 +126,14 @@ pub fn resolve_install_user() -> String {
 /// `runner.ts:104` / `AGENT_PATH` for `agent`. Set EXPLICITLY (not via
 /// `sudo -E`) because Ubuntu's `secure_path` overrides an inherited PATH
 /// (Pitfall 3), which would let recipes resolve `npm` from `/usr/bin` (EACCES).
-fn canonical_path(home: &str) -> String {
+///
+/// `pub(crate)` (W-1, 57-05): the ONE source of the canonical PATH literal.
+/// `provision::path_wiring` reuses it for the artefact-3 (`/etc/agentlinux.env`)
+/// and artefact-4 (`/etc/cron.d/agentlinux`) PATH lines so the provisioner's
+/// emitted bytes are byte-identical to the Phase-56 recipe env (a cross-module
+/// test asserts the three-way equality). Stays `home`-parameterized — the caller
+/// supplies the resolved install home, never a hardcoded `/home/agent`.
+pub(crate) fn canonical_path(home: &str) -> String {
     format!("{home}/.npm-global/bin:{home}/.local/bin:/usr/local/bin:/usr/bin:/bin")
 }
 
