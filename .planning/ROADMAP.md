@@ -141,7 +141,10 @@ Plans:
   3. The **full bats behavior suite (incl. the curl-installer INST-* tests) is green** on the Rust build with **no behavior-contract regression / no newly-skipped tests** (GATE-01).
   4. `master` stays shippable; the distribution change is reversible per-phase (GATE-05).
 
-**Plans**: TBD
+**Plans**: 3 plans (3 waves)
+- [ ] 58-01-PLAN.md — Wave 1: producer swap (build-release.sh musl tarball + reproducible profile + Cargo version-parity) + full DIST-02 fpm/.deb deletion sweep + ADR-006 flag
+- [ ] 58-02-PLAN.md — Wave 2: THE COUPLED STAGING SWAP (registry_cli.rs stages the musl bin + install.sh execs the musl `provision` + the 60/10/13/40 bats re-pointed in lockstep; sha256-before-exec untouched)
+- [ ] 58-03-PLAN.md — Wave 3: fold the forward flags into the default + `AGENTLINUX_LEGACY_TS=1` rollback lever (GATE-05) + `61-no-node-prereq.bats` + full installer-bats closeout
 
 ### Phase 59: Full Validation Gate
 
