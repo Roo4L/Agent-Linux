@@ -338,48 +338,51 @@ else
 fi
 
 # Phase 53 (RUST-03 / GATE-01): stage the static-musl `agentlinux` Rust binary
-# into the container at an AGENT-OWNED path (NOT a /usr/local shim — that's the
-# self-update anti-pattern) so 13-reuse.bats exercises the REAL Rust
-# reuse-decision path, not just the bash fallback. The shim
-# (plugin/lib/reuse/agents.sh) still falls back to in-shell logic if the binary
-# is missing, so a build failure here is non-fatal — it just means the bats
+# into the container at a ROOT-owned OFF-LOGIN-PATH location (NOT a /usr/local
+# shim — that's the self-update anti-pattern; NOT on the agent's login PATH — see
+# the shadowing note below) so 13-reuse.bats exercises the REAL Rust
+# reuse-decision path via AGENTLINUX_RUST_BIN, not just the bash fallback. The
+# shim (plugin/lib/reuse/agents.sh) still falls back to in-shell logic if the
+# binary is missing, so a build failure here is non-fatal — it just means the bats
 # suite runs the fallback (exactly as master did).
 #
-# Real per-distro in-container staging lands in Phase 56/57; this host-build +
-# copy is the spike's CI proof that the Rust path is green.
-RUST_BIN_IN_CONTAINER=/home/agent/.local/bin/agentlinux
+# Phase 58 (GATE-01 fold): the Phase-56 `AGENTLINUX_STAGE_RUST_CLI` symlink-override
+# block is FOLDED INTO THIS DEFAULT staging. That flag block reconciled CLI-01's
+# interactive mode: the RUST-03 reuse bin used to land at
+# ~agent/.local/bin/agentlinux, which is FIRST on the agent's login PATH (skel
+# ~/.profile prepends ~/.local/bin ahead of /etc/profile.d/agentlinux.sh's
+# .npm-global/bin), so a bin literally named `agentlinux` there SHADOWS the
+# canonical ~agent/.npm-global/bin/agentlinux symlink in the `su - agent` /
+# `sudo -i` login modes CLI-01 iterates (40-registry-cli.bats:80-90). Now that the
+# provisioner owns the canonical .npm-global symlink PER REGIME (default: musl;
+# AGENTLINUX_LEGACY_TS=1: the TS bundle), the harness must NOT stage a competing
+# front-of-PATH `agentlinux` at all. Fix: stage the reuse bin OFF the login PATH
+# (at /opt/agentlinux/rust/agentlinux, an absolute path the reuse shim's
+# AGENTLINUX_RUST_BIN accepts verbatim) and DO NOT touch the .npm-global symlink —
+# CLI-01 then resolves the provisioner's canonical symlink (musl by default, TS
+# under rollback) in every mode, while the reuse shim exercises the Rust bin via
+# AGENTLINUX_RUST_BIN. Regime-agnostic: the off-PATH staging is identical either
+# way (only the provisioner-owned canonical symlink's TARGET differs by regime).
+RUST_BIN_OFFPATH=/opt/agentlinux/rust/agentlinux
 RUST_BIN_STAGED=""
-echo "== stage Rust agentlinux binary (RUST-03 / GATE-01) =="
+echo "== stage Rust agentlinux binary off the login PATH (RUST-03 / GATE-01) =="
 # host_build_musl (defined above) is non-fatal here — a build failure just means
 # the bats suite runs the bash fallback, exactly as master did.
 host_build_musl
 if [[ -x $HOST_MUSL_BIN ]]; then
-  docker exec "$CID" install -d -o agent -g agent /home/agent/.local/bin
-  docker cp "$HOST_MUSL_BIN" "$CID:$RUST_BIN_IN_CONTAINER"
-  docker exec "$CID" chown agent:agent "$RUST_BIN_IN_CONTAINER"
-  docker exec "$CID" chmod +x "$RUST_BIN_IN_CONTAINER"
-  RUST_BIN_STAGED=$RUST_BIN_IN_CONTAINER
-  echo "-- staged $RUST_BIN_IN_CONTAINER (Rust reuse path active) --"
+  # /opt/agentlinux/rust is NOT on any login/cron/systemd PATH, so a bin named
+  # `agentlinux` here cannot shadow the provisioner's canonical .npm-global/bin
+  # symlink in the CLI-01 interactive/login modes. Agent-owned so the reuse shim
+  # (run as the agent) can exec it.
+  docker exec "$CID" install -d -o agent -g agent /opt/agentlinux/rust
+  docker cp "$HOST_MUSL_BIN" "$CID:$RUST_BIN_OFFPATH"
+  docker exec "$CID" chown agent:agent "$RUST_BIN_OFFPATH"
+  docker exec "$CID" chmod +x "$RUST_BIN_OFFPATH"
+  RUST_BIN_STAGED=$RUST_BIN_OFFPATH
+  echo "-- staged $RUST_BIN_OFFPATH off the login PATH (Rust reuse path active; no CLI-01 shadow) --"
 else
   echo "-- Rust binary not staged; bats will exercise the bash fallback --"
 fi
-
-# Phase 58 (GATE-01 fold): the Phase-56 `AGENTLINUX_STAGE_RUST_CLI` symlink-override
-# block is REMOVED. It existed to re-point ~agent/.npm-global/bin/agentlinux from
-# the TS bundle to the musl bin under the OLD TS default (and to relocate the
-# RUST-03 .local/bin copy off-PATH so it could not shadow the canonical symlink by
-# CONTENT — TS vs musl). Now that Wave 2 made the musl bin the DEFAULT staged
-# `agentlinux` command (registry_cli.rs symlinks ~agent/.npm-global/bin/agentlinux
-# at the staged musl bin), the canonical symlink is ALREADY the musl bin, so the
-# post-hoc override is redundant: the invoke_mode PATH (invoke_modes.bash:70) puts
-# .npm-global/bin AHEAD of .local/bin, so CLI-01's `command -v agentlinux` resolves
-# the canonical musl symlink; and the RUST-03 .local/bin copy (retained below) is
-# ALSO the musl bin, so 13-reuse's `bash --login` resolution runs the same musl
-# artifact either way. Under the AGENTLINUX_LEGACY_TS=1 rollback the Bash entrypoint
-# stages .npm-global -> dist/index.js (the TS bundle) exactly as pre-swap master did
-# (flag-unset), and the .local/bin musl copy + AGENTLINUX_RUST_BIN export are the
-# same shape old master carried — a proven-green configuration. The RUST-03
-# .local/bin staging + the AGENTLINUX_RUST_BIN export below are RETAINED unchanged.
 
 # Seed the BHV-02 SSH keypair + start sshd BEFORE bats. The 20-agent-user /
 # 50-agents suites generate this in their own `setup()`, but 30-runtime.bats does
