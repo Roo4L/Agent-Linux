@@ -38,25 +38,25 @@ Arguments:
 Environment:
   AGENTLINUX_DOCKER_KEEP_CONTAINER=1  Skip cleanup (container kept running for
                                       interactive docker exec debugging).
-  AGENTLINUX_STAGE_RUST_CLI=1         Re-point the `agentlinux` command symlink
-                                      (~agent/.npm-global/bin/agentlinux) at the
-                                      staged Rust musl bin AFTER the installer
-                                      runs, so the CLI bats exercise the Rust
-                                      binary instead of the TS bundle (Phase 56
-                                      GATE-01/GATE-05 parallel track). When set
-                                      but the Rust bin failed to build/stage, the
-                                      run ABORTS (never false-green on TS).
-  AGENTLINUX_PROVISION_RUST=1         Run the staged Rust musl bin's `provision`
-                                      subcommand (as ROOT) AS the provisioner
-                                      instead of the Bash `agentlinux-install`
-                                      entrypoint, then run bats against the state
-                                      it produced (Phase 57 GATE-01/GATE-05). When
-                                      set but the Rust bin failed to build/stage
-                                      (or lacks the `provision` verb), the run
-                                      ABORTS non-zero — it NEVER silently falls
-                                      back to the Bash provisioner and reports a
-                                      false-green Rust pass. Flag-unset keeps the
-                                      Bash entrypoint authoritative on master.
+  AGENTLINUX_LEGACY_TS=1              GATE-05 per-phase ROLLBACK lever. Phase 58
+                                      made the static-musl Rust bin the DEFAULT
+                                      shipped + staged artifact, so the DEFAULT
+                                      (no-flag) run now runs the Rust musl
+                                      `provision` AS the provisioner + exercises
+                                      the staged Rust `agentlinux` command — the
+                                      bats exercise Rust with NO override (GATE-01).
+                                      Setting AGENTLINUX_LEGACY_TS=1 REVERTS to the
+                                      pre-swap Bash+TS distribution end-to-end: it
+                                      execs the Bash `plugin/bin/agentlinux-install`
+                                      entrypoint (which stages `dist/index.js` as
+                                      the `agentlinux` command via the TS-bundle
+                                      splice) so a broken Phase-58 rolls back to
+                                      the shippable Bash+TS build with one env var.
+                                      When set but the TS bundle
+                                      (plugin/cli/dist/index.js) is absent, the run
+                                      ABORTS non-zero — it NEVER silently
+                                      false-greens on the musl bin (mirrors the
+                                      default path's fail-loud musl-bin guard).
 
 Exit codes:
   0   installer + bats both green
@@ -274,23 +274,43 @@ host_build_musl() {
   fi
 }
 
-# Phase 57 (PROV-01 / GATE-01 / GATE-05): flag-gated Rust-PROVISIONER seam. When
-# AGENTLINUX_PROVISION_RUST=1, run the staged Rust musl bin's `provision`
-# subcommand AS the provisioner (as ROOT — the container exec is root by default;
-# the Rust `provision` uses require_root, NOT the CLI-05 guard_agent_user) instead
-# of the Bash `agentlinux-install` entrypoint, then bats runs against the state it
-# produced.
+# Phase 58 (DIST-01 / GATE-01 / GATE-05): the Rust musl `provision` seam is now
+# the DEFAULT provisioner. Wave 2 made the static-musl bin the shipped + staged
+# `agentlinux` artifact (registry_cli.rs stages the bin, install.sh execs the
+# musl `provision`), so run.sh runs the Rust `provision` AS the provisioner (as
+# ROOT — the container exec is root by default; the Rust `provision` uses
+# require_root, NOT the CLI-05 guard_agent_user) with NO override. The forward
+# AGENTLINUX_PROVISION_RUST flag is folded into this default path — the bats now
+# exercise Rust with no flag (GATE-01's intent for this phase).
 #
-# Fail-loud (no false-green / T-57-03): if the seam is REQUESTED but the Rust musl
-# bin cannot be built/staged, ABORT non-zero rather than silently running bats
-# against the Bash provisioner and reporting a false-green "Rust pass". Flag-unset
-# preserves TODAY's Bash `agentlinux-install` invocation verbatim (the Bash
-# entrypoint stays authoritative on master — GATE-05 rollback).
-if [[ -n ${AGENTLINUX_PROVISION_RUST:-} ]]; then
-  echo "== run Rust provisioner (agentlinux provision) [AGENTLINUX_PROVISION_RUST] =="
+# The GATE-05 inverse rollback lever AGENTLINUX_LEGACY_TS=1 restores the pre-swap
+# Bash+TS distribution: it execs the Bash `plugin/bin/agentlinux-install`
+# entrypoint (which stages `dist/index.js` as the `agentlinux` command via the
+# CLI-bundle splice above). A broken Phase-58 reverts to the shippable Bash+TS
+# build with one env var.
+#
+# Fail-loud (no false-green / T-58-07) BOTH ways:
+#   - default (Rust): if the musl bin cannot be built/staged, ABORT non-zero
+#     rather than silently running bats against a missing artifact.
+#   - rollback (AGENTLINUX_LEGACY_TS=1): if the TS bundle (dist/index.js) is
+#     absent, ABORT non-zero rather than false-greening on the musl bin.
+if [[ -n ${AGENTLINUX_LEGACY_TS:-} ]]; then
+  echo "== run installer (Bash+TS rollback) [AGENTLINUX_LEGACY_TS] =="
+  # GATE-05 fail-loud: the rollback restores the Bash+TS distribution, so the TS
+  # bundle MUST be present (spliced into the staged src root above from the
+  # image's cli-builder stage). If it is absent, ABORT — never fall through to
+  # the musl bin and report a false-green "Bash+TS pass" (mirrors the default
+  # path's musl-bin guard + the retired :292-295/:377-379 discipline).
+  if ! docker exec "$CID" test -f /opt/agentlinux-src/plugin/cli/dist/index.js; then
+    echo "ERROR: Bash+TS rollback requested (AGENTLINUX_LEGACY_TS=1) but the TS bundle (plugin/cli/dist/index.js) is absent — refusing to fall back to the musl bin and report false-green" >&2
+    exit 1
+  fi
+  docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install
+else
+  echo "== run Rust provisioner (agentlinux provision) [default] =="
   host_build_musl
   if [[ ! -x $HOST_MUSL_BIN ]]; then
-    echo "ERROR: Rust provisioner staging requested (AGENTLINUX_PROVISION_RUST=1) but the musl bin is absent — refusing to fall back to the Bash provisioner and report false-green" >&2
+    echo "ERROR: the default Rust provisioner is requested but the musl bin is absent — refusing to run bats against a missing artifact and report false-green" >&2
     exit 1
   fi
   # Stage the provisioner bin at a ROOT-owned path (it runs as root via
@@ -299,9 +319,9 @@ if [[ -n ${AGENTLINUX_PROVISION_RUST:-} ]]; then
   docker exec "$CID" install -d /usr/local/lib/agentlinux/provision
   docker cp "$HOST_MUSL_BIN" "$CID:$RUST_PROVISION_BIN_IN_CONTAINER"
   docker exec "$CID" chmod +x "$RUST_PROVISION_BIN_IN_CONTAINER"
-  # Phase 58 (DIST-01): the Rust provisioner's 50-registry-cli step now STAGES
-  # the shipped musl bin from $AGENTLINUX_SRC_ROOT/bin/agentlinux (the Wave-1
-  # tarball payload layout, plugin/bin/agentlinux) — the tarball producer
+  # Phase 58 (DIST-01): the Rust provisioner's 50-registry-cli step STAGES the
+  # shipped musl bin from $AGENTLINUX_SRC_ROOT/bin/agentlinux (the Wave-1 tarball
+  # payload layout, plugin/bin/agentlinux) — the tarball producer
   # (build-release.sh) places it there, but the read-only /workspace source tree
   # copied into /opt/agentlinux-src has only the Bash entrypoint under plugin/bin.
   # Splice the built musl bin into the staged src root so the Rust provisioner
@@ -313,14 +333,8 @@ if [[ -n ${AGENTLINUX_PROVISION_RUST:-} ]]; then
   docker exec "$CID" chmod 0755 /opt/agentlinux-src/plugin/bin/agentlinux
   # Invoke the `provision` verb as ROOT. The install user defaults to `agent`
   # (the AGENTLINUX_USER contract resolve_install_user() honors); pass it
-  # explicitly for parity with the Bash entrypoint's target. The exact flag
-  # surface lands in Wave 5; a missing/unknown subcommand exits non-zero here, so
-  # the seam FAILS LOUD end-to-end until the entrypoint exists (never a
-  # silent false-green).
+  # explicitly for parity with the Bash entrypoint's target.
   docker exec "$CID" "$RUST_PROVISION_BIN_IN_CONTAINER" provision --user agent --yes
-else
-  echo "== run installer (agentlinux-install) =="
-  docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install
 fi
 
 # Phase 53 (RUST-03 / GATE-01): stage the static-musl `agentlinux` Rust binary
@@ -350,61 +364,22 @@ else
   echo "-- Rust binary not staged; bats will exercise the bash fallback --"
 fi
 
-# Phase 56 (GATE-01/GATE-05): flag-gated Rust-CLI symlink override. When
-# AGENTLINUX_STAGE_RUST_CLI=1, re-point the `agentlinux` command symlink that the
-# provisioner (50-registry-cli.sh:124) set to the TS bundle
-# (~agent/.npm-global/bin/agentlinux -> dist/index.js) so it instead points at
-# the staged Rust musl bin. This makes the CLI bats (40-registry-cli, etc.)
-# exercise the Rust binary AS the `agentlinux` command, not the TS bundle —
-# WITHOUT touching plugin/provisioner/50-registry-cli.sh (the provisioner keeps
-# symlinking the TS bundle until Phase 57/58). This is a TEST-HARNESS override.
-#
-# Fail-loud (exit-127 guard / T-56-05): if the override is REQUESTED but the
-# Rust bin failed to build/stage, ABORT rather than leave a dangling symlink
-# (exit 127 on every agentlinux invocation) or silently keep the TS bundle and
-# report a false-green "Rust pass". On master (flag unset) this whole block is
-# skipped and the existing non-fatal TS path is preserved.
-#
-# CLI-01 interactive-mode reconciliation (Phase 56 Wave 3 / GATE-01): the RUST-03
-# reuse-path staging above places the Rust bin at ~agent/.local/bin/agentlinux.
-# That path is FIRST on the agent's interactive login PATH (Ubuntu's skel
-# ~/.profile prepends ~/.local/bin ahead of /etc/profile.d/agentlinux.sh's
-# .npm-global/bin), so a bin literally named `agentlinux` there SHADOWS the
-# canonical ~agent/.npm-global/bin/agentlinux symlink. On master (TS) nothing is
-# staged at .local/bin, so CLI-01's `command -v agentlinux` resolves the
-# .npm-global/bin symlink as the contract requires; under the flag it would
-# otherwise resolve .local/bin — a HARNESS-staging artifact, NOT a CLI behavior
-# change. Fix: when the CLI override is active, RELOCATE the staged bin OFF the
-# agent PATH (to /opt/agentlinux/rust/agentlinux, an absolute path the reuse
-# shim's AGENTLINUX_RUST_BIN accepts verbatim), drop the front-of-PATH
-# .local/bin/agentlinux copy, and point the .npm-global/bin symlink at the
-# relocated bin. `command -v agentlinux` then resolves the canonical
-# .npm-global/bin symlink (byte-identical to master's TS resolution) while the
-# CLI + reuse shim both exercise the Rust bin. The default (flag-unset)
-# .local/bin staging for 13-reuse.bats is UNTOUCHED.
-CLI_SYMLINK=/home/agent/.npm-global/bin/agentlinux
-RUST_BIN_OFFPATH=/opt/agentlinux/rust/agentlinux
-if [[ -n ${AGENTLINUX_STAGE_RUST_CLI:-} ]]; then
-  if [[ -z $RUST_BIN_STAGED ]]; then
-    echo "ERROR: Rust CLI staging requested (AGENTLINUX_STAGE_RUST_CLI=1) but the musl bin is absent — refusing to run bats against the TS bundle and report false-green" >&2
-    exit 1
-  fi
-  echo "== relocate Rust bin off the agent PATH + override CLI symlink (AGENTLINUX_STAGE_RUST_CLI) =="
-  # Relocate the staged bin off-PATH so it cannot shadow the canonical symlink
-  # by name. cp (not mv) then rm the .local/bin copy so the RUST-03 stage's
-  # ownership/mode are preserved on the relocated copy.
-  docker exec "$CID" install -d -o agent -g agent /opt/agentlinux/rust
-  docker exec "$CID" cp "$RUST_BIN_STAGED" "$RUST_BIN_OFFPATH"
-  docker exec "$CID" chown agent:agent "$RUST_BIN_OFFPATH"
-  docker exec "$CID" chmod +x "$RUST_BIN_OFFPATH"
-  # Drop the front-of-PATH .local/bin/agentlinux copy that would otherwise win
-  # `command -v agentlinux` in interactive/login modes.
-  docker exec "$CID" rm -f "$RUST_BIN_STAGED"
-  RUST_BIN_STAGED=$RUST_BIN_OFFPATH
-  docker exec "$CID" ln -sfn "$RUST_BIN_STAGED" "$CLI_SYMLINK"
-  docker exec "$CID" chown -h agent:agent "$CLI_SYMLINK"
-  echo "-- $CLI_SYMLINK now -> $RUST_BIN_STAGED (off-PATH; CLI bats exercise the Rust bin without shadowing the canonical symlink) --"
-fi
+# Phase 58 (GATE-01 fold): the Phase-56 `AGENTLINUX_STAGE_RUST_CLI` symlink-override
+# block is REMOVED. It existed to re-point ~agent/.npm-global/bin/agentlinux from
+# the TS bundle to the musl bin under the OLD TS default (and to relocate the
+# RUST-03 .local/bin copy off-PATH so it could not shadow the canonical symlink by
+# CONTENT — TS vs musl). Now that Wave 2 made the musl bin the DEFAULT staged
+# `agentlinux` command (registry_cli.rs symlinks ~agent/.npm-global/bin/agentlinux
+# at the staged musl bin), the canonical symlink is ALREADY the musl bin, so the
+# post-hoc override is redundant: the invoke_mode PATH (invoke_modes.bash:70) puts
+# .npm-global/bin AHEAD of .local/bin, so CLI-01's `command -v agentlinux` resolves
+# the canonical musl symlink; and the RUST-03 .local/bin copy (retained below) is
+# ALSO the musl bin, so 13-reuse's `bash --login` resolution runs the same musl
+# artifact either way. Under the AGENTLINUX_LEGACY_TS=1 rollback the Bash entrypoint
+# stages .npm-global -> dist/index.js (the TS bundle) exactly as pre-swap master did
+# (flag-unset), and the .local/bin musl copy + AGENTLINUX_RUST_BIN export are the
+# same shape old master carried — a proven-green configuration. The RUST-03
+# .local/bin staging + the AGENTLINUX_RUST_BIN export below are RETAINED unchanged.
 
 # Seed the BHV-02 SSH keypair + start sshd BEFORE bats. The 20-agent-user /
 # 50-agents suites generate this in their own `setup()`, but 30-runtime.bats does
