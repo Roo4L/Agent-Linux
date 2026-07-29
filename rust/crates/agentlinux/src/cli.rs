@@ -21,7 +21,7 @@ use clap::{Parser, Subcommand};
 /// `agentlinux <verb> [flags]` — the registry CLI root.
 ///
 /// The program-level `version` attribute wires `-V, --version` to
-/// `CARGO_PKG_VERSION` (now `0.3.6`, synced to package.json → CLI-01). The
+/// `CARGO_PKG_VERSION` (now `0.4.0`, synced to package.json → CLI-01). The
 /// hidden `reuse-decision` provisioner subcommand is dispatched BEFORE this
 /// parser runs (a pre-clap short-circuit in `main.rs`) so it is intentionally
 /// absent from this enum — keeping the Phase-53 reuse path (13-reuse.bats)
@@ -402,7 +402,7 @@ mod cli_parse {
         // that main.rs maps to exit 0. try_parse_from returns Err with that kind.
         let err = Cli::try_parse_from(["agentlinux", "--version"]).unwrap_err();
         assert_eq!(err.kind(), clap::error::ErrorKind::DisplayVersion);
-        // And the rendered string carries the crate version (0.3.6, per CLI-01).
+        // And the rendered string carries the crate version (0.4.0, per CLI-01).
         assert!(err.to_string().contains(env!("CARGO_PKG_VERSION")));
     }
 

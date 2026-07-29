@@ -37,7 +37,7 @@ use thiserror::Error;
 
 /// The USER-FACING catalog version segment of the default catalog dir. Mirrors
 /// `defaultCatalogDir` (loader.ts:17-20): `$AGENTLINUX_VERSION` else the bin's
-/// `CARGO_PKG_VERSION` (the CLI-01 version, 0.3.6).
+/// `CARGO_PKG_VERSION` (the CLI-01 version, 0.4.0).
 fn default_catalog_dir() -> PathBuf {
     let ver = std::env::var("AGENTLINUX_VERSION")
         .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());

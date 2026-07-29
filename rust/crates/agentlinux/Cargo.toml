@@ -1,12 +1,12 @@
 [package]
 name = "agentlinux"
-# The USER-FACING product version (mirrors plugin/cli/package.json → CLI-01),
-# NOT the internal v0.4.0 GSD/milestone label. `agentlinux --version` emits
-# CARGO_PKG_VERSION, and bats CLI-01 derives the expected string from
-# package.json (`jq -r .version` → 0.3.6). Like-for-like invariant: nothing
-# user-observable changes in the TS→Rust port, so the shipped version is
-# unchanged. A future product renumber bumps package.json and this together.
-version = "0.3.6"
+# The USER-FACING product version (mirrors plugin/cli/package.json → CLI-01
+# and plugin/catalog/catalog.json; the three-way lock in build-release.sh
+# enforces they stay equal). `agentlinux --version` emits CARGO_PKG_VERSION,
+# and bats CLI-01 derives the expected string from package.json (`jq -r
+# .version`). Bumped 0.3.6 → 0.4.0 at the v0.4.0-rc1 cut (the Rust-rewrite
+# milestone's product renumber); package.json + catalog.json bump in lockstep.
+version = "0.4.0"
 edition.workspace = true
 license.workspace = true
 rust-version.workspace = true

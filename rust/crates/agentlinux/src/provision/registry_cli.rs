@@ -55,7 +55,7 @@ fn src_root() -> PathBuf {
 }
 
 /// The staging version — `$AGENTLINUX_VERSION` else the bin's `CARGO_PKG_VERSION`
-/// (synced to plugin/cli/package.json → 0.3.6). MUST match the version
+/// (synced to plugin/cli/package.json → 0.4.0). MUST match the version
 /// `10-installer.bats` reads from package.json so the staged
 /// `/opt/agentlinux/{cli,catalog}/<ver>/` paths line up. Public so the
 /// orchestrator's banner + `--purge` recipe-path derivation share the one source.
