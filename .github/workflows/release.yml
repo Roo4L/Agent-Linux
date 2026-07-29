@@ -77,46 +77,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: Install pre-commit
         run: pip install pre-commit==4.0.1
-      # The catalog-schema-validate hook runs `node plugin/cli/scripts/
-      # validate-catalog.mjs` which imports `ajv`. Without these deps the hook
-      # fails with "Cannot find package 'ajv'". Install via pnpm (project's
-      # lockfile is pnpm-lock.yaml) so the hook can resolve its imports.
-      - name: Enable pnpm via corepack
-        run: corepack enable
-      - name: Install plugin/cli deps (ajv for catalog-schema-validate hook)
-        working-directory: plugin/cli
-        run: pnpm install --frozen-lockfile
+      # Post-cutover all hooks are bash/jq/python-based (the TS biome hook and the
+      # node ajv catalog validator were removed with plugin/cli/); the Rust CLI's
+      # own tests run in the test.yml `rust` job + the cargo build gate below.
       - name: Run pre-commit on all files
         run: pre-commit run --all-files --show-diff-on-failure
-      # Use pnpm (canonical lockfile); deps already installed in the step above.
-      # CLAUDE.md convention is `cd plugin/cli && pnpm test`. Steps are split so
-      # tsc compile errors are visible separately from test execution failures.
-      - name: Compile CLI tests
-        working-directory: plugin/cli
-        run: pnpm exec tsc -p tsconfig.test.json
-      - name: Verify test compilation
-        working-directory: plugin/cli
-        run: |
-          set -euxo pipefail
-          if [ ! -d dist-test/test ] || [ -z "$(ls -A dist-test/test 2>/dev/null)" ]; then
-            echo "::error::dist-test/test missing or empty after tsc compile"
-            ls -la dist-test 2>/dev/null || echo "(dist-test does not exist)"
-            exit 1
-          fi
-          ls dist-test/test/
-      # Use explicit *.test.js glob — Node v22+ does not auto-discover test
-      # files when given a bare directory path; it tries to resolve the dir as
-      # a module and fails with MODULE_NOT_FOUND. Glob expansion at the shell
-      # level passes explicit file args, which works universally.
-      - name: Run CLI unit tests
-        working-directory: plugin/cli
-        shell: bash
-        run: pnpm exec node --test dist-test/test/*.test.js
 
   # Gate 2 — Docker matrix. Runs tests/docker/run.sh on every supported Ubuntu
   # LTS image. The Docker harness executes the full tests/bats/ suite INCLUDING

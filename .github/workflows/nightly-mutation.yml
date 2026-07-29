@@ -8,44 +8,12 @@ permissions:
   contents: read
 
 jobs:
-  stryker:
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Skip if CLI has no source yet
-        id: guard
-        run: |
-          if compgen -G "plugin/cli/src/*.ts" > /dev/null; then
-            echo "ready=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "plugin/cli/src is empty — skipping stryker (advisory)"
-          fi
-      - name: Install CLI deps
-        if: steps.guard.outputs.ready == 'true'
-        working-directory: plugin/cli
-        run: npm install --no-audit --no-fund
-      - name: Run stryker
-        if: steps.guard.outputs.ready == 'true'
-        working-directory: plugin/cli
-        run: npx stryker run || echo "::warning::stryker below threshold (advisory in v0.3.0)"
-
-  bash-mutator:
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v5
-      - name: Run bash mutator
-        run: bash tests/mutation/bash-mutator.sh || echo "::warning::bash-mutator below target (advisory in v0.3.0)"
-
+  # (The TypeScript `stryker` mutation job was removed at the Rust cutover — the
+  # TS CLI it mutated is gone; the Rust mutation score is `rust-mutants` below.)
   # TEST-02 (v0.4.0 Phase 54): full-crate cargo-mutants score on the pure
-  # agentlinux-core crate, out-of-band and advisory (continue-on-error, like the
-  # stryker/bash-mutator jobs above) so a nightly regression surfaces as a
-  # warning without blocking. The ENFORCING merge gate is the per-PR --in-diff
+  # agentlinux-core crate, out-of-band and advisory (continue-on-error) so a
+  # nightly regression surfaces as a warning without blocking. The ENFORCING
+  # merge gate is the per-PR --in-diff
   # step in test.yml's rust job; this job reports the FULL-crate score the
   # bounded --in-diff run cannot.
   rust-mutants:

@@ -28,10 +28,12 @@ jobs:
   # Detect whether this push/PR touches actual AgentLinux code (installer,
   # tests, packaging, CLI, or CI config) vs. dev-only files (docs/, .claude/,
   # .codex/, AGENTS.md, CLAUDE.md, .planning/). The expensive jobs below
-  # (bats-docker matrix, cli-unit) read `code` and skip their costly *steps*
+  # (bats-docker matrix, rust) read `code` and skip their costly *steps*
   # when it is 'false' — the jobs still run and report green in seconds, so the
-  # required checks (bats-docker (ubuntu-22.04/24.04), cli-unit) always report
-  # success and the merge gate stays intact. We gate steps rather than the whole
+  # required checks (bats-docker (ubuntu-22.04/24.04), rust) always report
+  # success and the merge gate stays intact. (The cli-unit required check was
+  # removed at the Rust cutover — branch protection must drop it.) We gate steps
+  # rather than the whole
   # job on purpose: a matrix job skipped by a job-level `if:` can leave its
   # per-arm required contexts unreported and block the PR forever — the same
   # trap as trigger-level paths-ignore. Website files (index.html, assets/**, …)
@@ -71,61 +73,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: Install pre-commit
         run: pip install pre-commit==4.0.1
-      # The catalog-schema-validate hook runs `node plugin/cli/scripts/
-      # validate-catalog.mjs` which imports `ajv`. Install plugin/cli deps so
-      # the hook can resolve its imports.
-      - name: Enable pnpm via corepack
-        run: corepack enable
-      - name: Install plugin/cli deps (ajv for catalog-schema-validate hook)
-        working-directory: plugin/cli
-        run: pnpm install --frozen-lockfile
+      # All hooks are bash/jq/python-based post-cutover (the TS biome hook and the
+      # node ajv catalog validator were removed with plugin/cli/), so no Node/pnpm
+      # setup is needed here.
       - name: Run pre-commit
         run: pre-commit run --all-files --show-diff-on-failure
-
-  cli-unit:
-    needs: changes
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Skip if no AgentLinux code changed or plugin/cli has no source yet
-        id: guard
-        env:
-          CODE_CHANGED: ${{ needs.changes.outputs.code }}
-        run: |
-          if [ "$CODE_CHANGED" != "true" ]; then
-            echo "has_tests=false" >> "$GITHUB_OUTPUT"
-            echo "No AgentLinux code changed — skipping CLI tests (dev-only change)"
-          elif compgen -G "plugin/cli/test/*.test.*" > /dev/null || compgen -G "plugin/cli/test/**/*.test.*" > /dev/null; then
-            echo "has_tests=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_tests=false" >> "$GITHUB_OUTPUT"
-            echo "No CLI tests yet — skipping (Phase 1 skeleton)"
-          fi
-      - name: Enable pnpm via corepack
-        if: steps.guard.outputs.has_tests == 'true'
-        run: corepack enable
-      - name: Install deps
-        if: steps.guard.outputs.has_tests == 'true'
-        working-directory: plugin/cli
-        run: pnpm install --frozen-lockfile
-      - name: Compile CLI tests
-        if: steps.guard.outputs.has_tests == 'true'
-        working-directory: plugin/cli
-        run: pnpm exec tsc -p tsconfig.test.json
-      # Use explicit *.test.js glob — see release.yml for rationale.
-      - name: Run tests
-        if: steps.guard.outputs.has_tests == 'true'
-        working-directory: plugin/cli
-        shell: bash
-        run: pnpm exec node --test dist-test/test/*.test.js
 
   # RUST-02 (v0.4.0 Phase 53 spike): gated Rust job. Mirrors the cli-unit
   # guard-then-steps shape — the job always runs and reports (so the required
