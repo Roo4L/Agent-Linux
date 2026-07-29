@@ -29,11 +29,25 @@ fi
 # `-g` forces global scope so the array stays visible when this library is
 # sourced from inside a function (as bats @tests do).
 #
-# Consumed EXTERNALLY: remediate.sh:288 iterates `${!REUSE_AGENT_CANONICAL_PATHS[@]}`
-# to enumerate per-agent decisions. Since the v0.4.0 Rust-rewrite spike (Phase 53)
-# moved the decision body into the Rust bin, the map is no longer read inside this
-# file — but it MUST stay for that external iterator (consolidating the
-# duplication is Phase 57). shellcheck can't see the cross-file use.
+# PROV-02 SINGLE RETAINED SOURCE (Phase 57, plan-check B-1). Post-Phase-57 the
+# AUTHORITATIVE per-agent enumerator is the RUST canonical_path map
+# (rust/crates/agentlinux/src/main.rs::CANONICAL_IDS): the Rust `provision` flow
+# iterates it IN-PROCESS and never consults a Bash map. This Bash map is
+# DELIBERATELY RETAINED as the ONE sanctioned Bash definition — it is NOT a
+# duplicate:
+#   - tests/bats/13-reuse.bats (20 @tests) source `reuse::agent_decision` +
+#     `reuse::_agent_decision_bash` directly and read this map (ADR-002 spec).
+#   - tests/bats/73-phase51-gsd-codex.bats greps this file for the canonical
+#     surfaces (gsd-core).
+#   - the shim below is master's GATE-05 Bash-fallback rollback (unset
+#     AGENTLINUX_RUST_BIN → the in-shell decision body).
+#   - remediate.sh + prompt.sh iterate `${!REUSE_AGENT_CANONICAL_PATHS[@]}` for
+#     the Bash-entrypoint provisioner path (14-remediate.bats:406 asserts
+#     RESOLUTIONS[agents.<id>] populated). Those iterators stay on the retained
+#     Bash-provisioner path; they are retired only at the Phase-59 cutover (when
+#     the Bash entrypoint is removed).
+# The scripts/check-no-bash-canonical-map.sh gate enforces exactly ONE Bash
+# DEFINITION of each symbol, HERE — it does NOT require deleting this shim.
 # shellcheck disable=SC2034
 declare -gA REUSE_AGENT_CANONICAL_PATHS=(
   [claude-code]="/home/agent/.local/bin/claude"
