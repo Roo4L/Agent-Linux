@@ -15,7 +15,7 @@ load 'helpers/assertions'
 load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 @test "INST-01: installer log file exists after initial run" {
   # The harness (tests/docker/run.sh) runs the installer BEFORE bats, so the
@@ -136,7 +136,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   if [[ "$cli_regime" == musl ]]; then
     run "$staged_bin" provision --user agent --yes
   else
-    run bash "$INSTALLER"
+    run "$INSTALLER" provision
   fi
   assert_exit_zero "INST-02"
 

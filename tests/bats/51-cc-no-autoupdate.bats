@@ -70,7 +70,7 @@ SETTINGS=/home/agent/.claude/settings.json
   # filename sort puts 40-*.bats (INST-04 --purge) before 51-*.bats, so
   # by the time we get here the installer may have been torn down.
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
 
   # Scrub stored credentials so claude takes the env-var auth path. A

@@ -40,7 +40,7 @@ setup_file() {
   # setup_file: when the agentlinux symlink is absent, re-run the raw installer
   # so `agentlinux install <id>` below has a working dispatch surface.
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
 
   # SSH keypair recovery: 20-agent-user.bats's setup() generates /root/.ssh/

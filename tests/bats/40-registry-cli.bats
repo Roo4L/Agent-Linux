@@ -20,7 +20,7 @@ load 'helpers/invoke_modes'
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 # AL-29: derive the expected version from package.json — single source-of-truth.
 # Production layout: /opt/agentlinux-src/ is the bind-mounted source tree
 # established by tests/docker/run.sh:150 BEFORE bats fires.

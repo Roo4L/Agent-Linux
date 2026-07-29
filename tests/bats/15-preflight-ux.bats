@@ -43,13 +43,13 @@ teardown() {
 # harness's pre-bats install staged for them. Mirrors 14-remediate.bats's
 # teardown_file invariant.
 teardown_file() {
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
   rm -rf /usr/local/agentlinux-old || true
-  bash "$INSTALLER" >/dev/null 2>&1 || true
+  "$INSTALLER" provision >/dev/null 2>&1 || true
 }
 
 LOG=/var/log/agentlinux-install.log
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 # snapshot_capture <dest> <path...>
 # Mirrors the helper in 14-remediate.bats (T-14-13 / T-15-01-02 snapshot proof).
@@ -75,7 +75,7 @@ snapshot_equal() {
 # so the report has BOTH a chown remediate AND a sudoers drift overwrite to
 # render. Used by Test 3's T-15-01-02 no-mutation snapshot.
 setup_brownfield_for_dry_run_combo() {
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
   useradd -m -s /bin/bash agent >/dev/null 2>&1 || usermod -s /bin/bash agent
   # Drifted (narrower-than-ADR-012) sudoers — REMEDIATE-03 trigger.
   local tmp
@@ -105,8 +105,8 @@ setup_brownfield_for_path_mismatch() {
 
 # Test 1: greenfield --dry-run exits 0; detection ran; no provisioner ran.
 @test "UX-01 (D-15-01): agentlinux-install --dry-run on greenfield exits 0 + detection runs + no provisioner runs" {
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
-  run bash "$INSTALLER" --dry-run
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
+  run "$INSTALLER" provision --dry-run
   [[ "$status" -eq 0 ]] \
     || __fail "UX-01" "exit 0 on greenfield dry-run" "exit=$status output=$output" "$LOG"
   printf '%s' "$output" | grep -qF '[DRY-RUN]' \
@@ -123,7 +123,7 @@ setup_brownfield_for_path_mismatch() {
 # Test 2: brownfield --dry-run exits 0 even when report carries bails.
 @test "UX-01 (D-15-01): agentlinux-install --dry-run on brownfield with REMEDIATE candidates exits 0 (bails surface IN report)" {
   setup_brownfield_for_dry_run_combo
-  run bash "$INSTALLER" --dry-run
+  run "$INSTALLER" provision --dry-run
   [[ "$status" -eq 0 ]] \
     || __fail "UX-01" "exit 0 on brownfield dry-run even with bail candidates" "exit=$status output=$output" "$LOG"
   # Detection ran (at least one DET marker in transcript).
@@ -143,7 +143,7 @@ setup_brownfield_for_path_mismatch() {
   local after="$AL_TMPDIR/after"
   snapshot_capture "$before" /etc/sudoers.d /home /etc/passwd
 
-  run bash "$INSTALLER" --dry-run
+  run "$INSTALLER" provision --dry-run
   [[ "$status" -eq 0 ]] \
     || __fail "T-15-01-02" "dry-run exit 0" "exit=$status output=$output" "$LOG"
 
@@ -156,7 +156,7 @@ setup_brownfield_for_path_mismatch() {
 
 # Test 4 (D-15-04, T-15-01-06): --dry-run --yes contradictory combo exits 64.
 @test "UX-01 (D-15-04 / T-15-01-06): agentlinux-install --dry-run --yes exits 64 with contradictory-flags error" {
-  run bash "$INSTALLER" --dry-run --yes
+  run "$INSTALLER" provision --dry-run --yes
   [[ "$status" -eq 64 ]] \
     || __fail "D-15-04" "exit 64 on --dry-run --yes" "exit=$status output=$output" "$INSTALLER"
   printf '%s' "$output" | grep -qF -- 'contradictory flags' \
@@ -167,7 +167,7 @@ setup_brownfield_for_path_mismatch() {
 
 # Test 5 (D-15-04 symmetric): --yes --dry-run also exits 64.
 @test "UX-01 (D-15-04 symmetric): agentlinux-install --yes --dry-run ALSO exits 64 (symmetric contradictory-flags rejection)" {
-  run bash "$INSTALLER" --yes --dry-run
+  run "$INSTALLER" provision --yes --dry-run
   [[ "$status" -eq 64 ]] \
     || __fail "D-15-04" "exit 64 on --yes --dry-run" "exit=$status output=$output" "$INSTALLER"
   printf '%s' "$output" | grep -qF -- '--dry-run forbids --yes' \
@@ -178,12 +178,12 @@ setup_brownfield_for_path_mismatch() {
 @test "UX-01 (idempotency): re-running agentlinux-install --dry-run produces stable DET markers (sorted-equal)" {
   setup_brownfield_for_dry_run_combo
 
-  run bash "$INSTALLER" --dry-run
+  run "$INSTALLER" provision --dry-run
   [[ "$status" -eq 0 ]] || __fail "UX-01" "dry-run #1 exit 0" "exit=$status" "$LOG"
   local first
   first=$(printf '%s\n' "$output" | grep -E '^\[DET-' | sort)
 
-  run bash "$INSTALLER" --dry-run
+  run "$INSTALLER" provision --dry-run
   [[ "$status" -eq 0 ]] || __fail "UX-01" "dry-run #2 exit 0" "exit=$status" "$LOG"
   local second
   second=$(printf '%s\n' "$output" | grep -E '^\[DET-' | sort)
@@ -212,7 +212,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # Allocate a pty so [[ -t 0 ]] returns true in the installer. Feed Y\nY\n
   # via the python pty driver — `script -c | pipe-stdin` hangs in some
   # container envs (the bytes never reach the inner pty slave).
-  run python3 "$TTY_DRIVER" 'Y\nY\n' -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" 'Y\nY\n' -- "$INSTALLER" provision
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY accept-all exits 0" "exit=$status output=$output" "$LOG"
   # The AL-50 install-user prompt must NOT fire on a brownfield TTY (agent
@@ -243,7 +243,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # Component order in prompt::run_all is: user, npm-prefix, sudoers, agents.*.
   # user is a REUSE (existing agent), npm-prefix prompts first (decline=n), then
   # sudoers prompts (accept=Y).
-  run python3 "$TTY_DRIVER" 'n\nY\n' -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" 'n\nY\n' -- "$INSTALLER" provision
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY decline-one exits 0 (install continues)" "exit=$status output=$output" "$LOG"
   # DECLINED marker for npm-prefix.
@@ -266,7 +266,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   setup_brownfield_for_remediate_03_missing
   # Pipe an Y just in case a prompt does (incorrectly) appear — but the test
   # asserts the prompt string is ABSENT from the transcript.
-  run python3 "$TTY_DRIVER" 'Y\n' -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" 'Y\n' -- "$INSTALLER" provision
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY additive install exits 0" "exit=$status output=$output" "$LOG"
   if printf '%s' "$output" | grep -qF 'Proceed with this remediation?'; then
@@ -284,7 +284,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # input would cause EOF on read, which the prompt::confirm_remediate
   # default-decline path would NOT exercise because YES_FLAG bypass fires
   # earlier in agentlinux-install main().
-  run python3 "$TTY_DRIVER" '' -- bash "$INSTALLER" --yes
+  run python3 "$TTY_DRIVER" '' -- "$INSTALLER" provision --yes
   [[ "$status" -eq 0 ]] \
     || __fail "UX-02" "TTY --yes exits 0" "exit=$status output=$output" "$LOG"
   if printf '%s' "$output" | grep -qF 'Proceed with this remediation?'; then
@@ -320,7 +320,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # ('; rm -rf /tmp/poison') is consumed by the line-discard in
   # prompt::confirm_remediate; the second prompt fires for sudoers and
   # consumes the 'Y'. T-15-01-03 mitigation verified by the canary survival.
-  run python3 "$TTY_DRIVER" 'n; rm -rf /tmp/poison\nY\n' -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" 'n; rm -rf /tmp/poison\nY\n' -- "$INSTALLER" provision
   [[ "$status" -eq 0 ]] \
     || __fail "T-15-01-03" "installer exits 0 (no shell injection took down the run)" "exit=$status output=$output" "$LOG"
   [[ -d /tmp/poison && -f /tmp/poison/canary ]] \
@@ -347,7 +347,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
 @test "UX-04 (D-15-07 accept-suggested): TTY alt-user prompt on wrong-shell fixture; Enter accepts 'agent2' → install proceeds with INSTALL_USER=agent2 + [ALT-USER] accepted marker" {
   setup_brownfield_host_user_wrong_shell
   # Feed just \n (Enter = accept suggested name).
-  run python3 "$TTY_DRIVER" '\n' -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" '\n' -- "$INSTALLER" provision
   [[ "$status" -eq 0 ]] \
     || __fail "UX-04" "TTY alt-user accept-suggested exits 0" "exit=$status output=$output" "$LOG"
   printf '%s' "$output" | grep -qF '[ALT-USER] accepted: agent2' \
@@ -371,7 +371,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
 # not that `mybot` gets a working install — see Test 13's note + AL-59.
 @test "UX-04 (D-15-07 accept-typed): TTY alt-user prompt; operator types 'mybot' → install proceeds with INSTALL_USER=mybot" {
   setup_brownfield_host_user_wrong_shell
-  run python3 "$TTY_DRIVER" 'mybot\n' -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" 'mybot\n' -- "$INSTALLER" provision
   [[ "$status" -eq 0 ]] \
     || __fail "UX-04" "TTY alt-user accept-typed exits 0" "exit=$status output=$output" "$LOG"
   printf '%s' "$output" | grep -qF '[ALT-USER] accepted: mybot' \
@@ -387,7 +387,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   setup_brownfield_host_user_wrong_shell
   # Empty input string — tty-driver will close the pty after the prompt fires
   # and read returns non-zero (EOF) in prompt::alt_user_or_bail.
-  run python3 "$TTY_DRIVER" '' -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" '' -- "$INSTALLER" provision
   [[ "$status" -eq 65 ]] \
     || __fail "UX-04" "TTY EOF on alt-user prompt exits 65" "exit=$status output=$output" "$LOG"
   printf '%s' "$output" | grep -qF '[ALT-USER] declined' \
@@ -417,7 +417,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   # Feed three invalid names in a row (semi-colon injection attempts). Each
   # should be rejected by remediate::validate_user_name regex; after 3 invalid
   # → bail with exit 64 (per plan invariant).
-  run python3 "$TTY_DRIVER" 'agent2;rm -rf /tmp/poison\nfoo;bad\nbar bad\n' -- bash "$INSTALLER"
+  run python3 "$TTY_DRIVER" 'agent2;rm -rf /tmp/poison\nfoo;bad\nbar bad\n' -- "$INSTALLER" provision
   [[ "$status" -eq 64 ]] \
     || __fail "T-15-02-05" "3 invalid names → exit 64 EX_USAGE" "exit=$status output=$output" "$LOG"
   # Canary survives — no shell injection executed.
@@ -432,7 +432,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
 # Test 18 (UX-04 greenfield invariant): on a FRESH container (no existing
 # 'agent' user), no alt-user prompt fires; v0.3.0 baseline preserved.
 @test "UX-04 (greenfield invariant): on a greenfield host (no existing agent user), no [ALT-USER] prompt fires; installer completes normally" {
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
   # Non-TTY normal install path — must succeed (greenfield: user is created
   # fresh; reuse::user_decision returns 'create'; alt-user gate is skipped).
   run bash -c 'printf "" | bash '"$INSTALLER"

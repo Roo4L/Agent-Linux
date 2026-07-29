@@ -21,7 +21,7 @@ load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
 SUDOERS_FILE=/etc/sudoers.d/agentlinux
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 # --- BHV-07: file integrity --------------------------------------------------
 
@@ -108,7 +108,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     "sha256sum returned non-empty hash for pre-snapshot" \
     "empty" "$LOG"
 
-  run bash "$INSTALLER"
+  run "$INSTALLER" provision
   assert_exit_zero "BHV-07"
 
   post=$(sha256sum "$SUDOERS_FILE" | cut -d' ' -f1)

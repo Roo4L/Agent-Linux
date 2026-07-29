@@ -11,7 +11,7 @@
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 # Brownfield fixture: a real catalog binary id (rtk) placed on the agent's login
 # PATH with NO sentinel and NO AgentLinux install. rtk is not in the CI base, so
@@ -48,7 +48,7 @@ teardown() {
 
 @test "DET-04: a brownfield catalog CLI tool (rtk) is detected healthy with its version" {
   # REQ: DET-04
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/brownfield-cli"
   printf '%s' "$output" \
     | jq -e '(.components.agents // .agents) | map(select(.id == "rtk" and .status == "healthy" and .version == "0.42.4")) | length == 1' >/dev/null \
@@ -59,7 +59,7 @@ teardown() {
   # REQ: DET-04 — MCP entries register into client configs; they have no binary to
   # resolve, so the PATH probe must skip them (detection of registration is a
   # separate concern).
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/mcp-excluded"
   printf '%s' "$output" \
     | jq -e '(.components.agents // .agents) | map(select(.id == "github-mcp")) | length == 0' >/dev/null \
@@ -71,7 +71,7 @@ teardown() {
   # cache at /run/agentlinux-detect.json; `agentlinux list` reads that same cache
   # and its presence overlay must render the brownfield rtk as "present" with the
   # adopt hint (it sits at the managed ~/.local/bin), not "not-installed".
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/list-refresh"
   run sudo -u agent -H bash --login -c 'agentlinux list 2>&1'
   assert_exit_zero "DET-04/list-e2e"
@@ -83,7 +83,7 @@ teardown() {
 
 @test "DET-04: the original three agents still appear in the probe (no regression)" {
   # REQ: DET-04 — generalization must not drop the original hardcoded set.
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/legacy-preserved"
   printf '%s' "$output" \
     | jq -e '(.components.agents // .agents) | map(.id) | (index("claude-code") and index("gsd") and index("playwright-cli"))' >/dev/null \
@@ -93,7 +93,7 @@ teardown() {
 @test "DET-04: agentlinux upgrade surfaces the brownfield tool as present (not not-installed)" {
   # REQ: DET-04 — `upgrade` must agree with `list`: a detected-but-unmanaged tool
   # reads 'present', never 'not-installed' (the reported inconsistency).
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/upgrade-refresh"
   run al_agent upgrade
   assert_exit_zero "DET-04/upgrade-present"
@@ -104,7 +104,7 @@ teardown() {
 @test "DET-04: pin on a present brownfield tool directs to adopt, not install" {
   # REQ: DET-04 — pin must route a present-but-unmanaged tool to `adopt` (records
   # the existing bits), not `install` (a fresh copy over them).
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/pin-refresh"
   run al_agent pin rtk=curated
   [ "$status" -eq 1 ] \
@@ -119,7 +119,7 @@ teardown() {
   # REQ: DET-04 — the keystone: adopt a non-canonical catalog tool, then list
   # reads it managed (reused/synced) and pin succeeds. This closes the loop the
   # user hit — present in `list` but un-adoptable / un-pinnable.
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/adopt-refresh"
 
   run al_agent adopt rtk
@@ -154,7 +154,7 @@ exit 0
 SH
   chmod 0755 "$FAKE_BIN"; chown agent:agent "$FAKE_BIN"
 
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/oow-refresh"
 
   run al_agent list

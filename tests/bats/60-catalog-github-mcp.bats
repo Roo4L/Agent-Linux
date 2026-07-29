@@ -36,7 +36,7 @@ CRED_RE='ghp_[A-Za-z0-9]|github_pat_[A-Za-z0-9]|[Aa]uthorization|[Bb]earer|beare
 setup_file() {
   # Recover the CLI if an earlier --purge @test removed it (mirrors 53/57/58/59).
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
   # Preconditions: cross-agent fan-out needs agents present. Install the two the
   # maintainer named (idempotent no-ops if already installed).

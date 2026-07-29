@@ -35,7 +35,7 @@ setup_file() {
   # present (e.g. this file is being run in isolation via `bats 51-*.bats`),
   # skip the re-install to keep setup_file fast.
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
 
   # Ensure claude-code is installed at the pinned version before exercising

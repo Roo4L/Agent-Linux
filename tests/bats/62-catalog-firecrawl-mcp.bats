@@ -30,7 +30,7 @@ CRED_RE='[Aa]uthorization|[Bb]earer|bearer_token|fc-[0-9A-Fa-f]'
 
 setup_file() {
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
   sudo -u agent -H bash --login -c 'agentlinux install claude-code' >/dev/null 2>&1 || true
   sudo -u agent -H bash --login -c 'agentlinux install codex' >/dev/null 2>&1 || true

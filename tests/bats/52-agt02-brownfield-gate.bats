@@ -34,14 +34,14 @@ load 'helpers/brownfield'
 # AL-29: derive the catalog version from package.json — single SoT (matches 51-*'s pattern).
 PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 # teardown_file invariant — restore canonical post-installer state so downstream
 # bats files see the same shape the docker harness staged for them. Mirrors
 # 14-remediate.bats's teardown discipline + 15-preflight-ux.bats's.
 teardown_file() {
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
-  bash "$INSTALLER" >/dev/null 2>&1 || true
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
+  "$INSTALLER" provision >/dev/null 2>&1 || true
 }
 
 @test "BHV-52a (brownfield-AGT-02 milestone-close gate): pre-populated host + agentlinux install --yes + claude update zero EACCES + version monotonicity + transcript captured" {
@@ -55,7 +55,7 @@ teardown_file() {
   # Step 2: run the installer with --yes to opt into REMEDIATE-04 reinstall
   # of claude-code at the canonical path. Non-TTY context (bats subshell);
   # without --yes this would correctly bail with exit 65 per UX-03.
-  run bash "$INSTALLER" --yes
+  run "$INSTALLER" provision --yes
   [[ "$status" -eq 0 ]] || {
     printf 'agentlinux install --yes FAILED (status=%d):\n%s\n' "$status" "$output" >&2
     false
