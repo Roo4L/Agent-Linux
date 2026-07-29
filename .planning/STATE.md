@@ -5,15 +5,15 @@ milestone_name: Rust Rewrite
 current_phase: 58
 current_phase_name: Distribution — musl Tarball as Sole Channel
 status: in_progress
-stopped_at: Completed 58-02-PLAN.md
-last_updated: "2026-07-29T07:58:46.011Z"
+stopped_at: Completed 58-03-PLAN.md
+last_updated: "2026-07-29T08:30:28.319Z"
 last_activity: 2026-07-29
-last_activity_desc: Plan 58-02 complete (coupled staging swap — musl bin is the default staged agentlinux command; install.sh execs musl provision; coupled bats re-pointed, green both distros)
+last_activity_desc: Plan 58-03 complete (flag-fold + AGENTLINUX_LEGACY_TS rollback lever + 61-no-node-prereq — Phase 58 Wave 3 closeout; all 3 waves done)
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 24
-  completed_plans: 20
+  completed_plans: 21
   percent: 45
 ---
 
@@ -28,7 +28,9 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 ## Current Position
 
-Phase: 58 — Distribution — musl Tarball as Sole Channel (🚧 IN PROGRESS — Wave 2 of 3 done)
+Phase: 58 — Distribution — musl Tarball as Sole Channel (🚧 ALL 3 WAVES DONE — ready for phase verification)
+
+Plan 58-03 ✅ COMPLETE (2026-07-29, Wave 3 — CLOSEOUT: flag-fold + AGENTLINUX_LEGACY_TS rollback lever + 61-no-node-prereq + full installer/registry closeout): folded the two forward Rust harness flags into the DEFAULT (the bats now exercise the static-musl bin as the shipped artifact with NO override — GATE-01), added the ONE inverse `AGENTLINUX_LEGACY_TS=1` rollback lever (GATE-05), added `61-no-node-prereq.bats` (DIST-01), and did the full installer+registry closeout on the Rust default on both distros. **tests/docker/run.sh:** the `AGENTLINUX_PROVISION_RUST` provision-seam gate is REMOVED — run.sh runs the musl `provision` AS the provisioner in the DEFAULT path (retains the fail-loud musl-bin guard). The ONE inverse lever `AGENTLINUX_LEGACY_TS=1` execs the Bash `plugin/bin/agentlinux-install` entrypoint (stages `dist/index.js`) — fails LOUD (abort non-zero, no bats run) if the TS bundle is absent (never a false-green on the musl bin; T-58-07). The `AGENTLINUX_STAGE_RUST_CLI` relocate is FOLDED INTO THE DEFAULT (Rule-1 fix, NOT dropped): the RUST-03 reuse bin is staged OFF the login PATH at `/opt/agentlinux/rust/agentlinux` and the `.npm-global` symlink is left to the provisioner (musl default / TS rollback) — because CLI-01's interactive/login modes (`su - agent`, `sudo -i`) use the real login PATH where `.local/bin` shadows `.npm-global`; the initial fold that dropped the relocate went red on CLI-01 (interactive) and was corrected. Flag-docs block updated (2 forward flags removed, `AGENTLINUX_LEGACY_TS` documented). **tests/bats/61-no-node-prereq.bats** (new, 3× INST-08, mirrors INST-05 log-grep): (1) static-link proof — staged bin has no PT_INTERP (`readelf -l`) + no DT_NEEDED (`readelf -d`) + `ldd` statically-linked (T-58-08); (2) no-Node-before-the-bin — transcript step markers `10-agent-user`+`20-sudoers` precede `30-nodejs` + negative grep no node/npm/pnpm before the first step; (3) recipes-still-get-Node — `node --version` after provision. Regime-aware: assertions 1+2 skip loudly under `AGENTLINUX_LEGACY_TS=1` (no-Node claim scoped to musl), 3 is regime-independent. **CLOSEOUT GREEN on the Rust build (DEFAULT, no override) on BOTH ubuntu-24.04 AND almalinux-9:** 61-no-node-prereq 3/3, 10-installer 11/11, 60-curl-installer 4/4, 23-install-user 9/9, 40-registry-cli 29/29 (CLI-01 all modes), 13-reuse 31/32 (ONLY the pre-existing #29 schema red, out of scope, red on both builds; REUSE-03 brownfield 31/32 green). GATE-05 rollback: `AGENTLINUX_LEGACY_TS=1 10-installer` 11/11 green (Bash entrypoint + dist/index.js); fail-loud proof (TS bundle hidden → aborts non-zero, no bats run). cargo test --workspace 338 pass; clippy -p agentlinux -D warnings clean; fmt clean; agentlinux-core + all of rust/ untouched (0 files); TS oracle + Bash entrypoint retained (GATE-05 substrate, Phase-59 cutover); only bats change is the new 61 file. 3 atomic commits b2d0464 (fold + lever) + ebeb037 (61-no-node-prereq) + c10ec8e (CLI-01 off-PATH fix). **Phase-59-gated (NOT closed here):** 4-distro Docker+QEMU release gate (release.yml gate-3, boot.sh) + AGT-02 self-update vs the live CDN (GATE-04) + deletion of plugin/cli/ + the Bash entrypoint at the cutover. GATE-01/GATE-05/DIST-01 satisfied. Phase 58 all 3 waves DONE.
 
 Plan 58-02 ✅ COMPLETE (2026-07-29, Wave 2 — THE COUPLED STAGING SWAP, the #1 risk): made the static musl binary the DEFAULT shipped + staged `agentlinux` command. **registry_cli.rs** (Rust provisioner step-50): malformed-tarball sanity checks re-pointed from `dist/index.js`/`node_modules`/`package.json` → the musl bin at `src_root()/bin/agentlinux` (exists + regular-file + executable; KEPT the `catalog.json` check); CLI stage → `install -m0755` the single static bin at `/opt/agentlinux/cli/<ver>/bin/agentlinux` (replacing the `cp -R dist/node_modules/package.json`; `copy_tree_contents`/`chmod_recursive_ugo` retained for the UNCHANGED catalog stage); symlink target `dist/index.js` → `bin/agentlinux`; catalog snapshot + state dir + as-user `test -x` verify UNCHANGED (CAT-01/02/03/05 + CLI-01 hold). **install.sh**: exec target re-pointed from the Bash `plugin/bin/agentlinux-install` → `exec "${inst}/plugin/bin/agentlinux" provision --user "$target_user" --yes "$@"` (Open Q2 `--yes` non-interactive consent, matching run.sh:308; no Node bootstrap before the bin runs); added `: "${AGENTLINUX_USER:=agent}"`. **CRITICAL RULE HELD:** the sha256-before-exec gate (install.sh:210-211) is UNTOUCHED — verify (210) precedes extract (221) precedes exec (242); tamper still fails closed. **Coupled bats re-pointed (each a minimal equivalent-property re-point, NOT a dropped assertion):** 60-curl-installer fixture → `build/plugin/bin/agentlinux` bin stub + happy-path asserts the `agentlinux provision` exec handoff (sentinel survives); 10-installer INST-02 shebang-hash → whole staged-musl-bin `sha256sum` (equal-or-stronger idempotency) + the re-run made regime-matched (re-run the SAME provisioner that produced the state: musl `<bin> provision --user agent --yes` else the Bash entrypoint — the real missed-coupling W-1 warned about; without it the surviving symlink-target check flips regimes and false-fails); 13-reuse REUSE-03 both blocks resolve the CLI via `sudo -u agent -H bash --login -c 'command -v agentlinux'` (the staged musl command on PATH) instead of globbing `dist/index.js`, list-suffix guard is `__fail` not `skip` (REUSE-03 NOT silently skipped); 40-registry-cli comment-only correction. **Harness deviation** (tests/docker/run.sh, NOT a bats spec): the `AGENTLINUX_PROVISION_RUST` seam now splices the built musl bin into `/opt/agentlinux-src/plugin/bin/agentlinux` so the swapped `registry_cli.rs` sanity-check finds the artifact it stages (payload/exec/stage triad; Wave 3 folds it into the default). **GREEN on the Rust build on BOTH ubuntu-24.04 AND almalinux-9:** 60-curl-installer 4/4, 10-installer 11/11 (INST-02 incl.), 40-registry-cli 29/29, 23-install-user 9/9, 13-reuse 31/32 (ONLY the pre-existing #29 schema red, Phase-57 deferred, red on both builds, out of scope) — no newly-red / no newly-skipped (GATE-01). cargo test --workspace 338 pass; clippy -p agentlinux -D warnings clean; fmt clean; agentlinux-core pure (0 files); `plugin/cli/` (TS oracle) + `plugin/bin/agentlinux-install` (Bash rollback) retained (GATE-05). 2 atomic commits 7a3da01 (feat swap) + bc08d62 (test bats re-point + run.sh deviation). DIST-01 staging-swap half + GATE-01/GATE-05 satisfied; Wave 3 (58-03) folds the flags + adds AGENTLINUX_LEGACY_TS=1 rollback lever + 61-no-node-prereq.
 
@@ -162,6 +164,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 57 P06 | 4h | 2 tasks | 9 files |
 | Phase 58 P01 | 30m | 2 tasks | 11 files |
 | Phase 58 P02 | 25m | 2 tasks | 7 files |
+| Phase 58 P03 | 55m | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -453,6 +456,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-29T07:58:45.990Z
-Stopped at: Completed 58-02-PLAN.md
+Last session: 2026-07-29T08:30:28.299Z
+Stopped at: Completed 58-03-PLAN.md
 Resume file: None
