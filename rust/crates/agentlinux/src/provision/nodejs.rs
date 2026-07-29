@@ -12,9 +12,12 @@
 //! on a BARE host with NO Node — Node exists ONLY after `pkg::pkg_install(…,
 //! ["nodejs"])`. The NodeSource `curl … setup_22.x | bash -` + apt/dnf are shelled
 //! EXTERNAL (they come from the base image), never reimplemented; the setup runs
-//! via `pkg::nodesource_setup` (a bounded `bash -c 'curl -fsSL … | bash -'`) — the
-//! integrity control is HTTPS + `curl -fsSL` cert-verify + the GPG-signed repo the
-//! setup installs (ADR-005; no body SHA — accepted, T-57-09).
+//! via `pkg::nodesource_setup`, which pipes a timeout-bounded curl
+//! (`curl -fsSL --connect-timeout 30 --max-time 300 … | bash -`) under
+//! `bash -o pipefail -c` so a failed fetch (404/DNS/TLS) propagates as a non-zero
+//! status instead of being masked by the pipe's last stage. The integrity control
+//! is HTTPS + `curl -fsSL` cert-verify + the GPG-signed repo the setup installs
+//! (ADR-005; no body SHA — accepted, T-57-09).
 //!
 //! Dispatches on the pre-resolved `RESOLUTIONS[node]` token (only two real tokens):
 //!   - `Reuse` → skip the NodeSource install + `.npmrc` bootstrap; warn if the npm

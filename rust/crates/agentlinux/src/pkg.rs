@@ -197,15 +197,35 @@ pub fn nodesource_setup_url(family: Family) -> &'static str {
     }
 }
 
+/// The pipe body `nodesource_setup` runs (under `bash -o pipefail -c`): the
+/// NodeSource `curl … | bash -` pipe with `--connect-timeout`/`--max-time` bounds.
+/// Split out so a unit test can assert its shape without a live network. The `url`
+/// is always a compile-time `&'static str` from `nodesource_setup_url` (never
+/// untrusted input), so interpolating it into the shell string is injection-safe —
+/// that constraint is load-bearing. HTTPS + `curl -fsSL` cert verification is the
+/// fetch-integrity control (ADR-005).
+fn nodesource_setup_script(url: &str) -> String {
+    // `--connect-timeout 30 --max-time 300` (M-1/M-3): a DNS/TLS stall or a slow
+    // hang can't wedge provisioning forever — success behavior is byte-identical.
+    format!("curl -fsSL --connect-timeout 30 --max-time 300 {url} | bash -")
+}
+
 /// `nodesource_setup` — run the pinned NodeSource setup_22.x script
-/// (`curl -fsSL <url> | bash -`). The pipe is implemented with a `bash -c` shell
-/// so the `| bash -` stage runs exactly as the Bash verb does; the URL comes
-/// from `nodesource_setup_url`. HTTPS + `curl -fsSL` cert verification is the
+/// (`curl -fsSL <url> | bash -`). The pipe runs under `bash -o pipefail -c` so a
+/// curl 404/DNS/TLS failure propagates through the pipe as a non-zero status
+/// (HIGH-1: a plain `bash -c` lacks pipefail and would exit 0 on a failed fetch,
+/// matching the Bash verb's `set -euo pipefail`). The URL comes from
+/// `nodesource_setup_url`; HTTPS + `curl -fsSL` cert verification is the
 /// fetch-integrity control (ADR-005).
 pub fn nodesource_setup(family: Family) -> io::Result<()> {
     let url = nodesource_setup_url(family);
-    let script = format!("curl -fsSL {url} | bash -");
-    let status = Command::new("bash").arg("-c").arg(&script).status()?;
+    let script = nodesource_setup_script(url);
+    let status = Command::new("bash")
+        .arg("-o")
+        .arg("pipefail")
+        .arg("-c")
+        .arg(&script)
+        .status()?;
     if !status.success() {
         return Err(io::Error::other(format!(
             "nodesource_setup: setup script failed ({status})"
@@ -485,6 +505,47 @@ mod pkg_tests {
         assert_eq!(
             nodesource_setup_url(Family::Rhel),
             "https://rpm.nodesource.com/setup_22.x"
+        );
+    }
+
+    #[test]
+    fn nodesource_setup_script_carries_curl_timeouts() {
+        // M-3: the curl leg is bounded so a network stall can't hang forever.
+        let s = nodesource_setup_script("https://example.test/setup_22.x");
+        assert!(s.contains("--connect-timeout 30"), "script: {s}");
+        assert!(s.contains("--max-time 300"), "script: {s}");
+        assert!(s.contains("| bash -"), "script: {s}");
+    }
+
+    #[test]
+    fn pipefail_propagates_failed_curl_leg() {
+        // HIGH-1 regression: a failing left-hand pipe stage under `bash -o pipefail`
+        // MUST yield a non-zero status. `false | bash -` is the exact shape a
+        // curl 404/DNS/TLS failure produces (curl exits non-zero, bash reads EOF).
+        // Without pipefail the pipe exits 0 (bash's status), silently masking the
+        // fetch failure — which is the bug this fix restores parity for.
+        let status = Command::new("bash")
+            .arg("-o")
+            .arg("pipefail")
+            .arg("-c")
+            .arg("false | bash -")
+            .status()
+            .expect("spawn bash");
+        assert!(
+            !status.success(),
+            "pipefail must surface the failed left leg as non-zero"
+        );
+
+        // Control: WITHOUT pipefail the same pipe exits 0 — demonstrating the bug
+        // the fix closes (documents why `-o pipefail` is load-bearing).
+        let status_no_pf = Command::new("bash")
+            .arg("-c")
+            .arg("false | bash -")
+            .status()
+            .expect("spawn bash");
+        assert!(
+            status_no_pf.success(),
+            "plain bash -c masks the failed leg (exit 0) — the bug pipefail fixes"
         );
     }
 
