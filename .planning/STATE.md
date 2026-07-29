@@ -2,19 +2,19 @@
 gsd_state_version: 1.0
 milestone: v0.4.0
 milestone_name: Rust Rewrite
-current_phase: 57
-current_phase_name: Provisioner Port + Logic Consolidation
-status: in_progress
-stopped_at: Completed 57-06-PLAN.md
-last_updated: "2026-07-29T06:33:20.122Z"
-last_activity: 2026-07-28
-last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
+current_phase: 58
+current_phase_name: Distribution — musl Tarball as Sole Channel
+status: ready
+stopped_at: Phase 57 COMPLETE + verified (GOAL ACHIEVED; full bats matrix green on apt+dnf; 2 HIGH review fixes applied) — advancing to Phase 58
+last_updated: "2026-07-29T07:05:00.000Z"
+last_activity: 2026-07-29
+last_activity_desc: Phase 57 complete — pre-Node provisioner ported to Rust (agent-user/sudoers/NodeSource/PATH/staging), Node bootstraps before Node exists on apt+dnf; PROV-02 conservative; purge UID<1000 + NodeSource pipefail fixed
 progress:
   total_phases: 7
-  completed_phases: 3
-  total_plans: 20
-  completed_plans: 17
-  percent: 43
+  completed_phases: 5
+  total_plans: 22
+  completed_plans: 22
+  percent: 71
 ---
 
 # Project State

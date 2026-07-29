@@ -168,7 +168,7 @@ Plans:
 | 54. Testing Bedrock | 3/3 | ✅ Complete | 2026-07-28 |
 | 55. Pure-Logic Core Parity | 3/3 | ✅ Complete | 2026-07-28 |
 | 56. Registry CLI Verbs + Dispatcher | 4/4 | ✅ Complete | 2026-07-28 |
-| 57. Provisioner Port + Logic Consolidation | 0/? | Not started | - |
+| 57. Provisioner Port + Logic Consolidation | 6/6 | ✅ Complete | 2026-07-29 |
 | 58. Distribution — musl Tarball as Sole Channel | 0/? | Not started | - |
 | 59. Full Validation Gate | 0/? | Not started | - |
 
