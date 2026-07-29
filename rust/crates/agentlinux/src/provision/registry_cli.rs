@@ -64,12 +64,23 @@ fn src_root() -> PathBuf {
             return PathBuf::from(v);
         }
     }
-    if let Some(root) = std::env::current_exe()
+    if let Some(candidate) = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().and_then(Path::parent).map(Path::to_path_buf))
-        .filter(|root| looks_like_plugin_root(root))
     {
-        return root;
+        if looks_like_plugin_root(&candidate) {
+            return candidate;
+        }
+        // Attempted-and-rejected: leave a breadcrumb so a future packaging drift
+        // (bin relocated, catalog/ moved) is diagnosable from the provisioner
+        // log — instead of surfacing only as a misleading "release tarball
+        // malformed?" against the tier-3 default the operator never chose
+        // (the OBS-04 class of confusion).
+        eprintln!(
+            "50-registry-cli: bin-relative src root {} lacks bin/agentlinux+catalog/; \
+             falling back to {DEFAULT_SRC_ROOT}",
+            candidate.display()
+        );
     }
     PathBuf::from(DEFAULT_SRC_ROOT)
 }
