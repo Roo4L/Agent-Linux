@@ -108,7 +108,9 @@ fn looks_like_plugin_root(root: &Path) -> bool {
 /// caught this because it leaves the var unset (both sides already `0.4.0`).
 pub(crate) fn normalize_version(v: &str) -> String {
     let no_v = v.strip_prefix('v').unwrap_or(v);
-    no_v.split('-').next().unwrap_or(no_v).to_string()
+    // Split on the first `-` (pre-release) OR `+` (SemVer build metadata) so a
+    // future `v0.4.0+build.5`-style tag still reduces to the bare base.
+    no_v.split(['-', '+']).next().unwrap_or(no_v).to_string()
 }
 
 /// The staging version — normalized `$AGENTLINUX_VERSION` else the bin's
@@ -119,9 +121,17 @@ pub(crate) fn normalize_version(v: &str) -> String {
 /// Public so the orchestrator's banner, the `--purge` recipe-path derivation,
 /// and the runtime catalog resolver all share this one normalized source.
 pub fn agentlinux_version() -> String {
-    let raw =
-        std::env::var("AGENTLINUX_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
-    normalize_version(&raw)
+    let raw = std::env::var("AGENTLINUX_VERSION")
+        .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string());
+    let normalized = normalize_version(&raw);
+    // A garbage/empty AGENTLINUX_VERSION ("", "v", "-rc1") normalizes to empty,
+    // which would corrupt the /opt/agentlinux/<ver>/ layout to a bare trailing
+    // slash on BOTH staging and runtime. Fall back to the compiled version
+    // (never empty) so the on-disk path is always well-formed.
+    if normalized.is_empty() {
+        return env!("CARGO_PKG_VERSION").to_string();
+    }
+    normalized
 }
 
 /// `run` — the 50-registry-cli.sh port.
@@ -437,6 +447,21 @@ mod registry_cli_tests {
         assert_eq!(normalize_version("v9.9.9-test"), "9.9.9");
         // Bare fixture versions bats uses are unaffected.
         assert_eq!(normalize_version("9.9.9"), "9.9.9");
+        // SemVer build metadata is stripped too.
+        assert_eq!(normalize_version("v0.4.0+build.5"), "0.4.0");
+        assert_eq!(normalize_version("v0.4.0-rc1+build.5"), "0.4.0");
+    }
+
+    #[test]
+    fn agentlinux_version_falls_back_when_normalized_empty() {
+        // A garbage AGENTLINUX_VERSION that normalizes to empty must not corrupt
+        // the /opt/agentlinux/<ver>/ path — fall back to the compiled version.
+        let _g = crate::test_support::env_guard();
+        std::env::set_var("AGENTLINUX_VERSION", "v");
+        assert_eq!(agentlinux_version(), env!("CARGO_PKG_VERSION"));
+        std::env::set_var("AGENTLINUX_VERSION", "");
+        assert_eq!(agentlinux_version(), env!("CARGO_PKG_VERSION"));
+        std::env::remove_var("AGENTLINUX_VERSION");
     }
 
     #[test]
