@@ -133,6 +133,10 @@ pub fn write_file_atomic(mode: u32, dest: &Path, body: &[u8]) -> io::Result<()> 
 
     file.write_all(body)?;
     file.flush()?;
+    // L-1: fsync the tmpfile BEFORE the rename so a power loss in the
+    // rename→commit window can't leave a zero-length / torn config (esp. the
+    // 0440 sudoers). Cheap — once per small config file.
+    file.sync_all()?;
     // Set mode on the tmpfile BEFORE the rename so the destination is never
     // briefly created with the umask-default mode (mirrors install -m).
     fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;

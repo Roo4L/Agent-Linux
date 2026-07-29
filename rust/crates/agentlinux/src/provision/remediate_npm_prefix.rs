@@ -214,7 +214,9 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
                 .iter()
                 .map(|s| s.to_string())
                 .collect();
-            let r = dispatcher::as_user(user, &argv, &[], false, None);
+            // M-2: bound the npm install (300s, the dispatcher's buffered-npm
+            // convention) so a wedged/slow registry can't hang provisioning.
+            let r = dispatcher::as_user(user, &argv, &[], false, Some(300_000));
             if r.exit_code == 0 {
                 eprintln!("[REMEDIATE-01:migrated] module={pkg_at_ver}");
                 migrated += 1;
@@ -242,7 +244,8 @@ fn enumerate_modules(old_owner: &str, old_prefix: &str) -> Vec<String> {
         .map(|s| s.to_string())
         .collect();
     let env = vec![("NPM_CONFIG_PREFIX".to_string(), old_prefix.to_string())];
-    let r = dispatcher::as_user(old_owner, &argv, &env, false, None);
+    // M-2: bound the npm enumeration (300s) so a wedged registry can't hang.
+    let r = dispatcher::as_user(old_owner, &argv, &env, false, Some(300_000));
     let raw = if r.exit_code == 0 && !r.stdout.trim().is_empty() {
         r.stdout
     } else {

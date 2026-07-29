@@ -43,8 +43,9 @@ pub fn log_path() -> PathBuf {
 /// Create/truncate the install log (0644) and install the global handle. Mirrors
 /// the Bash `install -m 0644 /dev/null "$LOG_FILE"` (a fresh transcript per run).
 /// A creation failure (not root / read-only fs) is non-fatal: `line` falls back
-/// to stderr-only, exactly like the Bash pre-tee diagnostics path. Returns the
-/// resolved path.
+/// to stderr-only, exactly like the Bash pre-tee diagnostics path. On failure it
+/// emits ONE loud stderr warning (M-3) so the degraded-logging mode is visible
+/// instead of silent. Returns the resolved path.
 pub fn init() -> PathBuf {
     let path = log_path();
     let handle = OpenOptions::new()
@@ -57,12 +58,30 @@ pub fn init() -> PathBuf {
     if handle.is_some() {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(&path, fs::Permissions::from_mode(0o644));
+    } else {
+        // M-3: do not degrade silently — one loud warning that the transcript
+        // is unavailable and the run continues on stderr-only logging.
+        eprintln!(
+            "agentlinux provision: cannot create transcript {} — continuing with \
+             stderr-only logging",
+            path.display()
+        );
     }
     let cell = LOG.get_or_init(|| Mutex::new(None));
     if let Ok(mut guard) = cell.lock() {
         *guard = handle;
     }
     path
+}
+
+/// Whether the transcript handle is live (the log file was created). `false` when
+/// `init` could not open the log — the completion banner uses this so it never
+/// names a transcript file that was never persisted (M-3).
+#[must_use]
+pub fn is_active() -> bool {
+    LOG.get()
+        .and_then(|cell| cell.lock().ok().map(|g| g.is_some()))
+        .unwrap_or(false)
 }
 
 /// Write one transcript line to stderr AND (best-effort) the log file. Poison on
