@@ -5,16 +5,16 @@ milestone_name: Rust Rewrite
 current_phase: 59
 current_phase_name: Full Validation Gate
 status: ready
-stopped_at: Completed 59-02-PLAN.md
-last_updated: "2026-07-29T09:42:30.408Z"
-last_activity: 2026-07-28
-last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
+stopped_at: Completed 59-03-PLAN.md (Phase 59 all 3 waves DONE — milestone gate met)
+last_updated: "2026-07-29T09:55:00.000Z"
+last_activity: 2026-07-29
+last_activity_desc: Plan 59-03 complete (Wave 3 — coverage audit GATE-03 zero-Uncovered + AGT-02 GATE-04 zero-EACCES on the Rust chain + GATE-05 master-ready declaration)
 progress:
   total_phases: 7
   completed_phases: 3
   total_plans: 28
-  completed_plans: 22
-  percent: 43
+  completed_plans: 24
+  percent: 46
 ---
 
 # Project State
@@ -28,7 +28,9 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 
 ## Current Position
 
-Phase: 59 — Full Validation Gate (🚧 Waves 1+2 DONE — Wave 3 pending)
+Phase: 59 — Full Validation Gate (✅ COMPLETE — all 3 waves DONE; the v0.4.0 milestone gate is met)
+
+Plan 59-03 ✅ COMPLETE (2026-07-29, Wave 3 — the FINAL wave of the FINAL phase: close the gate GATE-03/04/05). **GATE-03 (coverage audit):** ran the `behavior-coverage-auditor` rubric over `.planning/REQUIREMENTS.md` (v0.4.0 RUST/TEST/CORE/VERB/PROV/DIST/GATE) + the legacy bats `@test` families (BHV/RT/AGT/CLI/CAT/INST/DET/REUSE/REMEDIATE/MCP/ENABLE/WIRE/OPS/EL/UX/DEVT/ASST/WORK/DOC/TST) + the HRN harness meta-suite, all on the Rust build → **zero Uncovered**; `59-COVERAGE.md` ends `TST-07 gate: GREEN` (HRN/DOC/TST verified-elsewhere with durable paths — `tests/harness/` 118/118, `cargo test` 338, schemars drift-check; ARCH-01/PERF-01 deferred v2, not uncovered). **GATE-04 (AGT-02 keystone on the RUST chain, false-green trap avoided):** `./tests/docker/run.sh ubuntu-24.04 51-agt02-release-gate` — the `== run Rust provisioner (agentlinux provision) [default] ==` banner fired (run.sh:310); the Rust `provision` created the `~agent/.npm-global/bin/agentlinux` symlink so 51's setup_file (51:37-39) took the symlink-PRESENT branch and the Bash-entrypoint fallback (51:38) did NOT fire → the whole chain is the Rust build; `ok 1 AGT-02 (release-gate): claude update exits 0 with zero EACCES` → `== PASS ==`, exit 0. Dev-host `claude update` smoke against the live CDN: 2.1.195 → 2.1.220, exit 0, no EACCES (real self-update, no sudo). The naive no-EACCES verify grep false-positives on the PASS-line test NAME — confirmed by exclusion grep there is NO real permission-denied line. The ENFORCING live-CDN gate is `release.yml` gate-2/gate-3 (CI), documented not faked (dev VM OOMs on full Docker suite + no KVM). **GATE-05 (master-ready declaration, declare-not-delete):** `59-GATE-DECLARATION.md` declares the Rust track master-ready + scores all 5 gates; `AGENTLINUX_LEGACY_TS=1 ./tests/docker/run.sh ubuntu-24.04 10-installer` fired the Bash+TS rollback banner (NOT the Rust default) → 11/11, exit 0 (rollback works); substrate RETAINED (no deletion): `plugin/cli/`, `plugin/bin/agentlinux-install`, `plugin/lib/reuse/agents.sh` all PRESENT; cutover boundary (master-merge + TS/Bash deletion = post-milestone) + honest dev-vs-CI split documented. cargo test --workspace 338 pass (unaffected — no source/spec/workflow changed this wave; only 2 `.planning/` artifacts written). 2 atomic commits b7f8d28 (test 59-03 coverage) + a14b613 (docs 59-03 declaration). **This is the FINAL wave — the v0.4.0 milestone execution is complete; next: audit → complete → cleanup (the actual master-merge + TS/Bash cutover deletion is the post-milestone step).**
 
 Plan 59-02 ✅ COMPLETE (2026-07-29, Wave 2 — wire the QEMU gate to the Rust build, the ONE real GATE-02 code change, closing the #1 risk of a false GATE-02 green). **tests/qemu/boot.sh re-pointed:** the in-guest install invocation (formerly `bash plugin/bin/agentlinux-install` at :531) now runs the STAGED MUSL BIN `plugin/bin/agentlinux provision --user agent --yes` by default, mirroring the Docker default (run.sh:337). The tarball payload places the musl bin at `plugin/bin/agentlinux` and boot.sh already extracts it into `/opt/agentlinux-src`, so no separate host-build/scp of the bin is needed (transport differs from run.sh's docker-cp). **PROVISIONER-IDENTITY assertion with teeth (T-59-04 / Risk #1):** before invoking `provision`, boot.sh PROVES the artifact IS the static musl bin — a `#!`-shebang reject, then `readelf -l` (no PT_INTERP) with `file` ('statically linked') and `ldd` ('not a dynamic executable') fallbacks, and a hard `exit 1` if no probe tool exists. A Bash-script or dynamically-linked `agentlinux` makes the QEMU gate go RED — a regression to the Bash path cannot false-green GATE-02. **AGENTLINUX_LEGACY_TS=1 rollback branch (GATE-05):** honored, forwarded through the ssh hop as a POSITIONAL ARG (not SendEnv, so no guest AcceptEnv drop-in change) — execs the RETAINED Bash entrypoint when set; `plugin/bin/agentlinux-install` stays in the tree. **Task 2 (confirm, don't assume):** grepped test.yml + release.yml + nightly-qemu.yml — every gate job calls run.sh/boot.sh with NO `AGENTLINUX_LEGACY_TS` override → Rust by default; NO workflow edit needed (no gap). GATE-02 wiring status documented as a boot.sh comment block (Docker=run.sh default, QEMU=this script, LEGACY_TS=manual lever). **Verified locally (no KVM):** `bash -n tests/qemu/boot.sh` clean; greps confirm the Rust path + identity guard + rollback branch; `git diff` touches ONLY tests/qemu/boot.sh (no deletions, no workflow YAML); `cargo test --workspace` 338 pass (Rust unaffected — shell/CI-only wave). **CI/QEMU-gated (NOT run locally, NOT faked):** the full in-guest QEMU-on-Rust boot + bats (nightly-qemu.yml / release.yml gate-3), the 4-distro Docker matrix, and the live-CDN AGT-02 QEMU gate. 1 deviation (Rule 3): invoke via the explicit `plugin/bin/agentlinux` path rather than a bare `agentlinux` so the literal `agentlinux provision` is greppable. 1 atomic commit 46b41c7 (test 59-02). GATE-02's QEMU wiring gap closed; Wave 3 (59-03) runs the coverage audit + AGT-02 validation + master-ready declaration.
 
@@ -173,6 +175,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 58 P03 | 55m | 2 tasks | 2 files |
 | Phase 59 P01 | 10m | 2 tasks | 4 files |
 | Phase 59 P02 | 12 | 2 tasks | 1 files |
+| Phase 59 P03 | 7min | 3 tasks | 3 files |
 
 ## Accumulated Context
 
