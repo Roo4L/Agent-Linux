@@ -38,11 +38,21 @@ use std::process::ExitCode;
 /// `plugin/lib/reuse/agents.sh` and `GSD_SYSTEM_PATH` in `detect.ts`.
 pub(crate) const GSD_SYSTEM_PATH: &str = "/home/agent/.claude/gsd-core/VERSION";
 
+/// The catalog ids WITH a canonical-path entry — the AUTHORITATIVE per-agent
+/// enumerator (PROV-02, 57-06). `cmd/provision.rs` iterates THIS list in-process
+/// to build `RESOLUTIONS[agents.<id>]` (no `agentlinux reuse-decision` shell-out;
+/// no Bash map read). MUST stay in sync with the `canonical_path` match arms and
+/// byte-identical to the KEYS of `REUSE_AGENT_CANONICAL_PATHS` in
+/// `plugin/lib/reuse/agents.sh` — the retained Bash shim's map (kept only as the
+/// 13-reuse spec contract + GATE-05 rollback fallback, NOT a second live source).
+pub(crate) const CANONICAL_IDS: &[&str] = &["claude-code", "gsd", "playwright-cli"];
+
 /// Canonical binary path for a catalog id, or `None` for an unknown id.
 ///
 /// Mirrors `REUSE_AGENT_CANONICAL_PATHS` in `plugin/lib/reuse/agents.sh` (and
-/// `CANONICAL_PATHS` in `detect.ts`). The bash map is deliberately kept (it is
-/// iterated by `remediate.sh:288`); this is its Rust twin for the decision path.
+/// `CANONICAL_PATHS` in `detect.ts`). Post-57-06 the Rust map is the SINGLE
+/// authoritative source the provisioner iterates in-process; the retained Bash
+/// map is only the 13-reuse spec shim + GATE-05 fallback (plan-check B-1).
 pub(crate) fn canonical_path(id: &str) -> Option<&'static str> {
     match id {
         "claude-code" => Some("/home/agent/.local/bin/claude"),

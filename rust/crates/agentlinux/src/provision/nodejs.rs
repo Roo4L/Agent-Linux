@@ -293,6 +293,7 @@ mod nodejs_tests {
                 sudoers: Resolution::Create,
                 node,
                 npm_prefix,
+                agents: std::collections::BTreeMap::new(),
             },
             yes: false,
             dry_run: false,

@@ -18,8 +18,11 @@
 #![allow(dead_code)]
 
 pub mod agent_user;
+pub mod log;
 pub mod nodejs;
 pub mod path_wiring;
+pub mod probe;
+pub mod registry_cli;
 pub mod remediate_npm_prefix;
 pub mod sudoers;
 
@@ -48,30 +51,97 @@ pub enum Resolution {
 }
 
 /// The per-component resolution tokens the DECIDE phase produces. Wave 1 only
-/// consumes `user`; the later fields are populated as Waves 2-5 wire their steps
-/// (kept here so the struct grows without churning every call site).
+/// consumed `user`; Wave 5 populates the whole map from the real detect→decide
+/// wiring (`cmd/provision.rs` → the pure `agentlinux-core` gates). `agents`
+/// carries the per-agent `RESOLUTIONS[agents.<id>]` tokens, keyed by catalog id,
+/// built by iterating the Rust `canonical_path` map IN-PROCESS (PROV-02: the Rust
+/// map is the single authoritative per-agent enumerator).
 #[derive(Debug, Clone)]
 pub struct Resolutions {
-    /// `RESOLUTIONS[user]` — consumed by `agent_user::run` (Wave 1).
+    /// `RESOLUTIONS[user]` — consumed by `agent_user::run`.
     pub user: Resolution,
-    /// `RESOLUTIONS[sudoers]` — Wave 2.
+    /// `RESOLUTIONS[sudoers]`.
     pub sudoers: Resolution,
-    /// `RESOLUTIONS[node]` — Wave 3.
+    /// `RESOLUTIONS[node]`.
     pub node: Resolution,
-    /// `RESOLUTIONS[npm-prefix]` — Wave 3/4.
+    /// `RESOLUTIONS[npm-prefix]`.
     pub npm_prefix: Resolution,
+    /// `RESOLUTIONS[agents.<id>]` — per-agent tokens, keyed by catalog id. Built
+    /// by iterating the Rust `canonical_path` ids (PROV-02 single source).
+    pub agents: std::collections::BTreeMap<String, Resolution>,
 }
 
 impl Resolutions {
-    /// Wave-1 seed: a fresh CREATE for every component. Wave 5 replaces this
-    /// constructor's call site with the real detect→decide computation; the
-    /// steps do not change.
+    /// A fresh CREATE for every core component with NO per-agent entries. Retained
+    /// for the unit tests + as the clean-host baseline; the orchestrator's real
+    /// path uses [`Resolutions::from_decide`] (the detect→decide computation).
     pub fn seed_create() -> Self {
         Self {
             user: Resolution::Create,
             sudoers: Resolution::Create,
             node: Resolution::Create,
             npm_prefix: Resolution::Create,
+            agents: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// The real DECIDE phase (PROV-02, 57-06): probe the host + iterate the Rust
+    /// `canonical_path` map IN-PROCESS, calling the ALREADY-PORTED pure gate
+    /// (`agentlinux_core::reuse::agent_decision`) per id to build
+    /// `RESOLUTIONS[agents.<id>]`. NO Bash map read, NO `reuse-decision` shell-out.
+    ///
+    /// The core-component tokens (user/sudoers/node/npm-prefix) resolve to CREATE
+    /// on a clean host — the provisioner's steps are idempotent CREATE/REUSE, and
+    /// the Bash entrypoint's brownfield remediation gating (npm-prefix chown,
+    /// sudoers overwrite) is the `--yes`-gated path; a `--yes` provision run (the
+    /// harness invocation) never bails. The per-agent tokens are the substantive
+    /// PROV-02 win: they come from the Rust map + the pure gate, not a Bash
+    /// iterator.
+    ///
+    /// `canonical_ids` + `canonical_of` + `gsd_system_path` are injected so this
+    /// stays free of `main.rs`'s map (the pure/adapter split); the orchestrator
+    /// passes `main::CANONICAL_IDS` / `main::canonical_path` / `main::GSD_SYSTEM_PATH`.
+    pub fn from_decide<F>(canonical_ids: &[&str], canonical_of: F, gsd_system_path: &str) -> Self
+    where
+        F: Fn(&str) -> Option<&'static str>,
+    {
+        let mut agents = std::collections::BTreeMap::new();
+        for &id in canonical_ids {
+            let probe = crate::provision::probe::probe_agent(id);
+            // The pure gate — identical decision surface the Bash
+            // `reuse::agent_decision` shim wraps, called DIRECTLY in-process.
+            let decision = agentlinux_core::reuse::agent_decision(
+                id,
+                &probe.status,
+                if probe.path.is_empty() {
+                    None
+                } else {
+                    Some(probe.path.as_str())
+                },
+                canonical_of(id),
+                gsd_system_path,
+            );
+            agents.insert(id.to_string(), Resolution::from_decision(decision));
+        }
+        Self {
+            user: Resolution::Create,
+            sudoers: Resolution::Create,
+            node: Resolution::Create,
+            npm_prefix: Resolution::Create,
+            agents,
+        }
+    }
+}
+
+impl Resolution {
+    /// Map the pure `agentlinux_core::reuse::Decision` token to the provisioner
+    /// `Resolution` (the two enums are the same 3-way surface plus the
+    /// `ReuseWithWarning`/`Bail` states only the TTY-consent path produces).
+    fn from_decision(d: agentlinux_core::reuse::Decision) -> Self {
+        match d {
+            agentlinux_core::reuse::Decision::Reuse => Resolution::Reuse,
+            agentlinux_core::reuse::Decision::Remediate => Resolution::Remediate,
+            agentlinux_core::reuse::Decision::Create => Resolution::Create,
         }
     }
 }

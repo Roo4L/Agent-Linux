@@ -232,6 +232,7 @@ mod agent_user_tests {
                 sudoers: Resolution::Create,
                 node: Resolution::Create,
                 npm_prefix: Resolution::Create,
+                agents: std::collections::BTreeMap::new(),
             },
             yes: false,
             dry_run: false,

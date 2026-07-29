@@ -323,6 +323,7 @@ mod sudoers_tests {
                 sudoers: Resolution::Bail,
                 node: Resolution::Create,
                 npm_prefix: Resolution::Create,
+                agents: std::collections::BTreeMap::new(),
             },
             yes: false,
             dry_run: false,
