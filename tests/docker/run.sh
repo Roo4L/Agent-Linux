@@ -394,6 +394,33 @@ if [[ -n ${AGENTLINUX_STAGE_RUST_CLI:-} ]]; then
   echo "-- $CLI_SYMLINK now -> $RUST_BIN_STAGED (off-PATH; CLI bats exercise the Rust bin without shadowing the canonical symlink) --"
 fi
 
+# Seed the BHV-02 SSH keypair + start sshd BEFORE bats. The 20-agent-user /
+# 50-agents suites generate this in their own `setup()`, but 30-runtime.bats does
+# NOT — so a PER-FILE `30-runtime` run has no /root/.ssh/id_ed25519 +
+# ~agent/.ssh/authorized_keys, the `ssh` invocation mode fails to connect, and the
+# INVOKE_MODES loop aborts at `ssh` BEFORE it reaches `sudo_u`/`sudo_u_i` (masking
+# those Docker-runnable modes). Seeding here (idempotent — the bats set()s guard on
+# key presence) lets the six-mode iteration REACH sudo_u/sudo_u_i on a per-file run.
+# This is a TEST-HARNESS seed (mirrors 20-agent-user.bats:29-34); the bats specs are
+# untouched. ssh/systemd_user/cron modes themselves are the Phase-59 QEMU gate — a
+# green here on the privileged systemd container is a bonus, not a QEMU substitute.
+echo "== seed BHV-02 ssh keypair + sshd (idempotent; unblocks the six-mode iteration) =="
+docker exec "$CID" bash -c '
+  set -e
+  if [[ ! -f /root/.ssh/id_ed25519 ]]; then
+    install -d -m 0700 -o root -g root /root/.ssh
+    ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519 -q
+    if id agent >/dev/null 2>&1; then
+      install -d -m 0700 -o agent -g agent /home/agent/.ssh
+      install -m 0600 -o agent -g agent \
+        /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
+    fi
+  fi
+  # Best-effort sshd start (family unit: ssh on Debian, sshd on EL9). Silent on a
+  # non-systemd container — the ssh-mode tests then diagnose the connection error.
+  systemctl start ssh 2>/dev/null || systemctl start sshd 2>/dev/null || true
+' || echo "-- ssh keypair/sshd seed reported a problem (ssh-mode tests will diagnose) --"
+
 echo "== run bats suite (${BATS_TARGET_PATH}) =="
 # cd into the staged sources so bats discovers helpers/ relatively. When the
 # Rust binary was staged, export AGENTLINUX_RUST_BIN so the reuse shim resolves
