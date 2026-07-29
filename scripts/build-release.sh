@@ -39,8 +39,8 @@
 # Invariants (T-06-01 / T-06-08 / T-06-08b / T-06-V / T-58-01 / T-58-03 mitigations):
 #   - TAG arg is re-validated here, regardless of who invoked us — release.yml passes it
 #     through from GITHUB_REF and we MUST NOT trust that surface. Bad tag → exit 64.
-#   - Three-way version lock: TAG vs plugin/cli/package.json.version vs
-#     plugin/catalog/catalog.json.version vs rust/crates/agentlinux/Cargo.toml.version.
+#   - Two-way version lock: TAG vs plugin/catalog/catalog.json.version vs
+#     rust/crates/agentlinux/Cargo.toml.version.
 #     A drift anywhere fails the build loudly — prevents shipping a tag whose pinned
 #     versions (incl. the shipped musl bin's CARGO_PKG_VERSION) diverge.
 #   - Tarball is reproducible: two back-to-back runs on the same HEAD produce byte-identical
@@ -127,22 +127,21 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 cd "$REPO_ROOT"
 
 # ---------------------------------------------------------------------------
-# 3. Three-way version-consistency gate (T-06-V / T-58-03 mitigation).
-#    TAG must match plugin/cli/package.json .version, plugin/catalog/catalog.json
-#    .version, AND rust/crates/agentlinux/Cargo.toml [package] version. A mismatch
-#    anywhere means the tag being built does not correspond to the code/config
-#    shipped inside the tarball — the lock is what prevents that. The Cargo.toml
-#    leg is Phase-58-new (Open Q3 option a / Pitfall 3): the shipped payload is
-#    the musl bin, whose CARGO_PKG_VERSION comes from Cargo.toml, so a Cargo.toml
-#    drift must fail the build loudly just like the other two. package.json +
-#    catalog.json stay as the parity oracle until the Phase-59 cutover.
+# 3. Two-way version-consistency gate (T-06-V / T-58-03 mitigation).
+#    TAG must match plugin/catalog/catalog.json .version AND
+#    rust/crates/agentlinux/Cargo.toml [package] version. A mismatch either side
+#    means the tag being built does not correspond to the code/config shipped
+#    inside the tarball — the lock is what prevents that. The Cargo.toml leg is
+#    load-bearing: the shipped payload is the musl bin, whose CARGO_PKG_VERSION
+#    comes from Cargo.toml. (Pre-cutover this was a three-way lock that also
+#    checked plugin/cli/package.json; the TS CLI was deleted at the Rust cutover,
+#    so catalog.json is now the sole JSON version SoT.)
 # ---------------------------------------------------------------------------
 if ! command -v jq >/dev/null 2>&1; then
   printf 'jq is required on PATH but not found\n' >&2
   exit 1
 fi
 
-CLI_V=$(jq -r .version plugin/cli/package.json)
 CAT_V=$(jq -r .version plugin/catalog/catalog.json)
 # Cargo.toml has no jq-parseable shape; read the first `version = "X.Y.Z"` line
 # under [package] (the [[bin]]/[dependencies] tables use `version =` too, so
@@ -151,15 +150,10 @@ CARGO_TOML="rust/crates/agentlinux/Cargo.toml"
 CARGO_V=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$CARGO_TOML" | head -1)
 
 # Pre-release tags (e.g. v0.3.0-rc1) ship the SAME code as the eventual
-# v0.3.0 — package.json + catalog.json + Cargo.toml track the base semver, not
-# the rc suffix. Strip the suffix from $VERSION before comparing.
+# v0.3.0 — catalog.json + Cargo.toml track the base semver, not the rc suffix.
+# Strip the suffix from $VERSION before comparing.
 BASE_VERSION=${VERSION%%-*}
 
-if [[ "$CLI_V" != "$BASE_VERSION" ]]; then
-  printf 'version mismatch: plugin/cli/package.json .version=%s ≠ tag=%s (base=%s)\n' \
-    "$CLI_V" "$TAG" "$BASE_VERSION" >&2
-  exit 1
-fi
 if [[ "$CAT_V" != "$BASE_VERSION" ]]; then
   printf 'version mismatch: plugin/catalog/catalog.json .version=%s ≠ tag=%s (base=%s)\n' \
     "$CAT_V" "$TAG" "$BASE_VERSION" >&2
@@ -185,7 +179,6 @@ fi
 if ((DRY_RUN_FLAG == 1)); then
   cat <<EOF
 dry-run: would build for tag=${TAG} version=${VERSION}
-  plugin/cli/package.json     .version=${CLI_V} (matches)
   plugin/catalog/catalog.json .version=${CAT_V} (matches)
   ${CARGO_TOML} version=${CARGO_V} (matches)
 planned artifacts under dist/:

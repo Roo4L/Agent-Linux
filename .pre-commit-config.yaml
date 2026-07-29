@@ -1,12 +1,7 @@
 # .pre-commit-config.yaml
 # Copied verbatim from docs/HARNESS.md §1.2 — authoritative spec.
-# Covers: bash (shellcheck + shfmt), TS/JS + JSON (biome), catalog JSON Schema.
+# Covers: bash (shellcheck + shfmt), JSON (catalog schema), gitleaks, and repo guards.
 # Runs locally on `pre-commit run --all-files` and in .github/workflows/test.yml.
-
-default_language_version:
-  # Pinned to a specific patch (not bare '22') because Ubuntu's nodeenv 0.13.4
-  # does not resolve major-only versions and would request /dist/v22/ which 404s.
-  node: '22.22.2'
 
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -36,16 +31,6 @@ repos:
       - id: shfmt
         args: [-i, '2', -ci, -bn]
 
-  - repo: https://github.com/biomejs/pre-commit
-    rev: v1.9.4
-    hooks:
-      - id: biome-check
-        files: ^plugin/cli/
-        # Biome searches for biome.json from CWD upward. Pre-commit runs from
-        # the repo root, so without --config-path biome would not find the
-        # nested plugin/cli/biome.json and would fall back to defaults (tabs).
-        args: [--config-path=plugin/cli]
-
   - repo: https://github.com/gitleaks/gitleaks
     rev: v8.21.2
     hooks:
@@ -58,21 +43,23 @@ repos:
     hooks:
       - id: catalog-schema-validate
         name: Validate catalog.json against schema
-        entry: node plugin/cli/scripts/validate-catalog.mjs
+        # jq structural gate (replaced the deleted TS ajv validator at the Rust
+        # cutover). Full JSON-Schema validation is the Rust schemars drift-check
+        # (`cargo test -p agentlinux-core schema`, TEST-03) in the rust CI job.
+        entry: scripts/check-catalog-schema.sh
         language: system
         files: ^plugin/catalog/(catalog|agents/.*/recipe)\.json$
         pass_filenames: false
 
-      # AL-25: shift the build-release.sh three-way version-lock gate from
-      # release-time to commit-time. Fails fast on drift between
-      # plugin/cli/package.json::version (SoT under AL-29) and
-      # plugin/catalog/catalog.json::version. Pure bash plus sed; no jq
-      # dependency on contributor laptops.
+      # AL-25: shift the build-release.sh version-lock gate from release-time to
+      # commit-time. Fails fast on drift between plugin/catalog/catalog.json
+      # ::version and rust/crates/agentlinux/Cargo.toml [package] version (the
+      # post-cutover two-way lock). Pure bash plus sed; no jq dependency.
       - id: check-version-lockstep
-        name: Check package.json/catalog.json version lockstep
+        name: Check catalog.json/Cargo.toml version lockstep
         entry: scripts/check-version-lockstep.sh
         language: system
-        files: ^(plugin/cli/package\.json|plugin/catalog/catalog\.json)$
+        files: ^(plugin/catalog/catalog\.json|rust/crates/agentlinux/Cargo\.toml)$
         pass_filenames: false
 
       # Phase 20 (PAR-01 / EL-08): cross-suite distro-leak guard. Fails if any
@@ -87,12 +74,6 @@ repos:
         entry: scripts/check-distro-leak.sh
         language: system
         files: ^tests/bats/([^/]+\.bats|helpers/[^/]+\.bash)$
-        pass_filenames: false
-      - id: check-tty-sentinels
-        name: Check TTY driver prompt sentinels stay in sync with prompt.sh
-        entry: scripts/check-tty-sentinels.sh
-        language: system
-        files: ^(tests/bats/helpers/tty-driver\.py|plugin/lib/prompt\.sh)$
         pass_filenames: false
       - id: sync-codex-agents
         name: Check .codex/agents/ is in sync with .claude/agents/ reviewer roles

@@ -14,8 +14,8 @@
   [ -d plugin/provisioner ]
 }
 
-@test "HRN-01: plugin/cli/package.json is valid JSON" {
-  run node -e "JSON.parse(require('fs').readFileSync('plugin/cli/package.json','utf8'))"
+@test "HRN-01: plugin/catalog/catalog.json is valid JSON" {
+  run node -e "JSON.parse(require('fs').readFileSync('plugin/catalog/catalog.json','utf8'))"
   [ "$status" -eq 0 ]
 }
 

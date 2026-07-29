@@ -475,14 +475,14 @@ fi
 
 # ---------------------------------------------------------------------------
 # 9. Build the plugin tarball via build-release.sh.
-#    The version lock (tag == plugin/cli/package.json.version ==
+#    The version lock (tag == plugin/catalog/catalog.json.version ==
 #    plugin/catalog/catalog.json.version == rust/crates/agentlinux/Cargo.toml
 #    version) is sacred — do NOT invent a v0.0.0-qemu tag; use the current repo
 #    version so the lock passes. The reproducible musl tarball + .sha256 is the
 #    sole channel (Phase 58 DIST-02 removed the optional fpm .deb path).
 # ---------------------------------------------------------------------------
 REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
-VERSION=$(jq -r .version "${REPO_ROOT}/plugin/cli/package.json")
+VERSION=$(jq -r .version "${REPO_ROOT}/plugin/catalog/catalog.json")
 TAG="v${VERSION}"
 printf 'building release tarball for tag=%s via scripts/build-release.sh\n' "$TAG"
 bash "${REPO_ROOT}/scripts/build-release.sh" "$TAG"

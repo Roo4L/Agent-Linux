@@ -32,7 +32,7 @@ load 'helpers/assertions'
 load 'helpers/brownfield'
 
 # AL-29: derive the catalog version from package.json — single SoT (matches 51-*'s pattern).
-PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 

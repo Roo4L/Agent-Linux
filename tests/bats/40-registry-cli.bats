@@ -24,7 +24,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 # AL-29: derive the expected version from package.json — single source-of-truth.
 # Production layout: /opt/agentlinux-src/ is the bind-mounted source tree
 # established by tests/docker/run.sh:150 BEFORE bats fires.
-PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 
 setup_file() {
   # The installer is already run by tests/docker/run.sh BEFORE bats fires,

@@ -23,7 +23,7 @@ load 'helpers/invoke_modes'
 load 'helpers/assertions'
 
 # AL-29: derive the catalog version from package.json — single SoT.
-PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 
 setup_file() {

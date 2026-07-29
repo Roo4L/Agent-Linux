@@ -242,7 +242,7 @@ docker exec "$CID" bash -c '
   mkdir -p /opt/agentlinux-src/plugin/cli/node_modules
   cp -R /opt/cli-prebuilt/dist/. /opt/agentlinux-src/plugin/cli/dist/
   cp -R /opt/cli-prebuilt/node_modules/. /opt/agentlinux-src/plugin/cli/node_modules/
-  cp /opt/cli-prebuilt/package.json /opt/agentlinux-src/plugin/cli/package.json
+  cp /opt/cli-prebuilt/package.json /opt/agentlinux-src/plugin/catalog/catalog.json
 '
 
 HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"

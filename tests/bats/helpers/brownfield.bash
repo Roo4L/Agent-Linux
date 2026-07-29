@@ -548,7 +548,7 @@ _setup_brownfield_apt_layer() {
 setup_brownfield_host_full() {
   local installer=/opt/agentlinux-src/plugin/bin/agentlinux-install
   local pkg_version catalog
-  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
   catalog=/opt/agentlinux/catalog/${pkg_version}/catalog.json
 
   # Step 1-3: shared apt layer (agent user + sudoers + Node 22).
@@ -645,8 +645,8 @@ capture_transcript_to() {
     distro_ver="${VERSION_ID:-unknown}"
   fi
   kernel=$(uname -r 2>/dev/null || printf 'unknown')
-  if [[ -f /opt/agentlinux-src/plugin/cli/package.json ]]; then
-    pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json 2>/dev/null || printf 'unknown')
+  if [[ -f /opt/agentlinux-src/plugin/catalog/catalog.json ]]; then
+    pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json 2>/dev/null || printf 'unknown')
   fi
 
   mkdir -p "$(dirname "$dest")"

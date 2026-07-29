@@ -4,7 +4,7 @@
 load 'helpers/assertions'
 
 SOURCE_ROOT=${AGENTLINUX_SOURCE_ROOT:-/opt/agentlinux-src}
-CATALOG=${AGENTLINUX_CATALOG:-/opt/agentlinux/catalog/$(jq -r .version "$SOURCE_ROOT/plugin/cli/package.json")/catalog.json}
+CATALOG=${AGENTLINUX_CATALOG:-/opt/agentlinux/catalog/$(jq -r .version "$SOURCE_ROOT/plugin/catalog/catalog.json")/catalog.json}
 LOG=/var/log/agentlinux-install.log
 
 @test "AGT-04: catalog pins the Open GSD package and its package-native command" {

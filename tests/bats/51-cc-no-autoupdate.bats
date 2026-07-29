@@ -41,7 +41,7 @@ load 'helpers/secrets'
 load 'helpers/interactive'
 
 LOG=/var/log/agentlinux-install.log
-PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 SETTINGS=/home/agent/.claude/settings.json
 

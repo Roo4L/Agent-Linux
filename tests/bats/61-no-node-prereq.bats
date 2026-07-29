@@ -48,7 +48,7 @@ LOG=/var/log/agentlinux-install.log
 # the legacy TS provisioner stages /opt/agentlinux/cli/<ver>/dist/index.js.
 __staged_cli_path() {
   local version
-  version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)}
+  version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)}
   local staged_bin="/opt/agentlinux/cli/${version}/bin/agentlinux"
   if [[ -f "$staged_bin" ]]; then
     printf '%s' "$staged_bin"

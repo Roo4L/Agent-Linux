@@ -38,7 +38,7 @@
 FROM node:22-slim AS cli-builder
 WORKDIR /build/cli
 # Copy package manifests first for Docker-layer cache hit on source-only edits.
-COPY plugin/cli/package.json plugin/cli/pnpm-lock.yaml ./
+COPY plugin/catalog/catalog.json plugin/cli/pnpm-lock.yaml ./
 COPY plugin/cli/tsconfig.json ./
 COPY plugin/cli/src ./src
 # corepack ships with node 22+; activate pnpm (version pinned by package.json

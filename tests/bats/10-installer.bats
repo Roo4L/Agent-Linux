@@ -77,7 +77,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   #     as before. The regime is detected by which CLI file the provisioner
   #     staged (bin/agentlinux vs dist/index.js).
   local version
-  version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)}
+  version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)}
 
   # Detect the shipped-artifact regime: the Rust provisioner (DIST-01, default)
   # stages /opt/agentlinux/cli/<ver>/bin/agentlinux; the legacy TS provisioner
@@ -257,12 +257,12 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 # ---------------------------------------------------------------------------
 
 @test "CAT-05: catalog snapshot staged at /opt/agentlinux/catalog/<version>/catalog.json" {
-  # Resolve the version from the source-of-truth (plugin/cli/package.json) so
+  # Resolve the version from the source-of-truth (plugin/catalog/catalog.json) so
   # this @test does not hardcode v0.3.0 — a v0.3.1 bump rebuilds the image and
   # this test tracks automatically. The source is available via the bind-mount
   # at /opt/agentlinux-src (see tests/docker/run.sh line 150).
   local pkg_version
-  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
   local staged="/opt/agentlinux/catalog/${pkg_version}/catalog.json"
   if [[ ! -s "$staged" ]]; then
     __fail "CAT-05" \
@@ -280,7 +280,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   # provisioner side of that contract (50-registry-cli.sh uses `cp -R` too,
   # so a drift here means either provisioner or release-script regressed).
   local pkg_version
-  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
   local staged="/opt/agentlinux/catalog/${pkg_version}/catalog.json"
   local source="/opt/agentlinux-src/plugin/catalog/catalog.json"
   local sha_source sha_staged
