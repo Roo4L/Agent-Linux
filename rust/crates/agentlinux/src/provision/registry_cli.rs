@@ -6,29 +6,31 @@
 //! default), symlink `agentlinux` onto the install user's PATH, and verify the
 //! symlink is executable AS the install user.
 //!
-//! Q1 (57-06, LOCKED): this step keeps symlinking the TS bundle's
-//! `dist/index.js` — the run.sh harness re-points that symlink at the Rust musl
-//! bin under `AGENTLINUX_STAGE_RUST_CLI=1`. The musl-binary swap is Phase 58
-//! (DIST-01); this port stays observable-identical to master's TS-bundle staging
-//! so the initial state a Rust-provisioned host leaves is byte-compatible with
-//! the Bash provisioner (INST-02 re-runs the BASH installer over this state).
+//! Q1 (58-02, LANDED — DIST-01): this step now stages the static musl bin
+//! (`plugin/bin/agentlinux` under the plugin source root) as the default
+//! `agentlinux` command, symlinking THAT bin onto the install user's PATH. The
+//! TS bundle (`dist/index.js` + `node_modules/`) no longer ships and is no
+//! longer staged. Phase 57's `dist/index.js` symlink is replaced; the catalog +
+//! recipe + state staging (CAT-01/02/03/05) is UNCHANGED — only the CLI
+//! artifact's identity moves from a Node script to a compiled binary.
 //!
-//! Requirements satisfied (byte-for-byte with 50-registry-cli.sh):
-//!   CLI-01 — `agentlinux` on the install user's PATH (symlink → dist/index.js)
+//! Requirements satisfied (parity with the swapped 50-registry-cli.sh contract):
+//!   CLI-01 — `agentlinux` on the install user's PATH (symlink → the musl bin)
 //!   CAT-01 / CAT-03 — catalog + recipes staged under /opt/agentlinux/catalog/
 //!   CAT-02 — state/installed.d/ created EMPTY (no agent installed here)
 //!   CAT-05 — staged catalog byte-identical to the source catalog.json
-//!   INST-02 — re-runnable (ensure_dir idempotent; cp -R byte-stable on identical
-//!             src; ln -sfn idempotent when the symlink already points at target)
+//!   INST-02 — re-runnable (ensure_dir idempotent; install byte-stable on
+//!             identical src; ln -sfn idempotent when the symlink already points
+//!             at target — the staged bin's sha256 is stable across a re-run)
 //!
 //! # Source-tree discovery (the Rust-port seam)
-//! The Bash derives `CLI_BUNDLE_SRC`/`CATALOG_SRC` from `BIN_DIR/../{cli,catalog}`
-//! (the unpacked installer's sibling dirs). The Rust bin has no `BIN_DIR`; it
+//! The Bash derives `CLI_BUNDLE_SRC`/`CATALOG_SRC` from `BIN_DIR/../{bin,catalog}`
+//! (the unpacked tarball's sibling dirs). The Rust bin has no `BIN_DIR`; it
 //! resolves the plugin source root from `$AGENTLINUX_SRC_ROOT` (the test harness
 //! / release installer sets it) else the container-staged default
 //! `/opt/agentlinux-src/plugin` — the ONE place run.sh copies the tree to. The
-//! `dist`/`node_modules`/`package.json`/`catalog.json` sanity checks match the
-//! Bash malformed-tarball guards (return an error, not a panic).
+//! `bin/agentlinux` + `catalog.json` sanity checks match the Bash
+//! malformed-tarball guards (return an error, not a panic).
 
 use crate::dispatcher;
 use crate::provision::ProvisionCtx;
@@ -76,29 +78,36 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let symlink = PathBuf::from(format!("{home}/.npm-global/bin/agentlinux"));
 
     let root = src_root();
-    let cli_bundle_src = root.join("cli");
+    // DIST-01: the shipped CLI is the static musl bin at plugin/bin/agentlinux
+    // (the Wave-1 tarball payload), NOT the TS bundle under plugin/cli/.
+    let cli_bin_src = root.join("bin").join("agentlinux");
     let catalog_src = root.join("catalog");
 
-    // Malformed-tarball sanity checks (50-registry-cli.sh:62-77): the build
-    // pipeline must have populated the bundle. Fail with a clear message so
-    // operators know the artifact is malformed, not a runtime bug.
-    let dist_index = cli_bundle_src.join("dist").join("index.js");
-    if !dist_index.is_file() {
+    // Malformed-tarball sanity checks (parity with 50-registry-cli.sh's guards,
+    // re-pointed to the musl bin): the release pipeline must have populated the
+    // bin. Fail with a clear message so operators know the artifact is malformed,
+    // not a runtime bug.
+    let cli_bin_meta = fs::symlink_metadata(&cli_bin_src).ok();
+    let cli_bin_is_regular = cli_bin_meta
+        .as_ref()
+        .map(|m| m.file_type().is_file())
+        .unwrap_or(false);
+    if !cli_bin_is_regular {
         return Err(io::Error::other(format!(
-            "CLI dist/index.js missing at {} — release tarball malformed?",
-            cli_bundle_src.join("dist").display()
+            "agentlinux musl bin missing (or not a regular file) at {} — release tarball malformed?",
+            cli_bin_src.display()
         )));
     }
-    if !cli_bundle_src.join("node_modules").is_dir() {
+    // The shipped bin must be executable (the static bin is the entrypoint the
+    // symlink resolves to; a non-executable bin is a malformed release).
+    let cli_bin_executable = cli_bin_meta
+        .as_ref()
+        .map(|m| m.permissions().mode() & 0o111 != 0)
+        .unwrap_or(false);
+    if !cli_bin_executable {
         return Err(io::Error::other(format!(
-            "CLI node_modules missing at {} — release tarball malformed?",
-            cli_bundle_src.join("node_modules").display()
-        )));
-    }
-    if !cli_bundle_src.join("package.json").is_file() {
-        return Err(io::Error::other(format!(
-            "CLI package.json missing at {} — release tarball malformed?",
-            cli_bundle_src.join("package.json").display()
+            "agentlinux musl bin at {} is not executable — release tarball malformed?",
+            cli_bin_src.display()
         )));
     }
     if !catalog_src.join("catalog.json").is_file() {
@@ -108,36 +117,20 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
         )));
     }
 
-    // Stage the CLI bundle under the versioned dir (50-registry-cli.sh:84-97).
-    // Layout: /opt/agentlinux/cli/<ver>/{dist/,node_modules/,package.json}.
+    // Stage the musl bin under the versioned dir. Layout:
+    // /opt/agentlinux/cli/<ver>/bin/agentlinux — the `install -m 0755 -o root
+    // -g root` of the single static bin replaces the Bash `cp -R dist/. …`.
+    let cli_bin_stage = cli_stage_dir.join("bin").join("agentlinux");
     sysio::ensure_dir(Path::new("/opt/agentlinux"), 0o755, "root:root")?;
     if let Some(parent) = cli_stage_dir.parent() {
         sysio::ensure_dir(parent, 0o755, "root:root")?;
     }
     sysio::ensure_dir(&cli_stage_dir, 0o755, "root:root")?;
-    sysio::ensure_dir(&cli_stage_dir.join("dist"), 0o755, "root:root")?;
-    sysio::ensure_dir(&cli_stage_dir.join("node_modules"), 0o755, "root:root")?;
-    // `cp -R <src>/. <dst>/` — copy the DIRECTORY CONTENTS into the existing dst
-    // (not nested under a src-named subdir), matching the Bash `cp -R dist/. dst/`.
-    copy_tree_contents(&cli_bundle_src.join("dist"), &cli_stage_dir.join("dist"))?;
-    copy_tree_contents(
-        &cli_bundle_src.join("node_modules"),
-        &cli_stage_dir.join("node_modules"),
-    )?;
-    // `install -m 0644 -o root -g root package.json <stage>/package.json`.
-    install_file(
-        &cli_bundle_src.join("package.json"),
-        &cli_stage_dir.join("package.json"),
-        0o644,
-        "root:root",
-    )?;
-    // `chmod -R u=rwX,go=rX` — dirs get x, files don't (X = conditional exec).
-    chmod_recursive_ugo(&cli_stage_dir)?;
-    // The entrypoint needs exec for all users; the shebang handles node dispatch.
-    fs::set_permissions(
-        cli_stage_dir.join("dist").join("index.js"),
-        fs::Permissions::from_mode(0o755),
-    )?;
+    sysio::ensure_dir(&cli_stage_dir.join("bin"), 0o755, "root:root")?;
+    // `install -m 0755 -o root -g root <bin> <stage>/bin/agentlinux` — the bin
+    // is world-executable so any user (incl. the agent via the PATH symlink) can
+    // run it; no Node/shebang dispatch (it is a static binary).
+    install_file(&cli_bin_src, &cli_bin_stage, 0o755, "root:root")?;
 
     // Stage the catalog snapshot (50-registry-cli.sh:103-107).
     sysio::ensure_dir(&catalog_stage_dir, 0o755, "root:root")?;
@@ -154,7 +147,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // Symlink `agentlinux` onto the install user's PATH (50-registry-cli.sh:123-126).
     // ln -sfn (force + no-deref) is idempotent; chown -h retargets the LINK.
     sysio::ensure_dir(Path::new(&format!("{home}/.npm-global/bin")), 0o755, &owner)?;
-    let symlink_target = cli_stage_dir.join("dist").join("index.js");
+    let symlink_target = cli_bin_stage.clone();
     ln_sfn(&symlink_target, &symlink)?;
     chown_symlink(&symlink, &owner)?;
     eprintln!(

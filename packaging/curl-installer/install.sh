@@ -42,6 +42,9 @@ IFS=$'\n\t'
 : "${AGENTLINUX_ORG:=$ORG}" # alias for readability in docs
 : "${AGENTLINUX_RELEASE_BASE:=}"
 : "${AGENTLINUX_VERSION:=}"
+# The install user the provisioner sets up (DIST-01). Overridable for test forks;
+# defaults to `agent` — the canonical AgentLinux install user.
+: "${AGENTLINUX_USER:=agent}"
 
 readonly VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
 readonly ORG_REGEX='^[A-Za-z0-9][A-Za-z0-9-]{0,38}$'
@@ -221,12 +224,22 @@ main() {
     --no-same-owner \
     || die "tar extraction failed for ${tarball} into ${inst}"
 
-  local exe="${inst}/plugin/bin/agentlinux-install"
+  # DIST-01: the shipped artifact is the static musl `agentlinux` bin. Hand off
+  # to its `provision` verb directly — NO Node bootstrap before the bin runs
+  # (the static bin reaches + runs `provision` pre-Node; `nodejs.rs` provisions
+  # Node INSIDE provision, for the recipes only). `provision` routes through
+  # require_root (main.rs), so this privileged exec is the correct entrypoint.
+  local exe="${inst}/plugin/bin/agentlinux"
   [[ -x "$exe" ]] \
-    || die "extracted tarball missing executable ${exe} — corrupt release?"
+    || die "extracted tarball missing agentlinux binary ${exe} — corrupt release?"
 
-  printf 'agentlinux-install: verified and extracted %s — handing off to agentlinux-install\n' "$tarball"
-  exec "$exe" "$@"
+  # --yes: grant non-TTY consent for the inherently non-interactive pipe-to-bash
+  # path (matches the harness invocation in tests/docker/run.sh). The consent is
+  # scoped to the install the operator explicitly initiated by piping the
+  # installer into `sudo bash`. The provision target user is AGENTLINUX_USER.
+  local target_user="${AGENTLINUX_USER:-agent}"
+  printf 'agentlinux-install: verified and extracted %s — handing off to agentlinux provision\n' "$tarball"
+  exec "$exe" provision --user "$target_user" --yes "$@"
 }
 
 main "$@"
