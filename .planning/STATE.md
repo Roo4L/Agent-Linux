@@ -4,17 +4,17 @@ milestone: v0.4.0
 milestone_name: Rust Rewrite
 current_phase: 58
 current_phase_name: Distribution — musl Tarball as Sole Channel
-status: ready
-stopped_at: Phase 57 COMPLETE + verified (GOAL ACHIEVED; full bats matrix green on apt+dnf; 2 HIGH review fixes applied) — advancing to Phase 58
-last_updated: "2026-07-29T07:05:00.000Z"
-last_activity: 2026-07-29
-last_activity_desc: Phase 57 complete — pre-Node provisioner ported to Rust (agent-user/sudoers/NodeSource/PATH/staging), Node bootstraps before Node exists on apt+dnf; PROV-02 conservative; purge UID<1000 + NodeSource pipefail fixed
+status: in_progress
+stopped_at: Completed 58-01-PLAN.md (Wave 1 — musl producer swap + DIST-02 deletions)
+last_updated: "2026-07-29T07:27:44.974Z"
+last_activity: 2026-07-28
+last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
 progress:
   total_phases: 7
-  completed_phases: 5
-  total_plans: 22
-  completed_plans: 22
-  percent: 71
+  completed_phases: 3
+  total_plans: 24
+  completed_plans: 18
+  percent: 43
 ---
 
 # Project State
@@ -27,6 +27,10 @@ See: .planning/PROJECT.md (updated 2026-06-27)
 **Current focus:** Phase 57 — Provisioner Port + Logic Consolidation ✅ COMPLETE (all 6 waves; the Rust bin now runs the full pre-Node provisioner byte-compatibly on the bats suite across the apt/dnf matrix). Next: Phase 58 (Distribution — swap the registry_cli TS-bundle symlink for the musl binary, Q1 hand-off).
 
 ## Current Position
+
+Phase: 58 — Distribution — musl Tarball as Sole Channel (🚧 IN PROGRESS — Wave 1 of 3 done)
+
+Plan 58-01 ✅ COMPLETE (2026-07-29, Wave 1 — build-release.sh musl producer swap + DIST-02 deletion sweep): rewired `scripts/build-release.sh` to build the static `x86_64-unknown-linux-musl` `agentlinux` bin and ship it at `plugin/bin/agentlinux` (+ `plugin/catalog/` verbatim) in a `mktemp` staging tree, archived with the retained reproducible-tar recipe + `sha256sum` sidecar — DROPPING the pnpm/TS-bundle build (no pnpm/npm on the producer path; `plugin/cli/` stays in-repo only as the parity oracle). Reproducibility (DIST-01/Pitfall 6): added `[profile.release] strip = true` to `rust/Cargo.toml` + release-only RUSTFLAGS (`--remap-path-prefix` $PWD/$CARGO_HOME/$HOME + `-Wl,--build-id=none`); two builds same-HEAD → byte-identical `.sha256`, and cross-$PWD with a pinned SOURCE_DATE_EPOCH → byte-identical tarball (the musl bin itself is byte-identical cross-$PWD). Version lock (Open Q3 option a/Pitfall 3): added a `rust/crates/agentlinux/Cargo.toml` version-parity leg (a throwaway 9.9.9 bump fails the build). Static-link assertion uses `readelf` NEEDED+INTERP (musl links static-PIE; the naive `if ldd` false-positives — Rule-1 fix). DIST-02: `git rm packaging/deb/` (postinst.sh + .gitkeep); removed the release.yml fpm step + `agentlinux_*.deb` glob; deleted the HRN-01 `packaging/deb` @test (00-layout.bats green 19/19); dropped `SKIP_DEB=1 --no-deb` from boot.sh + rc-sandbox.sh; updated docs/HARNESS.md + AGENTS.md to sole-channel; flagged ADR-006 Superseded-in-part (channel-1 curl-pipe-bash + mandatory .sha256 survive). Zero LIVE (non-comment) fpm/.deb/SKIP_DEB refs remain. cargo test --workspace 338 pass; clippy -D warnings + fmt clean; agentlinux-core untouched (GATE-05: master's Bash+TS distribution unchanged on master — this branch only). 2 atomic commits e2710f0 (feat producer) + f66c41d (chore DIST-02 sweep). Two pre-existing unrelated harness reds (HRN-05/HRN-06) logged to deferred-items.md. DIST-01 (producer half) + DIST-02 satisfied; Wave 2 (58-02) does the registry_cli/install.sh staging swap; Wave 3 (58-03) folds the flags + rollback lever.
 
 Phase: 57 — Provisioner Port + Logic Consolidation (✅ COMPLETE — all 6 waves)
 
@@ -154,6 +158,7 @@ Anchor [AL-47](https://copiedwonder.atlassian.net/browse/AL-47) → In Progress 
 | Phase 57 P03 | 6.1min | 1 tasks | 3 files |
 | Phase 57 P04 | 9 | 1 tasks | 4 files |
 | Phase 57 P06 | 4h | 2 tasks | 9 files |
+| Phase 58 P01 | 30m | 2 tasks | 11 files |
 
 ## Accumulated Context
 
@@ -395,6 +400,9 @@ Full decision log in PROJECT.md Key Decisions table. Recent decisions affecting 
 - [Phase ?]: Phase 56 CLI-01 interactive failure was a harness-staging artifact (Rust bin named agentlinux at front-of-PATH .local/bin shadowed the canonical .npm-global/bin symlink); reconciled off-PATH in run.sh, not a source change (56-04)
 - [Phase ?]: 57-02: provision routes through require_root (EUID==0), NOT guard_agent_user (Pitfall 7/T-57-04) — a non-root invoker exits 64 before any privileged step; the six user-facing verbs keep the CLI-05 guard.
 - [Phase ?]: 57-03: visudo TOCTOU belt (validate-before + re-verify-after) around the atomic 0440 sudoers install; one install_or_overwrite helper for create+remediate
+- [Phase ?]: Phase 58: [profile.release] strip=true + release-only RUSTFLAGS (--remap-path-prefix + --build-id=none) make the musl bin byte-reproducible cross-$PWD; two-build .sha256 identity is the DIST-01 invariant.
+- [Phase ?]: Phase 58: release version lock adds a Cargo.toml parity leg (Open Q3 option a); package.json + catalog.json retained as the parity oracle until the Phase-59 cutover.
+- [Phase ?]: Phase 58 DIST-02: fpm/.deb path removed; ADR-006 flagged Superseded-in-part (channel-1 curl-pipe-bash + mandatory .sha256 survive).
 
 ### Key Infrastructure Details
 
@@ -442,6 +450,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-29T06:33:20.101Z
-Stopped at: Completed 57-06-PLAN.md
+Last session: 2026-07-29T07:26:50.907Z
+Stopped at: Completed 58-01-PLAN.md (Wave 1)
 Resume file: None

@@ -43,7 +43,7 @@ Requirements for the v0.4.0 milestone. Each maps to a roadmap phase.
 ### Distribution (DIST)
 
 - [ ] **DIST-01**: `scripts/build-release.sh` produces a reproducible x86_64 musl static tarball + `.sha256`; the curl-installer fetches, verifies the sha256, and installs it — with **no Node prerequisite for the CLI/provisioner itself** (the chicken-and-egg is gone). This is the **sole** distribution channel.
-- [ ] **DIST-02**: The legacy optional fpm `.deb` path is **removed** — `packaging/deb/`, the `build-release.sh` `--deb`/`fpm` branch, and the `.deb` postinst bridge are deleted (the `.deb` was optional and unused; the curl-installer tarball is authoritative). ADR-006 ("curl-pipe-bash-plus-deb") is flagged for an update to reflect the tarball-only channel. Per-arch packaging + arch-detecting installer remain deferred while ARM is out of scope.
+- [x] **DIST-02**: The legacy optional fpm `.deb` path is **removed** — `packaging/deb/`, the `build-release.sh` `--deb`/`fpm` branch, and the `.deb` postinst bridge are deleted (the `.deb` was optional and unused; the curl-installer tarball is authoritative). ADR-006 ("curl-pipe-bash-plus-deb") is flagged for an update to reflect the tarball-only channel. Per-arch packaging + arch-detecting installer remain deferred while ARM is out of scope.
 
 ### Validation Gate (GATE)
 
@@ -99,7 +99,7 @@ Each v1 requirement maps to exactly one phase. **GATE-01 and GATE-05 are cross-c
 | PROV-02 | Phase 57 | Complete |
 | PROV-03 | Phase 57 | Complete |
 | DIST-01 | Phase 58 | Pending |
-| DIST-02 | Phase 58 | Pending |
+| DIST-02 | Phase 58 | Complete |
 | GATE-01 | Phase 53 (cross-cutting — every phase) | Complete |
 | GATE-02 | Phase 59 | Pending |
 | GATE-03 | Phase 59 | Pending |
