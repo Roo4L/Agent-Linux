@@ -86,19 +86,21 @@ fn validate_user_name(name: &str) -> bool {
 /// `Err` (→ EX_USAGE) on an explicit but invalid `--user`, matching the Bash
 /// parse-time `validate_user_name` reject.
 fn resolve_provision_user(user_flag: Option<&str>) -> Result<String, ExitCode> {
-    match user_flag {
-        Some(name) => {
-            if validate_user_name(name) {
-                Ok(name.to_string())
-            } else {
-                eprintln!(
-                    "agentlinux provision: invalid install-user name '{name}' — must match \
-                     ^[a-z][a-z0-9_-]*$ and must not be root or a reserved/system account"
-                );
-                Err(ExitCode::from(EX_USAGE))
-            }
-        }
-        None => Ok(resolve_install_user()),
+    let name = match user_flag {
+        Some(name) => name.to_string(),
+        // M-1: the default/env-resolved user ($AGENTLINUX_USER > env-file > agent)
+        // must pass the SAME reserved-name denylist the explicit --user path uses,
+        // so both agree on what may become the install user.
+        None => resolve_install_user(),
+    };
+    if validate_user_name(&name) {
+        Ok(name)
+    } else {
+        eprintln!(
+            "agentlinux provision: invalid install-user name '{name}' — must match \
+             ^[a-z][a-z0-9_-]*$ and must not be root or a reserved/system account"
+        );
+        Err(ExitCode::from(EX_USAGE))
     }
 }
 
@@ -235,6 +237,22 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     };
     let install_home = format!("/home/{install_user}");
 
+    // 2b. Adoption-safety gate (H-1, remediate.sh:109-126 / agentlinux-install:481-484):
+    //     refuse to adopt an EXISTING system account (UID < 1000). This runs BEFORE
+    //     both the purge path (so `userdel -r` can never remove a system/daemon
+    //     account) AND the install path (so a system home is never overwritten +
+    //     granted NOPASSWD sudo), for the explicit --user AND the default/env-
+    //     resolved user alike. A non-existent name (created fresh / idempotent
+    //     purge) and a regular login (UID >= 1000, adopted) both pass.
+    if !provision::probe::user_adoptable(&install_user) {
+        eprintln!(
+            "agentlinux provision: refusing to adopt existing system account \
+             '{install_user}' (UID < 1000). Choose a name that is free or a regular \
+             login (UID >= 1000)."
+        );
+        return ExitCode::from(EX_USAGE);
+    }
+
     // 3. --purge (Q3). Ordered 7-step teardown — runs BEFORE the log-file tee (the
     //    Bash purge removes the log LAST) and before distro detect (it seeds the
     //    family itself, like run_purge:375). Always exits 0. require_root is the
@@ -301,10 +319,17 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     match run_steps(&ctx) {
         Ok(()) => {
             run_agent_adoption(&ctx.install_user);
-            log::line(&format!(
-                "agentlinux-install complete (transcript: {})",
-                log_path.display()
-            ));
+            // M-3: only name the transcript path when it was actually persisted;
+            // if log::init could not open the file, the banner must not assert a
+            // file that does not exist.
+            if log::is_active() {
+                log::line(&format!(
+                    "agentlinux-install complete (transcript: {})",
+                    log_path.display()
+                ));
+            } else {
+                log::line("agentlinux-install complete (stderr-only; transcript unavailable)");
+            }
             ExitCode::SUCCESS
         }
         Err(code) => code,
@@ -583,5 +608,43 @@ mod provision_tests {
             resolve_provision_user(Some("root")).unwrap_err(),
             ExitCode::from(EX_USAGE)
         );
+    }
+
+    #[test]
+    fn default_path_reserved_name_is_ex_usage() {
+        // M-1: the default/env-resolved user must go through the SAME denylist.
+        // Force $AGENTLINUX_USER to a reserved name and confirm the None (default)
+        // path rejects it with EX_USAGE, exactly as the explicit --user path does.
+        let _g = crate::test_support::env_guard();
+        std::env::set_var("AGENTLINUX_USER", "root");
+        assert_eq!(
+            resolve_provision_user(None).unwrap_err(),
+            ExitCode::from(EX_USAGE)
+        );
+        std::env::remove_var("AGENTLINUX_USER");
+    }
+
+    #[test]
+    fn adoption_gate_refuses_uid_below_1000() {
+        // H-1: an EXISTING system account (UID < 1000) is not adoptable — the gate
+        // the purge path + install path both consult. `root` (UID 0) exists on
+        // every host.
+        assert!(!provision::probe::user_adoptable("root"));
+        assert!(!provision::probe::user_adoptable("daemon"));
+    }
+
+    #[test]
+    fn adoption_gate_allows_regular_login_and_nonexistent() {
+        // A regular login (UID >= 1000) or a free name is adoptable — the agent
+        // user (UID >= 1000) must still purge/install cleanly.
+        assert!(provision::probe::user_adoptable(
+            "nonexistent-user-xyz-9042"
+        ));
+        let self_uid = nix::unistd::Uid::current();
+        if self_uid.as_raw() >= 1000 {
+            if let Ok(Some(me)) = nix::unistd::User::from_uid(self_uid) {
+                assert!(provision::probe::user_adoptable(&me.name));
+            }
+        }
     }
 }

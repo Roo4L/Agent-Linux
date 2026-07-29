@@ -57,6 +57,24 @@ pub fn user_exists(name: &str) -> bool {
     matches!(nix::unistd::User::from_name(name), Ok(Some(_)))
 }
 
+/// `remediate::user_adoptable` port (`plugin/lib/remediate.sh:109-126`). The
+/// runtime adoption-safety gate: if the name does NOT exist, returns `true` (it
+/// will be created fresh / a purge no-op is idempotent). If it DOES exist,
+/// returns `true` only when its UID >= 1000 (a regular login account); an
+/// EXISTING system account (UID < 1000) returns `false` so the caller refuses to
+/// grant it NOPASSWD sudo + overwrite its home (H-1), and — on the purge path —
+/// so `userdel -r` can never remove a system/daemon account. Reads the passwd DB
+/// — NOT pure; call it at runtime (after require_root), never during DECIDE.
+#[must_use]
+pub fn user_adoptable(name: &str) -> bool {
+    match nix::unistd::User::from_name(name) {
+        // Non-existent (or lookup error) → safe to create / idempotent purge.
+        Ok(None) | Err(_) => true,
+        // Exists: adoptable only when it is a regular login (UID >= 1000).
+        Ok(Some(u)) => u.uid.as_raw() >= 1000,
+    }
+}
+
 #[cfg(test)]
 mod probe_tests {
     use super::*;
@@ -94,5 +112,28 @@ mod probe_tests {
     fn user_exists_true_for_root_false_for_bogus() {
         assert!(user_exists("root"));
         assert!(!user_exists("nonexistent-user-xyz-9042"));
+    }
+
+    #[test]
+    fn user_adoptable_refuses_existing_system_account() {
+        // root is UID 0 (< 1000) and always exists → refuse (H-1). This is the
+        // literal case run_purge must NOT feed to `userdel -r`.
+        assert!(!user_adoptable("root"));
+        // daemon is a UID<1000 system account present on every Linux host.
+        assert!(!user_adoptable("daemon"));
+    }
+
+    #[test]
+    fn user_adoptable_allows_nonexistent_and_regular_login() {
+        // A non-existent name is fine: create-fresh / idempotent purge no-op.
+        assert!(user_adoptable("nonexistent-user-xyz-9042"));
+        // The build/CI account running this test is a regular login (UID>=1000);
+        // resolve its own name and confirm it is adoptable.
+        let self_uid = nix::unistd::Uid::current();
+        if self_uid.as_raw() >= 1000 {
+            if let Ok(Some(me)) = nix::unistd::User::from_uid(self_uid) {
+                assert!(user_adoptable(&me.name));
+            }
+        }
     }
 }
