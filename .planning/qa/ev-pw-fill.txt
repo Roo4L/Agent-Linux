@@ -1,0 +1,11 @@
+### Ran Playwright code
+```js
+await page.locator('#box').fill('qa-typed-value');
+```
+--- eval box value ---
+### Result
+"qa-typed-value"
+### Ran Playwright code
+```js
+await page.evaluate('() => document.getElementById("box").value');
+```

@@ -1,0 +1,6 @@
+▸ installing gitleaks 8.30.1…
+gitleaks: installing gitleaks/gitleaks@v8.30.1 (source_kind binary) to /home/agent/.local/bin
+prebuilt-binary: gitleaks installed (gitleaks version 8.30.1)
+gitleaks: installed at /home/agent/.local/bin/gitleaks
+gitleaks: scan a working tree with, e.g.:  gitleaks dir .
+gitleaks: installed 8.30.1 (curated)

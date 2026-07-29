@@ -1,0 +1,152 @@
+▸ installing gsd 1.7.0…
+gsd: installing @opengsd/gsd-core@1.7.0
+
+added 105 packages in 11s
+gsd: wiring Open GSD into Claude Code, OpenCode, Codex, and Qwen
+
+[36m   ██████╗ ███████╗██████╗
+  ██╔════╝ ██╔════╝██╔══██╗
+  ██║  ███╗███████╗██║  ██║
+  ██║   ██║╚════██║██║  ██║
+  ╚██████╔╝███████║██████╔╝
+   ╚═════╝ ╚══════╝╚═════╝[0m
+
+  GSD Core [2mv1.7.0[0m
+  Git. Ship. Done.
+  A meta-prompting, context engineering and spec-driven
+  development workflows for Claude Code, OpenCode, Kimi CLI, Kilo, Codex, Copilot, Antigravity, Cursor, Windsurf, Augment, Trae, Qwen Code, Hermes Agent, Cline, CodeBuddy, ZCode and pi.
+
+  Installing for [36mClaude Code[0m to [36m~/.claude[0m
+
+  [32m✓[0m Installed 71 skills to skills/
+  [32m✓[0m Installed workflow assets
+  [32m✓[0m Installed gsd-core/bin/shared/model-catalog.json
+  [32m✓[0m Installed gsd-core/bin/shared/config-defaults.manifest.json
+  [32m✓[0m Installed gsd-core/bin/shared/config-schema.manifest.json
+  [32m✓[0m Installed gsd-core/bin/shared/runtime-aliases.manifest.json
+  [32m✓[0m Installed agents
+  [32m✓[0m Wrote VERSION (1.7.0)
+  [32m✓[0m Wrote package.json (CommonJS mode)
+  [32m✓[0m Installed hooks (bundled)
+  [32m✓[0m Installed hooks/lib/ helpers (git-cmd, graphify-rebuild, ...)
+  [32m✓[0m Installed scripts/changeset/ (changelog preview CLI)
+[legacy-cleanup] Removed 0 legacy artifact(s).
+  [32m✓[0m Wrote file manifest (gsd-file-manifest.json)
+  [32m✓[0m Configured update check hook
+  [32m✓[0m Configured context window monitor hook
+  [32m✓[0m Configured prompt injection guard hook
+  [32m✓[0m Configured read-before-edit guard hook
+  [32m✓[0m Configured read injection scanner hook
+  [32m✓[0m Configured workflow guard hook (opt-in via hooks.workflow_guard)
+  [32m✓[0m Configured worktree path guard hook
+  [32m✓[0m Configured commit validation hook (opt-in via config)
+  [32m✓[0m Configured graphify auto-update hook (opt-in via graphify.auto_update)
+  [32m✓[0m Configured session state orientation hook (opt-in via config)
+  [32m✓[0m Configured phase boundary detection hook (opt-in via config)
+  [32m✓[0m Configured SubagentStop context monitor hook (Claude Code)
+  [32m✓[0m Configured Stop context monitor hook (Claude Code)
+  [32m✓[0m Configured PreCompact context monitor hook (Claude Code)
+  [32m✓[0m Configured FileChanged config-reload hook (Claude Code)
+  Installing for [36mOpenCode[0m to [36m~/.config/opencode[0m
+
+  [32m✓[0m Installed 71 skills to skills/
+  [32m✓[0m Installed workflow assets
+  [32m✓[0m Installed gsd-core/bin/shared/model-catalog.json
+  [32m✓[0m Installed gsd-core/bin/shared/config-defaults.manifest.json
+  [32m✓[0m Installed gsd-core/bin/shared/config-schema.manifest.json
+  [32m✓[0m Installed gsd-core/bin/shared/runtime-aliases.manifest.json
+  [32m✓[0m Installed agents
+  [32m✓[0m Wrote VERSION (1.7.0)
+  [32m✓[0m Wrote package.json (CommonJS mode)
+  [32m✓[0m Installed hooks (bundled)
+  [32m✓[0m Installed hooks/lib/ helpers (git-cmd, graphify-rebuild, ...)
+  [32m✓[0m Installed scripts/changeset/ (changelog preview CLI)
+[legacy-cleanup] Removed 0 legacy artifact(s).
+  [32m✓[0m Wrote file manifest (gsd-file-manifest.json)
+  Installing for [36mCodex[0m to [36m~/.codex[0m
+
+  [32m✓[0m Installed 71 skills to skills/
+  [32m✓[0m Installed workflow assets
+  [32m✓[0m Installed gsd-core/bin/shared/model-catalog.json
+  [32m✓[0m Installed gsd-core/bin/shared/config-defaults.manifest.json
+  [32m✓[0m Installed gsd-core/bin/shared/config-schema.manifest.json
+  [32m✓[0m Installed gsd-core/bin/shared/runtime-aliases.manifest.json
+  [32m✓[0m Installed agents
+  [32m✓[0m Wrote VERSION (1.7.0)
+  [32m✓[0m Installed scripts/changeset/ (changelog preview CLI)
+[legacy-cleanup] Removed 0 legacy artifact(s).
+  [32m✓[0m Wrote file manifest (gsd-file-manifest.json)
+  [32m✓[0m Generated config.toml with 34 agent roles
+  [32m✓[0m Generated 34 agent .toml config files
+  [32m✓[0m Installed hooks (Codex)
+  [32m✓[0m Configured Codex hooks (SessionStart via hooks.json)
+  [32m✓[0m Configured Codex hooks (SubagentStart via hooks.json)
+  [32m✓[0m Configured Codex hooks (Stop via hooks.json)
+  [32m✓[0m Configured Codex hooks (PostToolUse via hooks.json)
+  [32m✓[0m Configured Codex hooks (PreToolUse via hooks.json)
+  [32m✓[0m Configured Codex hooks (PermissionRequest via hooks.json)
+  [32m✓[0m Configured Codex hooks (PreCompact via hooks.json)
+  [32m✓[0m Configured Codex hooks (PostCompact via hooks.json)
+  [32m✓[0m Configured Codex hooks (SubagentStop via hooks.json)
+  [32m✓[0m Configured Codex hooks (UserPromptSubmit via hooks.json)
+  Installing for [36mQwen Code[0m to [36m~/.qwen[0m
+
+  [32m✓[0m Installed 6 skills to skills/
+  [32m✓[0m Installed workflow assets
+  [32m✓[0m Installed gsd-core/bin/shared/model-catalog.json
+  [32m✓[0m Installed gsd-core/bin/shared/config-defaults.manifest.json
+  [32m✓[0m Installed gsd-core/bin/shared/config-schema.manifest.json
+  [32m✓[0m Installed gsd-core/bin/shared/runtime-aliases.manifest.json
+  [2m↳[0m Agents installed via descriptor-driven layout (qwen)
+  [32m✓[0m Wrote VERSION (1.7.0)
+  [32m✓[0m Wrote package.json (CommonJS mode)
+  [32m✓[0m Installed hooks (bundled)
+  [32m✓[0m Installed hooks/lib/ helpers (git-cmd, graphify-rebuild, ...)
+  [32m✓[0m Installed scripts/changeset/ (changelog preview CLI)
+[legacy-cleanup] Removed 0 legacy artifact(s).
+  [32m✓[0m Wrote file manifest (gsd-file-manifest.json)
+  [32m✓[0m Configured update check hook
+  [32m✓[0m Configured context window monitor hook
+  [32m✓[0m Configured prompt injection guard hook
+  [32m✓[0m Configured read-before-edit guard hook
+  [32m✓[0m Configured read injection scanner hook
+  [32m✓[0m Configured workflow guard hook (opt-in via hooks.workflow_guard)
+  [32m✓[0m Configured worktree path guard hook
+  [32m✓[0m Configured commit validation hook (opt-in via config)
+  [32m✓[0m Configured graphify auto-update hook (opt-in via graphify.auto_update)
+  [32m✓[0m Configured session state orientation hook (opt-in via config)
+  [32m✓[0m Configured phase boundary detection hook (opt-in via config)
+  [32m✓[0m Configured SubagentStop context monitor hook (Qwen Code)
+  [32m✓[0m Configured Stop context monitor hook (Qwen Code)
+  [32m✓[0m Configured PreCompact context monitor hook (Qwen Code)
+  [32m✓[0m Configured SubagentStart context monitor hook (Qwen Code)
+  [32m✓[0m Configured statusline
+
+  [32mDone![0m Restart Claude Code, then in any directory either type [36m/gsd-new-project[0m or ask Claude to run the [36mgsd-new-project[0m skill.
+
+  [36mJoin the community:[0m https://discord.gg/mYgfVNfA2r
+
+  [32m✓[0m Configured read permission for GSD docs
+  [32m✓[0m Set resolve_model_ids: "omit" in ~/.gsd/defaults.json
+
+  [32mDone![0m Open a blank directory in OpenCode and run [36m/gsd-new-project[0m.
+
+  [36mJoin the community:[0m https://discord.gg/mYgfVNfA2r
+
+
+  [32mDone![0m Open a blank directory in Codex and run [36m$gsd-new-project[0m.
+
+  [36mJoin the community:[0m https://discord.gg/mYgfVNfA2r
+
+
+  [32mDone![0m Open a blank directory in Qwen Code and run [36m/gsd-new-project[0m.
+
+  [36mJoin the community:[0m https://discord.gg/mYgfVNfA2r
+
+gsd: Antigravity CLI wiring is not currently provided by upstream; use its migration/import flow manually if needed
+gsd: wired into Claude Code (/home/agent/.claude/skills)
+gsd: wired into OpenCode (/home/agent/.config/opencode/skills)
+gsd: wired into Codex (/home/agent/.agents/skills)
+gsd: wired into Qwen Code (/home/agent/.qwen/skills)
+gsd: install complete (resolves at /home/agent/.npm-global/bin/gsd-core; version matches pin; Codex wiring enabled)
+gsd: installed 1.7.0 (curated)

@@ -1,0 +1,6 @@
+▸ installing trivy 0.71.2…
+trivy: installing aquasecurity/trivy@v0.71.2 (source_kind binary) to /home/agent/.local/bin
+prebuilt-binary: trivy installed (Version: 0.71.2)
+trivy: installed at /home/agent/.local/bin/trivy
+trivy: local fs/repo scans need no Docker, e.g.:  trivy fs .
+trivy: installed 0.71.2 (curated)

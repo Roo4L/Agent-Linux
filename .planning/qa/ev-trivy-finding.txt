@@ -1,0 +1,29 @@
+2026-07-29T10:42:07Z	INFO	[secret] Secret scanning is enabled
+2026-07-29T10:42:07Z	INFO	[secret] Please see https://trivy.dev/docs/v0.71/guide/scanner/secret#recommendation for faster secret detection
+2026-07-29T10:42:07Z	INFO	Number of language-specific files	num=0
+
+Report Summary
+
+┌───────────┬──────┬─────────┐
+│  Target   │ Type │ Secrets │
+├───────────┼──────┼─────────┤
+│ creds.env │ text │    1    │
+└───────────┴──────┴─────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
+
+creds.env (secrets)
+===================
+Total: 1 (UNKNOWN: 0, LOW: 0, MEDIUM: 0, HIGH: 0, CRITICAL: 1)
+
+CRITICAL: GitHub (github-pat)
+════════════════════════════════════════
+GitHub Personal Access Token
+────────────────────────────────────────
+ creds.env:1 (offset: 11 bytes)
+────────────────────────────────────────
+   1 [ GITHUB_PAT=****************************************
+   2   export AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+────────────────────────────────────────

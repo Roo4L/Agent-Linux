@@ -1,0 +1,10 @@
+▸ installing context7 3.2.3…
+context7: registering @upstash/context7-mcp@3.2.3 into Claude Code user config (--scope user)
+Added stdio MCP server context7 with command: npx -y @upstash/context7-mcp@3.2.3 to user config
+File modified: /home/agent/.claude.json
+context7: registered keyless (appears in `claude mcp list` under user scope)
+context7: NOTE — works keyless. For a higher rate limit, get a free key at
+context7:        https://context7.com/dashboard and re-register with it:
+context7:          claude mcp remove context7 --scope user
+context7:          claude mcp add context7 --scope user --env CONTEXT7_API_KEY=<your-key> -- npx -y @upstash/context7-mcp@3.2.3
+context7: installed 3.2.3 (curated)

@@ -1,0 +1,9 @@
+▸ installing codex 0.142.3…
+codex: installing @openai/codex@0.142.3
+
+added 2 packages in 5s
+codex: installing bubblewrap (codex's system sandbox) via apt
+codex install: could not install bubblewrap (no apt/sudo?); codex will use its bundled copy
+codex: disabled in-app startup update check (ENABLE-05) in /home/agent/.codex/config.toml
+codex: install complete (resolves at /home/agent/.npm-global/bin/codex; version matches pin; self-updater coexistence enforced)
+codex: installed 0.142.3 (curated)

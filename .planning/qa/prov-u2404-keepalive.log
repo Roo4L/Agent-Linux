@@ -1,0 +1,208 @@
+CID=32f8a6845ac73790b94998bc156abd793d453bb411442f96a6530caeb25ad983
+== wait systemd ==
+== stage sources ==
+== splice CLI bundle ==
+== stage Rust provisioner bin ==
+== RUN PROVISION ==
+agentlinux-install v0.3.6 starting
+agentlinux provision: 10-agent-user
+Generating locales (this might take a while)...
+  C.UTF-8... done
+Generation complete.
+10-agent-user: wrote DOC-02 CLAUDE.md to /home/agent/CLAUDE.md
+agentlinux provision: 20-sudoers
+20-sudoers: starting
+/etc/sudoers.d/.agentlinux-sudoers.142.1785321628240655801.0: parsed OK
+/etc/sudoers.d/agentlinux: parsed OK
+20-sudoers: [REMEDIATE-03] component=sudoers action=install path=/etc/sudoers.d/agentlinux (mode 0440 root:root — ADR-012)
+20-sudoers: install user 'agent' now has passwordless sudo (scope: ALL commands) — INST-06
+20-sudoers: done
+agentlinux provision: 30-nodejs
+30-nodejs: starting
+Get:1 http://security.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+Get:2 http://archive.ubuntu.com/ubuntu noble InRelease [256 kB]
+Get:3 http://security.ubuntu.com/ubuntu noble-security/main amd64 Packages [1110 kB]
+Get:4 http://security.ubuntu.com/ubuntu noble-security/universe amd64 Packages [1522 kB]
+Get:5 http://security.ubuntu.com/ubuntu noble-security/restricted amd64 Packages [1587 kB]
+Get:6 http://security.ubuntu.com/ubuntu noble-security/multiverse amd64 Packages [50.0 kB]
+Get:7 http://archive.ubuntu.com/ubuntu noble-updates InRelease [126 kB]
+Get:8 http://archive.ubuntu.com/ubuntu noble-backports InRelease [126 kB]
+Get:9 http://archive.ubuntu.com/ubuntu noble/universe amd64 Packages [19.3 MB]
+Get:10 http://archive.ubuntu.com/ubuntu noble/restricted amd64 Packages [117 kB]
+Get:11 http://archive.ubuntu.com/ubuntu noble/multiverse amd64 Packages [331 kB]
+Get:12 http://archive.ubuntu.com/ubuntu noble/main amd64 Packages [1808 kB]
+Get:13 http://archive.ubuntu.com/ubuntu noble-updates/restricted amd64 Packages [1700 kB]
+Get:14 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 Packages [2135 kB]
+Get:15 http://archive.ubuntu.com/ubuntu noble-updates/multiverse amd64 Packages [55.8 kB]
+Get:16 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 Packages [1433 kB]
+Get:17 http://archive.ubuntu.com/ubuntu noble-backports/main amd64 Packages [48.9 kB]
+Get:18 http://archive.ubuntu.com/ubuntu noble-backports/multiverse amd64 Packages [671 B]
+Get:19 http://archive.ubuntu.com/ubuntu noble-backports/universe amd64 Packages [37.7 kB]
+Fetched 31.9 MB in 4s (7552 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+curl is already the newest version (8.5.0-2ubuntu10.11).
+ca-certificates is already the newest version (20260601~24.04.1).
+The following additional packages will be installed:
+  dirmngr gnupg-utils gpg gpg-agent gpgconf gpgsm keyboxd libksba8
+  pinentry-curses
+Suggested packages:
+  dbus-user-session libpam-systemd pinentry-gnome3 tor parcimonie xloadimage
+  gpg-wks-server scdaemon pinentry-doc
+Recommended packages:
+  gnupg-l10n gpg-wks-client
+The following NEW packages will be installed:
+  apt-transport-https dirmngr gnupg gnupg-utils gpg gpg-agent gpgconf gpgsm
+  keyboxd libksba8 pinentry-curses
+0 upgraded, 11 newly installed, 0 to remove and 18 not upgraded.
+Need to get 2158 kB of archives.
+After this operation, 4946 kB of additional disk space will be used.
+Get:1 http://archive.ubuntu.com/ubuntu noble-updates/universe amd64 apt-transport-https all 2.8.3 [3970 B]
+Get:2 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gpgconf amd64 2.4.4-2ubuntu17.4 [104 kB]
+Get:3 http://archive.ubuntu.com/ubuntu noble/main amd64 libksba8 amd64 1.6.6-1build1 [122 kB]
+Get:4 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 dirmngr amd64 2.4.4-2ubuntu17.4 [323 kB]
+Get:5 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gnupg-utils amd64 2.4.4-2ubuntu17.4 [109 kB]
+Get:6 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gpg amd64 2.4.4-2ubuntu17.4 [565 kB]
+Get:7 http://archive.ubuntu.com/ubuntu noble/main amd64 pinentry-curses amd64 1.2.1-3ubuntu5 [35.2 kB]
+Get:8 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gpg-agent amd64 2.4.4-2ubuntu17.4 [227 kB]
+Get:9 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gpgsm amd64 2.4.4-2ubuntu17.4 [232 kB]
+Get:10 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 keyboxd amd64 2.4.4-2ubuntu17.4 [78.3 kB]
+Get:11 http://archive.ubuntu.com/ubuntu noble-updates/main amd64 gnupg all 2.4.4-2ubuntu17.4 [359 kB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 2158 kB in 1s (1642 kB/s)
+Selecting previously unselected package apt-transport-https.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 11879 files and directories currently installed.)
+Preparing to unpack .../00-apt-transport-https_2.8.3_all.deb ...
+Unpacking apt-transport-https (2.8.3) ...
+Selecting previously unselected package gpgconf.
+Preparing to unpack .../01-gpgconf_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gpgconf (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package libksba8:amd64.
+Preparing to unpack .../02-libksba8_1.6.6-1build1_amd64.deb ...
+Unpacking libksba8:amd64 (1.6.6-1build1) ...
+Selecting previously unselected package dirmngr.
+Preparing to unpack .../03-dirmngr_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking dirmngr (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package gnupg-utils.
+Preparing to unpack .../04-gnupg-utils_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gnupg-utils (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package gpg.
+Preparing to unpack .../05-gpg_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gpg (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package pinentry-curses.
+Preparing to unpack .../06-pinentry-curses_1.2.1-3ubuntu5_amd64.deb ...
+Unpacking pinentry-curses (1.2.1-3ubuntu5) ...
+Selecting previously unselected package gpg-agent.
+Preparing to unpack .../07-gpg-agent_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gpg-agent (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package gpgsm.
+Preparing to unpack .../08-gpgsm_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking gpgsm (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package keyboxd.
+Preparing to unpack .../09-keyboxd_2.4.4-2ubuntu17.4_amd64.deb ...
+Unpacking keyboxd (2.4.4-2ubuntu17.4) ...
+Selecting previously unselected package gnupg.
+Preparing to unpack .../10-gnupg_2.4.4-2ubuntu17.4_all.deb ...
+Unpacking gnupg (2.4.4-2ubuntu17.4) ...
+Setting up libksba8:amd64 (1.6.6-1build1) ...
+Setting up pinentry-curses (1.2.1-3ubuntu5) ...
+Setting up apt-transport-https (2.8.3) ...
+Setting up gpgconf (2.4.4-2ubuntu17.4) ...
+Setting up gpg (2.4.4-2ubuntu17.4) ...
+Setting up gnupg-utils (2.4.4-2ubuntu17.4) ...
+Setting up gpg-agent (2.4.4-2ubuntu17.4) ...
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent.socket → /usr/lib/systemd/user/gpg-agent.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-ssh.socket → /usr/lib/systemd/user/gpg-agent-ssh.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-extra.socket → /usr/lib/systemd/user/gpg-agent-extra.socket.
+Created symlink /etc/systemd/user/sockets.target.wants/gpg-agent-browser.socket → /usr/lib/systemd/user/gpg-agent-browser.socket.
+Setting up gpgsm (2.4.4-2ubuntu17.4) ...
+Setting up dirmngr (2.4.4-2ubuntu17.4) ...
+Created symlink /etc/systemd/user/sockets.target.wants/dirmngr.socket → /usr/lib/systemd/user/dirmngr.socket.
+Setting up keyboxd (2.4.4-2ubuntu17.4) ...
+Created symlink /etc/systemd/user/sockets.target.wants/keyboxd.socket → /usr/lib/systemd/user/keyboxd.socket.
+Setting up gnupg (2.4.4-2ubuntu17.4) ...
+Processing triggers for libc-bin (2.39-0ubuntu8.7) ...
+30-nodejs: NodeSource repo absent — running setup_22.x
+[38;5;79m2026-07-29 10:40:41 - Installing pre-requisites[0m
+
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:2 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Reading package lists...
+Building dependency tree...
+Reading state information...
+18 packages can be upgraded. Run 'apt list --upgradable' to see them.
+
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+
+Reading package lists...
+Building dependency tree...
+Reading state information...
+apt-transport-https is already the newest version (2.8.3).
+ca-certificates is already the newest version (20260601~24.04.1).
+curl is already the newest version (8.5.0-2ubuntu10.11).
+gnupg is already the newest version (2.4.4-2ubuntu17.4).
+0 upgraded, 0 newly installed, 0 to remove and 18 not upgraded.
+
+WARNING: apt does not have a stable CLI interface. Use with caution in scripts.
+
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Get:2 https://deb.nodesource.com/node_22.x nodistro InRelease [12.1 kB]
+Hit:3 http://archive.ubuntu.com/ubuntu noble InRelease
+Get:4 https://deb.nodesource.com/node_22.x nodistro/main amd64 Packages [11.4 kB]
+Hit:5 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:6 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Fetched 23.5 kB in 1s (28.5 kB/s)
+Reading package lists...
+Building dependency tree...
+Reading state information...
+18 packages can be upgraded. Run 'apt list --upgradable' to see them.
+[1;34m2026-07-29 10:40:51 - Repository configured successfully.[0m
+[38;5;79m2026-07-29 10:40:51 - To install Node.js, run: apt install nodejs -y[0m
+[38;5;79m2026-07-29 10:40:51 - You can use N|solid Runtime as a node.js alternative[0m
+[1;32m2026-07-29 10:40:51 - To install N|solid Runtime, run: apt install nsolid -y
+[0m
+Hit:1 http://security.ubuntu.com/ubuntu noble-security InRelease
+Hit:2 https://deb.nodesource.com/node_22.x nodistro InRelease
+Hit:3 http://archive.ubuntu.com/ubuntu noble InRelease
+Hit:4 http://archive.ubuntu.com/ubuntu noble-updates InRelease
+Hit:5 http://archive.ubuntu.com/ubuntu noble-backports InRelease
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following NEW packages will be installed:
+  nodejs
+0 upgraded, 1 newly installed, 0 to remove and 18 not upgraded.
+Need to get 37.8 MB of archives.
+After this operation, 236 MB of additional disk space will be used.
+Get:1 https://deb.nodesource.com/node_22.x nodistro/main amd64 nodejs amd64 22.23.1-1nodesource1 [37.8 MB]
+debconf: delaying package configuration, since apt-utils is not installed
+Fetched 37.8 MB in 1s (49.8 MB/s)
+Selecting previously unselected package nodejs.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 12036 files and directories currently installed.)
+Preparing to unpack .../nodejs_22.23.1-1nodesource1_amd64.deb ...
+Unpacking nodejs (22.23.1-1nodesource1) ...
+Setting up nodejs (22.23.1-1nodesource1) ...
+30-nodejs: Node.js v22 installed (RT-01 — v22 LTS)
+30-nodejs: wrote /home/agent/.npmrc (prefix=/home/agent/.npm-global — RT-04)
+30-nodejs: done
+agentlinux provision: 40-path-wiring
+40-path-wiring: starting
+40-path-wiring: wrote /etc/profile.d/agentlinux.sh
+40-path-wiring: wrote agentlinux-path marker block to /home/agent/.bashrc (--top)
+40-path-wiring: wrote /etc/agentlinux.env (systemd EnvironmentFile + cron header template)
+40-path-wiring: wrote /etc/cron.d/agentlinux (PATH + locale header; no default jobs)
+40-path-wiring: done (four artefacts written)
+agentlinux provision: 50-registry-cli
+50-registry-cli: starting
+50-registry-cli: symlinked /home/agent/.npm-global/bin/agentlinux -> /opt/agentlinux/cli/0.3.6/bin/agentlinux
+50-registry-cli: done (CLI-01 + CAT-01..05 + INST-02 staging complete)
+agentlinux provision: adopting pre-existing reuse-eligible agents as agent (agentlinux adopt --all)
+agentlinux-install complete (transcript: /var/log/agentlinux-install.log)
+== PROVISION DONE (exit 0) ==

@@ -426,3 +426,207 @@ ok 129 UX-01 (D-15-04 / T-15-01-06): agentlinux-install --dry-run --yes exits 64
 ok 130 UX-01 (D-15-04 symmetric): agentlinux-install --yes --dry-run ALSO exits 64 (symmetric contradictory-flags rejection)
 ok 131 UX-01 (idempotency): re-running agentlinux-install --dry-run produces stable DET markers (sorted-equal)
        ok 132 UX-02 (D-15-06 accept-all): TTY prompt with REMEDIATE-01 + REMEDIATE-03; answer Y to both → both mutations land + no DECLINED markers
+ok 133 UX-02 (D-15-11 decline-one-continue-others): TTY answer n then Y → REMEDIATE-01 SKIPPED + REMEDIATE-03 lands + DECLINED marker logged
+ok 134 UX-02 (D-15-09 additive-never-prompts): TTY installer on missing-sudoers fixture (REMEDIATE-03 additive install) does NOT show 'Proceed with this remediation?' prompt
+ok 135 UX-02 (D-15-10 --yes-skips-loop): TTY installer with --yes does NOT prompt (loop skipped); all remediates land
+ok 136 UX-02 (non-TTY-skips-loop): non-TTY installer (stdin piped) on REMEDIATE combo without --yes bails with 65 (Phase 14 contract; prompt loop skipped)
+ok 137 UX-02 (T-15-01-03 input-sanitization): TTY prompt response 'n; rm -rf /tmp/poison\n' executes no shell injection; first char consumed; component declined
+# [brownfield] purging any existing AgentLinux state (idempotent)
+# [brownfield] creating agent user with shell=/bin/sh (DET-01 incompatible, family-correct non-bash, functional login shell)
+ok 138 UX-04 (D-15-07 accept-suggested): TTY alt-user prompt on wrong-shell fixture; Enter accepts 'agent2' → install proceeds with INSTALL_USER=agent2 + [ALT-USER] accepted marker
+# [brownfield] purging any existing AgentLinux state (idempotent)
+# [brownfield] creating agent user with shell=/bin/sh (DET-01 incompatible, family-correct non-bash, functional login shell)
+ok 139 UX-04 (D-15-07 accept-typed): TTY alt-user prompt; operator types 'mybot' → install proceeds with INSTALL_USER=mybot
+# [brownfield] purging any existing AgentLinux state (idempotent)
+# [brownfield] creating agent user with shell=/bin/sh (DET-01 incompatible, family-correct non-bash, functional login shell)
+ok 140 UX-04 (T-15-02-03 decline-and-bail): TTY alt-user prompt; EOF (no input) → exit 65 + [ALT-USER] declined marker
+# [brownfield] purging any existing AgentLinux state (idempotent)
+# [brownfield] creating agent user with shell=/bin/sh (DET-01 incompatible, family-correct non-bash, functional login shell)
+ok 141 UX-04 (D-15-08 non-TTY bail-with-hint): non-TTY installer on wrong-shell fixture exits 65 with literal '--user=agent2' hint
+# [brownfield] purging any existing AgentLinux state (idempotent)
+# [brownfield] creating agent user with shell=/bin/sh (DET-01 incompatible, family-correct non-bash, functional login shell)
+ok 142 UX-04 (T-15-02-05 input-validation): TTY alt-user prompt rejects 'agent2;rm -rf /tmp/poison' (shell metachars); 3 invalid → exit 64 + canary survives
+ok 143 UX-04 (greenfield invariant): on a greenfield host (no existing agent user), no [ALT-USER] prompt fires; installer completes normally
+ok 144 EL-07: rhel NodeSource-RPM (release has nodesource + yum repo present) classifies nodesource
+ok 145 EL-07: rhel AppStream-module (rpm has nodejs, release lacks nodesource) is a DISTINCT non-nodesource class
+ok 146 EL-07: rhel dual-gate — release has nodesource substring but NO repo file classifies distro_rpm (not nodesource)
+ok 147 EL-07: rhel + rpm -q nodejs fails (absent) emits no rpm-sourced nodejs entry
+ok 148 EL-07: rhel detection is READ-ONLY — no write-path dnf subcommand invoked
+ok 149 EL-07: rhel user probe branches the sudo-capability binary to /usr/bin/dnf --version
+ok 150 EL-07: user probe preserves the can_sudo_apt JSON field name after a rhel dnf probe
+ok 151 EL-01: ubuntu 22.04 → rc0 FAMILY=debian VERSION=22.04 (preserved)
+ok 152 EL-01: ubuntu 24.04 → rc0 FAMILY=debian
+ok 153 EL-01: ubuntu 26.04 → rc0 FAMILY=debian VERSION=26.04 (preserved)
+ok 154 EL-01: ubuntu 20.04 → rejected (unsupported version, exercises ubuntu reject arm)
+ok 155 EL-01: almalinux 9 → rc0 FAMILY=rhel VERSION=9
+ok 156 EL-01: almalinux 9.4 → rc0 FAMILY=rhel VERSION=9.4
+ok 157 EL-01: almalinux 8 → rejected (9.x only)
+ok 158 EL-01: almalinux 10 → rejected (9.x only)
+ok 159 EL-01: rocky 9 → rejected (ID-exact, never ID_LIKE)
+ok 160 EL-01: rhel 9 → rejected (ID-exact, never ID_LIKE)
+ok 161 EL-01: centos 9 → rejected (ID-exact, never ID_LIKE)
+ok 162 EL-01: fedora 40 → rejected (ID-exact)
+ok 163 EL-01: SKIP_DISTRO_CHECK=1 with FAMILY=rhel preset → rc0, FAMILY stays rhel
+ok 164 EL-01: SKIP_DISTRO_CHECK=1 no preset, fixture ID=almalinux → seeds FAMILY=rhel
+ok 165 EL-01: SKIP_DISTRO_CHECK=1 no preset, no readable os-release → defaults FAMILY=debian
+ok 166 EL-02: pkg_install jq on rhel dispatches to dnf (not apt-get)
+ok 167 EL-02: pkg_install jq on debian dispatches to apt-get (not dnf)
+ok 168 EL-02: pkg_is_installed on rhel uses rpm -q (not dpkg-query)
+ok 169 EL-02: pkg_is_installed on debian uses dpkg-query (not rpm)
+ok 170 EL-02: pkg_remove + pkg_autoremove dispatch dnf on rhel, apt-get on debian
+ok 171 EL-02: nodesource_setup on rhel curls rpm.nodesource.com
+ok 172 EL-02: nodesource_setup on debian curls deb.nodesource.com
+ok 173 EL-03: nodesource_setup on rhel fetches the Node 22 RPM setup script (rc 0)
+ok 174 EL-03: nodesource_module_reset on rhel runs dnf module reset nodejs
+ok 175 EL-03: nodesource_module_reset on debian is a no-op (no dnf)
+ok 176 EL-02: nodesource_prereqs on rhel installs ONLY ca-certificates
+ok 177 EL-02: nodesource_prereqs on debian preserves the current apt prereq set byte-for-byte
+ok 178 EL-02: nodesource_repo_paths prints the yum repo path on rhel
+ok 179 EL-02: nodesource_repo_paths prints the apt sources paths on debian
+ok 180 EL-02: locale_ensure on rhel writes /etc/locale.conf via write_file_atomic
+ok 181 EL-02: locale_ensure on debian keeps the locale-gen path (not locale.conf)
+ok 182 EL-04: locale_ensure writes /etc/locale.conf with LANG/LC_ALL=C.UTF-8 on rhel; debian keeps locale-gen
+ok 183 EL-05: the sudo package installs via pkg_install — dnf on rhel, apt-get on debian
+ok 184 EL-02: pkg_install fails closed (non-zero) on an empty AGENTLINUX_DISTRO_FAMILY
+ok 185 EL-02: pkg_install fails closed (non-zero) on a garbage AGENTLINUX_DISTRO_FAMILY
+ok 186 BHV-01: agent user exists with bash shell and /home/agent home
+ok 187 BHV-01: system locale file has LANG=C.UTF-8
+ok 188 BHV-01: system locale file has LC_ALL=C.UTF-8
+ok 189 BHV-01: C.UTF-8 is available in locale -a
+not ok 190 BHV-02: non-interactive SSH sees /home/agent/.local/bin on PATH
+# (from function `__fail' in file tests/bats/helpers/assertions.bash, line 38,
+#  from function `assert_exit_zero' in file tests/bats/helpers/assertions.bash, line 89,
+#  in test file tests/bats/20-agent-user.bats, line 91)
+#   `assert_exit_zero "BHV-02"' failed
+# # FAIL: BHV-02
+# #   expected: exit status 0
+# #   observed: exit status 255; output: Permission denied, please try again.
+# Permission denied, please try again.
+# agent@localhost: Permission denied (publickey,password).
+# #   log:      /var/log/agentlinux-install.log
+not ok 191 BHV-02: non-interactive SSH sees C.UTF-8 locale
+# (from function `__fail' in file tests/bats/helpers/assertions.bash, line 38,
+#  from function `assert_exit_zero' in file tests/bats/helpers/assertions.bash, line 89,
+#  in test file tests/bats/20-agent-user.bats, line 97)
+#   `assert_exit_zero "BHV-02"' failed
+# # FAIL: BHV-02
+# #   expected: exit status 0
+# #   observed: exit status 255; output: Permission denied, please try again.
+# Permission denied, please try again.
+# agent@localhost: Permission denied (publickey,password).
+# #   log:      /var/log/agentlinux-install.log
+ok 192 BHV-03: cron job for agent user sees /home/agent/.local/bin on PATH
+ok 193 BHV-04: systemd User=agent transient unit sees /home/agent/.local/bin on PATH
+ok 194 BHV-04: systemd User=agent transient unit sees C.UTF-8 locale
+ok 195 BHV-05: sudo -u agent (non-login) sees /home/agent/.local/bin on PATH
+ok 196 BHV-05: sudo -u agent -i (login) sees /home/agent/.local/bin on PATH
+ok 197 BHV-05: sudo -u agent -i sees C.UTF-8 locale
+ok 198 BHV-06: interactive bash login sees /home/agent/.local/bin on PATH
+ok 199 BHV-06: interactive bash login sees C.UTF-8 locale
+ok 200 BHV-07: /etc/sudoers.d/agentlinux exists
+ok 201 BHV-07: /etc/sudoers.d/agentlinux has mode 0440 and owner root:root
+ok 202 BHV-07: /etc/sudoers.d/agentlinux contains exact NOPASSWD policy line
+ok 203 BHV-07: /etc/sudoers.d/agentlinux passes visudo -cf validation
+ok 204 INST-06: agent user can run 'sudo -n true' without prompt or error
+ok 205 INST-06: agent user's sudo -l lists NOPASSWD for ALL commands
+ok 206 BHV-07: sudoers drop-in is sha256 byte-stable across installer re-run
+ok 207 INST-07: AC1 default install provisioned user 'agent' (no flag, non-TTY)
+ok 208 INST-07: AC5 invalid usernames rejected with exit 64 and zero mutation
+ok 209 INST-07: AC5 existing system account (uid<1000) refused adoption with exit 64
+ok 210 INST-07: AC2/AC4 --user=claude provisions every artefact under claude
+ok 211 INST-07: AC2 pre-existing user is adopted (uid + home unchanged)
+ok 212 INST-07: AC2 AGENTLINUX_USER env (no flag) honored identically to --user
+ok 213 INST-07: AC4 no leftover 'agent' in install artefacts after --user=claude
+ok 214 INST-07: AC3 interactive prompt provisions under the typed name
+ok 215 INST-07: AC4 catalog op dispatches recipes as the configured user (claude)
+ok 216 RT-01: agent user sees node v22 LTS in every invocation mode
+ok 217 RT-04: npm config get prefix is under /home/agent in every invocation mode
+ok 218 RT-02: cowsay binary resolves to /home/agent/.npm-global/bin in every mode
+ok 219 RT-02: no EACCES during cowsay re-install (INST-05 under npm pressure)
+ok 220 RT-03: npm uninstall -g cowsay leaves no trace
+ok 221 CLI-01: agentlinux binary resolves under /home/agent/.npm-global/bin in every invocation mode
+ok 222 CLI-01: agentlinux --version prints package.json version from every invocation mode
+ok 223 CLI-02: agentlinux list shows the three real agents by default (test-dummy hidden)
+ok 224 CLI-02: agentlinux list --include-test shows test-dummy
+ok 225 CLI-02: agentlinux list --json emits machine-readable JSON array
+ok 226 AL-61: agentlinux adopt with no name and no --all exits 64
+ok 227 AL-61: agentlinux adopt --all on greenfield exits 0 (adopts nothing, installs nothing)
+ok 228 AL-61: agentlinux list reports a cached-healthy unadopted agent as present (not not-installed)
+ok 229 AL-61: agentlinux adopt records a present in-window agent as a reused sentinel without installing
+ok 230 AL-61: agentlinux-install runs adopt-on-install after provisioning
+ok 231 AL-62: agentlinux list reports a non-canonical (npm-path) agent as present with a migrate hint
+ok 232 AL-62: agentlinux adopt reports a non-canonical agent as a migration candidate (no sentinel)
+ok 233 CLI-03: install test-dummy creates marker + sentinel with pinned version
+ok 234 CLI-03: second install test-dummy is idempotent (no-op)
+ok 235 CLI-03: install --force re-runs recipe even on matching sentinel
+ok 236 CLI-03: install --version 9.9.9 overrides catalog pin (sentinel.source=override)
+ok 237 CLI-04: remove test-dummy clears marker + sentinel
+ok 238 CLI-04: remove on not-installed exits 1 without --force; exits 0 with --force
+ok 239 CLI-05: running agentlinux as root exits 64 with 'must run as' message
+ok 240 CLI-05: running agentlinux as agent user succeeds without sudo
+ok 241 CLI-06: upgrade (no flags) prints report without mutating sentinel
+ok 242 CLI-07: pin test-dummy=latest sets sticky=true, source=latest
+ok 243 CLI-07: pin test-dummy=curated clears sticky flag
+ok 244 CAT-01: catalog JSON contains claude-code, gsd, playwright-cli
+ok 245 CAT-02: fresh installed.d/ is empty after force-remove of test-dummy
+ok 246 CAT-04: every list row exposes a non-empty pinned_version
+ok 247 CAT-03: throwaway catalog fixture loads without editing plugin/cli/src/
+ok 248 INST-04: --purge removes /opt/agentlinux, agent user, PATH artefacts; keeps Node
+ok 249 INST-04: --purge is idempotent (second run exits 0 with nothing to clean)
+ok 250 AGT-01: claude --version exits 0 in every invocation mode
+ok 251 AGT-01: gsd-core --help exits 0 in every invocation mode
+ok 252 AGT-01: playwright-cli --version exits 0 in every invocation mode
+ok 253 AGT-02b: claude --version returns exactly pinned_version from catalog.json
+ok 254 AGT-02c: claude-code install stamps DISABLE_AUTOUPDATER=1 in ~agent/.claude/settings.json
+ok 255 AGT-03: claude --help exits 0 and prints no error strings
+ok 256 AGT-04: installed Open GSD package manifest reports the pinned release
+ok 257 AGT-04: agentlinux install gsd wires ~/.claude/skills/gsd-* (>=10 skills present)
+ok 258 AGT-05: playwright-cli --version reports pinned version
+ok 259 AGT-05: agentlinux install playwright-cli wires ~/.claude/skills/playwright-cli
+ok 260 AGT-05: re-install playwright-cli is idempotent (CLI-03 invariant on real agent)
+ok 261 AGT-06: playwright-cli Chromium shared-lib closure is satisfied and it launches headless
+ok 262 AGT-02 (release-gate): claude update exits 0 with zero EACCES/permission-denied lines
+ok 263 AGT-02d: claude binary does not drift forward over 90s idle when DISABLE_AUTOUPDATER stamp is present (with red-phase control) # skip ANTHROPIC_API_KEY not provisioned; see docs/internals/test-secrets.md
+# [brownfield] purging any existing AgentLinux state (idempotent)
+# [brownfield] creating agent user (useradd -m -s /bin/bash)
+# [brownfield] installing canonical ADR-012 sudoers drop-in
+# [brownfield] ensuring NodeSource Node 22 (distro_install_node22)
+# [brownfield] running agentlinux-install --yes to wire PATH for agent's login shell
+# [brownfield] installing claude-code@2.1.98 via npm at PATH-MISMATCH location (~agent/.npm-global/bin)
+# [brownfield] installing @opengsd/gsd-core@1.7.0 via npm (canonical path; REUSE-03 fixture)
+# [brownfield] installing @playwright/cli@0.1.17 via npm (canonical npm-global path; binary lands at playwright-cli)
+# [brownfield] setup_brownfield_host_full complete — 5 artifacts in place
+ok 264 BHV-52a (brownfield-AGT-02 milestone-close gate): pre-populated host + agentlinux install --yes + claude update zero EACCES + version monotonicity + transcript captured
+# [brownfield] purging any existing AgentLinux state (idempotent)
+# [brownfield] creating agent user (useradd -m -s /bin/bash)
+# [brownfield] installing canonical ADR-012 sudoers drop-in
+# [brownfield] ensuring NodeSource Node 22 (distro_install_node22)
+# [brownfield] running agentlinux-install --yes to wire PATH for agent's login shell
+# [brownfield] installing claude-code@2.1.98 via npm at PATH-MISMATCH location (~agent/.npm-global/bin)
+# [brownfield] installing @opengsd/gsd-core@1.7.0 via npm (canonical path; REUSE-03 fixture)
+# [brownfield] installing @playwright/cli@0.1.17 via npm (canonical npm-global path; binary lands at playwright-cli)
+# [brownfield] setup_brownfield_host_full complete — 5 artifacts in place
+ok 265 BHV-52b (setup_brownfield_host_full helper validation): all 5 brownfield artifacts present after setup
+ok 266 AGT-07: codex install→version-pin→symmetric remove lifecycle
+ok 267 ENABLE-05: codex install disables the in-app startup update check and keeps the npm pin authoritative
+ok 268 AGT-06: antigravity-cli install→version-pin→symmetric remove lifecycle
+ok 269 AGT-05: opencode install→version-pin→symmetric remove lifecycle
+ok 270 AGT-08: qwen-code install→version-pin→symmetric remove lifecycle
+ok 271 WORK-01: ccusage install→version-pin→symmetric remove lifecycle
+ok 272 OPS-01: antigravity-cli answers a real prompt when Google auth is preconfigured # skip OPS-01/AGT-06: ANTIGRAVITY_CLI_QA not set; authenticate the agent user with Google Sign-In before this live smoke
+ok 273 OPS-01: opencode answers a real prompt (skips without ANTHROPIC_API_KEY) # skip ANTHROPIC_API_KEY not set
+ok 274 OPS-01: qwen-code answers a real prompt (skips without ANTHROPIC_API_KEY) # skip ANTHROPIC_API_KEY not set
+ok 275 OPS-01: codex answers a real prompt (skips without OPENAI_API_KEY / unfunded key) # skip OPENAI_API_KEY not set
+ok 276 OPS-01: ccusage parses a seeded usage log and reports cost (no credential)
+ok 277 ENABLE-08: opencode install freezes passive autoupdate (autoupdate=false) — explicit upgrade path intact
+ok 278 ENABLE-08: qwen-code install freezes passive autoupdate (general.enableAutoUpdate=false)
+ok 279 OPS-01: qwen-code install disables the Anthropic global-cache-scope path (model.generationConfig.enableCacheControl=false)
+ok 280 ENABLE-08/ENABLE-05: codex install freezes the startup update check (check_for_update_on_startup=false)
+ok 281 AGT-02-style/ENABLE-05: codex update runs as agent — exits 0, no EACCES, no /usr/local shim, pin stays authoritative
+ok 282 AGT-02-style: opencode upgrade runs as agent — exits 0, no EACCES, stays agent-owned, version monotonic
+ok 283 AGT-02-style: antigravity-cli exposes its explicit updater without AgentLinux invoking it
+ok 284 AGT-02-style: qwen-code exposes no in-tool self-updater (pin governed by agentlinux upgrade)
+ok 285 AGT-02-style: ccusage exposes no in-tool self-updater (read-only; pin governed by agentlinux upgrade)
+ok 286 WIRE-01: install gsd wires Open GSD into every supported upstream runtime
+ok 287 WIRE-01: installing Open GSD wires Codex without reintroducing invalid hooks
+ok 288 WIRE-01: removing Open GSD preserves shared Antigravity user state

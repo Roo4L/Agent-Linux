@@ -1,0 +1,6 @@
+▸ removing spec-kit…
+spec-kit: removing the specify-cli uv tool
+Uninstalled 1 executable: specify
+uv-bootstrap: removing AgentLinux-managed uv (no tools remain)
+spec-kit: removed. Any project .specify/ directories are left untouched (yours).
+spec-kit: removed

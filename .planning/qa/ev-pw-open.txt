@@ -1,0 +1,4 @@
+### Browser `default` opened with pid 5211.
+### Error
+Error: Access to "file:" protocol is blocked. Attempted URL: "file:///tmp/page.html"
+open-exit=0

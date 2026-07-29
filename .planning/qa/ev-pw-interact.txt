@@ -1,0 +1,25 @@
+### Ran Playwright code
+```js
+await page.goto('http://127.0.0.1:8099/page.html');
+```
+### Page
+--- snapshot ---
+### Page
+- Page URL: http://127.0.0.1:8099/page.html
+- Page Title: QA Fixture Page
+- Console: 1 errors, 0 warnings
+### Snapshot
+```yaml
+- generic [active] [ref=e1]:
+  - heading "Hello AgentLinux" [level=1] [ref=e2]
+  - textbox [ref=e3]
+  - button "Submit" [ref=e4]
+```
+--- find Hello ---
+### Result
+Found 1 match for "Hello AgentLinux":
+
+- generic [active] [ref=e1]:
+  - heading "Hello AgentLinux" [level=1] [ref=e2]
+  - textbox [ref=e3]
+  - button "Submit" [ref=e4]

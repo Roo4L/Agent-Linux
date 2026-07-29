@@ -1,0 +1,12 @@
+▸ installing github-mcp 1.5.0…
+github-mcp: registering the GitHub remote MCP server (https://api.githubcopilot.com/mcp/) into installed MCP-capable agents
+github-mcp: registered into claude-code (~/.claude.json)
+github-mcp: registered into opencode (~/.config/opencode/opencode.json)
+github-mcp: registered into: claude-code opencode
+github-mcp: NOTE — authenticate from within your coding agent on first use
+github-mcp:        (Claude Code prompts a GitHub OAuth login; codex: `codex mcp login`).
+github-mcp:        OpenCode diagnostics: `opencode mcp debug github-mcp`, then `opencode mcp auth github-mcp`
+github-mcp:        and `opencode auth list`. GitHub's hosted OAuth metadata may not support
+github-mcp:        dynamic client registration; if so, OpenCode reports that external limitation.
+github-mcp:        No token is stored by AgentLinux.
+github-mcp: installed 1.5.0 (curated)
