@@ -643,10 +643,17 @@ __source_lib_chain_with_reuse() {
   # A subsequent explicit `agentlinux install claude-code` is now a correct
   # idempotent no-op (the adopt-on-install sentinel already owns it) — it must
   # NOT reinstall or re-dispatch.
+  #
+  # DIST-01 re-point: the staged CLI is now the musl `agentlinux` command on the
+  # agent's PATH (the provisioner symlinks ~agent/.npm-global/bin/agentlinux at
+  # the staged bin), NOT a dist/index.js Node script. Resolve the command AS the
+  # agent (login shell so the PATH-wiring is in effect) rather than globbing for
+  # a dist/index.js that no longer exists. The behavioral property is unchanged:
+  # the staged CLI must resolve + run the reuse no-op.
   local cli
-  cli=$(find /opt/agentlinux/cli -maxdepth 3 -name index.js -path '*/dist/*' 2>/dev/null | head -1)
+  cli=$(sudo -u agent -H bash --login -c 'command -v agentlinux' 2>/dev/null | head -1)
   [[ -n "$cli" ]] \
-    || __fail "REUSE-03" "CLI index.js exists under /opt/agentlinux/cli/<ver>/dist/" "no match" "/opt/agentlinux/cli/"
+    || __fail "REUSE-03" "staged agentlinux command resolves on the agent PATH" "no match" "/opt/agentlinux/cli/"
   run sudo -u agent "$cli" install claude-code
   assert_exit_zero "REUSE-03"
   printf '%s' "$output" | grep -qiE 'already installed|no-op' \
@@ -666,11 +673,16 @@ __source_lib_chain_with_reuse() {
   [[ -f "$sentinel" ]] || skip "no claude-code sentinel from prior brownfield @test"
   jq -e '.status == "reused"' "$sentinel" >/dev/null || skip "claude-code sentinel is not reused"
 
+  # DIST-01 re-point: resolve the staged musl `agentlinux` command on the agent
+  # PATH (dist/index.js no longer exists after the swap). Use __fail (not skip)
+  # on a missing command so REUSE-03's list-suffix assertion is NOT silently
+  # skipped after the swap — the staged CLI must resolve for this @test to run.
   local cli
-  cli=$(find /opt/agentlinux/cli -maxdepth 3 -name index.js -path '*/dist/*' 2>/dev/null | head -1)
-  [[ -n "$cli" ]] || skip "no CLI index.js found"
+  cli=$(sudo -u agent -H bash --login -c 'command -v agentlinux' 2>/dev/null | head -1)
+  [[ -n "$cli" ]] \
+    || __fail "REUSE-03" "staged agentlinux command resolves on the agent PATH" "no match" "/opt/agentlinux/cli/"
 
-  run sudo -u agent "$cli" list
+  run sudo -u agent -H "$cli" list
   assert_exit_zero "REUSE-03"
   printf '%s' "$output" | grep -qF 'reused — managed by agentlinux upgrade/remove' \
     || __fail "REUSE-03" "reused suffix present in list output" "$output" "$LOG"

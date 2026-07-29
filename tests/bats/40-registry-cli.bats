@@ -90,9 +90,10 @@ teardown() {
 }
 
 # CLI-01: --version prints package.json's `version` across invocation modes —
-# proves the symlink + Node shebang + dist/index.js + package.json
-# "type":"module" chain all fire regardless of which shell wrapper the caller
-# uses. Asserts on $PKG_VERSION (derived from package.json at file scope —
+# proves the symlink + the staged static musl `agentlinux` bin (DIST-01: no Node
+# shebang / no dist/index.js — the bin's own --version prints the CARGO_PKG_VERSION,
+# which is synced to package.json) fire regardless of which shell wrapper the
+# caller uses. Asserts on $PKG_VERSION (derived from package.json at file scope —
 # AL-29) so a release bump in package.json propagates here without an edit.
 @test "CLI-01: agentlinux --version prints package.json version from every invocation mode" {
   local mode

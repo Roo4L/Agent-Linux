@@ -55,7 +55,8 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   #                 /opt/agentlinux/catalog/${AGENTLINUX_VERSION}/agents/test-dummy/install.sh.
   #   Phase 4 (+2 SEPARATE byte-stability checks with their own __fail paths):
   #      - symlink TARGET (readlink /home/agent/.npm-global/bin/agentlinux)
-  #      - CLI entrypoint SHEBANG (first line of /opt/agentlinux/cli/*/dist/index.js)
+  #      - CLI entrypoint byte-stability (DIST-01: sha256 of the staged musl bin;
+  #        legacy TS regime: sha256 of the dist/index.js shebang first line)
   #
   # LOCKED deterministic strategy — four Phase 4 items chosen to avoid
   # whole-tree recursion on /opt/agentlinux/cli/ or /opt/agentlinux/catalog/.
@@ -67,10 +68,31 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   #   - test-dummy/install.sh: cp -R of a checked-in shell script → byte-stable.
   # And we separately verify:
   #   - readlink target: a string, byte-stable by construction.
-  #   - first line of dist/index.js: the #!/usr/bin/env node shebang — stable
-  #     regardless of any internal tsc reordering of the generated body.
+  #   - CLI entrypoint byte-stability: DIST-01 re-point. The shipped artifact is
+  #     now the static musl bin (plugin/bin/agentlinux) with no shebang, so we
+  #     hash the ENTIRE staged bin (equal-or-stronger than the old first-line
+  #     shebang hash: whole-artifact byte-stability across a re-run, not just the
+  #     shebang). Under the AGENTLINUX_LEGACY_TS=1 rollback the staged artifact is
+  #     still the dist/index.js Node script, so we hash its shebang first line
+  #     as before. The regime is detected by which CLI file the provisioner
+  #     staged (bin/agentlinux vs dist/index.js).
   local version
   version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)}
+
+  # Detect the shipped-artifact regime: the Rust provisioner (DIST-01, default)
+  # stages /opt/agentlinux/cli/<ver>/bin/agentlinux; the legacy TS provisioner
+  # stages /opt/agentlinux/cli/<ver>/dist/index.js. The INST-02 re-run below must
+  # invoke the SAME provisioner that produced the state, else idempotency crosses
+  # artifact regimes (a Rust-staged host re-run through the Bash entrypoint would
+  # flip the symlink from bin/agentlinux to dist/index.js and false-fail).
+  local staged_bin="/opt/agentlinux/cli/${version}/bin/agentlinux"
+  local staged_ts="/opt/agentlinux/cli/${version}/dist/index.js"
+  local cli_regime
+  if [[ -f "$staged_bin" ]]; then
+    cli_regime=musl
+  else
+    cli_regime=ts
+  fi
   # distro_nodesource_repo_paths emits one path PER LINE (the rhel arm now emits
   # both nodesource-nodejs.repo AND nodesource-nsolid.repo, mirroring the product
   # nodesource_repo_paths). Read into an array so each path is a SEPARATE find
@@ -96,14 +118,26 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   local sym_pre
   sym_pre=$(readlink /home/agent/.npm-global/bin/agentlinux 2>/dev/null || echo MISSING)
 
-  # CLI entrypoint shebang hash — hashes ONLY the first line to avoid
-  # tsc-output-ordering false positives. A drift here means the shebang
-  # line itself rotated (which would break Node dispatch under the
-  # /usr/bin/env node convention).
-  local shebang_pre
-  shebang_pre=$(head -1 "/opt/agentlinux/cli/${version}/dist/index.js" 2>/dev/null | sha256sum)
+  # CLI entrypoint byte-stability hash. musl regime (DIST-01): sha256 of the
+  # whole staged static bin — a drift means the staged artifact changed across
+  # the re-run (an idempotency break). ts regime (legacy rollback): sha256 of
+  # the dist/index.js shebang first line, as before.
+  local cli_pre
+  if [[ "$cli_regime" == musl ]]; then
+    cli_pre=$(sha256sum "$staged_bin" 2>/dev/null)
+  else
+    cli_pre=$(head -1 "$staged_ts" 2>/dev/null | sha256sum)
+  fi
 
-  run bash "$INSTALLER"
+  # Re-run the SAME provisioner that produced the state (regime-matched). musl:
+  # the staged musl bin's `provision` verb (the DIST-01 default install path);
+  # ts: the Bash agentlinux-install entrypoint (the legacy rollback path). Both
+  # are idempotent — the second run must be byte-stable against the first.
+  if [[ "$cli_regime" == musl ]]; then
+    run "$staged_bin" provision --user agent --yes
+  else
+    run bash "$INSTALLER"
+  fi
   assert_exit_zero "INST-02"
 
   find \
@@ -118,9 +152,13 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     "/opt/agentlinux/catalog/${version}/agents/test-dummy/install.sh" \
     -type f -exec sha256sum {} + >"$post" 2>/dev/null
 
-  local sym_post shebang_post
+  local sym_post cli_post
   sym_post=$(readlink /home/agent/.npm-global/bin/agentlinux 2>/dev/null || echo MISSING)
-  shebang_post=$(head -1 "/opt/agentlinux/cli/${version}/dist/index.js" 2>/dev/null | sha256sum)
+  if [[ "$cli_regime" == musl ]]; then
+    cli_post=$(sha256sum "$staged_bin" 2>/dev/null)
+  else
+    cli_post=$(head -1 "$staged_ts" 2>/dev/null | sha256sum)
+  fi
 
   if ! diff -q "$pre" "$post" >/dev/null 2>&1; then
     local delta
@@ -134,9 +172,9 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     || __fail "INST-02" "agentlinux symlink target stable across re-run" \
          "before=${sym_pre} after=${sym_post}" "$LOG"
 
-  [[ "$shebang_pre" == "$shebang_post" ]] \
-    || __fail "INST-02" "CLI dist/index.js shebang (first line) stable across re-run" \
-         "before=${shebang_pre} after=${shebang_post}" "$LOG"
+  [[ "$cli_pre" == "$cli_post" ]] \
+    || __fail "INST-02" "staged CLI entrypoint (${cli_regime}) byte-stable across re-run" \
+         "before=${cli_pre} after=${cli_post}" "$LOG"
 }
 
 @test "INST-05: installer log has no apt 'no installation candidate' / 'unable to locate package' (AL-37 regression guard)" {

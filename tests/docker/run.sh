@@ -299,6 +299,18 @@ if [[ -n ${AGENTLINUX_PROVISION_RUST:-} ]]; then
   docker exec "$CID" install -d /usr/local/lib/agentlinux/provision
   docker cp "$HOST_MUSL_BIN" "$CID:$RUST_PROVISION_BIN_IN_CONTAINER"
   docker exec "$CID" chmod +x "$RUST_PROVISION_BIN_IN_CONTAINER"
+  # Phase 58 (DIST-01): the Rust provisioner's 50-registry-cli step now STAGES
+  # the shipped musl bin from $AGENTLINUX_SRC_ROOT/bin/agentlinux (the Wave-1
+  # tarball payload layout, plugin/bin/agentlinux) — the tarball producer
+  # (build-release.sh) places it there, but the read-only /workspace source tree
+  # copied into /opt/agentlinux-src has only the Bash entrypoint under plugin/bin.
+  # Splice the built musl bin into the staged src root so the Rust provisioner
+  # finds the artifact it stages (mirrors the CLI-bundle splice above for the TS
+  # oracle). Without this the swapped sanity-check dies "release tarball
+  # malformed?". This is the payload/exec/stage triad the Wave-2 swap couples.
+  docker exec "$CID" install -d /opt/agentlinux-src/plugin/bin
+  docker cp "$HOST_MUSL_BIN" "$CID:/opt/agentlinux-src/plugin/bin/agentlinux"
+  docker exec "$CID" chmod 0755 /opt/agentlinux-src/plugin/bin/agentlinux
   # Invoke the `provision` verb as ROOT. The install user defaults to `agent`
   # (the AGENTLINUX_USER contract resolve_install_user() honors); pass it
   # explicitly for parity with the Bash entrypoint's target. The exact flag
