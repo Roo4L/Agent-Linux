@@ -28,11 +28,12 @@ LOG=/var/log/agentlinux-install.log
 }
 
 @test "AGT-04: detection, reuse, and Node remediation identify gsd-core as canonical" {
-  run grep -En 'gsd-core|@opengsd/gsd-core' \
-    "$SOURCE_ROOT/plugin/cli/src/detect.ts" \
-    "$SOURCE_ROOT/plugin/lib/detect/agents.sh" \
-    "$SOURCE_ROOT/plugin/lib/reuse/agents.sh" \
-    "$SOURCE_ROOT/plugin/lib/remediate/nodejs.sh"
+  # The canonical-path map + the detect/reuse gates now live in the Rust
+  # provisioner (the TS CLI + Bash libs were retired at the cutover).
+  run grep -Ern 'gsd-core|@opengsd/gsd-core' \
+    "$SOURCE_ROOT/rust/crates/agentlinux/src/main.rs" \
+    "$SOURCE_ROOT/rust/crates/agentlinux-core/src/detect_gates.rs" \
+    "$SOURCE_ROOT/rust/crates/agentlinux-core/src/reuse.rs"
   assert_exit_zero "AGT-04/canonical-surfaces"
 }
 

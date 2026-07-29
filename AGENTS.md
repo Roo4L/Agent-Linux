@@ -18,8 +18,9 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
 
 ## Where Things Live
 
-- `plugin/` — shippable installer code (bash entrypoint, lib helpers, provisioner
-  steps, catalog, registry CLI in `plugin/cli/`)
+- `plugin/` — shippable code: the catalog (`plugin/catalog/` — catalog.json + the
+  per-agent Bash recipes) and the shipped musl bin path (`plugin/bin/agentlinux`).
+  The provisioner + registry CLI are the Rust workspace under `rust/`.
 - `tests/bats/` — behavior-contract suite (BHV-XX / RT-XX / AGT-XX / CLI-XX / CAT-XX / INST-XX)
 - `tests/harness/` — harness meta-tests (Phase 1 acceptance gate)
 - `tests/docker/` — fast CI harness (Ubuntu 22.04 + 24.04 + 26.04 matrix, every PR)
@@ -95,8 +96,8 @@ before stopping — `.claude/hooks/session-tracker-reminder.sh` for Claude Code,
 
 ```bash
 ./tests/docker/run.sh ubuntu-24.04        # Run bats inside Docker (Ubuntu 24.04)
-cd plugin/cli && pnpm test                 # CLI unit tests (node:test)
-pre-commit run --all-files                 # Lint bash + TS + catalog schema
+cd rust && cargo test --workspace          # Rust unit tests (provisioner + CLI)
+pre-commit run --all-files                 # Lint bash + catalog schema + version lock
 ./scripts/build-release.sh vX.Y.Z          # Build the release tarball + .sha256
 bash tests/harness/run.sh                  # Run harness meta-tests (Phase 1)
 ```

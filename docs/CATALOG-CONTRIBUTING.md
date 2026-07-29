@@ -38,7 +38,7 @@ shape. Prefer tools that reuse a shared helper over ones needing bespoke machine
 ## 2. Pick a category
 
 `agentlinux list --by-category` groups entries by a small fixed set. The category is
-**derived from the entry's `tags`** (see `plugin/cli/src/catalog/category.ts`) — you do not
+**derived from the entry's `tags`** (see `rust/crates/agentlinux-core/src/category.rs`) — you do not
 set it directly; you choose a canonical category tag. First matching tag wins, in this
 precedence:
 
@@ -88,7 +88,7 @@ one picks the group. An entry with no canonical tag falls under **Other**, never
    (hosted MCP), `preserve_paths_file` (config preserved across uninstall),
    `compatibility_window` (version-adoption window), `post_install_verify`. The full field
    list + validation rules live in `plugin/catalog/schema.json`.
-3. **Validate:** `node plugin/cli/scripts/validate-catalog.mjs` (also runs in pre-commit).
+3. **Validate:** `scripts/check-catalog-schema.sh` (also runs in pre-commit).
 4. **Add a behavior test** in `tests/bats/` that proves the round trip: install →
    `post_install_verify` → symmetric remove, no residue. Copy the shape of the sibling test
    for your source kind: `53-catalog-npm-cluster.bats` (npm), `57-catalog-binary.bats`
@@ -96,7 +96,7 @@ one picks the group. An entry with no canonical tag falls under **Other**, never
 5. **Run the review loop** (see `CLAUDE.md` → Review Loop) and the Docker suite.
 
 Because install/remove dispatch is generic, steps 1–2 are the entire code change — no
-TypeScript is touched. `test-dummy` is the minimal end-to-end proof of exactly this path.
+provisioner code is touched. `test-dummy` is the minimal end-to-end proof of exactly this path.
 
 ## 4. Recipe rules (enforced by review + tests)
 

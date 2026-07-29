@@ -193,8 +193,8 @@ Four test layers. Each answers a different question. Mutation testing is the met
 
 ### 1.4 Build Configuration
 
-- **Plugin bash scripts:** no build step. `plugin/bin/` and `plugin/lib/` ship as-is (after `shfmt` check).
-- **Registry CLI:** `plugin/cli/` (TypeScript) is retained in-repo as the parity oracle for the bats suite until the Phase-59 cutover; its bundle **no longer ships** in the release tarball (Phase 58 DIST-01 — the shipped `agentlinux` is the Rust musl bin).
+- **Catalog Bash recipes:** no build step. `plugin/catalog/agents/*/{install,uninstall}.sh` + `plugin/catalog/lib/` ship as-is (after `shfmt` check).
+- **Provisioner + registry CLI:** the Rust workspace under `rust/` (built to a static x86_64-musl `agentlinux` bin). The TypeScript CLI + Bash provisioner/entrypoint were retired at the cutover; the shipped `agentlinux` is the Rust musl bin (Phase 58 DIST-01) and `cargo test` is the unit-test oracle alongside the bats behavior suite.
 - **Release tarball:** `scripts/build-release.sh` builds the static `x86_64-unknown-linux-musl` `agentlinux` bin and assembles `plugin/bin/agentlinux` (the bin) + `plugin/catalog/` (catalog.json + the ~25 Bash recipes) + a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`. The tarball is byte-reproducible (SOURCE_DATE_EPOCH-pinned tar + `strip`/`--remap-path-prefix`/`--build-id=none` on the bin).
 - **Distribution channel:** the reproducible musl tarball + `.sha256` is the **sole** channel. The optional fpm `.deb` wrapper was removed in Phase 58 (DIST-02; ADR-006 flagged superseded-in-part).
 - **GitHub Releases workflow:** tag `vX.Y.Z` → build tarball → upload tarball + sha256 + catalog snapshot to the release.
