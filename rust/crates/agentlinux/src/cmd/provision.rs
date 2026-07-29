@@ -292,9 +292,22 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     }
 
     // 2. Resolve + validate the install user (--user > $AGENTLINUX_USER > agent).
-    let install_user = match resolve_provision_user(args.user.as_deref()) {
-        Ok(u) => u,
-        Err(code) => return code,
+    //    AL-50 AC3: when no --user is given AND we are on an interactive terminal
+    //    AND the host is greenfield, prompt for the install user (ported from the
+    //    Bash prompt::choose_install_user). The curl-installer path passes --user
+    //    (or is non-TTY), so it never prompts. The wizard's result is already
+    //    validated; a bare Enter / EOF / 3 invalid tries fall back to the default.
+    let install_user = if args.user.is_none()
+        && !args.dry_run
+        && provision::wizard::stdin_is_tty()
+        && provision::wizard::is_greenfield()
+    {
+        provision::wizard::choose_install_user(&resolve_install_user(), &validate_user_name)
+    } else {
+        match resolve_provision_user(args.user.as_deref()) {
+            Ok(u) => u,
+            Err(code) => return code,
+        }
     };
     let install_home = format!("/home/{install_user}");
 

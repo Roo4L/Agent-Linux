@@ -25,6 +25,7 @@ pub mod probe;
 pub mod registry_cli;
 pub mod remediate_npm_prefix;
 pub mod sudoers;
+pub mod wizard;
 
 use crate::distro::Family;
 
