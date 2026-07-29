@@ -37,14 +37,15 @@ _should_remove() {
 
 echo "playwright-cli: removing @playwright/cli + Claude Code skill"
 
-# Step 1: best-effort skill teardown via the bootstrapper. If it's absent or
-# fails we still proceed with the npm uninstall + defensive cleanup below.
-# stderr is not swallowed so the transcript keeps any upstream error.
-if command -v playwright-cli >/dev/null 2>&1; then
-  playwright-cli install --skills --uninstall \
-    || playwright-cli uninstall --skills \
-    || echo "playwright-cli uninstall: bootstrapper teardown returned non-zero (continuing)" >&2
-fi
+# Step 1: skill teardown. The pinned @playwright/cli (0.1.17) exposes NO
+# teardown subcommand — `install --skills --uninstall` and `uninstall --skills`
+# both exit 1 with "Unknown command", so calling the bootstrapper for removal
+# only emitted a misleading "teardown returned non-zero" warning on every
+# uninstall (OBS-02) while accomplishing nothing. The defensive, version-
+# independent skill-dir sweep in Step 2 below is the authoritative teardown and
+# covers both surfaces the installer wired (~/.claude/skills and
+# ~/.agents/skills). If a future re-pin adds a real `uninstall` verb, reintroduce
+# it here guarded on that verb's existence.
 
 # npm does not remove an AgentLinux-owned status adapter that replaced its bin
 # symlink, so remove that exact prefix-local file before uninstalling the npm

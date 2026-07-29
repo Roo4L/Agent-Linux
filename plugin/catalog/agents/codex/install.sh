@@ -70,12 +70,33 @@ ensure_bubblewrap() {
     echo "codex: bubblewrap already present ($(command -v bwrap))"
     return 0
   fi
-  echo "codex: installing bubblewrap (codex's system sandbox) via apt"
-  if sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 \
-    && sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bubblewrap >/dev/null 2>&1; then
-    echo "codex: bubblewrap installed ($(command -v bwrap || echo bwrap))"
+  # Pick the package manager by distro family — apt on Debian/Ubuntu, dnf on
+  # RHEL-likes (incl. AlmaLinux). The apt-only path used to print a misleading
+  # "no apt/sudo?" on EL9, where `dnf install bubblewrap` in fact succeeds and
+  # sudo is available (ADR-012). ID_LIKE detection mirrors the shared
+  # lib/browser-deps.sh al_browser_family. Run the source in a subshell so
+  # os-release vars don't leak into the recipe scope.
+  local family
+  family=$({ . /etc/os-release 2>/dev/null || true; } \
+    && case "${ID_LIKE:-${ID:-}}" in
+      *rhel* | *fedora* | *centos* | *rocky* | *alma*) echo rhel ;;
+      *) echo debian ;;
+    esac)
+  if [[ "$family" == rhel ]]; then
+    echo "codex: installing bubblewrap (codex's system sandbox) via dnf"
+    if sudo -n dnf install -y bubblewrap >/dev/null 2>&1; then
+      echo "codex: bubblewrap installed ($(command -v bwrap || echo bwrap))"
+    else
+      echo "codex install: could not install bubblewrap via dnf; codex will use its bundled copy" >&2
+    fi
   else
-    echo "codex install: could not install bubblewrap (no apt/sudo?); codex will use its bundled copy" >&2
+    echo "codex: installing bubblewrap (codex's system sandbox) via apt"
+    if sudo -n env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 \
+      && sudo -n env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq bubblewrap >/dev/null 2>&1; then
+      echo "codex: bubblewrap installed ($(command -v bwrap || echo bwrap))"
+    else
+      echo "codex install: could not install bubblewrap via apt; codex will use its bundled copy" >&2
+    fi
   fi
 }
 
