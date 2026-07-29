@@ -44,6 +44,13 @@ IFS=$'\n\t'
 : "${AGENTLINUX_VERSION:=}"
 # The install user the provisioner sets up (DIST-01). Overridable for test forks;
 # defaults to `agent` — the canonical AgentLinux install user.
+# SECURITY: this value is NOT regex-gated here (unlike ORG/VERSION) because it only
+# ever crosses to the Rust bin as a discrete `provision --user <value>` argv element
+# (never shell text). The Rust side is the LOAD-BEARING validator: it rejects a
+# malformed/reserved name (`^[a-z][a-z0-9_-]*$` + reserved-name denylist,
+# cmd/provision.rs) with EX_USAGE. If a future change ever routes AGENTLINUX_USER
+# into a path or shell context in THIS installer before that guard runs, add a
+# mirror regex here.
 : "${AGENTLINUX_USER:=agent}"
 
 readonly VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
