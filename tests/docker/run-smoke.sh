@@ -67,18 +67,20 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-echo "== stage sources + splice prebuilt CLI =="
+echo "== stage sources + Rust musl provisioner =="
 docker exec "$CID" bash -c 'cp -R /workspace /opt/agentlinux-src'
-docker exec "$CID" bash -c '
-  set -euo pipefail
-  mkdir -p /opt/agentlinux-src/plugin/cli/dist /opt/agentlinux-src/plugin/cli/node_modules
-  cp -R /opt/cli-prebuilt/dist/. /opt/agentlinux-src/plugin/cli/dist/
-  cp -R /opt/cli-prebuilt/node_modules/. /opt/agentlinux-src/plugin/cli/node_modules/
-  cp /opt/cli-prebuilt/package.json /opt/agentlinux-src/plugin/catalog/catalog.json
-'
+HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
+if [[ ! -x $HOST_MUSL_BIN ]]; then
+  # shellcheck disable=SC1091
+  [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+  (cd "$REPO_ROOT/rust" && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux)
+fi
+docker exec "$CID" install -d /opt/agentlinux-src/plugin/bin
+docker cp "$HOST_MUSL_BIN" "$CID:/opt/agentlinux-src/plugin/bin/agentlinux"
+docker exec "$CID" chmod 0755 /opt/agentlinux-src/plugin/bin/agentlinux
 
-echo "== run installer =="
-docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null
+echo "== run Rust provisioner (agentlinux provision) =="
+docker exec "$CID" /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null
 
 echo "== run OPS-01 smokes (credentials forwarded by name via -e) =="
 set +e

@@ -79,10 +79,11 @@ check_root() {
 # Parse /etc/os-release; die unless it declares a supported distro: Ubuntu
 # 22.04 / 24.04 / 26.04 or AlmaLinux 9.x.
 # Source: 06-RESEARCH.md lines 920-936 (Example: Ubuntu version detection).
-# Keep this allowlist in LOCKSTEP with plugin/lib/distro_detect.sh — both gate
-# the same ubuntu|almalinux support matrix (ID-exact, never the looser
-# similarity field) and the curl-installer test fixture exercises this path
-# before handing off to the staged installer.
+# Keep this allowlist in LOCKSTEP with the Rust provisioner's distro gate
+# (rust/crates/agentlinux-core distro detection) — both gate the same
+# ubuntu|almalinux support matrix (ID-exact, never the looser similarity field)
+# and the curl-installer test fixture exercises this path before handing off to
+# the staged installer.
 # ------------------------------------------------------------------------------
 detect_supported_distro() {
   local id version
@@ -94,7 +95,7 @@ detect_supported_distro() {
   id=${ID:-unknown}
   version=${VERSION_ID:-unknown}
   # Match ID exactly so Rocky/RHEL/CentOS/Fedora and AlmaLinux 8/10 stay refused
-  # — mirrors the two-arm case in plugin/lib/distro_detect.sh.
+  # — mirrors the two-arm distro gate in the Rust provisioner.
   case "$id" in
     ubuntu)
       case "$version" in

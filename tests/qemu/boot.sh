@@ -522,10 +522,8 @@ scp "${SCP_OPTS[@]}" "$TESTS_TAR" "root@localhost:/tmp/tests.tar.gz"
 #         Rust musl `provision` by default via tests/docker/run.sh's default path
 #         (folded in Phase 58) — no override needed.
 #       - QEMU gates (nightly-qemu.yml, release.yml gate-3) run the Rust musl
-#         `provision` via THIS script's re-wired install invocation below (the
-#         default path); a static-musl provisioner-IDENTITY assertion guards it.
-#       - AGENTLINUX_LEGACY_TS=1 is the MANUAL rollback lever (GATE-05), NOT a
-#         gate default: it execs the retained Bash entrypoint instead of Rust.
+#         `provision` via THIS script's install invocation below; a static-musl
+#         provisioner-IDENTITY assertion guards it.
 #
 #     The release tarball (build-release.sh) ships the static x86_64-musl bin at
 #     `plugin/bin/agentlinux`; boot.sh already `tar -xzf`'s it into
@@ -534,98 +532,71 @@ scp "${SCP_OPTS[@]}" "$TESTS_TAR" "root@localhost:/tmp/tests.tar.gz"
 #     separate host-build/scp of the bin; that is the transport difference from
 #     run.sh's docker-cp Docker path).
 #
-#     `ssh ... bash -s -- "$TAG" "$LEGACY_TS"` sends the remote script over stdin
-#     so we never have to quote-escape the body through two shells; the positional
-#     args become $1/$2 inside the remote script. Forwarding the LEGACY_TS lever
-#     as a POSITIONAL ARG (not SendEnv) needs no AcceptEnv drop-in change on the
-#     guest — the guest's sshd AcceptEnv allowlists ANTHROPIC_API_KEY only.
+#     `ssh ... bash -s -- "$TAG"` sends the remote script over stdin
+#     so we never have to quote-escape the body through two shells; the tag
+#     becomes $1 inside the remote script.
 # ---------------------------------------------------------------------------
-LEGACY_TS="${AGENTLINUX_LEGACY_TS:-}"
-if [[ -n $LEGACY_TS ]]; then
-  printf 'running the Bash+TS rollback entrypoint inside the guest [AGENTLINUX_LEGACY_TS]\n'
-else
-  printf 'running the Rust musl `agentlinux provision` inside the guest [default]\n'
-fi
-ssh "${SSH_OPTS[@]}" root@localhost bash -s -- "$TAG" "$LEGACY_TS" <<'REMOTE_INSTALL'
+printf 'running the Rust musl `agentlinux provision` inside the guest [default]\n'
+ssh "${SSH_OPTS[@]}" root@localhost bash -s -- "$TAG" <<'REMOTE_INSTALL'
 set -euo pipefail
 TAG=$1
-LEGACY_TS=${2:-}
 mkdir -p /opt/agentlinux-src
 cd /opt/agentlinux-src
 tar -xzf "/tmp/agentlinux-${TAG}.tar.gz"
 tar -xzf /tmp/tests.tar.gz
 
-if [[ -n $LEGACY_TS ]]; then
-  # GATE-05 rollback lever (mirrors run.sh:297-308): exec the RETAINED Bash
-  # entrypoint instead of the Rust provisioner, so a broken Rust path can be
-  # rolled back to the shippable Bash+TS build for the QEMU gate too. Fail-loud:
-  # if the Bash entrypoint is somehow absent, ABORT rather than false-green.
-  echo "== run installer (Bash+TS rollback) [AGENTLINUX_LEGACY_TS] =="
-  if [[ ! -f plugin/bin/agentlinux-install ]]; then
-    echo "ERROR: Bash+TS rollback requested (AGENTLINUX_LEGACY_TS=1) but the Bash entrypoint (plugin/bin/agentlinux-install) is absent in the extracted tarball — refusing to false-green" >&2
-    exit 1
-  fi
-  bash plugin/bin/agentlinux-install
-else
-  # Default (Rust) path — mirror the Docker default (run.sh:337).
-  #
-  # PROVISIONER-IDENTITY assertion (T-59-04 / Risk #1 — the #1 risk of a false
-  # GATE-02 green if the gate silently runs the Bash path): PROVE the artifact
-  # being run IS the static-musl bin BEFORE invoking `provision`. A Bash-script
-  # or dynamically-linked `agentlinux` FAILS the run non-zero here, so a
-  # regression to the Bash entrypoint cannot false-green the QEMU gate.
-  BIN=plugin/bin/agentlinux
-  if [[ ! -f $BIN ]]; then
-    echo "ERROR: the Rust provisioner is requested but the staged musl bin ($BIN) is absent in the extracted tarball — refusing to run bats against a missing artifact and report false-green" >&2
-    exit 1
-  fi
-  # A shell-script entrypoint starts with a `#!` shebang; the static musl ELF
-  # does not. Reject the shebang'd Bash entrypoint outright.
-  if head -c2 "$BIN" | grep -q '#!'; then
-    echo "ERROR: provisioner-identity guard FAILED — $BIN is a shebang'd script (the Bash entrypoint), NOT the static musl bin. Refusing to false-green GATE-02 on the Bash path (Risk #1)." >&2
-    exit 1
-  fi
+# PROVISIONER-IDENTITY assertion (T-59-04 / Risk #1 — the #1 risk of a false
+# GATE-02 green if the gate silently runs a Bash path): PROVE the artifact being
+# run IS the static-musl bin BEFORE invoking `provision`. A shebang'd script or a
+# dynamically-linked `agentlinux` FAILS the run non-zero here.
+BIN=plugin/bin/agentlinux
+if [[ ! -f $BIN ]]; then
+  echo "ERROR: the staged musl bin ($BIN) is absent in the extracted tarball — refusing to run bats against a missing artifact and report false-green" >&2
+  exit 1
+fi
+# A shell-script entrypoint starts with a `#!` shebang; the static musl ELF
+# does not. Reject a shebang'd entrypoint outright.
+if head -c2 "$BIN" | grep -q '#!'; then
+  echo "ERROR: provisioner-identity guard FAILED — $BIN is a shebang'd script, NOT the static musl bin. Refusing to false-green GATE-02 (Risk #1)." >&2
+  exit 1
+fi
   # Assert statically-linked ELF via readelf (no PT_INTERP) — fall back to
   # `file` (reports 'statically linked') or `ldd` ('not a dynamic executable')
   # on a minimal image where readelf is absent.
-  IDENTITY_OK=0
-  if command -v readelf >/dev/null 2>&1; then
-    if readelf -l "$BIN" 2>/dev/null | grep -q 'INTERP'; then
-      echo "ERROR: provisioner-identity guard FAILED — $BIN has a PT_INTERP segment (dynamically linked), NOT a static musl bin. Refusing to false-green GATE-02 (Risk #1)." >&2
-      exit 1
-    fi
-    echo "provisioner-identity: readelf confirms $BIN has NO PT_INTERP (statically linked)"
-    IDENTITY_OK=1
-  elif command -v file >/dev/null 2>&1; then
-    if ! file "$BIN" | grep -q 'statically linked'; then
-      echo "ERROR: provisioner-identity guard FAILED — file(1) does not report '$BIN' as statically linked. Refusing to false-green GATE-02 (Risk #1). file output: $(file "$BIN")" >&2
-      exit 1
-    fi
-    echo "provisioner-identity: file(1) confirms $BIN is statically linked"
-    IDENTITY_OK=1
-  elif command -v ldd >/dev/null 2>&1; then
-    if ! ldd "$BIN" 2>&1 | grep -q 'not a dynamic executable'; then
-      echo "ERROR: provisioner-identity guard FAILED — ldd(1) does not report '$BIN' as 'not a dynamic executable'. Refusing to false-green GATE-02 (Risk #1)." >&2
-      exit 1
-    fi
-    echo "provisioner-identity: ldd(1) confirms $BIN is not a dynamic executable"
-    IDENTITY_OK=1
-  fi
-  if [[ $IDENTITY_OK -ne 1 ]]; then
-    echo "ERROR: provisioner-identity guard could not run — none of readelf/file/ldd is available in the guest to prove $BIN is the static musl bin. Refusing to false-green GATE-02 (Risk #1)." >&2
+IDENTITY_OK=0
+if command -v readelf >/dev/null 2>&1; then
+  if readelf -l "$BIN" 2>/dev/null | grep -q 'INTERP'; then
+    echo "ERROR: provisioner-identity guard FAILED — $BIN has a PT_INTERP segment (dynamically linked), NOT a static musl bin. Refusing to false-green GATE-02 (Risk #1)." >&2
     exit 1
   fi
-
-  # Invoke the `provision` verb as ROOT (the guest ssh user is root; the Rust
-  # `provision` uses require_root, not the CLI-05 guard — parity with
-  # run.sh:337). Pass `--user agent` explicitly for parity with the Bash
-  # entrypoint's target.
-  echo "== run Rust provisioner (agentlinux provision) [default] =="
-  chmod +x "$BIN"
-  # Invoke via the explicit staged path so the intent — `agentlinux provision
-  # --user agent --yes` — is literal and greppable (parity with run.sh:337).
-  plugin/bin/agentlinux provision --user agent --yes
+  echo "provisioner-identity: readelf confirms $BIN has NO PT_INTERP (statically linked)"
+  IDENTITY_OK=1
+elif command -v file >/dev/null 2>&1; then
+  if ! file "$BIN" | grep -q 'statically linked'; then
+    echo "ERROR: provisioner-identity guard FAILED — file(1) does not report '$BIN' as statically linked. Refusing to false-green GATE-02 (Risk #1). file output: $(file "$BIN")" >&2
+    exit 1
+  fi
+  echo "provisioner-identity: file(1) confirms $BIN is statically linked"
+  IDENTITY_OK=1
+elif command -v ldd >/dev/null 2>&1; then
+  if ! ldd "$BIN" 2>&1 | grep -q 'not a dynamic executable'; then
+    echo "ERROR: provisioner-identity guard FAILED — ldd(1) does not report '$BIN' as 'not a dynamic executable'. Refusing to false-green GATE-02 (Risk #1)." >&2
+    exit 1
+  fi
+  echo "provisioner-identity: ldd(1) confirms $BIN is not a dynamic executable"
+  IDENTITY_OK=1
 fi
+if [[ $IDENTITY_OK -ne 1 ]]; then
+  echo "ERROR: provisioner-identity guard could not run — none of readelf/file/ldd is available in the guest to prove $BIN is the static musl bin. Refusing to false-green GATE-02 (Risk #1)." >&2
+  exit 1
+fi
+
+# Invoke the `provision` verb as ROOT (the guest ssh user is root; the Rust
+# `provision` uses require_root, not the CLI-05 guard — parity with run.sh).
+# Pass `--user agent` explicitly.
+echo "== run Rust provisioner (agentlinux provision) [default] =="
+chmod +x "$BIN"
+plugin/bin/agentlinux provision --user agent --yes
 REMOTE_INSTALL
 
 # ---------------------------------------------------------------------------
