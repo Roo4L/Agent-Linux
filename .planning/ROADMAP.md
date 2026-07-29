@@ -160,7 +160,12 @@ Plans:
   4. The whole-matrix run confirms **no behavior-contract regression / no newly-skipped tests** relative to the TS/Bash baseline (GATE-01).
   5. `master` is shippable at gate close — the Rust track is ready to become `master`, with the pre-cutover TS/Bash build retained as the rollback path (GATE-05).
 
-**Plans**: TBD
+**Plans**: 3 plans
+
+Plans:
+- [ ] 59-01-PLAN.md — Wave 1: resolve the 3 carried reds (13-reuse #29 stale-test fix — schema is the TEST-03 SoT; HRN-05 restore the durable .planning/research/SUMMARY.md; HRN-06 sudoers-0440 rubric) → tests/harness/run.sh green (GATE-01)
+- [ ] 59-02-PLAN.md — Wave 2: re-point tests/qemu/boot.sh at the Rust musl `provision` (mirror run.sh:337) + static-musl provisioner-identity assertion (closes the #1 false-GATE-02 risk) + AGENTLINUX_LEGACY_TS rollback branch; confirm test.yml/release.yml Docker gates run Rust (GATE-02)
+- [ ] 59-03-PLAN.md — Wave 3: behavior-coverage-auditor → 59-COVERAGE.md zero-uncovered (GATE-03) + AGT-02 zero-EACCES on the Rust chain via run.sh default, isolated-invocation trap avoided (GATE-04) + 59-GATE-DECLARATION.md master-ready, TS/Bash rollback retained, no cutover deletion (GATE-05)
 
 ## Progress (v0.4.0)
 
@@ -174,7 +179,7 @@ Plans:
 | 56. Registry CLI Verbs + Dispatcher | 4/4 | ✅ Complete | 2026-07-28 |
 | 57. Provisioner Port + Logic Consolidation | 6/6 | ✅ Complete | 2026-07-29 |
 | 58. Distribution — musl Tarball as Sole Channel | 3/3 | ✅ Complete | 2026-07-29 |
-| 59. Full Validation Gate | 0/? | Not started | - |
+| 59. Full Validation Gate | 0/3 | Planned | - |
 
 ## Current Milestone: v0.3.6 Catalog Expansion
 
