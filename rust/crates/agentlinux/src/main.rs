@@ -3,10 +3,7 @@
 //! Phase 56 (Wave 0) grows the binary from the Phase-53 argv spike into the
 //! clap-parsed CLI shell (`cli.rs`), the typed recipe-env source
 //! (`recipe_env.rs`), and the subprocess dispatcher (`dispatcher.rs`). The six
-//! user-facing verbs parse via clap; their bodies are Wave-1/2 stubs. The
-//! Phase-53 `reuse-decision` provisioner subcommand is PRESERVED as a pre-clap
-//! short-circuit (13-reuse.bats must stay green) — it is dispatched before
-//! `Cli::parse()` so clap never sees it.
+//! user-facing verbs parse via clap.
 //!
 //! The pure/adapter split: the env-var reads and the canonical-path map live
 //! HERE (the I/O boundary); the decision itself lives in
@@ -35,14 +32,12 @@ use cli::{Cli, Command};
 use std::process::ExitCode;
 
 /// GSD's deployed-system VERSION path — a second valid canonical presence for
-/// `gsd` (npx form). MUST stay byte-identical to `REUSE_GSD_SYSTEM_PATH` in
-/// `plugin/lib/reuse/agents.sh` and `GSD_SYSTEM_PATH` in `detect.ts`.
+/// `gsd` (npx form).
 pub(crate) const GSD_SYSTEM_PATH: &str = "/home/agent/.claude/gsd-core/VERSION";
 
 /// The catalog ids WITH a canonical-path entry — the AUTHORITATIVE per-agent
 /// enumerator (PROV-02, 57-06). `cmd/provision.rs` iterates THIS list in-process
-/// to build `RESOLUTIONS[agents.<id>]` (no `agentlinux reuse-decision` shell-out;
-/// no Bash map read). MUST stay in sync with the `canonical_path` match arms and
+/// to build `RESOLUTIONS[agents.<id>]` in-process. MUST stay in sync with the `canonical_path` match arms and
 /// byte-identical to the KEYS of `REUSE_AGENT_CANONICAL_PATHS` in
 /// `plugin/lib/reuse/agents.sh` — the retained Bash shim's map (kept only as the
 /// 13-reuse spec contract + GATE-05 rollback fallback, NOT a second live source).
@@ -63,61 +58,11 @@ pub(crate) fn canonical_path(id: &str) -> Option<&'static str> {
     }
 }
 
-/// Uppercase + hyphens→underscores, matching bash `${id^^//-/_}`
-/// (`claude-code` → `CLAUDE_CODE`).
-fn env_key(id: &str) -> String {
-    id.to_ascii_uppercase().replace('-', "_")
-}
-
-/// `agentlinux reuse-decision <id>`
-///
-/// Reads `DETECT_AGENT_<UPPER>_STATUS` / `_PATH` from the environment (the
-/// contract `detect/agents.sh` exports and `13-reuse.bats` sets), resolves the
-/// canonical path, calls `agentlinux_core::reuse::agent_decision`, and prints
-/// exactly one lowercase token with NO trailing newline (bats asserts
-/// `$output == token`; `run` strips a single trailing newline, but emitting
-/// none is strictly safe and matches the bash `printf '%s'`).
-fn cmd_reuse_decision(id: &str) -> ExitCode {
-    let key = env_key(id);
-    // Unset status defaults to "absent" (bash `${!var:-absent}` in
-    // detect::agent_status).
-    let status = std::env::var(format!("DETECT_AGENT_{key}_STATUS"))
-        .unwrap_or_else(|_| "absent".to_string());
-    // Unset path is compared as "" (bash `${!path_var:-}`).
-    let detected_path = std::env::var(format!("DETECT_AGENT_{key}_PATH")).ok();
-
-    let decision = agentlinux_core::reuse::agent_decision(
-        id,
-        &status,
-        detected_path.as_deref(),
-        canonical_path(id),
-        GSD_SYSTEM_PATH,
-    );
-
-    print!("{}", decision.as_str());
-    ExitCode::SUCCESS
-}
-
 /// EX_USAGE (sysexits.h) — the exit code Commander uses for a parse error, and
 /// the code clap-parse failures map to for like-for-like parity.
 const EX_USAGE: u8 = 64;
 
 fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-
-    // Pre-clap short-circuit for the Phase-53 provisioner subcommand. It is
-    // NOT a clap variant (kept out of `cli.rs` so the six-verb surface stays
-    // byte-stable); `plugin/lib/reuse/agents.sh` shells into it and 13-reuse.bats
-    // asserts a single lowercase token with no trailing newline. Handling it
-    // here — before `Cli::parse()` — keeps that contract exactly as Phase 53
-    // shipped it, immune to any clap help/version interception.
-    if args.first().map(String::as_str) == Some("reuse-decision") {
-        // `agentlinux reuse-decision` with no id decides over the empty id
-        // (bash empty-id branch → create), matching the Phase-53 behavior.
-        let id = args.get(1).map(String::as_str).unwrap_or("");
-        return cmd_reuse_decision(id);
-    }
-
     // Everything else parses via clap. `--version`/`--help` are DisplayVersion/
     // DisplayHelp "errors" that clap prints to stdout and we exit 0 on; a genuine
     // usage error prints to stderr and exits EX_USAGE (64), mirroring Commander.

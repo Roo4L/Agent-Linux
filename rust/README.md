@@ -32,18 +32,11 @@ answer could differ on two machines given the same arguments belongs in the bin.
 |---|---|---|
 | **the entry point** | `crates/agentlinux/src/main.rs` — the verb dispatch table, the root-vs-agent-user guard split, and the canonical per-agent path map | `crates/agentlinux/src/cli.rs` |
 | **the installer**, end to end | `packaging/curl-installer/install.sh` — downloads the tarball, verifies its `.sha256`, then `exec`s `agentlinux provision --user … --yes` | `crates/agentlinux/src/cmd/provision.rs`, then `crates/agentlinux/src/provision/` |
-| **what the CLI accepts** | `crates/agentlinux/src/cli.rs` — every clap verb and flag | plus one hidden verb, below |
+| **what the CLI accepts** | `crates/agentlinux/src/cli.rs` — every verb and flag | — |
 | **one verb's behavior** | `crates/agentlinux/src/cmd/<verb>.rs` | the core module it calls (table below) |
 | **how a version decision is made** | `crates/agentlinux-core/src/classify.rs` | called from `cmd/list.rs` and `cmd/install.rs`; `cmd/upgrade.rs` reaches it indirectly through `core/divergence.rs` |
 | **what installs `claude-code`** | `plugin/catalog/agents/claude-code/install.sh` + `uninstall.sh` | its pinned entry in `plugin/catalog/catalog.json` — not Rust, by design |
 | **how a recipe gets invoked** | `crates/agentlinux/src/dispatcher.rs` | `crates/agentlinux/src/recipe_env.rs` — the env contract recipes read |
-
-**The hidden verb.** `reuse-decision` is dispatched in `main.rs` *before*
-`Cli::parse()` runs, so it never appears in `cli.rs`. It was kept for a Bash
-shim and a bats file that the Rust cutover then deleted, and `cmd/provision.rs`
-calls the same logic in-process rather than shelling out — so it currently has
-no caller. Mentioned here because you will find it in `main.rs` and wonder;
-don't conclude the CLI surface is only what clap defines.
 
 ## The provisioner
 
@@ -79,8 +72,6 @@ print. This is the mapping the module names do not make obvious.
 | `adopt` | `detect_gates` |
 | `provision` | `reuse` |
 | `remove` | none — it is pure I/O |
-
-`reuse-decision` (the hidden verb) also calls `core::reuse`.
 
 ## The bin's other modules, by what they talk to
 

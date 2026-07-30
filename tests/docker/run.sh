@@ -271,52 +271,6 @@ docker exec "$CID" chmod 0755 /opt/agentlinux-src/plugin/bin/agentlinux
 # explicitly.
 docker exec "$CID" "$RUST_PROVISION_BIN_IN_CONTAINER" provision --user agent --yes
 
-# Phase 53 (RUST-03 / GATE-01): stage the static-musl `agentlinux` Rust binary
-# into the container at a ROOT-owned OFF-LOGIN-PATH location (NOT a /usr/local
-# shim — that's the self-update anti-pattern; NOT on the agent's login PATH — see
-# the shadowing note below) so 13-reuse.bats exercises the REAL Rust
-# reuse-decision path via AGENTLINUX_RUST_BIN, not just the bash fallback. The
-# shim (plugin/lib/reuse/agents.sh) still falls back to in-shell logic if the
-# binary is missing, so a build failure here is non-fatal — it just means the bats
-# suite runs the fallback (exactly as master did).
-#
-# Phase 58 (GATE-01 fold): the Phase-56 `AGENTLINUX_STAGE_RUST_CLI` symlink-override
-# block is FOLDED INTO THIS DEFAULT staging. That flag block reconciled CLI-01's
-# interactive mode: the RUST-03 reuse bin used to land at
-# ~agent/.local/bin/agentlinux, which is FIRST on the agent's login PATH (skel
-# ~/.profile prepends ~/.local/bin ahead of /etc/profile.d/agentlinux.sh's
-# .npm-global/bin), so a bin literally named `agentlinux` there SHADOWS the
-# canonical ~agent/.npm-global/bin/agentlinux symlink in the `su - agent` /
-# `sudo -i` login modes CLI-01 iterates (40-registry-cli.bats:80-90). Now that the
-# provisioner owns the canonical .npm-global symlink (the musl bin), the harness
-# must NOT stage a competing
-# front-of-PATH `agentlinux` at all. Fix: stage the reuse bin OFF the login PATH
-# (at /opt/agentlinux/rust/agentlinux, an absolute path the reuse shim's
-# AGENTLINUX_RUST_BIN accepts verbatim) and DO NOT touch the .npm-global symlink —
-# CLI-01 then resolves the provisioner's canonical symlink (musl by default, TS
-# under rollback) in every mode, while the reuse shim exercises the Rust bin via
-# AGENTLINUX_RUST_BIN. Regime-agnostic: the off-PATH staging is identical either
-# way (only the provisioner-owned canonical symlink's TARGET differs by regime).
-RUST_BIN_OFFPATH=/opt/agentlinux/rust/agentlinux
-RUST_BIN_STAGED=""
-echo "== stage Rust agentlinux binary off the login PATH (RUST-03 / GATE-01) =="
-# host_build_musl (defined above) is non-fatal here — a build failure just means
-# the bats suite runs the bash fallback, exactly as master did.
-host_build_musl
-if [[ -x $HOST_MUSL_BIN ]]; then
-  # /opt/agentlinux/rust is NOT on any login/cron/systemd PATH, so a bin named
-  # `agentlinux` here cannot shadow the provisioner's canonical .npm-global/bin
-  # symlink in the CLI-01 interactive/login modes. Agent-owned so the reuse shim
-  # (run as the agent) can exec it.
-  docker exec "$CID" install -d -o agent -g agent /opt/agentlinux/rust
-  docker cp "$HOST_MUSL_BIN" "$CID:$RUST_BIN_OFFPATH"
-  docker exec "$CID" chown agent:agent "$RUST_BIN_OFFPATH"
-  docker exec "$CID" chmod +x "$RUST_BIN_OFFPATH"
-  RUST_BIN_STAGED=$RUST_BIN_OFFPATH
-  echo "-- staged $RUST_BIN_OFFPATH off the login PATH (Rust reuse path active; no CLI-01 shadow) --"
-else
-  echo "-- Rust binary not staged; bats will exercise the bash fallback --"
-fi
 
 # Seed the BHV-02 SSH keypair + start sshd BEFORE bats. The 20-agent-user /
 # 50-agents suites generate this in their own `setup()`, but 30-runtime.bats does
@@ -346,15 +300,9 @@ docker exec "$CID" bash -c '
 ' || echo "-- ssh keypair/sshd seed reported a problem (ssh-mode tests will diagnose) --"
 
 echo "== run bats suite (${BATS_TARGET_PATH}) =="
-# cd into the staged sources so bats discovers helpers/ relatively. When the
-# Rust binary was staged, export AGENTLINUX_RUST_BIN so the reuse shim resolves
-# the absolute path (its security-L1 guard rejects a bare relative name).
-BATS_ENV=()
-if [[ -n $RUST_BIN_STAGED ]]; then
-  BATS_ENV=(env "AGENTLINUX_RUST_BIN=$RUST_BIN_STAGED")
-fi
+# cd into the staged sources so bats discovers helpers/ relatively.
 set +e
-docker exec "$CID" bash -c 'cd /opt/agentlinux-src && '"${BATS_ENV[*]:+${BATS_ENV[*]} }"'bats '"$BATS_TARGET_PATH"
+docker exec "$CID" bash -c 'cd /opt/agentlinux-src && bats '"$BATS_TARGET_PATH"
 BATS_STATUS=$?
 set -e
 
