@@ -34,9 +34,9 @@ Ask of the tests under review:
 - Is shared assertion logic **factored into helpers** rather than copy-pasted, so
   a fix lands in one place?
 
-Stay in your lane: the strict requirement-to-test mapping — is every requirement
-covered at all? — is a separate question; you judge whether the
-tests that exist are strong. Node.js unit-test idioms are `node-engineer`'s.
+Stay in your lane: coverage gaps are in scope, but your primary judgement is
+whether the tests that exist are strong. Node.js unit-test idioms are
+`node-engineer`'s.
 
 ## Where to find project-specific context
 

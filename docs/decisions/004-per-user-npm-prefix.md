@@ -23,7 +23,7 @@ systemd, sudo -u). `npm config get prefix` for the agent user must never return
 
 - `sudo npm install -g` is banned everywhere in installer and catalog code; the
   `security-engineer` review subagent flags it.
-- PATH wiring must belt-and-braces across all six invocation modes
-  in every invocation mode; missing one breaks cron and systemd agents silently.
+- PATH wiring must belt-and-braces across all six invocation modes; missing
+  one breaks cron and systemd agents silently.
 - Uninstall must unwire the prefix and remove the installed binaries without
   touching system-owned files.

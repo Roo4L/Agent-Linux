@@ -11,7 +11,7 @@ well? Judge the design, and exercise your own judgment — do not run a fixed
 checklist.
 
 Stay in your lane: whether the existing tests are thorough, well-asserted, and
-requirement-traced belongs to `qa-engineer`. You
+well-asserted, and traceable to a behavior belongs to `qa-engineer`. You
 review the code under test, not the test suite.
 
 Ask of the code under review:

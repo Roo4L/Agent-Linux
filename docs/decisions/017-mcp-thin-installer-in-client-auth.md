@@ -3,12 +3,11 @@
 **Status:** Accepted
 **Date:** 2026-07-13
 **Supersedes (in part):** the credential-injection approach shipped in the first
-first cut of the github-mcp entry, which this ADR retrofits.
+cut of the github-mcp entry, which this ADR retrofits.
 
 ## Status
 
-Accepted (2026-07-13), locked by maintainer decision during the
-(`/gsd-autonomous`) discuss.
+Accepted (2026-07-13), locked by maintainer decision.
 
 ## Context
 

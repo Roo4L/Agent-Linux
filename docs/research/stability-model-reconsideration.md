@@ -87,7 +87,7 @@ The self-update acceptance test is a **permission invariant**, not a **version
 invariant**. Under A':
 - `agentlinux install claude-code` → `sudo -u agent -H npm install -g @anthropic-ai/claude-code@2.1.7` → binary at `/home/agent/.npm-global/bin/claude`.
 - User runs `claude update` → Claude Code's auto-updater detects npm-global → runs `npm install -g @latest` as agent user → writes to same agent-owned path → success, no EACCES.
-- Result: claude-code now 2.2.0; the acceptance test passes; `agentlinux list` surfaces divergence on next run.
+- Result: claude-code now 2.2.0; the self-update acceptance test passes; `agentlinux list` surfaces divergence on next run.
 
 A companion test was added on the back of this: install the pinned version, assert `claude --version == pinned_version`, no EACCES — verifying the version-lock mechanism itself.
 
@@ -96,7 +96,7 @@ A companion test was added on the back of this: install the pinned version, asse
 Before tagging AgentLinux 0.3.1:
 - (a) Install pinned combo: `agentlinux install --all-curated` + run all bats.
 - (b) Smoke-test: `claude --version == 2.1.7`, `gsd --version`, `npx playwright --version`.
-- (c) The canonical acceptance test: `claude update` from 2.1.7, assert no EACCES, version increased.
+- (c) The self-update acceptance test: `claude update` from 2.1.7, assert no EACCES, version increased.
 - (d) Snapshot reproducibility: re-install from frozen snapshot — byte-identical sentinels.
 - (e) Rollback test: install 0.3.1 combo → `agentlinux upgrade --pin-from snapshot/0.3.0` → assert versions revert.
 

@@ -1,7 +1,7 @@
 # Pillar 2 Exploration — Stability + Time-to-Productive
 
-> Stability-pillar verdict. The vision doc lifts the `## Decision summary` section verbatim
-> into `docs/STRATEGY.md` Pillar 2.
+> Stability-pillar verdict. Its `## Decision summary` is the source for
+> Pillar 2 in `docs/VISION.md`.
 >
 > Locked: 2026-05-10. Source raw material: `.planning/research/SUMMARY.md` §4
 > (agent-evaluation landscape survey), `.planning/research/FEATURES.md`
@@ -41,7 +41,7 @@ the framing context.
 - **T-1 — zero-EACCES self-update.** Per ADR-004 (per-user npm prefix
   as the keystone ownership decision), the curated `claude` binary
   self-updates against the live Anthropic CDN with zero EACCES and zero sudo
-  prompts. Release-gated by the self-update bats test against the live CDN.
+  prompts. Release-gated by the self-update acceptance test against the live CDN.
 - **T-2 — ADR-011 stability model.** Each catalog agent carries
   `pinned_version`; the curated combo is what we test, ship, and serve as
   default. A four-gate release pipeline gates every release.
@@ -83,7 +83,7 @@ reaffirmed in this exploration 2026-05-10).
 
 - **T-1 — zero-EACCES self-update.** The curated `claude` binary
   self-updates against the live Anthropic CDN with zero EACCES and zero sudo
-  prompts. Release-gated; the self-update bats test
+  prompts. Release-gated; the self-update acceptance test
   (`tests/bats/51-agt02-release-gate.bats`) is the evidence and runs against
   the live CDN every release. Recipe:
   `plugin/catalog/agents/claude-code/install.sh`.
@@ -137,7 +137,7 @@ reaffirmed in this exploration 2026-05-10).
   release pipeline; curated combo (claude-code + gsd + playwright-cli)
   tested in Docker + QEMU on Ubuntu 22.04 + 24.04 + 26.04 every release. No
   preset framework yet; no profile framework yet; no formal compat-guarded
-  update flow beyond the release pipeline's manual gate.
+  update flow beyond the four-gate release pipeline's manual gate.
 - **Direction (`next-milestone`, forward-looking voice):** Our roadmap
   commits to a preset framework (`bare` / `must-haves` / `optimum`), a
   profile framework (orthogonal use-case bundles), and a compat-guarded

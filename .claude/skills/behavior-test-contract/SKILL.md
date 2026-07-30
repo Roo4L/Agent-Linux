@@ -62,7 +62,7 @@ Zero occurrences of `EACCES` or `permission denied` on stdout or stderr during t
 - `assert_no_shim <binary>` — follows `readlink -f` to confirm the binary is not a wrapper pointing at a different agent-owned binary.
 - `assert_npm_prefix_is_user_writable` — `npm config get prefix` returns a path the agent user can write to without sudo.
 
-## Test-ID linkage (required)
+## Test naming (required)
 
 Every `@test` line in a `.bats` file MUST name the behavior it defends, so a failure says what broke without opening the file.
 
@@ -72,7 +72,7 @@ Good:
 @test "AGT-02: agent user self-updates Claude Code without EACCES" { ... }
 ```
 
-Bad (no ID — auditor flags this):
+Bad (names no behavior):
 ```bash
 @test "agent can SSH" { ... }
 ```

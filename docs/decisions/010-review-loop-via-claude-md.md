@@ -24,8 +24,8 @@ checks (pre-commit lint, unit tests for changed CLI files) in the future.
   checks (pre-commit) may still live in a future Stop hook.
 - CLAUDE.md instruction is the Anthropic-recommended pattern and matches the
   ELS-OS reference and Spotify's Honk architecture.
-- The review convention lives in `.claude/skills/review/SKILL.md` (arrives in
-  Plan 01-03); CLAUDE.md points at it.
+- The review convention lives in `.claude/skills/review/SKILL.md`; CLAUDE.md
+  points at it.
 - A reminder Stop hook with `stop_hook_active` one-shot guard is allowed
   (see Refinement below); see `.claude/hooks/review-reminder.sh` and
   `.claude/hooks/session-tracker-reminder.sh`.

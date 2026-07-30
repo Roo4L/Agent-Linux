@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # tests/bats/20-agent-user.bats — BHV-01..BHV-06.
 #
-# Every @test name starts with the requirement ID (BHV-XX:) so
-# the suite readable.
+# Every @test name starts with the requirement ID (BHV-XX:) so a failure in
+# bats output names the behavior that broke.
 #
 # Preconditions (set up by tests/docker/run.sh before bats runs):
 #   - agentlinux-install has already been invoked once. Agent user, PATH

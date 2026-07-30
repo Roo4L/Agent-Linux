@@ -11,7 +11,7 @@ follow-on question of *which version* the CLI installs is answered in
 [`stability-model-reconsideration.md`](stability-model-reconsideration.md) and
 settled by ADR-011.
 
-**AGT-02**, the acceptance test this argument keeps returning to, is the
+The **self-update acceptance test** this argument keeps returning to is the
 project's core invariant: the agent user runs Claude Code's self-update and it
 succeeds, with no EACCES and no sudo.
 
@@ -63,7 +63,7 @@ The canonical acceptance test: user opens Claude Code and types `/update`. What 
 
 - **Option A:** `agentlinux install claude-code` ran `sudo -u agent -H curl ... | bash` (native) or `sudo -u agent -H npm install -g @anthropic-ai/claude-code`. Binary lives under `/home/agent/.local/bin/claude` or `/home/agent/.npm-global/bin/claude`. `claude update` resolves `which claude` → agent-owned path → updater writes to same agent-owned path → works, no EACCES. ✓
 
-- **Option B/D:** `apt install agentlinux-claude-code` ran `postinst` as root, which ran `sudo -u agent -H npm install -g ...` into `/home/agent/.npm-global`. User runs `claude update`. `which claude` → `/home/agent/.npm-global/bin/claude` → updater detects "npm-global" → runs `npm install -g` as agent user → **works from Claude Code's side**, but apt's dpkg database now lists a version that's been clobbered by npm; next `apt upgrade` brings the apt-tracked version back and fights the self-update. ⚠ AGT-02 technically green on first test, but the install is in a split-brain state where apt and Claude Code's self-updater each think they own the binary. Regression risk: HIGH.
+- **Option B/D:** `apt install agentlinux-claude-code` ran `postinst` as root, which ran `sudo -u agent -H npm install -g ...` into `/home/agent/.npm-global`. User runs `claude update`. `which claude` → `/home/agent/.npm-global/bin/claude` → updater detects "npm-global" → runs `npm install -g` as agent user → **works from Claude Code's side**, but apt's dpkg database now lists a version that's been clobbered by npm; next `apt upgrade` brings the apt-tracked version back and fights the self-update. ⚠ The acceptance test is technically green on first run, but the install is in a split-brain state where apt and Claude Code's self-updater each think they own the binary. Regression risk: HIGH.
 
 - **Option C:** Same as Option A on the self-update path. ✓
 

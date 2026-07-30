@@ -6,8 +6,8 @@
 # RT-04 (prefix under /home/agent). All six INVOKE_MODES reused from
 # tests/bats/helpers/invoke_modes.bash (shipped in Phase 2 Plan 02-05).
 # Only new helper is assert_user_prefix_in_home (appended in Plan 03-02
-# Task 1). Every @test name starts with its requirement ID so the TST-07
-# the suite readable.
+# Task 1). Every @test name starts with its requirement ID so a failure in
+# bats output names the behavior that broke.
 #
 # Preconditions (set up by tests/docker/run.sh before bats fires):
 #   - agentlinux-install has already run: agent user exists, Node 22 LTS

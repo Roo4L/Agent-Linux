@@ -2,8 +2,8 @@
 # tests/bats/61-no-node-prereq.bats — INST-08 (DIST-01: the CLI/provisioner
 # needs NO Node prerequisite).
 #
-# Every @test name starts with the requirement ID (INST-08:) so
-# the suite readable; failures route through
+# Every @test name starts with the requirement ID (INST-08:) so a failure in
+# bats output names the behavior that broke; failures route through
 # `__fail` for the four-line TST-04 diagnostic (helpers/assertions).
 #
 # DIST-01's central claim after the Phase-58 musl swap: the shipped `agentlinux`

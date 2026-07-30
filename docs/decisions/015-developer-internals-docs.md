@@ -60,7 +60,6 @@ No hook to retract, no settings.json edit to revert. The reversibility cost is b
 ## References
 
 - ADR-010 — Review loop via CLAUDE.md (the precedent this ADR builds on; refined 2026-05-02 to permit reminder hooks with `stop_hook_active` guard).
-- `.planning/phases/12-developer-documentation-for-installer-runtime-and-cli-al-22/12-CONTEXT.md` — the user-decisions context that drove this design.
 - `docs/internals/README.md` — the index doc this ADR drives.
 - `.claude/agents/dev-docs-auditor.md` — the reviewer this ADR drives.
 - `.claude/skills/dev-docs/SKILL.md` — the skill this ADR drives.

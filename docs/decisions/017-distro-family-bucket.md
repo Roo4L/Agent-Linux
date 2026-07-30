@@ -64,7 +64,7 @@ operation through **one** dispatch layer.
    truth, three lockstep sites). No call site ever inlines `if [[ $FAMILY == rhel ]]`.
 
 4. **JSON contract field names are preserved while their probes generalize.** The
-   the `user.can_sudo_apt` detection field (asserted by the bats suite) keeps
+   the `user.can_sudo_apt` field (asserted by the bats suite) keeps
    its name; only the *probe binary* branches (`/usr/bin/apt-get --help` on debian,
    `/usr/bin/dnf --version` on rhel, both absolute-path anchored).
 

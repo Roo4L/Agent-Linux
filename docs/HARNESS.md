@@ -214,7 +214,7 @@ A promoted document must be usable by someone with no access to `.planning/`:
 
 - **Flat.** `docs/research/<question>.md`. No milestone or version subdirectories.
 - **Header:** `Date`, `Question`, `Scope`, `Outcome`. `Outcome` names the decision, links the ADR if there is one, and says what actually shipped — including where the implementation diverged from the design.
-- **No workspace vocabulary.** No phase numbers, plan filenames, requirement IDs, GSD terms, or "what to do next" lists. Name the behavior instead of citing its ID.
+- **No workspace vocabulary.** No phase numbers, plan filenames, requirement IDs, GSD terms, or "what to do next" lists. Name the behavior instead of citing its ID. A dated document's option-comparison table may keep the IDs it was argued with — rewriting those cells rewrites the argument — but its prose may not.
 
 ### 2.3 Decision Records (ADRs)
 

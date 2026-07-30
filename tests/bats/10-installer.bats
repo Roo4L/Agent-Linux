@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # tests/bats/10-installer.bats — INST-01, INST-02, INST-05, DOC-02.
 #
-# Every @test name starts with the requirement ID (INST-XX: or DOC-XX:) so
-# the suite readable.
+# Every @test name starts with the requirement ID (INST-XX: or DOC-XX:) so a
+# failure in bats output names the behavior that broke.
 #
 # Preconditions (set up by tests/docker/run.sh before bats runs):
 #   - agentlinux-install has already been invoked once, writing
@@ -191,8 +191,8 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
   # candidate` or `E: Unable to locate package <name>`. AL-37 is also
   # exercised structurally by tests/docker/Dockerfile.dogfood's empty-cache
   # start state; this @test adds the named negative assertion at the bats
-  # layer so a future regression is visible in the bats output (and in the
-  # grep trail) instead of only in dogfood log
+  # layer so a future regression is visible in the bats output instead of only
+  # in dogfood log
   # scrollback.
   #
   # Naming convention follows tests/bats/60-curl-installer.bats:206

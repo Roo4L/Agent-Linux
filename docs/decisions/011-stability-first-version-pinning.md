@@ -30,10 +30,10 @@ Alternatives considered (see `docs/research/stability-model-reconsideration.md`)
   `agentlinux pin` sets sticky overrides.
 - **B'. Private apt/dpkg repo** — each agent is an AgentLinux-published `.deb`
   served from a PPA. Rejected: `apt upgrade` creates a split-brain with Claude
-  Code's npm-based self-updater — breaking the no-sudo self-update invariant —
-  requires public PPA infrastructure we do not have, does not port to Fedora or
-  Arch without parallel `.rpm`/pacman tracks, and imposes roughly ten times the
-  submitter friction of a JSON entry plus a shell recipe.
+  Code's npm-based self-updater, breaking the no-sudo self-update invariant. It
+  also needs public PPA infrastructure we do not have, needs parallel
+  `.rpm`/pacman tracks for Fedora and Arch, and costs a submitter roughly ten
+  times the effort of a JSON entry plus a shell recipe.
 - **C'. Nix-flavored symlink profiles + lockfile** — reproducible, atomic swap,
   per-agent pinning. More elegant; adds novel symlink-swap semantics and GC
   machinery. Deferred to v0.4+ as a UX upgrade on top of A'.
@@ -75,7 +75,8 @@ Concrete implications:
    - Every catalog entry declares `pinned_version`, validated by JSON Schema.
    - The release artifact includes a catalog snapshot sibling to the tarball
      and its `.sha256`.
-   - `agentlinux upgrade` detects per-agent divergence.
+   - `agentlinux upgrade` detects per-agent divergence and offers a per-agent
+     reconcile.
    - `agentlinux pin <name>=<curated|latest|x.y.z>` sets persistent override
      semantics.
    - CI installs the pinned combo and runs the full bats suite before the
@@ -124,8 +125,8 @@ Concrete implications:
   primary justification; reversal-analysis section explains why the earlier
   research's conclusion extends to A' rather than flipping to B'.
 - ADR-004 — per-user npm prefix (the substrate this ADR builds on).
-- ADR-008 — the CLI's argument-parsing framework (since superseded by the Rust
-  rewrite; this decision only added verbs).
+- ADR-008 — Commander.js for the CLI (since superseded by the Rust rewrite;
+  this decision only added verbs).
 - Nix flakes (`flake.lock`), Homebrew (`brew pin` + `brew outdated`), mise
   (`mise.lock`), npm (`package-lock.json` + `overrides`) — prior art; all
   cited in the reconsideration research.

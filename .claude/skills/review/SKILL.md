@@ -145,7 +145,7 @@ gatekeepers.
 ## Triage
 
 - **Fix:** concrete, verifiable problems such as shellcheck warnings, missing
-  idempotency, swallowed errors, uncovered requirement IDs, unsafe privilege
+  idempotency, swallowed errors, untested behavior, unsafe privilege
   boundaries, `sudo npm install -g`, schema failures, asymmetric uninstall, or
   `/usr/local/bin/` shims to agent-owned binaries.
 - **Skip:** stylistic preferences, duplicate advice, already-addressed points,

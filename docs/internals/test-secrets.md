@@ -140,7 +140,7 @@ Four lockstep edits, plus the GitHub Actions secret-store step:
    @test "feature description" {
      require_secret NEW_TOKEN
      # ... test body uses $NEW_TOKEN ...
-     # On failure: __fail "NEW_TOKEN <set>" "NEW_TOKEN <unset>" "log-path"
+     # On failure: __fail "<what-broke>" "NEW_TOKEN <set>" "NEW_TOKEN <unset>" "log-path"
    }
    ```
 
