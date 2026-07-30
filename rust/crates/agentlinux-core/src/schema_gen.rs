@@ -129,27 +129,29 @@ mod tests {
         "/../../../plugin/catalog/schema.json"
     );
 
-    // NOTE: this drift-check asserts byte-equality of committed vs generated
-    // schema — it does NOT itself assert the schema still REJECTS malformed
-    // catalog entries. That negative-case teeth lives in the ajv suite
-    // `plugin/cli/test/schema.test.ts` (10 negative fixtures — missing pin,
-    // unknown source_kind, npm-missing-package, lowercase secret_env, http
-    // endpoint_url, non-semver version, the `allOf` npm-requires case), run in
-    // the `cli-unit` CI job against this same committed schema.json. Because
-    // committed == generated, those negatives run transitively against the
-    // generated output. Keep both green: a schemars change that is byte-stable
-    // but semantically looser is caught by schema.test.ts, not here.
+    // This drift-check asserts byte-equality of committed vs generated schema.
+    // It does NOT prove the schema still REJECTS a malformed catalog entry —
+    // `constraints_that_reject_a_malformed_entry_survive` below is what pins the
+    // constraints themselves, structurally, without a JSON-Schema validator.
+    //
+    // The ajv suite that used to own the negative cases
+    // (`plugin/cli/test/schema.test.ts`, run in the `cli-unit` job) was DELETED
+    // at the Rust cutover along with the rest of plugin/cli/, so a schemars bump
+    // that loosened a constraint while staying byte-stable had nothing left
+    // checking it. Full JSON-Schema validation of the live catalog is still
+    // absent repo-wide — `scripts/check-catalog-schema.sh` is a hand-transcribed
+    // jq mirror, not a validator.
     #[test]
     fn schema_is_not_drifted() {
         let generated = schema_json();
+        // Emit mode (contributor): write the generated schema to the committed
+        // path, then STILL assert. Returning early made a test that mutates the
+        // source tree and self-neuters on an ambient env var — a stray
+        // UPDATE_SCHEMA in a shell would rewrite the repo and report green.
         if std::env::var("UPDATE_SCHEMA").is_ok() {
-            // Emit mode (contributor / Task 2): write the generated schema to the
-            // committed path and return without asserting.
             std::fs::write(SCHEMA_PATH, &generated)
                 .expect("write generated schema.json to plugin/catalog/");
-            return;
         }
-        // Assert mode (CI + every normal run): committed must equal generated.
         let committed = std::fs::read_to_string(SCHEMA_PATH)
             .expect("read committed plugin/catalog/schema.json");
         assert_eq!(
@@ -157,5 +159,65 @@ mod tests {
             "plugin/catalog/schema.json drifted from the Rust catalog types — \
              regenerate it with `UPDATE_SCHEMA=1 cargo test -p agentlinux-core schema` and commit the result"
         );
+    }
+
+    /// The constraints a malformed entry must trip. Byte-equality alone cannot
+    /// see these move: a `#[derive(JsonSchema)]` change that drops a `required`
+    /// field or widens `source_kind` from an enum to a free string produces a
+    /// drift failure, which the documented fix (`UPDATE_SCHEMA=1`) then makes
+    /// green — with the schema now accepting entries it used to reject.
+    #[test]
+    fn constraints_that_reject_a_malformed_entry_survive() {
+        let schema: serde_json::Value =
+            serde_json::from_str(&schema_json()).expect("generated schema is valid JSON");
+
+        // Reach the entry definition wherever schemars puts it (inline under
+        // properties.agents.items, or behind a $defs reference).
+        let text = schema.to_string();
+
+        // Required fields — an entry missing any of these must not validate.
+        for field in [
+            "id",
+            "pinned_version",
+            "install_recipe_path",
+            "uninstall_recipe_path",
+        ] {
+            assert!(
+                text.contains(&format!("\"{field}\"")),
+                "the schema no longer mentions the required field {field}"
+            );
+        }
+
+        // source_kind stays a CLOSED set — widening it to a free string is the
+        // change that would let an unknown installer kind into the catalog.
+        let source_kind_enum = find_enum(&schema, "source_kind")
+            .expect("source_kind must still be a closed enum, not a free string");
+        for kind in ["npm", "script", "binary", "mcp"] {
+            assert!(
+                source_kind_enum.iter().any(|v| v == kind),
+                "source_kind enum lost {kind}: {source_kind_enum:?}"
+            );
+        }
+    }
+
+    /// Find the `enum` variant list for a named property anywhere in the schema.
+    fn find_enum(node: &serde_json::Value, property: &str) -> Option<Vec<String>> {
+        match node {
+            serde_json::Value::Object(map) => {
+                if let Some(prop) = map.get(property) {
+                    if let Some(values) = prop.get("enum").and_then(|e| e.as_array()) {
+                        return Some(
+                            values
+                                .iter()
+                                .filter_map(|v| v.as_str().map(str::to_string))
+                                .collect(),
+                        );
+                    }
+                }
+                map.values().find_map(|v| find_enum(v, property))
+            }
+            serde_json::Value::Array(items) => items.iter().find_map(|v| find_enum(v, property)),
+            _ => None,
+        }
     }
 }

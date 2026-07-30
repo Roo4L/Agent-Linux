@@ -254,11 +254,42 @@ mod proptests {
             ],
         ) {
             let spec = format!("{name}{sep}{tgt}");
-            // Returning Ok or a PinSpecError without unwinding IS the totality proof.
+            // Totality is the floor; the POSTCONDITIONS are what a `parse_pin_spec`
+            // returning `Usage` for every input would fail. Accepting any outcome
+            // (the previous form) made that mutant survive.
             match parse_pin_spec(&spec) {
-                Ok(_) => {}
-                Err(PinSpecError::Usage { .. }) => {}
-                Err(PinSpecError::InvalidTarget { .. }) => {}
+                Ok(parsed) => {
+                    // A parse only succeeds on the `<name>=<target>` form, and the
+                    // name it reports is exactly the text before the first `=`.
+                    prop_assert_eq!(&parsed.name, &name);
+                    prop_assert!(!name.is_empty(), "an empty name must be a Usage error");
+                    prop_assert_eq!(sep, "=");
+                    // …and the target is one of the three accepted shapes,
+                    // classified independently of parse_pin_spec.
+                    match &parsed.target {
+                        PinTarget::Curated => prop_assert_eq!(&tgt, "curated"),
+                        PinTarget::Latest => prop_assert_eq!(&tgt, "latest"),
+                        PinTarget::Version(v) => {
+                            prop_assert_eq!(v, &tgt);
+                            prop_assert!(
+                                semver_shim::valid(&tgt).is_some(),
+                                "a Version pin must be valid semver: {:?}", tgt
+                            );
+                        }
+                    }
+                }
+                // Usage is for the shape (`<name>=<target>` with a non-empty name).
+                Err(PinSpecError::Usage { .. }) => {
+                    prop_assert!(sep.is_empty() || name.is_empty(), "spec={:?}", spec);
+                }
+                // InvalidTarget is only for a well-shaped spec whose target is
+                // neither keyword nor semver.
+                Err(PinSpecError::InvalidTarget { .. }) => {
+                    prop_assert_eq!(sep, "=");
+                    prop_assert!(!name.is_empty());
+                    prop_assert!(tgt != "curated" && tgt != "latest");
+                    prop_assert!(semver_shim::valid(&tgt).is_none(), "tgt={:?}", tgt);
+                }
             }
         }
 

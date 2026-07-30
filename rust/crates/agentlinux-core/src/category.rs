@@ -220,9 +220,38 @@ mod tests {
 #[cfg(test)]
 mod proptests {
     //! Property tests (TEST-01) — `derive_category` totality + determinism, and
-    //! the precedence-monotonicity property (the property form of Pitfall 3).
+    //! its precedence, checked against an independently written table.
     use super::*;
     use proptest::prelude::*;
+
+    /// The INTENDED tag precedence, hand-written here so it is a real oracle
+    /// rather than a copy of the value under test. Keep it in the order the
+    /// module doc argues for: workflow/token beat devops (rtk is a workflow
+    /// tool), coding-agent beats a bare agent (claude-code), browser/automation
+    /// beat agent (playwright-cli).
+    const INTENDED_PRECEDENCE: &[(&str, CategoryKey)] = &[
+        ("coding-agent", CategoryKey::CodingAgent),
+        ("assistant", CategoryKey::Assistant),
+        ("mcp", CategoryKey::Mcp),
+        ("workflow", CategoryKey::Workflow),
+        ("token", CategoryKey::Workflow),
+        ("devops", CategoryKey::Devops),
+        ("browser", CategoryKey::Browser),
+        ("automation", CategoryKey::Browser),
+        ("agent", CategoryKey::CodingAgent),
+    ];
+
+    /// A reorder of the production table is a behaviour change (rtk moves from
+    /// "Token & workflow" to "DevOps & security"), so it must fail HERE, where
+    /// the message names the intended order — not silently, by both the table
+    /// and the property that reads it moving together.
+    #[test]
+    fn precedence_table_is_the_intended_order() {
+        assert_eq!(
+            TAG_PRECEDENCE, INTENDED_PRECEDENCE,
+            "TAG_PRECEDENCE is order-sensitive (Pitfall 3): first match wins"
+        );
+    }
 
     /// An arbitrary tag drawn from the precedence tags + some noise tags, so the
     /// generated entries cross the interesting first-match boundaries.
@@ -283,31 +312,31 @@ mod proptests {
             ));
         }
 
-        // Precedence-monotonicity (the property form of Pitfall 3): if the
-        // highest-precedence tag present determines the result, prepending a
-        // LOWER-precedence tag must NOT change it. We take an entry, find its
-        // derived category, then assert appending lower-precedence noise is inert.
+        // Precedence, checked against an INDEPENDENT table (Pitfall 3).
+        //
+        // The previous version of this property recomputed `expected` by
+        // scanning the production `TAG_PRECEDENCE` with the production loop —
+        // a tautology. Reorder the table so `devops` precedes `workflow` and
+        // the property recomputed `expected` from the reordered table and
+        // passed, while rtk (["token","workflow","devops"]) silently moved from
+        // "Token & workflow" to "DevOps & security" in `agentlinux list
+        // --by-category`. The oracle below is a hand-written literal in the
+        // INTENDED order; `precedence_table_is_the_intended_order` pins the
+        // production table against it, so a reorder fails loudly and says so.
         #[test]
-        fn derive_category_precedence_is_first_match_wins(
+        fn derive_category_matches_the_independent_precedence_oracle(
             tags in proptest::collection::vec(tag(), 1..6),
         ) {
-            // The category of `tags` equals the category of the FIRST precedence
-            // tag that appears in `tags` (order over TAG_PRECEDENCE, not over the
-            // tags vec). Recompute the expected key by scanning TAG_PRECEDENCE.
             let json = serde_json::json!({
                 "id": "prop", "pinned_version": "1.0.0", "tags": tags,
             });
             let entry: CatalogEntry = serde_json::from_value(json).unwrap();
             let got = derive_category(&entry).key;
 
-            let mut expected = None;
-            for (t, k) in TAG_PRECEDENCE {
-                if entry.tags.iter().any(|x| x == t) {
-                    expected = Some(*k);
-                    break;
-                }
-            }
-            let expected = expected.unwrap_or(CategoryKey::Other);
+            let expected = INTENDED_PRECEDENCE
+                .iter()
+                .find(|(t, _)| entry.tags.iter().any(|x| x == t))
+                .map_or(CategoryKey::Other, |(_, k)| *k);
             prop_assert_eq!(got, expected);
         }
     }

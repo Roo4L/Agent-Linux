@@ -241,9 +241,10 @@ mod rewire_tests {
         env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
-    // A non-zero rewire exit does NOT panic or propagate — best-effort.
+    // A non-zero rewire exit does NOT abort the sweep and does NOT invalidate
+    // the provider's install.
     #[test]
-    fn failed_rewire_is_best_effort_no_panic() {
+    fn a_failed_rewire_leaves_the_sentinel_intact_and_keeps_going() {
         let mut env_scope = crate::test_support::EnvScope::new();
         let state = tempdir().unwrap();
         env_scope.set("AGENTLINUX_STATE_DIR", state.path());
@@ -261,9 +262,20 @@ mod rewire_tests {
             false,
         ))
         .unwrap();
-        let agents = vec![provider("rtk", Some("rewire.sh"))];
+        sentinel::write_sentinel(&Sentinel::new(
+            "gsd".into(),
+            "1.37.1".into(),
+            "curated".into(),
+            false,
+        ))
+        .unwrap();
+        let agents = vec![
+            provider("rtk", Some("rewire.sh")),
+            provider("gsd", Some("rewire.sh")),
+        ];
 
         fn failing(_u: &str, _p: &str, _e: &[(String, String)], _s: bool) -> DispatchResult {
+            DISPATCH_COUNT.fetch_add(1, Ordering::SeqCst);
             DispatchResult {
                 exit_code: 3,
                 stdout: String::new(),
@@ -271,9 +283,23 @@ mod rewire_tests {
                 streamed: false,
             }
         }
-        // Must simply return (the assertion is "no panic").
+
+        DISPATCH_COUNT.store(0, Ordering::SeqCst);
         reconcile_cross_wiring_with("claude-code", &agents, "/opt/cat", "agent", failing);
 
-        env_scope.unset("AGENTLINUX_STATE_DIR");
+        // The behaviour worth defending, and what the old "no panic" version
+        // discarded: the first provider failing must not stop the second…
+        assert_eq!(
+            DISPATCH_COUNT.load(Ordering::SeqCst),
+            2,
+            "a failed rewire must not abort the remaining providers"
+        );
+        // …and a failed rewire must not be mistaken for a failed install: the
+        // provider's sentinel is left exactly as it was.
+        let rtk = sentinel::read_sentinel("rtk")
+            .unwrap()
+            .expect("rtk sentinel");
+        assert_eq!(rtk.version, "1.0.0");
+        assert!(sentinel::read_sentinel("gsd").unwrap().is_some());
     }
 }

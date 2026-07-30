@@ -255,6 +255,47 @@ mod tests {
 }
 
 #[cfg(test)]
+mod fallthrough_tests {
+    //! The status fallthrough, stated explicitly because it is easy to read the
+    //! branch order and conclude the opposite.
+    use super::*;
+
+    /// Only `absent` and `broken` are recognised negatively; ANY other status
+    /// value takes the healthy path. So an agent whose detect record carries an
+    /// unrecognised status (a future `degraded`, or a truncated cache write) at
+    /// the canonical path is REUSED, not reinstalled.
+    ///
+    /// This mirrors the Bash `reuse::agent_decision` it was ported from, so it
+    /// is pinned rather than changed here — but it is a fail-OPEN default, and
+    /// worth revisiting the next time the detect status set grows.
+    #[test]
+    fn an_unrecognised_status_is_treated_as_healthy() {
+        let canonical = "/home/agent/.local/bin/claude";
+        assert_eq!(
+            agent_decision(
+                "claude-code",
+                "degraded",
+                Some(canonical),
+                Some(canonical),
+                ""
+            ),
+            Decision::Reuse
+        );
+        // …and away from the canonical path it remediates, same as healthy.
+        assert_eq!(
+            agent_decision(
+                "claude-code",
+                "degraded",
+                Some("/usr/bin/claude"),
+                Some(canonical),
+                ""
+            ),
+            Decision::Remediate
+        );
+    }
+}
+
+#[cfg(test)]
 mod proptests {
     //! Property test (TEST-01) — `agent_decision` totality. The fn is
     //! branch-total (every path returns a `Decision`); this proves it across
@@ -272,8 +313,9 @@ mod proptests {
             canonical in proptest::option::of(".*"),
             gsd_system_path in ".*",
         ) {
-            // The call returning a Decision without unwinding IS the totality
-            // assertion; assert it is one of the three tokens as a smoke check.
+            // Totality plus the two arms that are decidable from the inputs
+            // alone. "The return is one of three enum variants" is guaranteed by
+            // the type system, so on its own this property could not fail.
             let decision = agent_decision(
                 &id,
                 &status,
@@ -285,6 +327,28 @@ mod proptests {
                 decision,
                 Decision::Reuse | Decision::Remediate | Decision::Create
             ));
+
+            // An absent agent, an empty id, or an id with no canonical path can
+            // only ever be CREATE — never a reuse of something that is not there.
+            if id.is_empty() || status == "absent" || canonical.is_none() {
+                prop_assert_eq!(decision, Decision::Create);
+            }
+            // A known-broken agent is always a REMEDIATE, whatever its path.
+            if !id.is_empty() && status == "broken" && canonical.is_some() {
+                prop_assert_eq!(decision, Decision::Remediate);
+            }
+            // An agent at exactly its canonical path with a status that is not
+            // `absent`/`broken` is always a REUSE — see
+            // `an_unrecognised_status_is_treated_as_healthy` for why the
+            // condition is phrased that way rather than `status == "healthy"`.
+            if !id.is_empty()
+                && status != "absent"
+                && status != "broken"
+                && canonical.is_some()
+                && detected_path.as_deref() == canonical.as_deref()
+            {
+                prop_assert_eq!(decision, Decision::Reuse);
+            }
         }
     }
 }

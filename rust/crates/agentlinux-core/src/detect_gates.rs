@@ -706,11 +706,54 @@ mod proptests {
             gsd_system_path in "[a-z/.0-9-]{0,30}",
             agent_home in "[a-z/.0-9-]{0,20}",
         ) {
-            // Each call returning without unwinding IS the totality proof.
-            let _ = reuse_gate(&entry, &det, canonical.as_deref(), &gsd_system_path, &agent_home);
-            let _ = remediate_gate(&entry, &det, canonical.as_deref(), &gsd_system_path);
-            let _ = presence_gate(&entry, &det, canonical.as_deref(), &gsd_system_path, &agent_home);
-            let _ = is_at_managed_path(&entry, &det.path, canonical.as_deref(), &gsd_system_path, &agent_home);
+            // Totality is the floor — `let _ = f(x)` on its own cannot fail for
+            // any implementation that returns. These are the postconditions that
+            // make each gate's OWN preconditions load-bearing.
+            let reuse = reuse_gate(&entry, &det, canonical.as_deref(), &gsd_system_path, &agent_home);
+            let remediate = remediate_gate(&entry, &det, canonical.as_deref(), &gsd_system_path);
+            let presence = presence_gate(&entry, &det, canonical.as_deref(), &gsd_system_path, &agent_home);
+            let managed = is_at_managed_path(&entry, &det.path, canonical.as_deref(), &gsd_system_path, &agent_home);
+
+            if let Some(hit) = &reuse {
+                // A reuse candidate is ALWAYS a healthy binary at a managed path
+                // whose version parses and lies inside a declared window. Each of
+                // these is a separate early-return in the gate; dropping any one
+                // of them (e.g. reusing an unhealthy binary, or reusing with no
+                // compatibility_window) shows up here.
+                prop_assert_eq!(&det.status, "healthy");
+                prop_assert!(managed, "reuse candidate is not at a managed path");
+                prop_assert!(entry.compatibility_window.as_deref().is_some_and(|w| !w.is_empty()));
+                prop_assert!(semver_shim::valid(&hit.version).is_some());
+                prop_assert!(semver_shim::satisfies(
+                    &hit.version,
+                    entry.compatibility_window.as_deref().unwrap()
+                ));
+            }
+
+            if let Some(hit) = &remediate {
+                // A remediate hit is canonical-gated and carries the canonical
+                // path it will reinstall to, plus the path it actually found.
+                prop_assert_eq!(Some(hit.canonical_path.as_str()), canonical.as_deref());
+                prop_assert_eq!(&hit.detected_path, &det.path);
+                match hit.reason {
+                    RemediateReason::Broken => prop_assert_eq!(&det.status, "broken"),
+                    // The other reasons only fire for a healthy binary that is
+                    // NOT where the catalog says it should be.
+                    _ => prop_assert_eq!(&det.status, "healthy"),
+                }
+            }
+
+            // The two gates are mutually exclusive: a binary cannot both be
+            // reusable where it stands and need reinstalling elsewhere.
+            prop_assert!(
+                !(reuse.is_some() && remediate.is_some()),
+                "reuse and remediate both fired for {:?}", det
+            );
+
+            // Presence implies the binary was actually detected somewhere.
+            if presence.is_some() {
+                prop_assert_ne!(&det.status, "absent");
+            }
         }
     }
 }
