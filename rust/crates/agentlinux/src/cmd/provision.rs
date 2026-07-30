@@ -357,10 +357,25 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //    map IN-PROCESS, calling the pure `reuse::agent_decision` gate per id. NO
     //    Bash map read, NO `reuse-decision` shell-out — the Rust map is the single
     //    authoritative per-agent enumerator.
-    let resolutions = Resolutions::from_decide(
+    let mut resolutions = Resolutions::from_decide(
         crate::CANONICAL_IDS,
         crate::canonical_path,
         crate::GSD_SYSTEM_PATH,
+    );
+
+    // 6b. CORE-COMPONENT brownfield DECIDE (REMEDIATE-01 npm-prefix chown/rebase +
+    //     REMEDIATE-03 sudoers drift). Overwrites the seeded `Create` tokens with
+    //     the real resolution from the host probe, aggregating a bail when a
+    //     state-overwriting remediation is refused (non-TTY, no --yes). ZERO
+    //     mutation here — `flush_or_exit` below short-circuits (exit 65) BEFORE the
+    //     step loop so a refused host stays byte-identical (NO-MUTATION-SNAPSHOT).
+    let mut bails: Vec<provision::remediate::Bail> = Vec::new();
+    provision::remediate::decide_core(
+        &install_user,
+        &install_home,
+        args.yes,
+        &mut resolutions,
+        &mut bails,
     );
 
     let ctx = ProvisionCtx {
@@ -378,6 +393,11 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     if ctx.dry_run {
         return dry_run_report(&ctx, &distro);
     }
+
+    // 7b. Flush aggregated bails: if any core component resolved to an
+    //     unconsented state-overwrite, print the [BAIL] lines + exit 65 (EX_DATAERR)
+    //     NOW — before log-init / the step loop mutates anything.
+    provision::remediate::flush_or_exit(&bails);
 
     // 8. Open the install transcript (INST-01) — mirrors the Bash entrypoint's
     //    `install -m 0644 /dev/null "$LOG_FILE"` + tee. Best-effort: a create

@@ -75,6 +75,130 @@ pub fn user_adoptable(name: &str) -> bool {
     }
 }
 
+/// The REUSE-01 compatibility state of an existing install user. The Bash
+/// `reuse::user_decision` checks five predicates; the irreconcilable one this
+/// provisioner surfaces is the SHELL (a wrong-shell existing user cannot be
+/// adopted — no chsh handler), which bails. Present + a bash login shell → Reuse
+/// (re-attach path wiring / [REMEDIATE-02]); absent → Create.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserState {
+    /// No such user — fresh CREATE (useradd).
+    Absent,
+    /// Exists with a bash login shell — REUSE.
+    Conforming,
+    /// Exists but with a non-bash shell — irreconcilable, BAIL.
+    WrongShell,
+}
+
+/// Probe an existing install user's shell compatibility (REUSE-01 predicate 2).
+/// Absent → `Absent`; shell ∈ {`/bin/bash`, `/usr/bin/bash`} → `Conforming`; any
+/// other shell → `WrongShell`. Reads the passwd DB. I/O.
+#[must_use]
+pub fn user_state(user: &str) -> UserState {
+    match nix::unistd::User::from_name(user) {
+        Ok(Some(u)) => {
+            let shell = u.shell.to_string_lossy();
+            if shell == "/bin/bash" || shell == "/usr/bin/bash" {
+                UserState::Conforming
+            } else {
+                UserState::WrongShell
+            }
+        }
+        _ => UserState::Absent,
+    }
+}
+
+/// The on-host state of `/etc/sudoers.d/agentlinux`, feeding the REMEDIATE-03
+/// decision. Mirrors the Bash `DETECT_SUDOERS_PRESENT` / `DETECT_SUDOERS_NOPASSWD_OK`
+/// exports (`detect/sudoers.sh`): the canonical file carries the exact
+/// `<user> ALL=(ALL) NOPASSWD: ALL` line (ADR-012); a present-but-drifted file
+/// (e.g. a narrow package-scoped NOPASSWD) lacks it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SudoersState {
+    /// No drop-in — fresh CREATE.
+    Absent,
+    /// Present with the canonical ADR-012 NOPASSWD line — REUSE (no-op).
+    Canonical,
+    /// Present but WITHOUT the canonical line — a state-overwriting REMEDIATE.
+    Drifted,
+}
+
+/// Probe `/etc/sudoers.d/agentlinux`. Absent file → `Absent`; a file containing
+/// the exact canonical `<user> ALL=(ALL) NOPASSWD: ALL` line → `Canonical`; a
+/// present file lacking it → `Drifted`. I/O — call at runtime (post require_root),
+/// never during a pure test.
+#[must_use]
+pub fn sudoers_state(user: &str) -> SudoersState {
+    match std::fs::read_to_string("/etc/sudoers.d/agentlinux") {
+        Err(_) => SudoersState::Absent,
+        Ok(content) => {
+            let canonical = format!("{user} ALL=(ALL) NOPASSWD: ALL");
+            if content.lines().any(|l| l.trim() == canonical) {
+                SudoersState::Canonical
+            } else {
+                SudoersState::Drifted
+            }
+        }
+    }
+}
+
+/// The on-host state of the install user's npm-global prefix, feeding the
+/// REMEDIATE-01 decision. Mirrors `reuse::npm_prefix_decision`: absent → create;
+/// present-and-owned-by-the-install-user → reuse; present-but-wrong-owner → a
+/// state-overwriting remediate (chown or rebase, chosen by the ACT `strategy_for`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NpmPrefixState {
+    /// `<home>/.npm-global` does not exist — fresh CREATE (30-nodejs makes it).
+    Absent,
+    /// Exists and is owned by the install user — REUSE.
+    OwnedByUser,
+    /// Exists but owned by someone else (e.g. root) — brownfield REMEDIATE.
+    WrongOwner,
+}
+
+/// The EFFECTIVE npm prefix for the install user: the `prefix=<path>` line in
+/// `<home>/.npmrc` if present, else the canonical `<home>/.npm-global`. Mirrors the
+/// Bash `DETECT_NPM_PREFIX_PATH` — a brownfield host may point npm at a foreign
+/// prefix (e.g. a root-owned `/usr/local/...`) via `.npmrc`, which the REMEDIATE-01
+/// rebase arm migrates away from.
+#[must_use]
+pub fn effective_npm_prefix(home: &str) -> String {
+    let default = format!("{home}/.npm-global");
+    match std::fs::read_to_string(format!("{home}/.npmrc")) {
+        Ok(content) => content
+            .lines()
+            .filter_map(|l| l.split_once('='))
+            .find(|(k, _)| k.trim() == "prefix")
+            .map(|(_, v)| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+            .unwrap_or(default),
+        Err(_) => default,
+    }
+}
+
+/// Probe the install user's EFFECTIVE npm prefix ownership + location. Absent →
+/// `Absent` (30-nodejs creates the canonical one); present, owned by the install
+/// user AND under home → `OwnedByUser` (Reuse); present but wrong-owner OR off-home
+/// → `WrongOwner` (a REMEDIATE-01 chown-or-rebase, strategy chosen by the ACT).
+/// Uses `symlink_metadata` (no deref) + the passwd DB. I/O.
+#[must_use]
+pub fn npm_prefix_state(user: &str, home: &str) -> NpmPrefixState {
+    use std::os::unix::fs::MetadataExt;
+    let prefix = effective_npm_prefix(home);
+    let md = match std::fs::symlink_metadata(&prefix) {
+        Err(_) => return NpmPrefixState::Absent,
+        Ok(md) => md,
+    };
+    let under_home = prefix.starts_with(&format!("{home}/"));
+    let owned =
+        matches!(nix::unistd::User::from_name(user), Ok(Some(u)) if u.uid.as_raw() == md.uid());
+    if owned && under_home {
+        NpmPrefixState::OwnedByUser
+    } else {
+        NpmPrefixState::WrongOwner
+    }
+}
+
 #[cfg(test)]
 mod probe_tests {
     use super::*;

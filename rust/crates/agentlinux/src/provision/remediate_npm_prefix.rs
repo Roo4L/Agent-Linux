@@ -64,9 +64,11 @@ enum Strategy {
 pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
     let user = &ctx.install_user;
     let user_home = &ctx.install_home;
-    // The canonical prefix (see the DEVIATION note above — Wave 5 swaps this for the
-    // detect-cache `DETECT_NPM_PREFIX_PATH`).
-    let prefix = format!("{user_home}/.npm-global");
+    // The EFFECTIVE prefix — the `.npmrc` `prefix=` line if the brownfield host
+    // points npm at a foreign location (a root-owned `/usr/local/...` that must
+    // rebase), else the canonical `<home>/.npm-global` (an under-home wrong-owner
+    // that chowns). Matches the `npm_prefix_state` probe that drove this dispatch.
+    let prefix = crate::provision::probe::effective_npm_prefix(user_home);
 
     if prefix.is_empty() {
         return Err(io::Error::other(

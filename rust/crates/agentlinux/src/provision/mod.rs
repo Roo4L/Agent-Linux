@@ -23,6 +23,7 @@ pub mod nodejs;
 pub mod path_wiring;
 pub mod probe;
 pub mod registry_cli;
+pub mod remediate;
 pub mod remediate_npm_prefix;
 pub mod sudoers;
 pub mod wizard;
