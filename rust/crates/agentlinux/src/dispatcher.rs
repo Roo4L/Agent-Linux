@@ -118,6 +118,15 @@ fn resolve_argv_for(invoker: &str, user: &str, argv: &[String]) -> Vec<String> {
     }
 }
 
+/// The `as_user` signature, as an injectable fn pointer.
+pub type AsUser = fn(
+    user: &str,
+    argv: &[String],
+    env: &[(String, String)],
+    stream: bool,
+    timeout_ms: Option<u64>,
+) -> DispatchResult;
+
 /// Run `argv` as `user`, teeing+capturing when `stream`, honoring an optional
 /// `timeout_ms` that escalates SIGTERM→(2000ms)→SIGKILL. Mirrors `asUser`.
 pub fn as_user(

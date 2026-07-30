@@ -32,7 +32,6 @@
 //! this path is not exercised by the live provisioner run yet; the unit tests pin the
 //! observable outcome (chown vs rebase strategy + the .npmrc prefix line).
 
-use crate::dispatcher;
 use crate::provision::ProvisionCtx;
 use crate::sysio;
 use std::io;
@@ -83,7 +82,7 @@ pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
 
     match strategy_for(Path::new(&prefix), user_home) {
         Strategy::Chown => apply_chown(&prefix, user),
-        Strategy::Rebase => apply_rebase(&prefix, user, user_home, &old_owner),
+        Strategy::Rebase => apply_rebase(ctx, &prefix, &old_owner),
     }
 }
 
@@ -160,20 +159,38 @@ fn apply_chown(prefix: &str, user: &str) -> io::Result<()> {
     Ok(())
 }
 
+/// Point `.npmrc` at `prefix`, replacing any existing `prefix=` line and
+/// preserving every other line (registry, auth tokens) verbatim. Idempotent: a
+/// second call on an already-pointed file rewrites identical bytes.
+fn set_npmrc_prefix(npmrc: &Path, prefix: &str) -> io::Result<()> {
+    let existing = std::fs::read_to_string(npmrc).unwrap_or_default();
+    let mut out: Vec<String> = existing
+        .lines()
+        .filter(|l| !l.split_once('=').is_some_and(|(k, _)| k.trim() == "prefix"))
+        .map(str::to_string)
+        .collect();
+    out.push(format!("prefix={prefix}"));
+    let mut body = out.join("\n");
+    body.push('\n');
+    sysio::write_file_atomic(0o644, npmrc, body.as_bytes())
+}
+
 /// `remediate::nodejs::_apply_rebase` port (remediate/nodejs.sh:136-192). Create
 /// `~user/.npm-global` (bin/ + lib/), point `~user/.npmrc` at it, then migrate
 /// global modules from the OLD prefix best-effort (per-module failures logged
 /// `[REMEDIATE-01:partial]`, no abort). The OLD prefix is NEVER deleted.
-fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) -> io::Result<()> {
+fn apply_rebase(ctx: &ProvisionCtx, old_prefix: &str, old_owner: &str) -> io::Result<()> {
+    let user = &ctx.install_user;
+    let user_home = &ctx.install_home;
     let new_prefix = format!("{user_home}/.npm-global");
     eprintln!("[REMEDIATE-01] strategy=rebase from={old_prefix} to={new_prefix}");
 
     let owner = format!("{user}:{user}");
     // ensure_dir creates OR re-asserts mode+ownership, so a partial prior rebase
     // converges to the canonical state.
-    if sysio::ensure_dir(Path::new(&new_prefix), 0o755, &owner).is_err()
-        || sysio::ensure_dir(Path::new(&format!("{new_prefix}/bin")), 0o755, &owner).is_err()
-        || sysio::ensure_dir(Path::new(&format!("{new_prefix}/lib")), 0o755, &owner).is_err()
+    if (ctx.fx.ensure_dir)(Path::new(&new_prefix), 0o755, &owner).is_err()
+        || (ctx.fx.ensure_dir)(Path::new(&format!("{new_prefix}/bin")), 0o755, &owner).is_err()
+        || (ctx.fx.ensure_dir)(Path::new(&format!("{new_prefix}/lib")), 0o755, &owner).is_err()
     {
         eprintln!("[REMEDIATE-01:fail] reason=mkdir-denied path={new_prefix}");
         return Err(io::Error::other(format!(
@@ -186,18 +203,22 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
     let npmrc = format!("{user_home}/.npmrc");
     let npmrc_path = Path::new(&npmrc);
     if !npmrc_path.exists() {
-        if let Err(e) = create_if_absent_0644(npmrc_path, &owner) {
+        if let Err(e) = create_if_absent_0644(ctx, npmrc_path, &owner) {
             eprintln!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
             return Err(e);
         }
     }
-    sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), npmrc_path)?;
+    // REPLACE any existing `prefix=` line rather than appending a second one.
+    // npm honours the LAST prefix line while `probe::effective_npm_prefix` reads
+    // the FIRST, so an append left the two disagreeing and REMEDIATE-01 re-ran
+    // its whole module migration on every provision, forever.
+    set_npmrc_prefix(npmrc_path, &new_prefix)?;
     std::fs::set_permissions(npmrc_path, std::fs::Permissions::from_mode(0o644))?;
-    chown_by_name(npmrc_path, &owner)?;
+    (ctx.fx.chown)(npmrc_path, &owner)?;
     eprintln!("[REMEDIATE-01] wrote ~{user}/.npmrc with prefix={new_prefix}");
 
     // Enumerate + migrate modules from the OLD prefix, best-effort.
-    let modules = enumerate_modules(old_owner, old_prefix);
+    let modules = enumerate_modules(ctx, old_owner, old_prefix);
     let (mut migrated, mut failed) = (0u32, 0u32);
     if modules.is_empty() {
         eprintln!(
@@ -218,7 +239,7 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
                 .collect();
             // M-2: bound the npm install (300s, the dispatcher's buffered-npm
             // convention) so a wedged/slow registry can't hang provisioning.
-            let r = dispatcher::as_user(user, &argv, &[], false, Some(300_000));
+            let r = (ctx.fx.as_user)(user, &argv, &[], false, Some(300_000));
             if r.exit_code == 0 {
                 eprintln!("[REMEDIATE-01:migrated] module={pkg_at_ver}");
                 migrated += 1;
@@ -240,14 +261,14 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
 /// `npm ls -g --json --depth=0` as the OLD owner with `NPM_CONFIG_PREFIX=<old_prefix>`,
 /// parse the top-level dependency ids to `pkg@version`, minus npm + the catalog
 /// agents. A failure yields an empty manifest (the Bash `|| printf '{}'`).
-fn enumerate_modules(old_owner: &str, old_prefix: &str) -> Vec<String> {
+fn enumerate_modules(ctx: &ProvisionCtx, old_owner: &str, old_prefix: &str) -> Vec<String> {
     let argv: Vec<String> = ["npm", "ls", "-g", "--json", "--depth=0"]
         .iter()
         .map(|s| s.to_string())
         .collect();
     let env = vec![("NPM_CONFIG_PREFIX".to_string(), old_prefix.to_string())];
     // M-2: bound the npm enumeration (300s) so a wedged registry can't hang.
-    let r = dispatcher::as_user(old_owner, &argv, &env, false, Some(300_000));
+    let r = (ctx.fx.as_user)(old_owner, &argv, &env, false, Some(300_000));
     let raw = if r.exit_code == 0 && !r.stdout.trim().is_empty() {
         r.stdout
     } else {
@@ -282,13 +303,13 @@ fn parse_module_manifest(raw: &str) -> Vec<String> {
 
 /// Atomic create-if-absent at 0644 <user>:<user> (mirrors the Bash
 /// `install -m 0644 -o <user> -g <user> /dev/null <path>`).
-fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
+fn create_if_absent_0644(ctx: &ProvisionCtx, path: &Path, owner: &str) -> io::Result<()> {
     if path.exists() {
         return Ok(());
     }
     std::fs::File::create(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
-    chown_by_name(path, owner)
+    (ctx.fx.chown)(path, owner)
 }
 
 /// The on-disk owner USER of `path` (the LHS of the Bash `user:group`), resolved
@@ -329,32 +350,13 @@ fn resolve_user_group(user: &str) -> io::Result<(u32, u32)> {
     Ok((u.uid.as_raw(), u.gid.as_raw()))
 }
 
-/// `chown <user>:<group> <path>` by name — resolve the passwd/group entries and
-/// apply via `std::os::unix::fs::chown`. Shared shape with nodejs.rs / agent_user.rs.
-fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
-    let (user, group) = owner.split_once(':').ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "chown: owner must be user:group",
-        )
-    })?;
-    let uid = nix::unistd::User::from_name(user)
-        .map_err(|e| io::Error::other(format!("chown: user {user}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("chown: unknown user {user}")))?
-        .uid
-        .as_raw();
-    let gid = nix::unistd::Group::from_name(group)
-        .map_err(|e| io::Error::other(format!("chown: group {group}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("chown: unknown group {group}")))?
-        .gid
-        .as_raw();
-    std::os::unix::fs::chown(path, Some(uid), Some(gid))
-        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
-}
-
 #[cfg(test)]
 mod remediate_npm_prefix_tests {
     use super::*;
+    use crate::dispatcher::DispatchResult;
+    use crate::provision::Effects;
+    use std::cell::RefCell;
+    use std::path::PathBuf;
     use tempfile::TempDir;
 
     // strategy_for: a prefix OUTSIDE the user home always rebases (system paths
@@ -496,27 +498,222 @@ mod remediate_npm_prefix_tests {
     // The rebase .npmrc write establishes the prefix line byte-exactly (the RT-04
     // shape) and is idempotent. Exercised unprivileged against a temp home so it
     // pins the observable outcome without needing the module-migration shell-out.
-    #[test]
-    fn rebase_npmrc_prefix_line_is_written_and_idempotent() {
-        let d = TempDir::new().unwrap();
-        let home = d.path().to_string_lossy().into_owned();
+    // --- apply_rebase, driven for real ---
+    //
+    // The previous test re-typed apply_rebase's body inline (ensure_dir +
+    // create_if_absent + ensure_line_in_file) and asserted on its own copy, so it
+    // passed if apply_rebase were deleted. With `as_user` injected, the module
+    // migration and its failure arms are reachable without a live npm.
+
+    thread_local! {
+        static NPM_CALLS: RefCell<Vec<Vec<String>>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn record_npm(argv: &[String]) {
+        NPM_CALLS.with(|c| c.borrow_mut().push(argv.to_vec()));
+    }
+
+    fn npm_calls() -> Vec<Vec<String>> {
+        NPM_CALLS.with(|c| c.borrow().clone())
+    }
+
+    fn ok(stdout: &str) -> DispatchResult {
+        DispatchResult {
+            exit_code: 0,
+            stdout: stdout.to_string(),
+            stderr: String::new(),
+            streamed: false,
+        }
+    }
+
+    /// `npm ls` lists two modules; every `npm install` succeeds.
+    fn npm_two_modules(
+        _u: &str,
+        argv: &[String],
+        _e: &[(String, String)],
+        _s: bool,
+        _t: Option<u64>,
+    ) -> DispatchResult {
+        record_npm(argv);
+        if argv.get(1).is_some_and(|a| a == "ls") {
+            ok(r#"{"dependencies":{"tsx":{"version":"4.7.0"},"npm":{"version":"10.0.0"}}}"#)
+        } else {
+            ok("")
+        }
+    }
+
+    /// `npm ls` lists one module; the install of it fails.
+    fn npm_install_fails(
+        _u: &str,
+        argv: &[String],
+        _e: &[(String, String)],
+        _s: bool,
+        _t: Option<u64>,
+    ) -> DispatchResult {
+        record_npm(argv);
+        if argv.get(1).is_some_and(|a| a == "ls") {
+            ok(r#"{"dependencies":{"tsx":{"version":"4.7.0"}}}"#)
+        } else {
+            DispatchResult {
+                exit_code: 1,
+                stdout: String::new(),
+                stderr: "E404".to_string(),
+                streamed: false,
+            }
+        }
+    }
+
+    /// `npm ls` times out (the dispatcher maps a buffered timeout to exit 1).
+    fn npm_ls_times_out(
+        _u: &str,
+        argv: &[String],
+        _e: &[(String, String)],
+        _s: bool,
+        _t: Option<u64>,
+    ) -> DispatchResult {
+        record_npm(argv);
+        DispatchResult {
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: String::new(),
+            streamed: false,
+        }
+    }
+
+    fn rebase_ctx(home: &Path, as_user: crate::dispatcher::AsUser) -> ProvisionCtx {
+        NPM_CALLS.with(|c| c.borrow_mut().clear());
         let uid = nix::unistd::getuid();
-        let gid = nix::unistd::getgid();
         let uname = nix::unistd::User::from_uid(uid).unwrap().unwrap().name;
-        let gname = nix::unistd::Group::from_gid(gid).unwrap().unwrap().name;
-        let owner = format!("{uname}:{gname}");
+        ProvisionCtx {
+            root: PathBuf::from("/"),
+            fx: Effects {
+                as_user,
+                ..Effects::default()
+            },
+            install_user: uname,
+            install_home: home.to_string_lossy().into_owned(),
+            family: crate::distro::Family::Debian,
+            resolutions: crate::provision::Resolutions::seed_create(),
+            yes: true,
+            dry_run: false,
+        }
+    }
 
-        let new_prefix = format!("{home}/.npm-global");
-        let npmrc = Path::new(d.path()).join(".npmrc");
-        sysio::ensure_dir(Path::new(&new_prefix), 0o755, &owner).unwrap();
-        create_if_absent_0644(&npmrc, &owner).unwrap();
-        sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), &npmrc).unwrap();
-        let after_first = std::fs::read_to_string(&npmrc).unwrap();
-        assert_eq!(after_first, format!("prefix={new_prefix}\n"));
+    #[test]
+    fn rebase_creates_the_prefix_and_points_npmrc_at_it() {
+        let d = TempDir::new().unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
 
-        // Re-run → byte-identical (no duplicate prefix line).
-        create_if_absent_0644(&npmrc, &owner).unwrap();
-        sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), &npmrc).unwrap();
-        assert_eq!(std::fs::read_to_string(&npmrc).unwrap(), after_first);
+        apply_rebase(&ctx, "/usr/local", "root").unwrap();
+
+        let new_prefix = d.path().join(".npm-global");
+        assert!(new_prefix.join("bin").is_dir());
+        assert!(new_prefix.join("lib").is_dir());
+        assert_eq!(
+            std::fs::read_to_string(d.path().join(".npmrc")).unwrap(),
+            format!("prefix={}\n", new_prefix.display())
+        );
+    }
+
+    #[test]
+    fn rebase_converges_and_preserves_other_npmrc_lines() {
+        // The writer used to APPEND a prefix line while the reader took the
+        // FIRST match and npm took the LAST, so the effective prefix never
+        // changed and REMEDIATE-01 re-migrated every module on every provision.
+        let d = TempDir::new().unwrap();
+        std::fs::write(
+            d.path().join(".npmrc"),
+            "prefix=/usr/local\n//registry.npmjs.org/:_authToken=keep-me\n",
+        )
+        .unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+        let new_prefix = format!("{}/.npm-global", d.path().display());
+
+        apply_rebase(&ctx, "/usr/local", "root").unwrap();
+
+        let npmrc = std::fs::read_to_string(d.path().join(".npmrc")).unwrap();
+        assert_eq!(npmrc.matches("prefix=").count(), 1, "npmrc={npmrc:?}");
+        assert!(npmrc.contains("_authToken=keep-me"), "npmrc={npmrc:?}");
+        // The probe now agrees with npm: one prefix line, and it is the new one.
+        assert_eq!(
+            crate::provision::probe::effective_npm_prefix(&ctx.install_home),
+            new_prefix
+        );
+
+        // A second rebase is a fixed point.
+        let before = npmrc.clone();
+        apply_rebase(&ctx, "/usr/local", "root").unwrap();
+        assert_eq!(
+            std::fs::read_to_string(d.path().join(".npmrc")).unwrap(),
+            before
+        );
+    }
+
+    #[test]
+    fn rebase_migrates_every_module_except_the_excluded_ones() {
+        let d = TempDir::new().unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+
+        apply_rebase(&ctx, "/usr/local", "root").unwrap();
+
+        let installs: Vec<Vec<String>> = npm_calls()
+            .into_iter()
+            .filter(|a| a.get(1).is_some_and(|x| x == "install"))
+            .collect();
+        // `npm` itself is excluded from migration; tsx is not.
+        assert_eq!(installs.len(), 1, "calls={:?}", npm_calls());
+        assert_eq!(
+            installs[0],
+            vec!["npm", "install", "-g", "--", "tsx@4.7.0"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>(),
+            "the npm-level `--` must precede the package name"
+        );
+    }
+
+    #[test]
+    fn rebase_enumerates_as_the_old_owner_against_the_old_prefix() {
+        // The OLD owner's npm view of the OLD prefix is the canonical manifest;
+        // enumerating as the NEW user would list the (empty) new prefix.
+        let d = TempDir::new().unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+
+        apply_rebase(&ctx, "/usr/local", "root").unwrap();
+
+        let ls = npm_calls()
+            .into_iter()
+            .find(|a| a.get(1).is_some_and(|x| x == "ls"))
+            .expect("npm ls must run");
+        assert_eq!(ls, vec!["npm", "ls", "-g", "--json", "--depth=0"]);
+    }
+
+    #[test]
+    fn a_failed_module_is_partial_not_fatal() {
+        // Best-effort migration: one module failing must not abort the rebase,
+        // because the npmrc/prefix half has already converged.
+        let d = TempDir::new().unwrap();
+        let ctx = rebase_ctx(d.path(), npm_install_fails);
+
+        apply_rebase(&ctx, "/usr/local", "root").unwrap();
+
+        assert!(d.path().join(".npm-global/bin").is_dir());
+    }
+
+    #[test]
+    fn a_timed_out_enumeration_yields_an_empty_manifest() {
+        // `npm ls` failing (a timeout maps to a non-zero exit) means "nothing to
+        // migrate", never a parse of garbage or an abort.
+        let d = TempDir::new().unwrap();
+        let ctx = rebase_ctx(d.path(), npm_ls_times_out);
+
+        apply_rebase(&ctx, "/usr/local", "root").unwrap();
+
+        assert!(
+            !npm_calls()
+                .iter()
+                .any(|a| a.get(1).is_some_and(|x| x == "install")),
+            "no module may be installed from an empty manifest"
+        );
     }
 }

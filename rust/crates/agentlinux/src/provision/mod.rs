@@ -170,6 +170,10 @@ pub struct Effects {
     pub pkg_install: fn(Family, &[&str]) -> io::Result<()>,
     /// `command -v <name>` — `None` when the program is not on PATH.
     pub which: fn(&str) -> Option<PathBuf>,
+    /// Run argv as a user (the dispatcher's `as_user`), so a step's subprocess
+    /// FAILURE arms — an npm install that exits non-zero, an `npm ls` that times
+    /// out — are reachable without a live npm.
+    pub as_user: crate::dispatcher::AsUser,
 }
 
 impl Default for Effects {
@@ -181,6 +185,7 @@ impl Default for Effects {
             visudo_validate: crate::sysio::visudo_validate,
             pkg_install: crate::pkg::pkg_install,
             which: crate::sysio::which,
+            as_user: crate::dispatcher::as_user,
         }
     }
 }
