@@ -113,10 +113,7 @@ mod cache_tests {
 
     /// Point the detect-cache read at a fixture holding `body`. The returned
     /// TempDir must stay alive for the duration of the test.
-    fn with_cache(
-        env_scope: &mut crate::test_support::EnvScope,
-        body: &str,
-    ) -> tempfile::TempDir {
+    fn with_cache(env_scope: &mut crate::test_support::EnvScope, body: &str) -> tempfile::TempDir {
         let dir = tempdir().unwrap();
         let path = dir.path().join("detect.json");
         std::fs::write(&path, body).unwrap();

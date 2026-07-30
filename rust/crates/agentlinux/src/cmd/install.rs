@@ -36,6 +36,27 @@ use std::process::ExitCode;
 const EX_USAGE: u8 = 64;
 const EX_DATAERR: u8 = 65;
 
+/// Where the verb's user-visible lines go.
+///
+/// The output strings ARE the acceptance contract — `▸ installing`, `[REUSE-03]`,
+/// `[REMEDIATE-04]`, `[DRY-RUN]` are grepped byte-for-byte by the bats suite — so
+/// they need a sink a test can read back. Without one the only thing a Rust test
+/// could do was re-`format!` the same literals inside its own body and compare
+/// them to themselves, which passes even if the verb prints nothing at all.
+pub struct Out<'a> {
+    pub out: &'a mut dyn std::io::Write,
+    pub err: &'a mut dyn std::io::Write,
+}
+
+/// A line to stdout / stderr. Write errors on a closed pipe are not the verb's
+/// business — the exit code is.
+macro_rules! outln {
+    ($o:expr, $($arg:tt)*) => { let _ = writeln!($o.out, $($arg)*); };
+}
+macro_rules! errln {
+    ($o:expr, $($arg:tt)*) => { let _ = writeln!($o.err, $($arg)*); };
+}
+
 /// Dispatcher signature for a recipe (user, recipe_path, env, stream) — the DI
 /// seam. Shared with remove/upgrade. Mirrors `dispatch_recipe`.
 pub type RecipeDispatcher =
@@ -57,13 +78,35 @@ pub fn install(name: &str, opts: &InstallArgs) -> ExitCode {
     install_with(name, opts, real_dispatch)
 }
 
-/// DI-seam variant — the testable core (tests inject a stub dispatcher).
+/// DI-seam variant with the real stdout/stderr wired up.
 #[must_use]
 pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) -> ExitCode {
+    let mut out = std::io::stdout();
+    let mut err = std::io::stderr();
+    install_into(
+        name,
+        opts,
+        dispatch,
+        &mut Out {
+            out: &mut out,
+            err: &mut err,
+        },
+    )
+}
+
+/// DI-seam variant — the testable core (tests inject a stub dispatcher).
+#[must_use]
+pub fn install_into(
+    name: &str,
+    opts: &InstallArgs,
+    dispatch: RecipeDispatcher,
+    o: &mut Out<'_>,
+) -> ExitCode {
     // --dry-run + --yes is contradictory (dry-run never mutates; --yes is a
     // mutation gate). Reject upfront with exit 64 (install.ts:42-47).
     if opts.dry_run && opts.yes {
-        eprintln!(
+        errln!(
+                o,
             "agentlinux install: contradictory flags — --dry-run forbids --yes (dry-run never mutates; --yes is a mutation gate)"
         );
         return ExitCode::from(EX_USAGE);
@@ -74,7 +117,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     let agents = match catalog::load_catalog(&catalog_dir, true) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            errln!(o, "{e}");
             return ExitCode::from(1);
         }
     };
@@ -86,21 +129,24 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
             .map(|a| a.id.as_str())
             .collect::<Vec<_>>()
             .join(", ");
-        eprintln!("agentlinux: no such agent in catalog: {name}");
-        eprintln!("  available: {available}");
+        errln!(o, "agentlinux: no such agent in catalog: {name}");
+        errln!(o, "  available: {available}");
         return ExitCode::from(EX_USAGE);
     };
 
     // test_only entries are refused unless --include-test (install.ts:63-66).
     if entry.test_only && !opts.include_test {
-        eprintln!("agentlinux: {name} is a test-only entry; pass --include-test to install");
+        errln!(
+            o,
+            "agentlinux: {name} is a test-only entry; pass --include-test to install"
+        );
         return ExitCode::from(EX_USAGE);
     }
 
     // --version present but not valid semver → 64 (install.ts:68-71).
     if let Some(v) = opts.version.as_deref() {
         if semver_shim::valid(v).is_none() {
-            eprintln!("agentlinux: --version '{v}' is not a valid semver");
+            errln!(o, "agentlinux: --version '{v}' is not a valid semver");
             return ExitCode::from(EX_USAGE);
         }
     }
@@ -108,7 +154,11 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     let existing = match sentinel::read_sentinel(&entry.id) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("agentlinux: failed to read sentinel for {}: {e}", entry.id);
+            errln!(
+                o,
+                "agentlinux: failed to read sentinel for {}: {e}",
+                entry.id
+            );
             return ExitCode::from(1);
         }
     };
@@ -170,7 +220,11 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         // The Commander install command exposes no `--json` flag (index.ts:49-64),
         // so install.ts's `opts.json` dry-run branch is unreachable in practice —
         // the CLI always prints the `[DRY-RUN]` text line. Match that behavior.
-        println!("[DRY-RUN] {}: {decision} — would {would_action}", entry.id);
+        outln!(
+            o,
+            "[DRY-RUN] {}: {decision} — would {would_action}",
+            entry.id
+        );
         return ExitCode::SUCCESS;
     }
 
@@ -190,10 +244,15 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         s.reused_at = Some(now);
         s.compatibility_window_at_reuse = entry.compatibility_window.clone();
         if let Err(e) = sentinel::write_sentinel(&s) {
-            eprintln!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
+            errln!(
+                o,
+                "agentlinux: failed to write sentinel for {}: {e}",
+                entry.id
+            );
             return ExitCode::from(1);
         }
-        println!(
+        outln!(
+            o,
             "[REUSE-03] {} reused: binary={} version={} (in window {}) status=healthy",
             entry.id,
             hit.binary_path,
@@ -236,22 +295,26 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         // auto-passes (install.ts:159-171).
         let is_tty = std::io::stdin().is_terminal();
         if !opts.yes && !is_tty {
-            eprintln!(
+            errln!(
+                    o,
                 "Refusing to proceed — 1 component needs Remediate (run with --yes to apply, or --dry-run to preview):\n"
             );
-            eprintln!(
+            errln!(
+                o,
                 "[BAIL] component={} reason={} hint=run with --yes to {}",
                 entry.id,
                 rem.reason.as_str(),
                 if is_migration { "migrate" } else { "reinstall" }
             );
-            eprintln!(
+            errln!(
+                    o,
                 "\nExit code 65 (EX_DATAERR — incompatible host state). See agentlinux install --help."
             );
             return ExitCode::from(EX_DATAERR);
         }
 
-        println!(
+        outln!(
+                o,
             "[REMEDIATE-04] {} component={} reason={} detected_path={} canonical_path={} install_version={}{} — {}",
             entry.id,
             entry.id,
@@ -276,12 +339,14 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         let uninstall_env = build_env(entry, &uninstall_version, &catalog_dir, &user);
         let uninstall_result = dispatch(&user, &uninstall_path, &uninstall_env, false);
         if uninstall_result.exit_code != 0 {
-            eprintln!(
+            errln!(
+                o,
                 "[REMEDIATE-04:uninstall-fail] {} uninstall.sh exited {}",
-                entry.id, uninstall_result.exit_code
+                entry.id,
+                uninstall_result.exit_code
             );
             if !uninstall_result.stderr.is_empty() {
-                eprintln!("{}", uninstall_result.stderr);
+                errln!(o, "{}", uninstall_result.stderr);
             }
             return ExitCode::from(1);
         }
@@ -291,7 +356,8 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         let canonical_present = std::path::Path::new(&rem.canonical_path).exists();
         let detected_present = std::path::Path::new(&rem.detected_path).exists();
         if canonical_present || detected_present {
-            eprintln!(
+            errln!(
+                    o,
                 "[REMEDIATE-04:uninstall-incomplete] {} uninstall.sh exited 0 but binary still present (canonical={canonical_present} detected={detected_present})",
                 entry.id
             );
@@ -300,7 +366,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
 
         // Step 2: install.sh at install_version (streaming).
         let install_path = recipe_path(&catalog_dir, &entry.id, &entry.install_recipe_path);
-        println!("▸ reinstalling {} {}…", entry.id, install_version);
+        outln!(o, "▸ reinstalling {} {}…", entry.id, install_version);
         let install_env = build_env(entry, &install_version, &catalog_dir, &user);
         let install_result = dispatch(&user, &install_path, &install_env, true);
         if install_result.exit_code != 0 {
@@ -316,12 +382,13 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
             s.remediated_at = Some(now);
             s.remediate_failure_reason = Some("install-failed-post-uninstall".to_string());
             let _ = sentinel::write_sentinel(&s);
-            eprintln!(
+            errln!(
+                    o,
                 "[REMEDIATE-04:half-uninstalled] {} install.sh exited {} after uninstall succeeded — manual recovery needed (run agentlinux remove {} then agentlinux install {})",
                 entry.id, install_result.exit_code, entry.id, entry.id
             );
             if !install_result.stderr.is_empty() {
-                eprintln!("{}", install_result.stderr);
+                errln!(o, "{}", install_result.stderr);
             }
             return ExitCode::from(1);
         }
@@ -338,10 +405,15 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         s.status = Some("installed".to_string());
         s.remediated_at = Some(now);
         if let Err(e) = sentinel::write_sentinel(&s) {
-            eprintln!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
+            errln!(
+                o,
+                "agentlinux: failed to write sentinel for {}: {e}",
+                entry.id
+            );
             return ExitCode::from(1);
         }
-        println!(
+        outln!(
+            o,
             "[REMEDIATE-04] {}: {} at {install_version} ({install_source})",
             entry.id,
             if is_migration {
@@ -365,9 +437,12 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     if !opts.force {
         if let Some(ex) = existing.as_ref() {
             if semver_shim::eq(&ex.version, &decision.version).unwrap_or(false) {
-                println!(
+                outln!(
+                    o,
                     "{}: already installed at {} ({}); no-op",
-                    entry.id, ex.version, ex.source
+                    entry.id,
+                    ex.version,
+                    ex.source
                 );
                 return ExitCode::SUCCESS;
             }
@@ -376,16 +451,18 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
 
     // create path: dispatch install.sh streaming (install.ts:276-311).
     let install_path = recipe_path(&catalog_dir, &entry.id, &entry.install_recipe_path);
-    println!("▸ installing {} {}…", entry.id, decision.version);
+    outln!(o, "▸ installing {} {}…", entry.id, decision.version);
     let env = build_env(entry, &decision.version, &catalog_dir, &user);
     let result = dispatch(&user, &install_path, &env, true);
     if result.exit_code != 0 {
-        eprintln!(
+        errln!(
+            o,
             "{}: install.sh failed (exit {})",
-            entry.id, result.exit_code
+            entry.id,
+            result.exit_code
         );
         if !result.stderr.is_empty() {
-            eprintln!("{}", result.stderr);
+            errln!(o, "{}", result.stderr);
         }
         // Propagate the recipe exit code (install.ts:297).
         return exit_from_code(result.exit_code);
@@ -401,12 +478,19 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     s.installed_at = Some(now);
     s.status = Some("installed".to_string());
     if let Err(e) = sentinel::write_sentinel(&s) {
-        eprintln!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
+        errln!(
+            o,
+            "agentlinux: failed to write sentinel for {}: {e}",
+            entry.id
+        );
         return ExitCode::from(1);
     }
-    println!(
+    outln!(
+        o,
         "{}: installed {} ({})",
-        entry.id, decision.version, decision.source
+        entry.id,
+        decision.version,
+        decision.source
     );
     rewire::reconcile_cross_wiring(&entry.id, &agents, &catalog_dir.to_string_lossy(), &user);
     ExitCode::SUCCESS
@@ -803,24 +887,185 @@ mod install_tests {
     }
 
     // --- exact literal shapes (byte strings incl. ▸ + [REUSE-03]/[REMEDIATE-04]) ---
+    //
+    // Captured from the verb's own sink. The previous version of this test
+    // re-`format!`ed the same literals inside its body and compared them to
+    // string constants — it passed if `install_into` printed nothing at all, so
+    // a dropped line, a reordered argument or a wrong branch were all invisible.
+
+    /// Run the verb capturing both streams; returns (exit, stdout, stderr).
+    fn run_capturing(
+        name: &str,
+        opts: &InstallArgs,
+        dispatch: RecipeDispatcher,
+    ) -> (ExitCode, String, String) {
+        let mut out: Vec<u8> = Vec::new();
+        let mut err: Vec<u8> = Vec::new();
+        let code = install_into(
+            name,
+            opts,
+            dispatch,
+            &mut Out {
+                out: &mut out,
+                err: &mut err,
+            },
+        );
+        (
+            code,
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        )
+    }
 
     #[test]
-    fn literal_bytes_are_exact() {
-        // Guard the load-bearing byte strings the bats greps (Pitfall 4). These
-        // format the same way the verb prints them.
-        let installing = format!("▸ installing {} {}…", "test-dummy", "0.0.1");
-        assert_eq!(installing, "▸ installing test-dummy 0.0.1…");
-        let reinstalling = format!("▸ reinstalling {} {}…", "claude-code", "2.1.98");
-        assert_eq!(reinstalling, "▸ reinstalling claude-code 2.1.98…");
-        let installed = format!("{}: installed {} ({})", "test-dummy", "0.0.1", "curated");
-        assert_eq!(installed, "test-dummy: installed 0.0.1 (curated)");
-        let noop = format!(
-            "{}: already installed at {} ({}); no-op",
-            "test-dummy", "0.0.1", "curated"
+    fn a_fresh_install_prints_the_progress_and_completion_lines() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        set_env(&mut env_scope, cat.path(), state.path());
+
+        let (code, out, _err) = run_capturing(
+            "test-dummy",
+            &args(false, None, true, false, false, "test-dummy"),
+            ok_dispatch,
         );
+
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(
+            out.contains("▸ installing test-dummy 0.0.1…\n"),
+            "stdout={out:?}"
+        );
+        assert!(
+            out.contains("test-dummy: installed 0.0.1 (curated)\n"),
+            "stdout={out:?}"
+        );
+    }
+
+    #[test]
+    fn a_second_install_prints_the_no_op_line_and_does_not_dispatch() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        set_env(&mut env_scope, cat.path(), state.path());
+        let a = args(false, None, true, false, false, "test-dummy");
         assert_eq!(
-            noop,
-            "test-dummy: already installed at 0.0.1 (curated); no-op"
+            run_capturing("test-dummy", &a, ok_dispatch).0,
+            ExitCode::SUCCESS
         );
+
+        // A failing dispatcher proves the second run never reaches the recipe.
+        let (code, out, _err) = run_capturing("test-dummy", &a, fail_dispatch);
+
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(
+            out.contains("test-dummy: already installed at 0.0.1 (curated); no-op\n"),
+            "stdout={out:?}"
+        );
+    }
+
+    #[test]
+    fn the_dry_run_marker_is_byte_exact() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        set_env(&mut env_scope, cat.path(), state.path());
+
+        let (code, out, _err) = run_capturing(
+            "test-dummy",
+            &args(false, None, true, false, true, "test-dummy"),
+            fail_dispatch,
+        );
+
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert_eq!(
+            out,
+            "[DRY-RUN] test-dummy: create — would dispatch install.sh at version 0.0.1\n"
+        );
+    }
+
+    #[test]
+    fn the_remediate_arm_prints_its_marker_and_the_reinstall_line() {
+        // REMEDIATE-04: an agent detected at a NON-canonical path is uninstalled
+        // and reinstalled. Both markers are grepped by the bats suite and
+        // neither had any Rust coverage.
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let detect = tempdir().unwrap();
+        std::fs::write(
+            cat.path().join("catalog.json"),
+            r#"{"version":"0.3.6","agents":[
+                {"id":"claude-code","display_name":"Claude Code","description":"d",
+                 "source_kind":"script","pinned_version":"2.1.98",
+                 "install_recipe_path":"install.sh","uninstall_recipe_path":"uninstall.sh",
+                 "test_only":true,"tags":["agent"]}
+            ]}"#,
+        )
+        .unwrap();
+        // Healthy, but at a path that is neither the canonical one nor on disk —
+        // so the post-uninstall "binary is gone" verification passes.
+        let cache = detect.path().join("detect.json");
+        std::fs::write(
+            &cache,
+            r#"{"agents":[{"id":"claude-code","status":"healthy",
+                 "path":"/usr/local/bin/claude","version":"2.1.90"}]}"#,
+        )
+        .unwrap();
+        env_scope
+            .set("AGENTLINUX_CATALOG_DIR", cat.path())
+            .set("AGENTLINUX_STATE_DIR", state.path())
+            .set("AGENTLINUX_DETECT_CACHE", &cache);
+
+        // Without consent the verb refuses, names the component, and exits 65…
+        let (code, _out, err) = run_capturing(
+            "claude-code",
+            &args(false, None, true, false, false, "claude-code"),
+            fail_dispatch,
+        );
+        assert_eq!(code, ExitCode::from(EX_DATAERR));
+        assert!(
+            err.contains("[BAIL] component=claude-code reason="),
+            "stderr={err:?}"
+        );
+
+        // …and with --yes it uninstalls, reinstalls, and says so.
+        let (code, out, _err) = run_capturing(
+            "claude-code",
+            &args(false, None, true, true, false, "claude-code"),
+            ok_dispatch,
+        );
+        assert_eq!(code, ExitCode::SUCCESS, "stdout={out:?}");
+        assert!(
+            out.contains("[REMEDIATE-04] claude-code component=claude-code reason="),
+            "stdout={out:?}"
+        );
+        assert!(
+            out.contains("▸ reinstalling claude-code 2.1.98…\n"),
+            "stdout={out:?}"
+        );
+    }
+
+    #[test]
+    fn usage_errors_name_the_agent_on_stderr() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        set_env(&mut env_scope, cat.path(), state.path());
+
+        let (code, out, err) = run_capturing(
+            "ghost",
+            &args(false, None, false, false, false, "ghost"),
+            ok_dispatch,
+        );
+
+        assert_eq!(code, ExitCode::from(EX_USAGE));
+        assert!(err.contains("agentlinux: no such agent in catalog: ghost\n"));
+        // The available-agents hint lists the non-test-only ids.
+        assert!(err.contains("  available: "), "stderr={err:?}");
+        assert!(out.is_empty(), "a usage error prints nothing to stdout");
     }
 }

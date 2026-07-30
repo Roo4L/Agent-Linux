@@ -265,7 +265,9 @@ mod recipe_env_tests {
             std::fs::write(&path, c).unwrap();
         }
         let mut scope = crate::test_support::EnvScope::new();
-        scope.unset("AGENTLINUX_USER").set("AGENTLINUX_ENV_FILE", &path);
+        scope
+            .unset("AGENTLINUX_USER")
+            .set("AGENTLINUX_ENV_FILE", &path);
         (scope, dir)
     }
 

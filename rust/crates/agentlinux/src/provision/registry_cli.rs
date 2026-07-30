@@ -371,7 +371,7 @@ fn ln_sfn(target: &Path, link: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod registry_cli_tests {
     use super::*;
-    use crate::provision::{Effects, Resolution, Resolutions};
+    use crate::provision::{Effects, Resolutions};
     use std::cell::RefCell;
     use tempfile::tempdir;
 
@@ -413,7 +413,11 @@ mod registry_cli_tests {
         let root = at.join("src/plugin");
         fs::create_dir_all(root.join("bin")).unwrap();
         fs::write(root.join("bin/agentlinux"), b"\x7fELF-ish").unwrap();
-        fs::set_permissions(root.join("bin/agentlinux"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(
+            root.join("bin/agentlinux"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
         let agent = root.join("catalog/agents/test-dummy");
         fs::create_dir_all(&agent).unwrap();
         fs::write(root.join("catalog/catalog.json"), r#"{"agents":[]}"#).unwrap();
@@ -422,7 +426,11 @@ mod registry_cli_tests {
         fs::write(agent.join("install.sh"), "#!/usr/bin/env bash\n").unwrap();
         fs::set_permissions(agent.join("install.sh"), fs::Permissions::from_mode(0o644)).unwrap();
         fs::write(agent.join("uninstall.sh"), "#!/usr/bin/env bash\n").unwrap();
-        fs::set_permissions(agent.join("uninstall.sh"), fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(
+            agent.join("uninstall.sh"),
+            fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
         fs::write(agent.join("notes.txt"), "not a script\n").unwrap();
         root
     }
@@ -517,8 +525,11 @@ mod registry_cli_tests {
         let d = tempdir().unwrap();
         let bin = d.path().join("home/agent/.npm-global/bin");
         fs::create_dir_all(&bin).unwrap();
-        std::os::unix::fs::symlink("/opt/agentlinux/cli/0.0.1/bin/agentlinux", bin.join("agentlinux"))
-            .unwrap();
+        std::os::unix::fs::symlink(
+            "/opt/agentlinux/cli/0.0.1/bin/agentlinux",
+            bin.join("agentlinux"),
+        )
+        .unwrap();
 
         let link = stage_at(d.path()).unwrap();
 
@@ -554,15 +565,26 @@ mod registry_cli_tests {
             .set("AGENTLINUX_VERSION", "9.9.9");
 
         // (a) a non-executable bin
-        fs::set_permissions(src.join("bin/agentlinux"), fs::Permissions::from_mode(0o644)).unwrap();
+        fs::set_permissions(
+            src.join("bin/agentlinux"),
+            fs::Permissions::from_mode(0o644),
+        )
+        .unwrap();
         let err = stage(&ctx_at(d.path())).unwrap_err();
         assert!(err.to_string().contains("not executable"), "err={err}");
 
         // (b) a missing catalog.json
-        fs::set_permissions(src.join("bin/agentlinux"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::set_permissions(
+            src.join("bin/agentlinux"),
+            fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
         fs::remove_file(src.join("catalog/catalog.json")).unwrap();
         let err = stage(&ctx_at(d.path())).unwrap_err();
-        assert!(err.to_string().contains("catalog.json missing"), "err={err}");
+        assert!(
+            err.to_string().contains("catalog.json missing"),
+            "err={err}"
+        );
 
         // (c) a missing bin
         fs::remove_file(src.join("bin/agentlinux")).unwrap();

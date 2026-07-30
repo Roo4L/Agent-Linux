@@ -450,7 +450,11 @@ mod sudoers_tests {
             .into_iter()
             .filter(|c| c.starts_with("visudo "))
             .collect();
-        assert_eq!(validated.len(), 2, "pre-install + post-install: {validated:?}");
+        assert_eq!(
+            validated.len(),
+            2,
+            "pre-install + post-install: {validated:?}"
+        );
         assert!(
             validated[0].contains(".agentlinux-sudoers."),
             "first check must be the tmpfile: {validated:?}"

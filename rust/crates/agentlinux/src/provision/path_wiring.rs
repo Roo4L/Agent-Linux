@@ -597,7 +597,11 @@ fi"
         let d = tempfile::TempDir::new().unwrap();
         let ctx = ctx_at(d.path(), Resolution::Create);
         let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
-        std::fs::write(&bashrc, "case $- in *i*) ;; *) return;; esac\nalias ll='ls -l'\n").unwrap();
+        std::fs::write(
+            &bashrc,
+            "case $- in *i*) ;; *) return;; esac\nalias ll='ls -l'\n",
+        )
+        .unwrap();
 
         run(&ctx).unwrap();
 
@@ -615,20 +619,32 @@ fi"
         let d = tempfile::TempDir::new().unwrap();
         let ctx = ctx_at(d.path(), Resolution::Create);
         run(&ctx).unwrap();
-        let after_first: Vec<String> = ["etc/profile.d/agentlinux.sh", "etc/agentlinux.env", "etc/cron.d/agentlinux"]
-            .iter()
-            .map(|p| std::fs::read_to_string(d.path().join(p)).unwrap())
-            .collect();
+        let after_first: Vec<String> = [
+            "etc/profile.d/agentlinux.sh",
+            "etc/agentlinux.env",
+            "etc/cron.d/agentlinux",
+        ]
+        .iter()
+        .map(|p| std::fs::read_to_string(d.path().join(p)).unwrap())
+        .collect();
         let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
         let bashrc_first = std::fs::read_to_string(&bashrc).unwrap();
 
         run(&ctx).unwrap();
 
-        for (i, p) in ["etc/profile.d/agentlinux.sh", "etc/agentlinux.env", "etc/cron.d/agentlinux"]
-            .iter()
-            .enumerate()
+        for (i, p) in [
+            "etc/profile.d/agentlinux.sh",
+            "etc/agentlinux.env",
+            "etc/cron.d/agentlinux",
+        ]
+        .iter()
+        .enumerate()
         {
-            assert_eq!(std::fs::read_to_string(d.path().join(p)).unwrap(), after_first[i], "{p}");
+            assert_eq!(
+                std::fs::read_to_string(d.path().join(p)).unwrap(),
+                after_first[i],
+                "{p}"
+            );
         }
         let bashrc_second = std::fs::read_to_string(&bashrc).unwrap();
         assert_eq!(bashrc_first, bashrc_second);
@@ -658,7 +674,10 @@ fi"
         assert!(env3.contains("AGENTLINUX_USER=claude\n"));
         assert!(env3.contains(&format!("AGENTLINUX_AGENT_HOME={}\n", ctx.install_home)));
         assert_eq!(path_line(&env3), path_line(&cron4));
-        assert_eq!(path_line(&env3), recipe_env::canonical_path(&ctx.install_home));
+        assert_eq!(
+            path_line(&env3),
+            recipe_env::canonical_path(&ctx.install_home)
+        );
         assert!(home.join(".bashrc").exists());
     }
 }

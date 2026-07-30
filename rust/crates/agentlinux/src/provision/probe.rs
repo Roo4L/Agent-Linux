@@ -192,9 +192,7 @@ pub fn user_state_of(account: Option<&Account>, home: Option<&DirFacts>) -> User
 #[must_use]
 pub fn user_state(user: &str) -> UserState {
     let account = lookup(user);
-    let home = account
-        .as_ref()
-        .and_then(|a| dir_facts(Path::new(&a.home)));
+    let home = account.as_ref().and_then(|a| dir_facts(Path::new(&a.home)));
     user_state_of(account.as_ref(), home.as_ref())
 }
 
@@ -543,10 +541,10 @@ mod probe_tests {
         // takes. Each is NOT the canonical ADR-012 line, so each must read as
         // Drifted (a --yes overwrite), never as Canonical (a silent no-op).
         for near_miss in [
-            "%agent ALL=(ALL) NOPASSWD: ALL\n",       // group form
-            "agent ALL=(ALL) NOPASSWD:ALL\n",         // no space after the colon
+            "%agent ALL=(ALL) NOPASSWD: ALL\n",         // group form
+            "agent ALL=(ALL) NOPASSWD:ALL\n",           // no space after the colon
             "agent ALL=(ALL) NOPASSWD: /usr/bin/apt\n", // deliberately narrowed
-            "agent ALL=(ALL) ALL\n",                  // password required
+            "agent ALL=(ALL) ALL\n",                    // password required
             "Defaults:agent !requiretty\n",
             "",
         ] {
