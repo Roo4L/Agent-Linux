@@ -14,6 +14,7 @@ pub mod pin_spec;
 pub mod reuse;
 pub mod schema_gen;
 pub mod semver_shim;
+pub mod time;
 pub mod types;
 
 /// Shared proptest strategy generators (TEST-01), consumed by the `proptests`

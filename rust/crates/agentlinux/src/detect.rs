@@ -200,6 +200,13 @@ fn probe_env(home: &str) -> Vec<(String, String)> {
 /// Run `script` as `user` through a login shell (sourcing the agent profile so
 /// PATH resolves agent-owned bins), returning `(exit_code, trimmed_stdout)`.
 /// Bounded so a wedged probe can never hang an unattended provision.
+/// A login-shell probe: `(user, home, script) -> (exit_code, trimmed_stdout)`.
+/// Injectable so the FALLBACK CHAIN below — try `--version`, then `version`,
+/// then `--help`, first semver wins — is reachable from a test. It had none: a
+/// regression that probes only `--version` and drops the rest compiles, passes
+/// `cargo test`, and surfaces as a wrong REUSE verdict in QEMU.
+pub type LoginRun = fn(user: &str, home: &str, script: &str) -> (i32, String);
+
 fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
     let argv: Vec<String> = ["bash", "--login", "-c", script]
         .iter()
@@ -224,14 +231,14 @@ const PROBE_TIMEOUT_MS: u64 = 5_000;
 /// token outside `[A-Za-z0-9._/-]` (so no shell metacharacter can reach this
 /// `bash -c`), and the captured stdout is bounded by [`extract_semver`] to a pure
 /// semver substring — it never re-enters a shell.
-fn probe_version(user: &str, home: &str, id: &str, binary: &str) -> String {
+fn probe_version(run: LoginRun, user: &str, home: &str, id: &str, binary: &str) -> String {
     let flags: &[&str] = match id {
         "claude-code" | "playwright-cli" => &["--version"],
         "gsd" => &["--help"],
         _ => &["--version", "version", "--help"],
     };
     for flag in flags {
-        let (_rc, out) = login_run(user, home, &format!("{binary} {flag} 2>/dev/null"));
+        let (_rc, out) = run(user, home, &format!("{binary} {flag} 2>/dev/null"));
         if let Some(v) = extract_semver(&out) {
             return v;
         }
@@ -242,8 +249,8 @@ fn probe_version(user: &str, home: &str, id: &str, binary: &str) -> String {
 /// Probe a single `(id, binary)` row into an [`AgentRecord`]. Resolves the binary
 /// on the install user's login PATH; on a miss, GSD falls back to its deployed
 /// `~/.claude/gsd-core/VERSION` (owner-gated). Absent everywhere → `status=absent`.
-fn probe_one(user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
-    let (rc, bin_path) = login_run(user, home, &format!("command -v {binary}"));
+fn probe_one(run: LoginRun, user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
+    let (rc, bin_path) = run(user, home, &format!("command -v {binary}"));
     let resolved = if rc == 0 && !bin_path.is_empty() {
         Some(bin_path)
     } else {
@@ -251,10 +258,10 @@ fn probe_one(user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
     };
 
     if let Some(path) = resolved {
-        let version = probe_version(user, home, id, binary);
+        let version = probe_version(run, user, home, id, binary);
         // Legacy ids additionally gate health on `--help` exit 0.
         let legacy_help_ok = if LEGACY_IDS.contains(&id) {
-            login_run(user, home, &format!("{binary} --help >/dev/null 2>&1")).0 == 0
+            run(user, home, &format!("{binary} --help >/dev/null 2>&1")).0 == 0
         } else {
             true
         };
@@ -352,7 +359,7 @@ fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
     };
     agent_rows(&entries)
         .into_iter()
-        .map(|(id, binary)| probe_one(user, home, &id, &binary))
+        .map(|(id, binary)| probe_one(login_run, user, home, &id, &binary))
         .collect()
 }
 
@@ -607,5 +614,152 @@ mod detect_tests {
         // Generic: version alone is the health signal (--help conventions vary).
         assert_eq!(classify("gitleaks", "8.18.0", false), "healthy");
         assert_eq!(classify("gitleaks", "", true), "broken");
+    }
+}
+
+#[cfg(test)]
+mod probe_chain_tests {
+    //! The version-flag fallback chain and the health gates. None of this had a
+    //! test: only the pure leaves (verify_binary, extract_semver, classify,
+    //! agent_rows) were covered, so a regression that probes `--version` and
+    //! drops the remaining flags compiled, passed, and surfaced only as a wrong
+    //! REUSE/REMEDIATE verdict on a real host.
+    use super::*;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static SCRIPTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn scripts() -> Vec<String> {
+        SCRIPTS.with(|s| s.borrow().clone())
+    }
+
+    fn reset() {
+        SCRIPTS.with(|s| s.borrow_mut().clear());
+    }
+
+    /// Only `--help` yields a version — the third flag in the generic chain.
+    fn only_help_has_a_version(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        SCRIPTS.with(|s| s.borrow_mut().push(script.to_string()));
+        if script.contains("command -v") {
+            (0, "/home/agent/.npm-global/bin/tool".to_string())
+        } else if script.contains("--help") {
+            (0, "tool, version 3.4.5".to_string())
+        } else {
+            (1, String::new())
+        }
+    }
+
+    /// Nothing is on PATH.
+    fn nothing_resolves(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        SCRIPTS.with(|s| s.borrow_mut().push(script.to_string()));
+        (1, String::new())
+    }
+
+    /// Resolves and reports a version on the FIRST flag.
+    fn version_on_first_flag(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        SCRIPTS.with(|s| s.borrow_mut().push(script.to_string()));
+        if script.contains("command -v") {
+            (0, "/home/agent/.local/bin/claude".to_string())
+        } else {
+            (0, "2.1.98".to_string())
+        }
+    }
+
+    #[test]
+    fn the_generic_chain_falls_through_version_then_help() {
+        reset();
+        let rec = probe_one(
+            only_help_has_a_version,
+            "agent",
+            "/home/agent",
+            "tool",
+            "tool",
+        );
+        assert_eq!(rec.version, "3.4.5");
+        // All three flags were tried, in order, and only until one produced a
+        // semver.
+        let tried: Vec<String> = scripts()
+            .into_iter()
+            .filter(|s| !s.contains("command -v"))
+            .collect();
+        assert_eq!(tried.len(), 3, "tried={tried:?}");
+        assert!(tried[0].contains("tool --version"));
+        assert!(tried[1].contains("tool version"));
+        assert!(tried[2].contains("tool --help"));
+    }
+
+    #[test]
+    fn the_first_semver_wins_and_stops_the_chain() {
+        reset();
+        let rec = probe_one(
+            version_on_first_flag,
+            "agent",
+            "/home/agent",
+            "some-id",
+            "tool",
+        );
+        assert_eq!(rec.version, "2.1.98");
+        let tried: Vec<String> = scripts()
+            .into_iter()
+            .filter(|s| !s.contains("command -v"))
+            .collect();
+        assert_eq!(
+            tried.len(),
+            1,
+            "the chain must stop at the first hit: {tried:?}"
+        );
+    }
+
+    #[test]
+    fn the_legacy_ids_probe_only_their_own_flag() {
+        // claude-code/playwright-cli parse --version; gsd has no --version flag
+        // and parses --help. Probing the wrong one reports an empty version, i.e.
+        // a broken agent.
+        for (id, expected_flag) in [
+            ("claude-code", "--version"),
+            ("playwright-cli", "--version"),
+            ("gsd", "--help"),
+        ] {
+            reset();
+            probe_one(version_on_first_flag, "agent", "/home/agent", id, "tool");
+            let tried: Vec<String> = scripts()
+                .into_iter()
+                // Exclude the resolve probe and the legacy `--help` HEALTH gate
+                // (`… >/dev/null 2>&1`), keeping only the version flags.
+                .filter(|s| !s.contains("command -v") && !s.contains(">/dev/null 2>&1"))
+                .collect();
+            assert_eq!(tried.len(), 1, "{id}: {tried:?}");
+            assert!(tried[0].contains(expected_flag), "{id}: {tried:?}");
+        }
+    }
+
+    #[test]
+    fn an_unresolvable_binary_is_absent_with_no_version_probe() {
+        reset();
+        let rec = probe_one(nothing_resolves, "agent", "/home/agent", "tool", "tool");
+        assert_eq!(rec.status, "absent");
+        assert!(rec.path.is_empty());
+        assert!(rec.version.is_empty());
+        // No flag was probed — resolving the binary gates the whole chain.
+        assert_eq!(scripts().len(), 1, "{:?}", scripts());
+    }
+
+    #[test]
+    fn a_legacy_id_whose_help_exits_non_zero_is_broken() {
+        // The legacy health gate: a resolvable binary reporting a version is
+        // still `broken` when `--help` fails.
+        fn help_fails(_u: &str, _h: &str, script: &str) -> (i32, String) {
+            if script.contains("command -v") {
+                (0, "/home/agent/.local/bin/claude".to_string())
+            } else if script.contains(">/dev/null") {
+                (1, String::new()) // the health gate
+            } else {
+                (0, "2.1.98".to_string())
+            }
+        }
+        let rec = probe_one(help_fails, "agent", "/home/agent", "claude-code", "claude");
+        assert_eq!(rec.status, "broken", "version={}", rec.version);
     }
 }
