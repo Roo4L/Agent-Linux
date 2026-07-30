@@ -4,11 +4,11 @@ milestone: v0.4.0
 milestone_name: Rust Rewrite
 current_phase: 59
 current_phase_name: Full Validation Gate
-status: milestone-complete
-stopped_at: Phase 59 COMPLETE — v0.4.0 Rust Rewrite milestone gate MET (all 7 phases done; GATE-01..05 green; AGT-02 zero-EACCES on the Rust chain incl. a live-CDN claude update 2.1.195→2.1.220)
-last_updated: "2026-07-29T10:10:00.000Z"
-last_activity: 2026-07-29
-last_activity_desc: Phase 59 complete — final validation gate met (coverage zero-uncovered; AGT-02 zero-EACCES on the Rust build + live CDN; QEMU re-wired at the Rust provisioner with a teeth-having identity guard; master-ready declared, TS/Bash retained as rollback)
+status: complete
+stopped_at: v0.4.0 Rust Rewrite — milestone gate MET + cutover delivered on PR #59 (legacy TS/Bash deleted, wizard/remediation/detect reimplemented in Rust); .planning/ closed out to the durable record. PR in review; GitHub release gated on owner green-light.
+last_updated: "2026-07-30T10:10:00.000Z"
+last_activity: 2026-07-30
+last_activity_desc: Milestone close-out — archived phases 53-59 + the RC QA campaign into .planning/milestones/v0.4.0-{phases,qa}/ and the Rust Rewrite requirements to .planning/milestones/v0.4.0-rust-rewrite-REQUIREMENTS.md (a distinct name — the v0.4.0-* slot still holds the renumber-pending Open-Source Release archive); STATE reset to complete. Cutover (detect-cache writer wiring REMEDIATE-04 + review-sweep fixes) pushed to PR #59; AL-125 In Review.
 progress:
   total_phases: 7
   completed_phases: 7
