@@ -230,16 +230,18 @@ Each non-trivial decision gets a lightweight ADR in `docs/decisions/`:
 **Consequences:** What changes as a result; what trade-off was accepted
 ```
 
-The current, authoritative ADR index is [`decisions/README.md`](decisions/README.md) — keep it there, not here. The list below is the original seed set, recorded for the §7 checklist item that produced it:
+**Superseding.** When a later ADR replaces this one, `Status` is `Superseded by NNN`. When a decision is overtaken by something that is *not* a numbered ADR — a rewrite, a dropped channel — `Status` reads `Accepted (DATE) — Superseded[-in-part] (VERSION):` followed by what changed, and a closing `## Superseded[-in-part] (VERSION)` section carries the detail: what replaced it, which parts of the original reasoning survive, and where the real record lives. ADR-006 and ADR-008 are the worked examples. Never edit the original Context/Decision — an ADR is a record of what was decided then, not a description of the system now.
+
+The current, authoritative ADR index is [`decisions/README.md`](decisions/README.md) — statuses and supersessions live there, not here. The list below is the original seed set as it was written, recorded for the §7 checklist item that produced it; several of these have since been superseded in whole or in part:
 
 - ADR-001: Pivot from custom distro to installable Ubuntu plugin (v0.2.0 → v0.3.0)
 - ADR-002: Behavior-contract framing — requirements are BHV-XX, not INST-XX; tests are the spec
 - ADR-003: No default agents installed in v0.3.0
 - ADR-004: Per-user npm prefix (`~/.npm-global`) as the keystone ownership decision
 - ADR-005: System Node.js (NodeSource) over version managers (nvm/fnm/volta)
-- ADR-006: curl-pipe-bash distribution (the optional `.deb` channel is superseded — the sole channel is the reproducible musl tarball + `.sha256`)
+- ADR-006: curl-pipe-bash distribution + optional `.deb`
 - ADR-007: Docker (fast) + QEMU (release gate) test harness; Docker-only is disqualified
-- ADR-008: Commander.js for the registry CLI (superseded — the CLI is Rust + `clap`)
+- ADR-008: Commander.js for the registry CLI
 - ADR-009: Snap is structurally disqualified as a distribution mechanism
 - ADR-010: Review loop triggered by shared project instructions, not by a
   reviewer-invoking Stop hook; one-shot reminder hooks are allowed

@@ -45,11 +45,21 @@ itself are gone.
   hand-rolled one, because five subcommands predictably grows into a
   re-implementation." That argument transferred intact; `clap` is the same bet in
   a different language, and the CLI did grow past five verbs.
-- **The reversal-cost claim was tested and held.** The bats behavior suite was
-  re-pointed at the new binary and stayed green — a whole-language rewrite cost
-  no spec changes, which is the strongest available evidence for ADR-002.
+- **The reversal-cost claim held for the CLI.** This ADR predicted that swapping
+  frameworks would rewrite `src/` but not the bats tests. For the registry-CLI
+  surface it governs, that is what happened: `tests/bats/40-registry-cli.bats`
+  changed exactly one line (the `INSTALLER` path), and `15-preflight-ux.bats` /
+  `23-install-user.bats` were pure re-pointing with no assertion edits.
+
+  The claim does **not** generalise to the whole rewrite. The provisioner cutover
+  did move specs — `tests/bats/14-remediate.bats:217` relaxed a locked
+  `exit 64` (EX_USAGE) assertion to "non-zero" because clap rejects an unknown
+  flag with exit 2, and the `--help` "Exit codes:" test was dropped. Those are
+  provisioner-surface behaviors, outside what this ADR decided, but they are the
+  reason the bounded-reversal claim should be read as CLI-scoped rather than as
+  evidence about the rewrite at large.
 
 Why the full rewrite, and what else was considered:
-[`../research/stack-reconsideration.md`](../research/stack-reconsideration.md)
-(Jira AL-115). This ADR is retained as the historical record of the original
-choice.
+[`../research/stack-reconsideration.md`](../research/stack-reconsideration.md),
+tracked as [AL-115 — v0.4.0 Rust Rewrite](https://copiedwonder.atlassian.net/browse/AL-115).
+This ADR is retained as the historical record of the original choice.
