@@ -175,8 +175,8 @@ steps, in order:
    the developer's local `.env.local`, and cycle the release-gate
    workflow to confirm green.
 3. **Post-mortem.** Capture the leak path (git history? installer log
-   output? screen-share recording?) in `docs/decisions/` or
-   `docs/audits/v0.X.Y/` depending on severity, and cross-link from the
-   next release notes. The post-mortem is mandatory even if the leak
-   window was short — the leak path is more valuable to fix than the
-   key itself.
+   output? screen-share recording?) in `docs/decisions/` as an ADR, and
+   cross-link from the next release notes. Raw scanner output stays
+   local; only the decision and its rationale get committed. The
+   post-mortem is mandatory even if the leak window was short — the leak
+   path is more valuable to fix than the key itself.

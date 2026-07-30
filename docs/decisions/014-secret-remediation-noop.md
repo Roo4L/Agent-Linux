@@ -3,7 +3,7 @@
 **Status:** Accepted
 **Date:** 2026-04-26
 **Drives:** v0.4.0 SEC-04
-**Companion to:** SEC-01-gitleaks-report.md, SEC-02-trufflehog-report.md, SEC-03-targeted-audit.md
+**Closes:** SEC-01 (gitleaks), SEC-02 (trufflehog), SEC-03 (targeted audit)
 
 ## Context
 
@@ -47,7 +47,13 @@ The Phase 11 pre-flip checklist (PUB-01) cites this ADR as the SEC-04 closure. T
 
 ## References
 
-- `docs/audits/v0.4.0/SEC-01-gitleaks-report.md` — full gitleaks output and false-positive triage
-- `docs/audits/v0.4.0/SEC-02-trufflehog-report.md` — trufflehog clean signal (0 verified + 0 unverified)
-- `docs/audits/v0.4.0/SEC-03-targeted-audit.md` — 8 targeted patterns, 0 matches
+Raw scanner output is not committed; the findings are stated inline above.
+To reproduce them against current history:
+
+```bash
+gitleaks detect --no-banner --redact --source . --log-opts="--all"
+trufflehog git file://. --since-commit="$(git rev-list --max-parents=0 HEAD)" --only-verified
+```
+
 - `.gitleaks.toml` — allowlist scoping `.planning/*.md` plus the specific false-positive fingerprint
+- `.pre-commit-config.yaml` + `.github/workflows/test.yml` — the SEC-05 gate that keeps this baseline enforced

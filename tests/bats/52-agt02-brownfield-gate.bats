@@ -8,8 +8,8 @@
 # MUST hold (post-update version >= pre-update version via sort -V).
 #
 # This is v0.3.4's TST-07 equivalent — the release-readiness gate. The captured
-# transcript is written to docs/audits/v0.3.4/AGT-02-brownfield-acceptance.md
-# and committed alongside this test as the milestone-close evidence artifact.
+# transcript is written to .planning/audits/v0.3.4/AGT-02-brownfield-acceptance.md
+# for a human to read after a red run.
 #
 # GREENFIELD INVARIANT (D-16-08): tests/bats/51-agt02-release-gate.bats remains
 # UNCHANGED — this is the brownfield counterpart, additive only.
@@ -89,16 +89,15 @@ teardown_file() {
     false
   }
 
-  # Step 7: capture the transcript to the milestone-close audit doc (D-16-09).
+  # Step 7: capture the transcript as local gate evidence (D-16-09).
   # `run` re-binds $output, so re-read the transcript file into $output via
   # a no-op `run cat` so capture_transcript_to picks it up.
   run cat "$transcript"
   capture_transcript_to \
-    docs/audits/v0.3.4/AGT-02-brownfield-acceptance.md \
+    .planning/audits/v0.3.4/AGT-02-brownfield-acceptance.md \
     "$pre_version" \
     "$post_version"
 
-  # Cleanup the tmp transcript (the committed audit doc holds the canonical copy).
   rm -f "$transcript"
 }
 

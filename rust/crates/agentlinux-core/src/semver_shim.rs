@@ -50,6 +50,12 @@ pub enum SemverError {
 /// unchanged. We split on any run of whitespace *and/or* commas, drop empty
 /// tokens, then re-join with ", " — so a comma already present does not produce
 /// a doubled `",,"` separator that `VersionReq::parse` would reject.
+///
+/// Not supported: node-semver OR-ranges (`"^1.0 || ^2.0"`) and hyphen ranges
+/// (`"1.0.0 - 2.0.0"`). This tokenizer mangles them into `"^1.0, ||, ^2.0"` /
+/// `"1.0.0, -, 2.0.0"`, which `VersionReq::parse` rejects. No catalog entry uses
+/// either shape; if one is added, extend this function
+/// (`parity_catalog_ranges_all_round_trip_the_shim` fails first).
 #[must_use]
 pub fn normalize_range(node_range: &str) -> String {
     node_range
@@ -428,8 +434,7 @@ mod tests {
 mod parity {
     //! TEST-04 — node-semver ⇄ dtolnay `semver 1.0.28` behavior-parity golden
     //! tests. Every fn name contains `parity` so `cargo test -p agentlinux-core
-    //! parity` selects exactly this module. Companion audit doc:
-    //! `docs/audits/v0.4.0/TEST-04-node-semver-parity.md`.
+    //! parity` selects exactly this module.
     //!
     //! The oracle is the COMMITTED TypeScript corpora (node deps stay
     //! uninstalled by design): the `maxSatisfying` verdicts are recorded verbatim

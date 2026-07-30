@@ -612,8 +612,7 @@ setup_brownfield_host_full() {
 # capture_transcript_to <dest> [<pre_version> [<post_version>]]
 # Phase 16 / Plan 16-02 / D-16-09 — write the captured `run` $output (the
 # bats subshell's stdout/stderr from the most recent `run` invocation) to
-# <dest>, prepending a stable header block so the committed audit doc is
-# self-describing.
+# <dest>, prepending a stable header block so the transcript is self-describing.
 #
 # Header format (markdown-safe; the file is a .md):
 #   # AGT-02 brownfield acceptance transcript
