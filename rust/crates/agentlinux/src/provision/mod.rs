@@ -141,7 +141,7 @@ impl Resolution {
     /// Map the pure `agentlinux_core::reuse::Decision` token to the provisioner
     /// `Resolution` (the two enums are the same 3-way surface plus the
     /// `ReuseWithWarning`/`Bail` states only the TTY-consent path produces).
-    fn from_decision(d: agentlinux_core::reuse::Decision) -> Self {
+    pub(crate) fn from_decision(d: agentlinux_core::reuse::Decision) -> Self {
         match d {
             agentlinux_core::reuse::Decision::Reuse => Resolution::Reuse,
             agentlinux_core::reuse::Decision::Remediate => Resolution::Remediate,
@@ -256,5 +256,140 @@ impl ProvisionCtx {
             yes,
             dry_run,
         }
+    }
+}
+
+#[cfg(test)]
+mod provision_mod_tests {
+    use super::*;
+    use agentlinux_core::reuse::Decision;
+
+    // This module carried ZERO tests while owning the two mappings the whole
+    // DECIDE phase rests on. `from_decision` is a pure five-arm mapping needing
+    // no seam at all: a mutant returning `Create` for every decision — which
+    // re-runs `useradd` on an adopted brownfield user — survived.
+
+    #[test]
+    fn from_decision_maps_each_pure_decision_to_its_resolution() {
+        assert_eq!(
+            Resolution::from_decision(Decision::Reuse),
+            Resolution::Reuse
+        );
+        assert_eq!(
+            Resolution::from_decision(Decision::Remediate),
+            Resolution::Remediate
+        );
+        assert_eq!(
+            Resolution::from_decision(Decision::Create),
+            Resolution::Create
+        );
+    }
+
+    #[test]
+    fn seed_create_is_a_clean_host_with_no_agents() {
+        let r = Resolutions::seed_create();
+        assert_eq!(r.user, Resolution::Create);
+        assert_eq!(r.sudoers, Resolution::Create);
+        assert_eq!(r.node, Resolution::Create);
+        assert_eq!(r.npm_prefix, Resolution::Create);
+        assert!(r.agents.is_empty());
+    }
+
+    #[test]
+    fn from_decide_creates_every_agent_on_a_host_with_no_detect_cache() {
+        // The clean-host path: no cache → every id probes `absent` → Create.
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/decide-test.json");
+
+        let r = Resolutions::from_decide(&["claude-code", "gsd"], crate::canonical_path, "/none");
+
+        assert_eq!(r.agents.len(), 2);
+        assert_eq!(r.agents["claude-code"], Resolution::Create);
+        assert_eq!(r.agents["gsd"], Resolution::Create);
+    }
+
+    #[test]
+    fn from_decide_reuses_an_agent_healthy_at_its_canonical_path() {
+        // The PROV-02 win: the per-agent token comes from the Rust map + the pure
+        // gate in-process. A healthy binary at the canonical path is a REUSE; the
+        // same binary somewhere else is a REMEDIATE.
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("detect.json");
+        std::fs::write(
+            &cache,
+            r#"{"agents":[
+                {"id":"claude-code","status":"healthy","path":"/home/agent/.local/bin/claude","version":"2.1.98"},
+                {"id":"gsd","status":"healthy","path":"/usr/local/bin/gsd-core","version":"1.37.1"}
+            ]}"#,
+        )
+        .unwrap();
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
+
+        let r = Resolutions::from_decide(&["claude-code", "gsd"], crate::canonical_path, "/none");
+
+        assert_eq!(r.agents["claude-code"], Resolution::Reuse);
+        assert_eq!(r.agents["gsd"], Resolution::Remediate);
+    }
+
+    #[test]
+    fn from_decide_keys_the_map_by_catalog_id_in_a_stable_order() {
+        // A BTreeMap, so the dry-run report's per-agent lines are deterministic
+        // (the UX-01 "two identical dry-runs match" contract).
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/decide-order.json");
+
+        let r = Resolutions::from_decide(
+            &["playwright-cli", "claude-code", "gsd"],
+            crate::canonical_path,
+            "/none",
+        );
+
+        assert_eq!(
+            r.agents.keys().collect::<Vec<_>>(),
+            vec!["claude-code", "gsd", "playwright-cli"]
+        );
+    }
+
+    #[test]
+    fn sys_joins_absolute_paths_under_the_root() {
+        let ctx = ProvisionCtx::new(
+            "agent".into(),
+            "/home/agent".into(),
+            Family::Debian,
+            Resolutions::seed_create(),
+            false,
+            false,
+        );
+        // Production: root is `/`, so a system path is itself.
+        assert_eq!(ctx.sys("/etc/sudoers.d"), PathBuf::from("/etc/sudoers.d"));
+
+        let mut rooted = ctx.clone();
+        rooted.root = PathBuf::from("/tmp/fixture");
+        assert_eq!(
+            rooted.sys("/etc/sudoers.d"),
+            PathBuf::from("/tmp/fixture/etc/sudoers.d")
+        );
+        // The leading slash is stripped, never treated as "start from /".
+        assert!(rooted.sys("/etc").starts_with("/tmp/fixture"));
+    }
+
+    #[test]
+    fn a_production_ctx_carries_the_real_root_and_effects() {
+        let ctx = ProvisionCtx::new(
+            "agent".into(),
+            "/home/agent".into(),
+            Family::Rhel,
+            Resolutions::seed_create(),
+            true,
+            false,
+        );
+        assert_eq!(ctx.root, PathBuf::from("/"));
+        assert!(ctx.yes);
+        // The default effects are the real ones, not a test stub.
+        assert!(std::ptr::fn_addr_eq(
+            ctx.fx.chown,
+            crate::sysio::chown_by_name as fn(&Path, &str) -> io::Result<()>
+        ));
     }
 }

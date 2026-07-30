@@ -19,13 +19,6 @@
 //! rejects a non-semver value), never `semver::` directly — so the crate stays
 //! pure and this file owns only the fs read.
 //!
-//! `#![allow(dead_code)]`: `probe_installed_version` is consumed by Plan 03's
-//! `upgrade` verb (the npm INSTALLED column truth overlay). The `#[cfg(test)]`
-//! module exercises it now; the allow only defers the "not yet wired into a
-//! non-test caller" lint until the verb layer imports it (mirrors the Wave-0/1
-//! adapter pattern).
-#![allow(dead_code)]
-
 use crate::catalog::FullCatalogEntry;
 use agentlinux_core::semver_shim;
 use serde::Deserialize;
@@ -116,8 +109,6 @@ mod probe_tests {
 
         let e = entry("codex", "npm", Some("@openai/codex"));
         assert_eq!(probe_installed_version(&e).as_deref(), Some("1.2.3"));
-
-        env_scope.unset("NPM_CONFIG_PREFIX");
     }
 
     #[test]
@@ -130,8 +121,6 @@ mod probe_tests {
         let e = entry("gsd", "npm", Some("gsd-core"));
         // semver.valid drops the leading `v` (probe.ts:42).
         assert_eq!(probe_installed_version(&e).as_deref(), Some("1.37.1"));
-
-        env_scope.unset("NPM_CONFIG_PREFIX");
     }
 
     #[test]
@@ -142,8 +131,6 @@ mod probe_tests {
 
         let e = entry("codex", "npm", Some("@openai/codex"));
         assert_eq!(probe_installed_version(&e), None);
-
-        env_scope.unset("NPM_CONFIG_PREFIX");
     }
 
     #[test]
@@ -172,7 +159,5 @@ mod probe_tests {
             probe_installed_version(&entry("b", "npm", Some("badver"))),
             None
         );
-
-        env_scope.unset("NPM_CONFIG_PREFIX");
     }
 }

@@ -23,7 +23,6 @@ use agentlinux_core::classify::classify;
 use agentlinux_core::detect_gates::presence_gate;
 use agentlinux_core::types::{CatalogEntry as CoreCatalogEntry, Sentinel as CoreSentinel, Status};
 use serde::Serialize;
-use std::path::Path;
 use std::process::ExitCode;
 
 use crate::cli::ListArgs;
@@ -99,32 +98,6 @@ fn to_core_sentinel(s: &Sentinel) -> CoreSentinel {
     }
 }
 
-/// The actual on-disk version of an installed npm entry, or `None`. Port of
-/// `probeInstalledVersion` (probe.ts:34-46): read the installed package.json under
-/// the npm prefix (`$NPM_CONFIG_PREFIX` else `/home/agent/.npm-global`), return
-/// the semver-valid version. Non-npm / absent / unreadable → `None` (fall back to
-/// the sentinel version). A plain file read — no child process, no network.
-fn probe_installed_version(entry: &FullCatalogEntry) -> Option<String> {
-    if entry.source_kind.as_deref() != Some("npm") {
-        return None;
-    }
-    let pkg = entry.npm_package_name.as_deref()?;
-    let prefix = std::env::var("NPM_CONFIG_PREFIX")
-        .unwrap_or_else(|_| "/home/agent/.npm-global".to_string());
-    // Global npm layout: <prefix>/lib/node_modules/<pkg>/package.json. A scoped
-    // name (@scope/pkg) nests one extra dir — Path::join splits on '/' verbatim,
-    // matching npm's on-disk shape (probe.ts:39).
-    let mut path = Path::new(&prefix).join("lib").join("node_modules");
-    for seg in pkg.split('/') {
-        path = path.join(seg);
-    }
-    path = path.join("package.json");
-    let body = std::fs::read_to_string(&path).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&body).ok()?;
-    let ver = v.get("version")?.as_str()?;
-    agentlinux_core::semver_shim::valid(ver)
-}
-
 /// Build a `Row` per catalog entry, mirroring `buildRows` (list.ts:66-120).
 fn build_rows(entries: &[FullCatalogEntry], sentinels: &[Sentinel]) -> Vec<Row> {
     let home = agent_home();
@@ -137,7 +110,7 @@ fn build_rows(entries: &[FullCatalogEntry], sentinels: &[Sentinel]) -> Vec<Row> 
             // #6: probe the REAL on-disk version for npm entries; fall back to the
             // recorded sentinel version when unprobeable.
             let mut installed: Option<String> = if sentinel.is_some() {
-                probe_installed_version(entry).or_else(|| sentinel_version.clone())
+                crate::probe::probe_installed_version(entry).or_else(|| sentinel_version.clone())
             } else {
                 None
             };
