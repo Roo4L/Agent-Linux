@@ -350,7 +350,12 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //    Short-circuits before the DECIDE phase's per-agent gate iteration is
     //    even needed for a report — the report is the detected host state.
     if args.report_only {
-        return report_only(&install_user, &distro);
+        return report_only(
+            &install_user,
+            &install_home,
+            &distro,
+            args.report_format.as_deref(),
+        );
     }
 
     // 6. DECIDE phase (PROV-02): probe the host + iterate the Rust `canonical_path`
@@ -560,10 +565,33 @@ fn remove_install_user(user: &str) {
 }
 
 /// `--report-only` (agentlinux-install:545-548): emit the detection report + exit
-/// 0. ZERO mutation. The report is the detected host state — the per-agent
+/// 0. ZERO host mutation. The report is the detected host state — the per-agent
 /// decisions + the resolved distro family.
-fn report_only(user: &str, distro: &distro::Distro) -> ExitCode {
-    emit_report(user, distro);
+///
+/// Like the Bash `detect::run_once`, this REFRESHES the detect cache
+/// (`/run/agentlinux-detect.json`) as its first act: `--report-only` is the
+/// sanctioned way to re-scan a host after a brownfield change (e.g. planting a
+/// tool at its managed path) so a subsequent `agentlinux list`/`adopt` reads
+/// current state. The cache lives on tmpfs and is NOT host state — the
+/// NO-MUTATION contract covers `/etc`, `/home`, `/etc/passwd`, not `/run`.
+///
+/// `--report-format=json` emits the full PATH-probe agents section as
+/// `{components:{agents:[...]}}` on STDOUT (the only shape any test consumes — the
+/// DET-04 brownfield-detection suite); the default `text` format prints the
+/// human report to stderr. The scan runs once either way and refreshes the cache.
+fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&str>) -> ExitCode {
+    if format == Some("json") {
+        let report = crate::detect::scan_persist_report_json(user, home);
+        // STDOUT only, nothing else — the DET-04 tests pipe the whole output to jq.
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&report)
+                .unwrap_or_else(|_| String::from("{\"components\":{\"agents\":[]}}"))
+        );
+    } else {
+        crate::detect::scan_and_write(user, home);
+        emit_report(user, distro);
+    }
     ExitCode::SUCCESS
 }
 
@@ -572,6 +600,10 @@ fn report_only(user: &str, distro: &distro::Distro) -> ExitCode {
 /// real install would make.
 fn dry_run_report(ctx: &ProvisionCtx, distro: &distro::Distro) -> ExitCode {
     eprintln!("agentlinux provision: [DRY-RUN] pre-flight report (no host mutation):");
+    // Refresh the detect cache (tmpfs, not host state) so the pre-flight report
+    // reflects current host state — the Bash `detect::run_once` ran on the dry-run
+    // path too. See report_only for the NO-MUTATION rationale.
+    crate::detect::scan_and_write(&ctx.install_user, &ctx.install_home);
     emit_report(&ctx.install_user, distro);
     for (id, res) in &ctx.resolutions.agents {
         eprintln!("agentlinux provision: [DRY-RUN] agents.{id} = {res:?}");

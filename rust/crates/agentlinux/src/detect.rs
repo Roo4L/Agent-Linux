@@ -322,6 +322,40 @@ fn gsd_version_file_record(user: &str, ver_file: &str) -> Option<AgentRecord> {
     })
 }
 
+/// One record → its JSON object (the 5 cache/report fields). Shared by the cache
+/// writer and the `--report-format=json` report so the two shapes never drift.
+fn record_value(r: &AgentRecord) -> serde_json::Value {
+    serde_json::json!({
+        "id": r.id,
+        "binary": r.binary,
+        "path": r.path,
+        "version": r.version,
+        "status": r.status,
+    })
+}
+
+/// Scan the host for every PATH-resolvable catalog agent, returning the per-agent
+/// records (mcp/test entries excluded, absent agents included as `status=absent`).
+/// A catalog-read failure logs a breadcrumb and returns an empty vec (the callers
+/// treat that as "detected nothing" — the same absent-cache fallback).
+fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
+    let catalog_dir = catalog::resolve_catalog_dir();
+    let entries = match catalog::load_catalog(&catalog_dir, false) {
+        Ok(e) => e,
+        Err(e) => {
+            crate::provision::log::line(&format!(
+                "agentlinux provision: detect scan skipped — catalog unreadable ({e}); \
+                 REUSE-03/REMEDIATE-04 will see an absent cache"
+            ));
+            return Vec::new();
+        }
+    };
+    agent_rows(&entries)
+        .into_iter()
+        .map(|(id, binary)| probe_one(user, home, &id, &binary))
+        .collect()
+}
+
 /// Serialize the records into the `{agents: [...]}` cache doc + write it to the
 /// resolved detect-cache path (`$AGENTLINUX_DETECT_CACHE` else
 /// `/run/agentlinux-detect.json`). Best-effort: returns any I/O error for the
@@ -337,18 +371,7 @@ fn write_cache(records: &[AgentRecord]) -> std::io::Result<()> {
     use std::io::Write;
     use std::os::unix::fs::OpenOptionsExt;
 
-    let agents: Vec<serde_json::Value> = records
-        .iter()
-        .map(|r| {
-            serde_json::json!({
-                "id": r.id,
-                "binary": r.binary,
-                "path": r.path,
-                "version": r.version,
-                "status": r.status,
-            })
-        })
-        .collect();
+    let agents: Vec<serde_json::Value> = records.iter().map(record_value).collect();
     let doc = serde_json::json!({ "agents": agents });
     // Plain-string values → serialization cannot fail in practice; propagate rather
     // than mask it as a silent empty-agents cache (which would read as a false
@@ -371,6 +394,18 @@ fn write_cache(records: &[AgentRecord]) -> std::io::Result<()> {
     std::fs::rename(&tmp, &path)
 }
 
+/// Persist a set of records to the detect cache, logging (not propagating) an I/O
+/// failure — the shared best-effort write both `scan_and_write` and the
+/// report path use.
+fn persist(records: &[AgentRecord]) {
+    if let Err(e) = write_cache(records) {
+        crate::provision::log::line(&format!(
+            "agentlinux provision: detect cache write failed ({e}); \
+             REUSE-03/REMEDIATE-04 will see an absent cache"
+        ));
+    }
+}
+
 /// Scan the host for every catalog agent + write the detect cache's `.agents`
 /// section. The `provision` verb's post-step, best-effort call: a catalog-read or
 /// cache-write failure is logged and swallowed (a provision that already did the
@@ -378,27 +413,22 @@ fn write_cache(records: &[AgentRecord]) -> std::io::Result<()> {
 /// path leaves `/run/agentlinux-detect.json` populated so REUSE-03 / REMEDIATE-04
 /// can fire on the next `agentlinux install`.
 pub fn scan_and_write(user: &str, home: &str) {
-    let catalog_dir = catalog::resolve_catalog_dir();
-    let entries = match catalog::load_catalog(&catalog_dir, false) {
-        Ok(e) => e,
-        Err(e) => {
-            crate::provision::log::line(&format!(
-                "agentlinux provision: detect scan skipped — catalog unreadable ({e}); \
-                 REUSE-03/REMEDIATE-04 will see an absent cache"
-            ));
-            return;
-        }
-    };
-    let records: Vec<AgentRecord> = agent_rows(&entries)
-        .into_iter()
-        .map(|(id, binary)| probe_one(user, home, &id, &binary))
-        .collect();
-    if let Err(e) = write_cache(&records) {
-        crate::provision::log::line(&format!(
-            "agentlinux provision: detect cache write failed ({e}); \
-             REUSE-03/REMEDIATE-04 will see an absent cache"
-        ));
-    }
+    persist(&scan(user, home));
+}
+
+/// Scan the host, persist the cache, AND return the detection report body as the
+/// `{components:{agents:[...]}}` JSON document — the `provision --report-only
+/// --report-format=json` payload (`detect::render_json`). Refreshing the cache is
+/// the same side effect the old `detect::run_once` had on the report path; the
+/// returned value is the full PATH-probe agents section (mcp/test excluded,
+/// absent agents included), which `agentlinux list`/`adopt`/`upgrade` then read
+/// back from the cache. Wrapped under `.components.agents` to match the Bash
+/// report shape (the cache adapter accepts both `.agents` and `.components.agents`).
+pub fn scan_persist_report_json(user: &str, home: &str) -> serde_json::Value {
+    let records = scan(user, home);
+    persist(&records);
+    let agents: Vec<serde_json::Value> = records.iter().map(record_value).collect();
+    serde_json::json!({ "components": { "agents": agents } })
 }
 
 #[cfg(test)]
