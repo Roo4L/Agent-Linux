@@ -5,7 +5,7 @@ set -euo pipefail
 # Deregisters the Slack remote MCP server from EVERY present MCP-capable agent
 # via the shared helper. Deregistration IS the uninstall — nothing was installed
 # to a prefix; the registration lived only in each agent's config. Idempotent and
-# residue-free. AgentLinux never stored a credential (ADR-017), so nothing to leak.
+# residue-free. AgentLinux never stored a credential (ADR-018), so nothing to leak.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 : "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}"

@@ -5,7 +5,7 @@ set -euo pipefail
 # Deregisters the Firecrawl remote MCP server from EVERY present MCP-capable agent
 # via the shared helper. Deregistration IS the uninstall — nothing was installed
 # to a prefix; the registration lived only in each agent's config. Idempotent and
-# residue-free. AgentLinux never stored a credential (ADR-017), so nothing to leak.
+# residue-free. AgentLinux never stored a credential (ADR-018), so nothing to leak.
 #
 # A user who re-registered with a personal key in the URL path (see install.sh)
 # used the SAME server name, so this deregistration removes that variant too.

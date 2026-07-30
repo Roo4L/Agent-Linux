@@ -23,9 +23,9 @@ New ADR: copy [`000-template.md`](000-template.md) and add a row below.
 | [003](003-no-default-agents-installed.md) | No agents installed by default; users opt in via the catalog | catalog, product | Accepted |
 | [004](004-per-user-npm-prefix.md) | Per-user npm prefix as the keystone ownership decision (eliminates EACCES) | nodejs, security, privilege | Accepted |
 | [005](005-system-nodejs-over-version-managers.md) | System Node.js (NodeSource) over version managers (nvm/fnm/volta) | nodejs, installer | Accepted |
-| [006](006-curl-pipe-bash-plus-deb.md) | curl-pipe-bash primary distribution + optional .deb; SHA256-verified tarball | packaging, security | Accepted |
+| [006](006-curl-pipe-bash-plus-deb.md) | curl-pipe-bash primary distribution + optional .deb; SHA256-verified tarball | packaging, security | Accepted — .deb channel superseded |
 | [007](007-docker-plus-qemu-harness.md) | Docker (fast PR) + QEMU (release gate) harness; Docker-only is disqualified | testing | Accepted |
-| [008](008-commander-js-for-cli.md) | Commander.js for the registry CLI | cli | Accepted |
+| [008](008-commander-js-for-cli.md) | Commander.js for the registry CLI | cli | Superseded — the CLI is Rust + `clap` |
 | [009](009-snap-disqualified.md) | Snap is structurally disqualified as a distribution mechanism | packaging | Accepted |
 | [010](010-review-loop-via-claude-md.md) | Review loop triggered by project instructions, not a Stop hook | review, process | Accepted |
 | [011](011-stability-first-version-pinning.md) | Stability-first version pinning with explicit reconciliation | catalog, versioning | Accepted |
@@ -34,16 +34,5 @@ New ADR: copy [`000-template.md`](000-template.md) and add a row below.
 | [014](014-secret-remediation-noop.md) | Secret remediation for v0.4.0 — no rotation required | security, release | Accepted |
 | [015](015-developer-internals-docs.md) | Developer internals docs embedded in the review loop, no new hook | docs, review, process | Accepted |
 | [016](016-agenda-redefinition.md) | Agenda redefinition — two pillars, vision-only doc | product, vision | Accepted |
-| [017-a](017-distro-family-bucket.md) | Distro-family bucket (`AGENTLINUX_DISTRO_FAMILY`) + single `pkg.sh` dispatch | distro, installer | Accepted |
-| [017-b](017-mcp-thin-installer-in-client-auth.md) | MCP entries are thin client-config installers; auth happens in-client | catalog, mcp, security | Accepted |
-
-## Known numbering issues
-
-These are recorded here rather than silently renumbered (renumbering breaks
-inbound cross-references); fix under a dedicated cleanup:
-
-- **Duplicate 017.** Both `017-distro-family-bucket.md` and
-  `017-mcp-thin-installer-in-client-auth.md` claim ADR-017. Listed above as
-  `017-a` / `017-b`. Renumbering the MCP one to 018 is the pending fix.
-- **Stale heading in 016.** `016-agenda-redefinition.md` opens with a `# 015:`
-  heading (should be `016`); the filename is authoritative.
+| [017](017-distro-family-bucket.md) | Distro-family bucket (`AGENTLINUX_DISTRO_FAMILY`) + single `pkg.sh` dispatch | distro, installer | Accepted |
+| [018](018-mcp-thin-installer-in-client-auth.md) | MCP entries are thin client-config installers; auth happens in-client | catalog, mcp, security | Accepted |

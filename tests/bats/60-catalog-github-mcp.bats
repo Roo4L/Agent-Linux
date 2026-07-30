@@ -2,7 +2,7 @@
 # tests/bats/60-catalog-github-mcp.bats — v0.3.6 Phase 36 (github-mcp) MCP-03:
 # the FIRST remote-http MCP entry AND the first CROSS-AGENT MCP registration.
 #
-# THIN INSTALLER (ADR-017): github-mcp registers GitHub's hosted remote MCP server
+# THIN INSTALLER (ADR-018): github-mcp registers GitHub's hosted remote MCP server
 # as a BARE URL — no credential — into EVERY installed MCP-capable agent
 # (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper
 # plugin/catalog/lib/mcp-register.sh. AgentLinux stores NO token; the user
@@ -30,7 +30,7 @@ CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 CLAUDE_JSON=/home/agent/.claude.json
 CODEX_TOML=/home/agent/.codex/config.toml
 # Any credential-shaped string that must NEVER appear in a config under the
-# thin-installer model (ADR-017): auth headers, bearer/token fields, GitHub PATs.
+# thin-installer model (ADR-018): auth headers, bearer/token fields, GitHub PATs.
 CRED_RE='ghp_[A-Za-z0-9]|github_pat_[A-Za-z0-9]|[Aa]uthorization|[Bb]earer|bearer_token'
 
 setup_file() {
@@ -73,7 +73,7 @@ _assert_gone_if_present() {
     || __fail "MCP-03" "${bin} config still carries github-mcp after remove" "residue" "$LOG"
 }
 
-@test "MCP-03: github-mcp registers a BARE remote URL (no credential, ADR-017) into every installed agent, then deregisters with no residue" {
+@test "MCP-03: github-mcp registers a BARE remote URL (no credential, ADR-018) into every installed agent, then deregisters with no residue" {
   # Guard: both named-agent preconditions actually held. Fail loud on a missing
   # precondition rather than let a skipped fan-out target look like a register bug.
   run sudo -u agent -H bash --login -c 'command -v claude'
@@ -121,11 +121,11 @@ _assert_gone_if_present() {
   _assert_present_if_installed opencode "jq -e --arg u \"${url}\" '.mcp[\"github-mcp\"] | .type==\"remote\" and .url==\$u and (has(\"headers\")|not)' /home/agent/.config/opencode/opencode.json"
 
   # THIN INSTALLER: no credential-shaped string in ANY agent config (no header,
-  # no bearer/token field, no literal PAT). This is the ADR-017 contract.
+  # no bearer/token field, no literal PAT). This is the ADR-018 contract.
   run sudo -u agent -H bash --login -c \
     "grep -rIqE '${CRED_RE}' /home/agent/.claude.json /home/agent/.codex /home/agent/.gemini /home/agent/.qwen /home/agent/.config/opencode 2>/dev/null"
   [[ "${status}" -ne 0 ]] \
-    || __fail "MCP-03" "NO credential in any agent config (thin installer, ADR-017)" "credential-shaped string found" "$LOG"
+    || __fail "MCP-03" "NO credential in any agent config (thin installer, ADR-018)" "credential-shaped string found" "$LOG"
 
   # Deregister (fan out).
   run sudo -u agent -H bash --login -c 'agentlinux remove --force github-mcp'
@@ -159,7 +159,7 @@ _assert_gone_if_present() {
 
   # And it IS remote-http with the thin-installer shape: source_kind mcp, an https
   # endpoint_url, requires_secret true (needs in-client auth), and NO secret_env
-  # (ADR-017 dropped it — AgentLinux carries no credential).
+  # (ADR-018 dropped it — AgentLinux carries no credential).
   run bash -c "jq -r '.agents[] | select(.id==\"github-mcp\") | \"\\(.source_kind) \\(.requires_secret) \\(.secret_env) \\(.endpoint_url)\"' ${CATALOG}"
   assert_exit_zero "MCP-03 (entry shape)"
   if [[ "${output}" != "mcp true null https://api.githubcopilot.com/mcp/" ]]; then

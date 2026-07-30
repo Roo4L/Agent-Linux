@@ -2,7 +2,7 @@
 set -euo pipefail
 # firecrawl-mcp install.sh — source_kind: mcp, remote-http (Phase 40, MCP-07).
 #
-# Thin client-config installer (ADR-017): registers Firecrawl's HOSTED remote MCP
+# Thin client-config installer (ADR-018): registers Firecrawl's HOSTED remote MCP
 # server (bare URL, NO credential) into EVERY installed MCP-capable coding agent
 # via the shared helper. Reuses the ENABLE-02 remote-http machinery (Phase 36).
 #
@@ -41,7 +41,7 @@ if ! al_mcp_register_http "$server" "$url"; then
 fi
 
 echo "${server}: registered into: ${AL_MCP_TARGETS}"
-# ADR-017: no token stored by AgentLinux. The client completes OAuth at runtime.
+# ADR-018: no token stored by AgentLinux. The client completes OAuth at runtime.
 echo "${server}: NOTE — authenticate through the client's OAuth flow on first use."
 echo "${server}:        If your client cannot complete Firecrawl OAuth, get a personal key at"
 echo "${server}:        https://firecrawl.dev/app/api-keys and re-register it at runtime"

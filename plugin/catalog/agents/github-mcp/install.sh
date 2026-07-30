@@ -2,7 +2,7 @@
 set -euo pipefail
 # github-mcp install.sh — source_kind: mcp, remote-http (Phase 36, MCP-03).
 #
-# Thin client-config installer (ADR-017): registers GitHub's HOSTED remote MCP
+# Thin client-config installer (ADR-018): registers GitHub's HOSTED remote MCP
 # server (bare URL, NO credential) into EVERY installed MCP-capable coding agent
 # (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper.
 # First consumer of the ENABLE-02 remote-http machinery (reused by linear-mcp /
@@ -12,7 +12,7 @@ set -euo pipefail
 # stable URL. pinned_version names the curated upstream github-mcp-server release
 # the endpoint is validated against (ADR-011); the registration target is the URL.
 #
-# Auth (ADR-017): AgentLinux bakes NOTHING. GitHub's hosted MCP supports in-client
+# Auth (ADR-018): AgentLinux bakes NOTHING. GitHub's hosted MCP supports in-client
 # OAuth, so the user authenticates from within their coding agent on first use
 # (Claude Code prompts a login; codex `codex mcp login`; etc.).
 
@@ -43,7 +43,7 @@ if ! al_mcp_register_http "$server" "$url"; then
 fi
 
 echo "${server}: registered into: ${AL_MCP_TARGETS}"
-# ADR-017: auth is completed IN-CLIENT — AgentLinux stores no token.
+# ADR-018: auth is completed IN-CLIENT — AgentLinux stores no token.
 echo "${server}: NOTE — authenticate from within your coding agent on first use"
 echo "${server}:        (Claude Code prompts a GitHub OAuth login; codex: \`codex mcp login\`)."
 echo "${server}:        OpenCode diagnostics: \`opencode mcp debug ${server}\`, then \`opencode mcp auth ${server}\`"

@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # tests/bats/64-catalog-linear-mcp.bats — v0.3.6 Phase 42 (linear-mcp) MCP-09.
 #
-# THIN INSTALLER (ADR-017): linear-mcp registers Linear's OFFICIAL hosted remote
+# THIN INSTALLER (ADR-018): linear-mcp registers Linear's OFFICIAL hosted remote
 # MCP server as a BARE URL — no credential — into EVERY installed MCP-capable agent
 # (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper
 # plugin/catalog/lib/mcp-register.sh. AgentLinux stores NO token; the user
@@ -18,7 +18,7 @@ PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 CLAUDE_JSON=/home/agent/.claude.json
 CODEX_TOML=/home/agent/.codex/config.toml
-# Credential-shaped strings that must NEVER appear in a config (ADR-017). Kept
+# Credential-shaped strings that must NEVER appear in a config (ADR-018). Kept
 # tight (auth-header + token-field shapes + Linear's key/OAuth prefixes) to avoid
 # false positives from unrelated claude-code state written into ~/.claude.json.
 CRED_RE='[Aa]uthorization|[Bb]earer|bearer_token|lin_(api|oauth)_'
@@ -54,7 +54,7 @@ _assert_gone_if_present() {
     || __fail "MCP-09" "${bin} config still carries linear-mcp after remove" "residue" "$LOG"
 }
 
-@test "MCP-09: linear-mcp registers a BARE remote URL (no credential, ADR-017) into every installed agent, then deregisters with no residue" {
+@test "MCP-09: linear-mcp registers a BARE remote URL (no credential, ADR-018) into every installed agent, then deregisters with no residue" {
   run sudo -u agent -H bash --login -c 'command -v claude'
   assert_exit_zero "MCP-09 (claude present precondition)"
   run sudo -u agent -H bash --login -c 'command -v codex'
@@ -92,11 +92,11 @@ _assert_gone_if_present() {
   _assert_present_if_installed qwen "jq -e --arg u \"${url}\" '.mcpServers[\"linear-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.qwen/settings.json"
   _assert_present_if_installed opencode "jq -e --arg u \"${url}\" '.mcp[\"linear-mcp\"] | .type==\"remote\" and .url==\$u and (has(\"headers\")|not)' /home/agent/.config/opencode/opencode.json"
 
-  # THIN INSTALLER: no credential-shaped string in ANY agent config (ADR-017).
+  # THIN INSTALLER: no credential-shaped string in ANY agent config (ADR-018).
   run sudo -u agent -H bash --login -c \
     "grep -rIqE '${CRED_RE}' /home/agent/.claude.json /home/agent/.codex /home/agent/.gemini /home/agent/.qwen /home/agent/.config/opencode 2>/dev/null"
   [[ "${status}" -ne 0 ]] \
-    || __fail "MCP-09" "NO credential in any agent config (thin installer, ADR-017)" "credential-shaped string found" "$LOG"
+    || __fail "MCP-09" "NO credential in any agent config (thin installer, ADR-018)" "credential-shaped string found" "$LOG"
 
   run sudo -u agent -H bash --login -c 'agentlinux remove --force linear-mcp'
   assert_exit_zero "MCP-09 (remove)"
@@ -118,7 +118,7 @@ _assert_gone_if_present() {
 
 @test "MCP-09: linear-mcp entry shape — official hosted remote-http, thin installer, no package license" {
   # source_kind mcp, https endpoint_url, requires_secret true (needs in-client
-  # auth), NO secret_env (ADR-017), and NO license (Linear's proprietary hosted
+  # auth), NO secret_env (ADR-018), and NO license (Linear's proprietary hosted
   # service has no downloadable package to license).
   run bash -c "jq -r '.agents[] | select(.id==\"linear-mcp\") | \"\\(.source_kind) \\(.requires_secret) \\(.secret_env) \\(.license) \\(.endpoint_url)\"' ${CATALOG}"
   assert_exit_zero "MCP-09 (entry shape)"

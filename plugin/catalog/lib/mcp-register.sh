@@ -18,7 +18,7 @@
 # all of them. Currently targeted: claude-code, codex, antigravity-cli, opencode,
 # qwen-code (the five shipped agents with remote-http MCP support).
 #
-# Thin-installer keystone (ADR-017 / CAT-02): an MCP entry registers the BARE
+# Thin-installer keystone (ADR-018 / CAT-02): an MCP entry registers the BARE
 # server (URL only) into each client and bakes NO credential — no literal token,
 # no env-var reference, no auth header. The user authenticates IN-CLIENT afterwards
 # (the client's own OAuth prompt on first use for a remote server). There is thus
@@ -104,7 +104,7 @@ _al_mcp_claude_cfg() { printf '%s/.claude.json' "$(_al_mcp_home)"; }
 _al_mcp_claude_register() { # <server> <url>
   local server=$1 url=$2
   # remove-then-add → idempotent AND guarantees the pinned url wins. Bare URL, no
-  # --header (ADR-017): the user completes OAuth in-client on first use.
+  # --header (ADR-018): the user completes OAuth in-client on first use.
   claude mcp remove "$server" --scope user >/dev/null 2>&1 || true
   claude mcp add --transport http "$server" "$url" --scope user >/dev/null 2>&1 \
     || return 1
@@ -138,7 +138,7 @@ _al_mcp_codex_deregister() { # <server>
   fi
 }
 _al_mcp_codex_register() { # <server> <url>
-  # `url` selects codex's StreamableHTTP transport. Thin installer (ADR-017): we
+  # `url` selects codex's StreamableHTTP transport. Thin installer (ADR-018): we
   # register only the bare URL — no token/bearer field. The user authenticates
   # in-client (codex `codex mcp login`, or the browser OAuth the server drives).
   # Confirmed against codex source at tag rust-v0.142.3: HTTP MCP has graduated
@@ -167,7 +167,7 @@ _al_mcp_antigravity_cfg() { printf '%s/.gemini/config/mcp_config.json' "$(_al_mc
 _al_mcp_qwen_present() { command -v qwen >/dev/null 2>&1; }
 _al_mcp_qwen_cfg() { printf '%s/.qwen/settings.json' "$(_al_mcp_home)"; }
 
-# Antigravity's modern remote-MCP schema uses serverUrl (no auth — ADR-017).
+# Antigravity's modern remote-MCP schema uses serverUrl (no auth — ADR-018).
 _al_mcp_antigravity_obj() { # <url>
   jq -n --arg u "$1" '{serverUrl: $u}'
 }
@@ -187,7 +187,7 @@ _al_mcp_opencode_obj() { # <url>
 # ---- public API -------------------------------------------------------------
 
 # al_mcp_register_http <server> <url>
-# Fan out a BARE remote MCP registration (URL only, NO credential — ADR-017 thin
+# Fan out a BARE remote MCP registration (URL only, NO credential — ADR-018 thin
 # installer) to every present MCP-capable agent. The user authenticates in-client
 # afterwards. Echoes one "<server>: registered into <agent>" line per target and
 # sets AL_MCP_TARGETS to the space-separated agent list. Returns non-zero if a

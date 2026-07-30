@@ -1,4 +1,4 @@
-# 017: MCP entries are thin client-config installers; auth happens in-client
+# 018: MCP entries are thin client-config installers; auth happens in-client
 
 **Status:** Accepted
 **Date:** 2026-07-13

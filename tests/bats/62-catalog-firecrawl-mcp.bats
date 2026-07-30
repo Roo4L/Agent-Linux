@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # tests/bats/62-catalog-firecrawl-mcp.bats — v0.3.6 Phase 40 (firecrawl-mcp) MCP-07.
 #
-# THIN INSTALLER (ADR-017): firecrawl-mcp registers Firecrawl's hosted remote MCP
+# THIN INSTALLER (ADR-018): firecrawl-mcp registers Firecrawl's hosted remote MCP
 # server as a BARE URL — no credential — into EVERY installed MCP-capable agent
 # (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper
 # plugin/catalog/lib/mcp-register.sh. AgentLinux stores NO token.
@@ -23,7 +23,7 @@ PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 CLAUDE_JSON=/home/agent/.claude.json
 CODEX_TOML=/home/agent/.codex/config.toml
-# Credential-shaped strings that must NEVER appear in a config (ADR-017). Kept
+# Credential-shaped strings that must NEVER appear in a config (ADR-018). Kept
 # tight (auth-header + token-field shapes + the Firecrawl key prefix `fc-`) to
 # avoid false positives from unrelated claude-code state written into ~/.claude.json.
 CRED_RE='[Aa]uthorization|[Bb]earer|bearer_token|fc-[0-9A-Fa-f]'
@@ -98,11 +98,11 @@ _assert_gone_if_present() {
   _assert_present_if_installed qwen "jq -e --arg u \"${url}\" '.mcpServers[\"firecrawl-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.qwen/settings.json"
   _assert_present_if_installed opencode "jq -e --arg u \"${url}\" '.mcp[\"firecrawl-mcp\"] | .type==\"remote\" and .url==\$u and (has(\"headers\")|not)' /home/agent/.config/opencode/opencode.json"
 
-  # THIN INSTALLER: no credential-shaped string in ANY agent config (ADR-017).
+  # THIN INSTALLER: no credential-shaped string in ANY agent config (ADR-018).
   run sudo -u agent -H bash --login -c \
     "grep -rIqE '${CRED_RE}' /home/agent/.claude.json /home/agent/.codex /home/agent/.gemini /home/agent/.qwen /home/agent/.config/opencode 2>/dev/null"
   [[ "${status}" -ne 0 ]] \
-    || __fail "MCP-07" "NO credential in any agent config (thin installer, ADR-017)" "credential-shaped string found" "$LOG"
+    || __fail "MCP-07" "NO credential in any agent config (thin installer, ADR-018)" "credential-shaped string found" "$LOG"
 
   run sudo -u agent -H bash --login -c 'agentlinux remove --force firecrawl-mcp'
   assert_exit_zero "MCP-07 (remove)"
@@ -124,7 +124,7 @@ _assert_gone_if_present() {
 
 @test "MCP-07: firecrawl-mcp entry shape — hosted OAuth remote-http, thin installer, MIT license" {
   # source_kind mcp, https endpoint_url, requires_secret TRUE (OAuth required),
-  # NO secret_env (ADR-017), MIT license.
+  # NO secret_env (ADR-018), MIT license.
   run bash -c "jq -r '.agents[] | select(.id==\"firecrawl-mcp\") | \"\\(.source_kind) \\(.requires_secret) \\(.secret_env) \\(.license) \\(.endpoint_url)\"' ${CATALOG}"
   assert_exit_zero "MCP-07 (entry shape)"
   if [[ "${output}" != "mcp true null MIT https://mcp.firecrawl.dev/v2/mcp" ]]; then

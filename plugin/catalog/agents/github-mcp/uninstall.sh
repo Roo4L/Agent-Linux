@@ -6,7 +6,7 @@ set -euo pipefail
 # via the shared cross-agent helper. Deregistration IS the uninstall — nothing
 # was installed to a prefix; the registration lived only in each agent's config.
 # Idempotent (a no-op where the entry is already absent) and residue-free.
-# AgentLinux never stored a credential (ADR-017 thin installer), so nothing to leak.
+# AgentLinux never stored a credential (ADR-018 thin installer), so nothing to leak.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 : "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}"

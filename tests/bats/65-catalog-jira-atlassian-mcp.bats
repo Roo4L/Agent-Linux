@@ -1,7 +1,7 @@
 #!/usr/bin/env bats
 # tests/bats/65-catalog-jira-atlassian-mcp.bats — v0.3.6 Phase 43 (jira-atlassian-mcp) MCP-10.
 #
-# THIN INSTALLER (ADR-017): jira-atlassian-mcp registers Atlassian's OFFICIAL hosted
+# THIN INSTALLER (ADR-018): jira-atlassian-mcp registers Atlassian's OFFICIAL hosted
 # Rovo MCP server as a BARE URL — no credential — into EVERY installed MCP-capable
 # agent (claude-code, codex, antigravity-cli, opencode, qwen-code) via the shared helper
 # plugin/catalog/lib/mcp-register.sh. AgentLinux stores NO token; the user
@@ -24,7 +24,7 @@ PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 CLAUDE_JSON=/home/agent/.claude.json
 CODEX_TOML=/home/agent/.codex/config.toml
-# Credential-shaped strings that must NEVER appear in a config (ADR-017). Kept
+# Credential-shaped strings that must NEVER appear in a config (ADR-018). Kept
 # tight (auth-header + token-field shapes + Atlassian API-token prefixes ATATT/ATCTT)
 # to avoid false positives from unrelated claude-code state written into ~/.claude.json.
 CRED_RE='[Aa]uthorization|[Bb]earer|bearer_token|ATATT|ATCTT'
@@ -60,7 +60,7 @@ _assert_gone_if_present() {
     || __fail "MCP-10" "${bin} config still carries jira-atlassian-mcp after remove" "residue" "$LOG"
 }
 
-@test "MCP-10: jira-atlassian-mcp registers a BARE remote URL (no credential, ADR-017) into every installed agent, then deregisters with no residue" {
+@test "MCP-10: jira-atlassian-mcp registers a BARE remote URL (no credential, ADR-018) into every installed agent, then deregisters with no residue" {
   run sudo -u agent -H bash --login -c 'command -v claude'
   assert_exit_zero "MCP-10 (claude present precondition)"
   run sudo -u agent -H bash --login -c 'command -v codex'
@@ -98,11 +98,11 @@ _assert_gone_if_present() {
   _assert_present_if_installed qwen "jq -e --arg u \"${url}\" '.mcpServers[\"jira-atlassian-mcp\"] | .httpUrl==\$u and (has(\"headers\")|not)' /home/agent/.qwen/settings.json"
   _assert_present_if_installed opencode "jq -e --arg u \"${url}\" '.mcp[\"jira-atlassian-mcp\"] | .type==\"remote\" and .url==\$u and (has(\"headers\")|not)' /home/agent/.config/opencode/opencode.json"
 
-  # THIN INSTALLER: no credential-shaped string in ANY agent config (ADR-017).
+  # THIN INSTALLER: no credential-shaped string in ANY agent config (ADR-018).
   run sudo -u agent -H bash --login -c \
     "grep -rIqE '${CRED_RE}' /home/agent/.claude.json /home/agent/.codex /home/agent/.gemini /home/agent/.qwen /home/agent/.config/opencode 2>/dev/null"
   [[ "${status}" -ne 0 ]] \
-    || __fail "MCP-10" "NO credential in any agent config (thin installer, ADR-017)" "credential-shaped string found" "$LOG"
+    || __fail "MCP-10" "NO credential in any agent config (thin installer, ADR-018)" "credential-shaped string found" "$LOG"
 
   run sudo -u agent -H bash --login -c 'agentlinux remove --force jira-atlassian-mcp'
   assert_exit_zero "MCP-10 (remove)"
@@ -124,7 +124,7 @@ _assert_gone_if_present() {
 
 @test "MCP-10: jira-atlassian-mcp entry shape — official hosted remote-http, thin installer, Apache-2.0 + GA-date pin" {
   # source_kind mcp, https endpoint_url, requires_secret true (needs in-client
-  # auth), NO secret_env (ADR-017), license Apache-2.0 (the official repo's
+  # auth), NO secret_env (ADR-018), license Apache-2.0 (the official repo's
   # license — recorded even though pinned_version is a GA date, since the hosted
   # endpoint has no downloadable release: version and license are independent).
   run bash -c "jq -r '.agents[] | select(.id==\"jira-atlassian-mcp\") | \"\\(.source_kind) \\(.requires_secret) \\(.secret_env) \\(.license) \\(.pinned_version) \\(.endpoint_url)\"' ${CATALOG}"

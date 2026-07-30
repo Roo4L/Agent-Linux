@@ -1,6 +1,9 @@
 # 008: Commander.js for the registry CLI
 
-**Status:** Accepted
+**Status:** Accepted (2026-04-18) — **Superseded (v0.4.0):** the registry CLI was
+reimplemented in Rust and no longer runs on Node. Commander.js is replaced by
+`clap` 4 (derive). The reason a maintained parsing library was chosen over a
+hand-rolled one **survives and carried over** — see the note below.
 **Date:** 2026-04-18
 
 ## Context
@@ -27,3 +30,26 @@ No other CLI framework.
 - Swapping CLI frameworks later would require rewriting `src/` but not the
   bats tests (behavior-contract framing, ADR-002), so the cost of reversal is
   bounded.
+
+## Superseded (v0.4.0)
+
+The v0.4.0 Rust rewrite replaced the TypeScript CLI with a static x86_64-musl
+binary. Commander.js, `plugin/cli/`, and the Node runtime dependency for the CLI
+itself are gone.
+
+- **What replaces it.** `clap` 4 with the derive API, declared in
+  `rust/crates/agentlinux/Cargo.toml` and defined in
+  `rust/crates/agentlinux/src/cli.rs`. Verb handlers live under
+  `rust/crates/agentlinux/src/cmd/`.
+- **The reasoning held.** The choice here was "a maintained parser over a
+  hand-rolled one, because five subcommands predictably grows into a
+  re-implementation." That argument transferred intact; `clap` is the same bet in
+  a different language, and the CLI did grow past five verbs.
+- **The reversal-cost claim was tested and held.** The bats behavior suite was
+  re-pointed at the new binary and stayed green — a whole-language rewrite cost
+  no spec changes, which is the strongest available evidence for ADR-002.
+
+Why the full rewrite, and what else was considered:
+[`../research/stack-reconsideration.md`](../research/stack-reconsideration.md)
+(Jira AL-115). This ADR is retained as the historical record of the original
+choice.

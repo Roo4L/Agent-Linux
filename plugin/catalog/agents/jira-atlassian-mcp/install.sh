@@ -2,7 +2,7 @@
 set -euo pipefail
 # jira-atlassian-mcp install.sh — source_kind: mcp, remote-http (Phase 43, MCP-10).
 #
-# Thin client-config installer (ADR-017): registers Atlassian's OFFICIAL hosted
+# Thin client-config installer (ADR-018): registers Atlassian's OFFICIAL hosted
 # Rovo MCP server (bare URL, NO credential) into EVERY installed MCP-capable coding
 # agent via the shared helper. Reuses the ENABLE-02 remote-http machinery (Phase 36).
 #
@@ -13,7 +13,7 @@ set -euo pipefail
 # within the signed-in user's permissions. It is **free-tier usable**: Atlassian's
 # platform page lists Free at 500 calls/hour and states all Cloud customers have
 # access — NOT gated behind a paid plan or a paid Rovo add-on (verified; unlike the
-# dropped gitlab endpoint). ADR-017-aligned: hosted bare URL, no baked credential,
+# dropped gitlab endpoint). ADR-018-aligned: hosted bare URL, no baked credential,
 # user auths in-client. Cloud-only (no Data Center / Server).
 #
 # The hosted endpoint is a rolling service with no downloadable release, so
@@ -21,7 +21,7 @@ set -euo pipefail
 # (ADR-011); the registration target is the URL. The endpoint is the current
 # Streamable-HTTP OAuth path (the older /v1/sse SSE path is deprecated).
 #
-# Auth (ADR-017): AgentLinux bakes NOTHING. The user completes Atlassian's OAuth
+# Auth (ADR-018): AgentLinux bakes NOTHING. The user completes Atlassian's OAuth
 # login from within their coding agent on first use.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
@@ -51,7 +51,7 @@ if ! al_mcp_register_http "$server" "$url"; then
 fi
 
 echo "${server}: registered into: ${AL_MCP_TARGETS}"
-# ADR-017: auth is completed IN-CLIENT — AgentLinux stores no token.
+# ADR-018: auth is completed IN-CLIENT — AgentLinux stores no token.
 echo "${server}: NOTE — authenticate from within your coding agent on first use"
 echo "${server}:        (Atlassian OAuth login). Cloud-only; free Cloud sites are supported."
 echo "${server}:        No token is stored by AgentLinux."

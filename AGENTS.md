@@ -109,7 +109,7 @@ bats tests/harness/70-planning-clean-gate.bats  # Self-test the .planning/ hygie
 - `@docs/HARNESS.md` — authoritative harness spec (§1 layout, §2 docs, §3 systems, §4 review, §5 skills, §6 this file, §7 checklist, §8 criteria)
 - `@docs/codex.md` — Codex CLI support (install, AGENTS.md, skills, Stop hooks)
 - `@docs/research/` — long-lived research, one document per question
-- `@docs/decisions/` — ADR-001..ADR-016 (ADR-016: developer internals docs)
+- `@docs/decisions/` — the ADR set; `docs/decisions/README.md` is the index
 - `@docs/internals/` — developer documentation (what each AgentLinux component
   does and why; product-perspective lens; insight source for blog/email/website)
 - Skills: `.claude/skills/agentlinux-installer/`,

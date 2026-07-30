@@ -2,7 +2,7 @@
 set -euo pipefail
 # linear-mcp install.sh — source_kind: mcp, remote-http (Phase 42, MCP-09).
 #
-# Thin client-config installer (ADR-017): registers Linear's OFFICIAL hosted
+# Thin client-config installer (ADR-018): registers Linear's OFFICIAL hosted
 # remote MCP server (bare URL, NO credential) into EVERY installed MCP-capable
 # coding agent via the shared helper. Reuses the ENABLE-02 remote-http machinery
 # (Phase 36) — the "OAuth handling enabler" the roadmap tagged here was already
@@ -12,14 +12,14 @@ set -euo pipefail
 # May 2025) at the URL below — Streamable HTTP, OAuth 2.1 with dynamic client
 # registration, centrally hosted and managed by Linear. It is free-tier usable —
 # MCP rides on Linear's GraphQL API, a Free-plan feature, so it is not paywalled
-# like the dropped gitlab endpoint. ADR-017-aligned: hosted bare URL, no baked
+# like the dropped gitlab endpoint. ADR-018-aligned: hosted bare URL, no baked
 # credential, user auths in-client (Linear OAuth on first use).
 #
 # Linear's hosted MCP is a rolling service with no downloadable release to pin, so
 # pinned_version carries the GA date (2025.5.1) the endpoint is validated against
 # (ADR-011); the registration target is the URL.
 #
-# Auth (ADR-017): AgentLinux bakes NOTHING. The user completes Linear's OAuth login
+# Auth (ADR-018): AgentLinux bakes NOTHING. The user completes Linear's OAuth login
 # from within their coding agent on first use.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
@@ -49,6 +49,6 @@ if ! al_mcp_register_http "$server" "$url"; then
 fi
 
 echo "${server}: registered into: ${AL_MCP_TARGETS}"
-# ADR-017: auth is completed IN-CLIENT — AgentLinux stores no token.
+# ADR-018: auth is completed IN-CLIENT — AgentLinux stores no token.
 echo "${server}: NOTE — authenticate from within your coding agent on first use"
 echo "${server}:        (Linear OAuth login). Works on Linear's free plan. No token is stored by AgentLinux."
