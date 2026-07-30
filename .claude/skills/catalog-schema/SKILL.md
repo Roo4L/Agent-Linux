@@ -86,7 +86,7 @@ Phase 4 upgrades it to ajv-based JSON Schema 2020-12 validation, with a separate
 
 ## The CAT-02 invariant (no default agents)
 
-**A fresh install of AgentLinux installs zero agents.** Every entry in the catalog is opt-in via `agentlinux install <name>`. This is non-negotiable — it's the point of the pivot from v0.2.0 (where Claude Code was baked into the image) to v0.3.0 (where the user chooses). Tests that assert "Claude Code is already installed after `agentlinux-install`" are bugs — the `behavior-coverage-auditor` flags them on every phase close.
+**A fresh install of AgentLinux installs zero agents.** Every entry in the catalog is opt-in via `agentlinux install <name>`. This is non-negotiable — it's the point of the pivot from v0.2.0 (where Claude Code was baked into the image) to v0.3.0 (where the user chooses). Tests that assert "Claude Code is already installed after `agentlinux-install`" are bugs.
 
 ## Growth plan
 

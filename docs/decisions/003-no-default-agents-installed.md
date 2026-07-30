@@ -20,10 +20,10 @@ A post-install system has a ready agent user and runtime but no agent binaries.
 
 ## Consequences
 
-- Acceptance test AGT-02 (Claude Code self-update without EACCES) requires a
+- The self-update acceptance test (Claude Code updating without EACCES) requires a
   prior `agentlinux install claude-code` in the test flow; the installer itself
   is not what installs Claude Code.
 - Uninstall / remove is symmetric: `agentlinux remove` cleans up what
   `agentlinux install` placed.
 - Catalog entries are the opt-in contract; adding a new agent does not require
-  editing the CLI source (CAT-03).
+  editing the CLI source.

@@ -2,12 +2,11 @@
 
 **Status:** Accepted
 **Date:** 2026-05-09
-**Drives:** DOC-01, DOC-02, DOC-03, DOC-04, DOC-05, DOC-06, DOC-07
 **Companion to:** ADR-010 (review loop via CLAUDE.md, refined 2026-05-02)
 
 ## Context
 
-AL-22 ("Create documentation on what AgentLinux does") asks for developer-facing internal documentation explaining what each AgentLinux component does and why — with a product-perspective lens. The litmus question is *"What value does AgentLinux provide in installing GSD instead of using the GSD installation from npm directly?"* The docs must give the project owner a 60-second answer per surface and double as raw material for blog posts, marketing emails, and the agentlinux.org landing page.
+[AL-22](https://copiedwonder.atlassian.net/browse/AL-22) ("Create documentation on what AgentLinux does") asks for developer-facing internal documentation explaining what each AgentLinux component does and why — with a product-perspective lens. The litmus question is *"What value does AgentLinux provide in installing GSD instead of using the GSD installation from npm directly?"* The docs must give the project owner a 60-second answer per surface and double as raw material for blog posts, marketing emails, and the agentlinux.org landing page.
 
 Two adjacent decisions had to land alongside the docs themselves:
 

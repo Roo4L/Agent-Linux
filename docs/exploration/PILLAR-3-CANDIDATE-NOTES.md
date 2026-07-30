@@ -1,8 +1,8 @@
 # Pillar 3 Candidate Exploration — Security Hardening (declined as a pillar)
 
-> Phase 14 verdict. Phase 15 lifts the `## Decision summary` section verbatim
+> Security-pillar verdict. The vision doc lifts the `## Decision summary` section verbatim
 > into `docs/STRATEGY.md` Appendix B's "Security Hardening" theme entry (not
-> into a Pillar 3 — verdict (b) means there is no Pillar 3). DOC-05
+> into a Pillar 3 — verdict (b) means there is no Pillar 3). The follow-up
 > (ADR-012 forward-reference to a Pillar 3) closes as N/A in `15-AUDIT.md`;
 > the unresolved ADR-012 tension is recorded inside Pillar 2's STRATEGY.md
 > section as a known limitation, not via an ADR file edit.
@@ -19,7 +19,7 @@
 The one substantive forward-looking commitment we draw from the security
 landscape — active supply-chain monitoring + curated catalog admission — folds
 into Pillar 2 as a sub-concern of its compat-guarded version pinning gate.
-Only two pillars ship in `docs/STRATEGY.md`. DOC-05 (ADR-012's forward-reference
+Only two pillars ship in `docs/STRATEGY.md`. The follow-up (ADR-012's forward-reference
 to a Pillar 3) closes as N/A in `15-AUDIT.md`; the unresolved tension is
 recorded inside Pillar 2's section as a known limitation. "Security Hardening"
 stays as a v0.6+ `opportunistic` theme in Appendix B, not as a pillar.
@@ -42,7 +42,7 @@ with Pillar 2's compat-guarded version pinning gate. Three parts:
    holds the prior pin until upstream re-issues the artifact.
 3. **We keep new, untested, or unreviewed projects out of the catalog by
    default.** Admission criteria in spirit: existing security-research track
-   record + behaviour-tested via the TST-08 4-gate pipeline + maintainer
+   record + behaviour-tested via the four-gate pipeline + maintainer
    reputation. No sight-unseen admission. The codified policy locks at the
    milestone where the catalog admission framework ships.
 
@@ -112,7 +112,7 @@ user need justifies it.
 - **Capability-scoped sudoers replacing ADR-012 NOPASSWD ALL** (passwordless
   sudo to any command). Microsoft SCOM-style allowlists scoped to
   `/usr/bin/apt-get install *`, `/usr/bin/systemctl restart *`, etc.
-  Phase 5 showed agents need a long tail of commands and the allowlist is
+  Experience showed agents need a long tail of commands and the allowlist is
   its own maintenance burden.
 
 ## ADR-012 tension
@@ -120,7 +120,7 @@ user need justifies it.
 ADR-012 (`agent ALL=(ALL) NOPASSWD: ALL` — passwordless sudo to any command)
 was a defensible scope choice at v0.3.0. The agent was framed as a trusted
 coworker; the alternative (capability-scoped sudoers allowlists) was rejected
-because Phase 5 showed agents need apt + systemctl + many other things and
+because agents proved to need apt + systemctl + many other things and
 an ever-growing allowlist is its own maintenance burden.
 
 After Shai-Hulud, TrustFall, and the Lethal Trifecta framing in late 2025,
@@ -157,7 +157,7 @@ each get one paragraph so future readers do not re-open the question.
 
 ## Decision summary
 
-> Phase 15 lifts this section verbatim into `docs/STRATEGY.md` Appendix B's
+> This section is lifted verbatim into `docs/STRATEGY.md` Appendix B's
 > "Security Hardening" theme entry (NOT into a Pillar 3 section).
 
 Verdict: (b) Fold into Pillar 2 as a sub-concern — security is not a separate
@@ -171,7 +171,7 @@ adopt OWASP LLM Top 10 v2025 + Lethal Trifecta + Agents Rule of Two as
 reference frames; refuse to bump pinned versions to releases with known
 compromise; keep new, untested, or unreviewed projects out of the catalog
 by default (admission requires existing security-research track record +
-TST-08 4-gate behaviour-test + maintainer reputation).
+four-gate behaviour-test + maintainer reputation).
 
 **Table-stakes that the fold subsumes (≥2):**
 

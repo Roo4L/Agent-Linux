@@ -74,7 +74,7 @@ de-risking step of the Rust migration**.
 
 ### The sync pain is logic-split, in the authors' own words
 
-`plugin/lib/reuse/agents.sh` implements the REUSE-03 decision as three
+`plugin/lib/reuse/agents.sh` implements the reuse decision as three
 predicates, but stops after two, with this comment (lines 10-13):
 
 > Predicate 3 is NOT done here — semver-range satisfaction is non-trivial in

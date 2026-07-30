@@ -43,9 +43,9 @@ Should AgentLinux use a custom `agentlinux install <name>` CLI (Commander.js/TS 
 
 1. **All three catalog agents (Claude Code, GSD, Playwright) are npm packages whose publish cadence is daily-to-weekly.** Shipping them as `.deb` makes AgentLinux a middleman that lags upstream; users would be stuck on our `.deb` version, not the latest npm publish. Adds per-agent release pipelines and requires rebuilding every time upstream ships.
 
-2. **Claude Code's `claude update` detects install type by resolving `which claude` against `~/.local/bin` vs `~/.npm-global/bin`** (per [anthropics/claude-code#22415](https://github.com/anthropics/claude-code/issues/22415) and [#28625](https://github.com/anthropics/claude-code/issues/28625)) and then runs either the native self-updater or `npm install -g` directly. An apt-installed Claude Code would be invisible to this detection — the first `claude update` would spawn `npm install -g` into `/home/agent/.npm-global` and shadow the apt version, recreating the exact ownership ambiguity AgentLinux exists to eliminate (AGT-02 regression).
+2. **Claude Code's `claude update` detects install type by resolving `which claude` against `~/.local/bin` vs `~/.npm-global/bin`** (per [anthropics/claude-code#22415](https://github.com/anthropics/claude-code/issues/22415) and [#28625](https://github.com/anthropics/claude-code/issues/28625)) and then runs either the native self-updater or `npm install -g` directly. An apt-installed Claude Code would be invisible to this detection — the first `claude update` would spawn `npm install -g` into `/home/agent/.npm-global` and shadow the apt version, recreating the exact ownership ambiguity AgentLinux exists to eliminate.
 
-3. **CAT-03 explicitly requires that adding a new agent be "submit only a catalog entry + install recipe, no CLI source edit."** Option A honors this with a 20-line `install.sh` + JSON entry. Options B/D force the submitter to author full Debian packaging (`debian/control`, `debian/rules`, `debian/changelog`, `postinst`, `prerm`) — an order-of-magnitude higher friction that chills ecosystem adoption.
+3. **Adding a new agent must mean submitting only a catalog entry plus an install recipe — no CLI source edit.** Option A honors this with a 20-line `install.sh` + JSON entry. Options B/D force the submitter to author full Debian packaging (`debian/control`, `debian/rules`, `debian/changelog`, `postinst`, `prerm`) — an order-of-magnitude higher friction that chills ecosystem adoption.
 
 ## Real-World Precedent
 
@@ -57,7 +57,7 @@ The industry consensus for this exact class of problem ("meta-installer for fast
 
 AgentLinux's catalog agents live in the same regime.
 
-## AGT-02 Litmus Test (End-to-End Walkthrough)
+## The self-update litmus test (end-to-end walkthrough)
 
 The canonical acceptance test: user opens Claude Code and types `/update`. What happens?
 
@@ -65,9 +65,9 @@ The canonical acceptance test: user opens Claude Code and types `/update`. What 
 
 - **Option B/D:** `apt install agentlinux-claude-code` ran `postinst` as root, which ran `sudo -u agent -H npm install -g ...` into `/home/agent/.npm-global`. User runs `claude update`. `which claude` → `/home/agent/.npm-global/bin/claude` → updater detects "npm-global" → runs `npm install -g` as agent user → **works from Claude Code's side**, but apt's dpkg database now lists a version that's been clobbered by npm; next `apt upgrade` brings the apt-tracked version back and fights the self-update. ⚠ AGT-02 technically green on first test, but the install is in a split-brain state where apt and Claude Code's self-updater each think they own the binary. Regression risk: HIGH.
 
-- **Option C:** Same as Option A for AGT-02 path. ✓
+- **Option C:** Same as Option A on the self-update path. ✓
 
-## CAT-03 Submitter Experience
+## Submitter experience
 
 | Option | What the submitter produces |
 |--------|----------------------------|

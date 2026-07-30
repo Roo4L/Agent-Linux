@@ -3,7 +3,7 @@
 # needs NO Node prerequisite).
 #
 # Every @test name starts with the requirement ID (INST-08:) so
-# behavior-coverage-auditor's TST-07 gate greps pass; failures route through
+# the suite readable; failures route through
 # `__fail` for the four-line TST-04 diagnostic (helpers/assertions).
 #
 # DIST-01's central claim after the Phase-58 musl swap: the shipped `agentlinux`

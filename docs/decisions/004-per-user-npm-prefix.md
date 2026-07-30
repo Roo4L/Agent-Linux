@@ -17,13 +17,13 @@ The installer configures the agent user with an npm global prefix under their
 own home (`~/.npm-global` or equivalent) and wires PATH so the prefix's `bin/` is
 on PATH in every invocation mode (interactive shell, non-interactive SSH, cron,
 systemd, sudo -u). `npm config get prefix` for the agent user must never return
-`/usr`, `/usr/local`, or any root-owned path (RT-04).
+`/usr`, `/usr/local`, or any root-owned path.
 
 ## Consequences
 
 - `sudo npm install -g` is banned everywhere in installer and catalog code; the
   `security-engineer` review subagent flags it.
 - PATH wiring must belt-and-braces across all six invocation modes
-  (BHV-01..BHV-06); missing one mode breaks cron / systemd agents silently.
+  in every invocation mode; missing one breaks cron and systemd agents silently.
 - Uninstall must unwire the prefix and remove the installed binaries without
   touching system-owned files.

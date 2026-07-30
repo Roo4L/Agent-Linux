@@ -70,7 +70,7 @@ Findings:
 One stale claim, one style regression, no missing docs.
 ```
 
-This auditor does NOT spawn other reviewers (per ADR-010 — the review loop's dispatcher is the main agent), and it does NOT gate phase close (unlike `behavior-coverage-auditor`'s `## Exit behavior` section). The dev-docs are reference material; staleness is a flag for the main agent to triage, not a release blocker.
+This auditor does NOT spawn other reviewers (per ADR-010 — the review loop's dispatcher is the main agent), and it does NOT block delivery. The dev-docs are reference material; staleness is a flag for the main agent to triage, not a release blocker.
 
 Main agent triages.
 '''

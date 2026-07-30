@@ -174,9 +174,9 @@ Proptest counterexample seeds under `rust/**/proptest-regressions/` are **commit
 ### 1.4 Build Configuration
 
 - **Catalog Bash recipes:** no build step. `plugin/catalog/agents/*/{install,uninstall}.sh` + `plugin/catalog/lib/` ship as-is (after `shfmt` check).
-- **Provisioner + registry CLI:** the Rust workspace under `rust/` (built to a static x86_64-musl `agentlinux` bin). The TypeScript CLI + Bash provisioner/entrypoint were retired at the cutover; the shipped `agentlinux` is the Rust musl bin (Phase 58 DIST-01) and `cargo test` is the unit-test oracle alongside the bats behavior suite.
+- **Provisioner + registry CLI:** the Rust workspace under `rust/` (built to a static x86_64-musl `agentlinux` bin). The TypeScript CLI + Bash provisioner/entrypoint were retired at the cutover; the shipped `agentlinux` is the Rust musl bin and `cargo test` is the unit-test oracle alongside the bats behavior suite.
 - **Release tarball:** `scripts/build-release.sh` builds the static `x86_64-unknown-linux-musl` `agentlinux` bin and assembles `plugin/bin/agentlinux` (the bin) + `plugin/catalog/` (catalog.json + the ~25 Bash recipes) + a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`. The tarball is byte-reproducible (SOURCE_DATE_EPOCH-pinned tar + `strip`/`--remap-path-prefix`/`--build-id=none` on the bin).
-- **Distribution channel:** the reproducible musl tarball + `.sha256` is the **sole** channel. The optional fpm `.deb` wrapper was removed in Phase 58 (DIST-02; ADR-006 flagged superseded-in-part).
+- **Distribution channel:** the reproducible musl tarball + `.sha256` is the **sole** channel. The optional fpm `.deb` wrapper was removed at the Rust cutover (ADR-006 is flagged superseded-in-part).
 - **GitHub Releases workflow:** tag `vX.Y.Z` → build tarball → upload tarball + sha256 + catalog snapshot to the release.
 
 ---
@@ -214,7 +214,7 @@ A promoted document must be usable by someone with no access to `.planning/`:
 
 - **Flat.** `docs/research/<question>.md`. No milestone or version subdirectories.
 - **Header:** `Date`, `Question`, `Scope`, `Outcome`. `Outcome` names the decision, links the ADR if there is one, and says what actually shipped — including where the implementation diverged from the design.
-- **No workspace vocabulary.** No phase numbers, plan filenames, GSD terms, or "what to do next" lists. Gloss requirement IDs (`AGT-02`, `CAT-03`) on first use.
+- **No workspace vocabulary.** No phase numbers, plan filenames, requirement IDs, GSD terms, or "what to do next" lists. Name the behavior instead of citing its ID.
 
 ### 2.3 Decision Records (ADRs)
 
@@ -237,7 +237,7 @@ Decisions to seed immediately (already captured in `.planning/PROJECT.md` Key De
 - ADR-003: No default agents installed in v0.3.0
 - ADR-004: Per-user npm prefix (`~/.npm-global`) as the keystone ownership decision
 - ADR-005: System Node.js (NodeSource) over version managers (nvm/fnm/volta)
-- ADR-006: curl-pipe-bash distribution (the optional `.deb` channel superseded by Phase 58 DIST-02 — sole channel is the reproducible musl tarball + `.sha256`)
+- ADR-006: curl-pipe-bash distribution (the optional `.deb` channel is superseded — the sole channel is the reproducible musl tarball + `.sha256`)
 - ADR-007: Docker (fast) + QEMU (release gate) test harness; Docker-only is disqualified
 - ADR-008: Commander.js for the registry CLI
 - ADR-009: Snap is structurally disqualified as a distribution mechanism
@@ -427,7 +427,6 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 - [x] Write portable `node-engineer` role definition
 - [x] Write portable `security-engineer` role definition
 - [x] Write portable `qa-engineer` role definition
-- [x] Write portable `behavior-coverage-auditor` role definition
 - [x] Write portable `catalog-auditor` role definition
 - [x] Write portable `ai-deslop`, `dev-docs-auditor`, `technical-writer`,
   `fact-checker`, and `external-audience-auditor` role definitions
@@ -460,7 +459,7 @@ Measurable signals that the harness is working.
 | First-pass review accuracy | > 80% of outputs pass reviewers on first attempt | Review-loop iterations before the agent triages "good enough" |
 | Review catch rate | > 90% of errors caught before reaching human review | Count of errors caught by automated review vs. errors human reviewer flags on the PR |
 | Pre-commit pass rate | > 95% on first commit attempt | Pre-commit hook failure rate from git history |
-| Behavior-test coverage | 100% of BHV/RT/AGT/CLI/CAT/INST requirements have at least one bats test | `behavior-coverage-auditor` report across every phase end |
+| Behavior-test coverage | Every behavior the product promises has at least one bats test | `qa-engineer` review on any change under `tests/` |
 | Mutation score (Rust core) | Zero surviving mutants in the diff — proves new pure-core code is covered by assertions, not just executed | `cargo-mutants --in-diff --package agentlinux-core` on every PR; full-crate score nightly |
 | CI green rate on first push | > 85% of PRs pass CI on first push | GitHub Actions pass/fail on `pr-opened` event |
 | Release-gate QEMU pass rate | 100% — any red QEMU run blocks release | Release workflow dashboard |

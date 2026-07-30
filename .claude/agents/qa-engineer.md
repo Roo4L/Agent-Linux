@@ -35,7 +35,7 @@ Ask of the tests under review:
   a fix lands in one place?
 
 Stay in your lane: the strict requirement-to-test mapping — is every requirement
-covered at all? — is `behavior-coverage-auditor`'s gate; you judge whether the
+covered at all? — is a separate question; you judge whether the
 tests that exist are strong. Node.js unit-test idioms are `node-engineer`'s.
 
 ## Where to find project-specific context

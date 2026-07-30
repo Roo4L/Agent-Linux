@@ -17,7 +17,6 @@ Use after any non-trivial change to:
 - `tests/`
 - durable `docs/`
 - project instructions, skills, hooks, or reviewer-role definitions
-- the end of every phase (always run `behavior-coverage-auditor` for TST-07)
 
 Skip typo/formatting-only changes, `.planning/` workflow state, and
 `.planning/notes/` scratch files unless the task also changes a reviewable
@@ -51,7 +50,7 @@ for every change.
 | `^packaging/curl-installer/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` |
 | `^plugin/cli/(src|test|scripts)/.+\.(ts|mjs|js)$` | `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
 | `^plugin/cli/(package\.json|tsconfig\.json|biome\.json|stryker\.config\.json)$` | `node-engineer` |
-| `^tests/bats/.+\.bats$` | `qa-engineer`, `behavior-coverage-auditor` |
+| `^tests/bats/.+\.bats$` | `qa-engineer` |
 | `^tests/bats/helpers/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
 | `^tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
 | `^plugin/catalog/(agents/.+/.+\.(sh|json)|catalog\.json|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` (add `bash-engineer` for shell recipes) |
@@ -62,8 +61,6 @@ for every change.
 | `^README\.md$` | `technical-writer`, `fact-checker`, `ai-deslop`, `external-audience-auditor` |
 | `^\.(claude|codex)/(hooks|skills)/.+$` | `technical-writer`, `fact-checker`, `ai-deslop` (add `bash-engineer` and `security-engineer` for hooks) |
 | `^\.claude/agents/.+\.md$` | `technical-writer`, `fact-checker`, `ai-deslop` (add the role's domain reviewer when its rubric changes) |
-| `^\.planning/REQUIREMENTS\.md$` | `behavior-coverage-auditor` |
-| phase close | `behavior-coverage-auditor` always |
 
 `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, and
 `reliability-reviewer` are cross-cutting trait reviewers: they judge one quality
@@ -73,7 +70,7 @@ is likewise a trait reviewer (security and data safety), not a bash-only role.
 Two reviewers looking at one file from different angles is intended, not
 duplication. `testability-reviewer` judges the design of production code for
 testability, not the tests themselves — the test suite's own quality stays with
-`qa-engineer` and `behavior-coverage-auditor`. As with every role, dispatch the
+`qa-engineer`. As with every role, dispatch the
 intersection with the changed-file set and skip trait reviewers for trivial or
 formatting-only changes.
 
@@ -132,8 +129,7 @@ must report a limited pass rather than silently switching to another agent's
 CLI.
 
 Every review run records one result per dispatched role: `completed`,
-`skipped` with rationale, `unavailable`, or `failed`. An unavailable or failed
-`behavior-coverage-auditor` means the TST-07 gate is not GREEN.
+`skipped` with rationale, `unavailable`, or `failed`.
 
 ## Reviewer output
 
@@ -165,21 +161,6 @@ directory is not in scope, record the item in the task's durable change log or
 Jira issue with at least: finding, file/line, reason for deferral, owner or
 follow-up phase, and re-check condition. Continue until no untriaged actionable
 findings remain; there is no artificial iteration cap.
-
-## TST-07 phase gate
-
-At phase close, run `behavior-coverage-auditor` unconditionally. It must map
-every requirement ID and requirement family present in
-`.planning/REQUIREMENTS.md`—including newly added families, not only the
-original `BHV`, `RT`, `AGT`, `CLI`, `CAT`, and `INST` prefixes—to appropriate
-behavior-test, harness, smoke, or artifact evidence. Extract canonical IDs
-from requirement declaration lines/headings and traceability entries, not from
-incidental prose. Ignore references such as `ADR-###`, version numbers, and
-examples that are not declared requirements.
-
-- `TST-07 gate: RED`: add coverage or document a deliberate deferral before
-  closing the phase.
-- `TST-07 gate: GREEN`: the phase may close; preserve the report when useful.
 
 ## References
 

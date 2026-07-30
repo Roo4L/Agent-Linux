@@ -16,7 +16,7 @@ User=agent unit failures, cloud-init locale breakage) ship to QEMU / real VMs.
 Two-layer harness. Docker matrix (Ubuntu 22.04 + 24.04) runs on every PR for
 fast feedback. QEMU harness boots fresh Ubuntu cloud images, runs the installer
 over SSH, and runs bats — mandatory before every release. A red QEMU run blocks
-the release workflow (TST-03 / TST-05).
+the release workflow.
 
 ## Consequences
 

@@ -2,7 +2,7 @@
 # tests/bats/10-installer.bats — INST-01, INST-02, INST-05, DOC-02.
 #
 # Every @test name starts with the requirement ID (INST-XX: or DOC-XX:) so
-# behavior-coverage-auditor's TST-07 gate greps pass.
+# the suite readable.
 #
 # Preconditions (set up by tests/docker/run.sh before bats runs):
 #   - agentlinux-install has already been invoked once, writing
@@ -192,7 +192,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
   # exercised structurally by tests/docker/Dockerfile.dogfood's empty-cache
   # start state; this @test adds the named negative assertion at the bats
   # layer so a future regression is visible in the bats output (and in the
-  # behavior-coverage-auditor grep trail) instead of only in dogfood log
+  # grep trail) instead of only in dogfood log
   # scrollback.
   #
   # Naming convention follows tests/bats/60-curl-installer.bats:206

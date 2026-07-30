@@ -2,13 +2,12 @@
 
 **Status:** Accepted
 **Date:** 2026-07-13
-**Drives:** v0.3.6 ENABLE-02 (MCP entry kind); MCP-01..MCP-09 (Phases 34–43)
 **Supersedes (in part):** the credential-injection approach shipped in the first
-cut of MCP-03 (github-mcp, Phase 36), which this ADR retrofits.
+first cut of the github-mcp entry, which this ADR retrofits.
 
 ## Status
 
-Accepted (2026-07-13), locked by maintainer decision during the Phase 37
+Accepted (2026-07-13), locked by maintainer decision during the
 (`/gsd-autonomous`) discuss.
 
 ## Context
@@ -72,7 +71,7 @@ Concretely:
   `al_mcp_register_http <server> <url>` writes a bare remote entry; the never-bake
   header/reference machinery and the `secret_env` plumbing are removed. Simpler,
   and there is no secret to leak by construction.
-- **github-mcp (Phase 36) is retrofitted** to register the bare
+- **github-mcp is retrofitted** to register the bare
   `https://api.githubcopilot.com/mcp/` (GitHub's hosted MCP supports in-client
   OAuth); its `GITHUB_MCP_PAT` reference, `secret_env`, and never-bake assertions
   are removed. Its bats gate asserts bare-URL registration + no credential in any
@@ -102,7 +101,7 @@ When choosing *which* server an MCP entry registers:
 A `pinned_version` for a hosted endpoint names the vendor release it is validated
 against.
 
-**Worked outcome — gitlab-mcp (Phase 38) was DROPPED (not shipped).** GitLab's
+**Worked outcome — gitlab-mcp was DROPPED (not shipped).** GitLab's
 official hosted endpoint (`https://gitlab.com/api/v4/mcp`) is **paywalled**:
 Premium/Ultimate only — a free GitLab.com user is blocked at the endpoint (404,
 per GitLab docs `Tier: Premium, Ultimate` and issue #579602). The only free

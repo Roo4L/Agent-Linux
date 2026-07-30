@@ -19,7 +19,7 @@ nvm, fnm, volta, or any shell-hook version manager in the AgentLinux plugin.
 ## Consequences
 
 - nvm/fnm/volta shell-hook activation breaks cron, systemd, and non-interactive
-  SSH — the exact invocation modes BHV-02..06 require. System Node.js sidesteps
+  SSH — the exact invocation modes the behavior contract requires. System Node.js sidesteps
   the entire class of invocation-mode-dependent PATH bugs.
 - Node.js version upgrades follow the distro's apt upgrade cadence, not a
   per-user re-activation flow. Acceptable trade-off because AgentLinux's job is

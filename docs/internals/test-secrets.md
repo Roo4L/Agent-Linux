@@ -24,8 +24,8 @@ both routing the same named variable from its source to a bats `@test`.
 The local pipeline (developer machine):
 
 1. The developer writes their private values into `.env.local` at the repo
-   root. The filename is matched by `.env.*` in `.gitignore`, and SEC-05
-   gitleaks (pre-commit + full-history) catches anything that slips past.
+   root. The filename is matched by `.env.*` in `.gitignore`, and the gitleaks
+   gate (pre-commit + full history) catches anything that slips past.
 2. `.env.local.example` is the committed template — commented placeholder
    rows, one per supported variable. New developers copy it to `.env.local`
    and fill in real values.
@@ -90,8 +90,8 @@ to consume it.
   bats tests that need a real TTY. The sibling pipeline that consumes
   `ANTHROPIC_API_KEY` via `require_secret` for interactive Claude Code
   behavioral coverage.
-- ADR-014 (SEC-05) — full-history gitleaks secret-scanning gate; defence
-  in depth alongside the `.gitignore` rule for `.env.*`.
+- ADR-014 — the full-history gitleaks secret-scanning gate; defence in depth
+  alongside the `.gitignore` rule for `.env.*`.
 
 ## Worked example
 
@@ -108,13 +108,13 @@ Four lockstep edits, plus the GitHub Actions secret-store step:
    ```
 
 2. **`tests/docker/run.sh`** — append the variable name to the
-   `SECRET_ALLOWLIST` bash array with the requirement ID it supports:
+   `SECRET_ALLOWLIST` bash array, with a comment naming what it unblocks:
 
    ```bash
    SECRET_ALLOWLIST=(
      ANTHROPIC_API_KEY  # interactive Claude Code behavioral tests
      FOO                # test-secrets convention smoke
-     NEW_TOKEN          # NEW-XX behavior class
+     NEW_TOKEN          # what this unblocks
    )
    ```
 
@@ -137,10 +137,10 @@ Four lockstep edits, plus the GitHub Actions secret-store step:
    `$output` (and CI logs):
 
    ```bash
-   @test "NEW-XX: feature description" {
+   @test "feature description" {
      require_secret NEW_TOKEN
      # ... test body uses $NEW_TOKEN ...
-     # On failure: __fail "NEW-XX" "NEW_TOKEN <set>" "NEW_TOKEN <unset>" "log-path"
+     # On failure: __fail "NEW_TOKEN <set>" "NEW_TOKEN <unset>" "log-path"
    }
    ```
 

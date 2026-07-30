@@ -20,7 +20,7 @@ version-pinning layer it lacked; the custom-CLI-over-apt conclusion still stands
 Earlier research (2026-04-19) recommended Option A (custom CLI + `npm install -g` pass-through) on three arguments:
 1. apt lags upstream (problem if we want latest).
 2. apt + npm self-update = split-brain.
-3. CAT-03 submitter friction.
+3. Submitter friction.
 
 The maintainer's reframing (2026-04-19):
 > "Last GSD update I hit an upstream bug fixed days later. I want to save my users from poor upstream testing. Ship a STABLE version they can rely on. Let power-users go ahead if they want — detect divergence, reconcile on next release. Don't be a thin wrapper around npm — that's of no value to users."
@@ -81,21 +81,22 @@ Or apply across all: --reset-all-curated / --respect-overrides / --all-latest
 
 User picks `c` for gsd, `k` for claude-code. CLI runs `sudo -u agent -H npm install -g gsd@1.42.1`, leaves claude-code alone, writes `/opt/agentlinux/state/installed.json` recording source-of-truth per agent. Override flag is sticky — next `agentlinux upgrade` continues to surface the claude-code diff until user explicitly clears with `agentlinux pin claude-code=curated`.
 
-## AGT-02 Under Version-Lock
+## The self-update invariant under version-lock
 
-AGT-02 is a **permission invariant**, not a **version invariant**. Under A':
+The self-update acceptance test is a **permission invariant**, not a **version
+invariant**. Under A':
 - `agentlinux install claude-code` → `sudo -u agent -H npm install -g @anthropic-ai/claude-code@2.1.7` → binary at `/home/agent/.npm-global/bin/claude`.
 - User runs `claude update` → Claude Code's auto-updater detects npm-global → runs `npm install -g @latest` as agent user → writes to same agent-owned path → success, no EACCES.
-- Result: claude-code now 2.2.0; AGT-02 passes; `agentlinux list` surfaces divergence on next run.
+- Result: claude-code now 2.2.0; the acceptance test passes; `agentlinux list` surfaces divergence on next run.
 
-A companion test **AGT-02b** was added on the back of this: install the pinned version, assert `claude --version == pinned_version`, no EACCES — verifying the version-lock mechanism itself.
+A companion test was added on the back of this: install the pinned version, assert `claude --version == pinned_version`, no EACCES — verifying the version-lock mechanism itself.
 
 ## CI Testing-Gate Spec
 
 Before tagging AgentLinux 0.3.1:
 - (a) Install pinned combo: `agentlinux install --all-curated` + run all bats.
 - (b) Smoke-test: `claude --version == 2.1.7`, `gsd --version`, `npx playwright --version`.
-- (c) Canonical AGT-02: `claude update` from 2.1.7, assert no EACCES, version increased.
+- (c) The canonical acceptance test: `claude update` from 2.1.7, assert no EACCES, version increased.
 - (d) Snapshot reproducibility: re-install from frozen snapshot — byte-identical sentinels.
 - (e) Rollback test: install 0.3.1 combo → `agentlinux upgrade --pin-from snapshot/0.3.0` → assert versions revert.
 

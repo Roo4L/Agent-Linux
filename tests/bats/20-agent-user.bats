@@ -2,7 +2,7 @@
 # tests/bats/20-agent-user.bats — BHV-01..BHV-06.
 #
 # Every @test name starts with the requirement ID (BHV-XX:) so
-# behavior-coverage-auditor's TST-07 gate greps pass.
+# the suite readable.
 #
 # Preconditions (set up by tests/docker/run.sh before bats runs):
 #   - agentlinux-install has already been invoked once. Agent user, PATH

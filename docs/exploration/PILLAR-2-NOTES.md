@@ -1,6 +1,6 @@
 # Pillar 2 Exploration — Stability + Time-to-Productive
 
-> Phase 13 verdict. Phase 15 lifts the `## Decision summary` section verbatim
+> Stability-pillar verdict. The vision doc lifts the `## Decision summary` section verbatim
 > into `docs/STRATEGY.md` Pillar 2.
 >
 > Locked: 2026-05-10. Source raw material: `.planning/research/SUMMARY.md` §4
@@ -38,13 +38,13 @@ statement of each is in the **Decision summary** below; this section provides
 the framing context.
 
 **Table-stakes** are the keystone pain points AgentLinux already eliminates:
-- **T-1 — AGT-02 zero-EACCES self-update.** Per ADR-004 (per-user npm prefix
+- **T-1 — zero-EACCES self-update.** Per ADR-004 (per-user npm prefix
   as the keystone ownership decision), the curated `claude` binary
   self-updates against the live Anthropic CDN with zero EACCES and zero sudo
-  prompts. Release-gated by the AGT-02 bats test against the live CDN.
+  prompts. Release-gated by the self-update bats test against the live CDN.
 - **T-2 — ADR-011 stability model.** Each catalog agent carries
   `pinned_version`; the curated combo is what we test, ship, and serve as
-  default. The TST-08 4-gate release pipeline gates every release.
+  default. A four-gate release pipeline gates every release.
 
 **Differentiators** are the positions our roadmap commits to:
 - **D-1** — compat-guarded default version set: hold last-known-good on
@@ -81,14 +81,14 @@ reaffirmed in this exploration 2026-05-10).
 
 **Table-stakes (already shipped, delivered-fact voice):**
 
-- **T-1 — AGT-02 zero-EACCES self-update.** The curated `claude` binary
+- **T-1 — zero-EACCES self-update.** The curated `claude` binary
   self-updates against the live Anthropic CDN with zero EACCES and zero sudo
-  prompts. Release-gated via TST-08; the AGT-02 bats test
+  prompts. Release-gated; the self-update bats test
   (`tests/bats/51-agt02-release-gate.bats`) is the evidence and runs against
   the live CDN every release. Recipe:
   `plugin/catalog/agents/claude-code/install.sh`.
 - **T-2 — ADR-011 stability model.** `pinned_version` per catalog agent +
-  curated combo (claude-code + gsd + playwright-cli) + TST-08 4-gate release
+  curated combo (claude-code + gsd + playwright-cli) + the four-gate release
   pipeline (pre-commit → docker matrix → QEMU matrix → pinned-combo re-run).
   Docker and QEMU matrices both cover Ubuntu 22.04 + 24.04 + 26.04; the
   pinned-combo gate re-runs the catalog combo end-to-end on Ubuntu 24.04
@@ -132,12 +132,12 @@ reaffirmed in this exploration 2026-05-10).
 
 **Today / Direction content seed:**
 
-- **Today (v0.3.0 reality, delivered-fact voice):** AGT-02 zero-EACCES
-  self-update release-gate green; ADR-011 `pinned_version` + TST-08 4-gate
+- **Today (v0.3.0 reality, delivered-fact voice):** zero-EACCES
+  self-update release-gate green; ADR-011 `pinned_version` + the four-gate
   release pipeline; curated combo (claude-code + gsd + playwright-cli)
   tested in Docker + QEMU on Ubuntu 22.04 + 24.04 + 26.04 every release. No
   preset framework yet; no profile framework yet; no formal compat-guarded
-  update flow beyond TST-08's manual gate.
+  update flow beyond the release pipeline's manual gate.
 - **Direction (`next-milestone`, forward-looking voice):** Our roadmap
   commits to a preset framework (`bare` / `must-haves` / `optimum`), a
   profile framework (orthogonal use-case bundles), and a compat-guarded

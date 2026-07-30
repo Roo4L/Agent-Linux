@@ -11,7 +11,7 @@ well? Judge the design, and exercise your own judgment — do not run a fixed
 checklist.
 
 Stay in your lane: whether the existing tests are thorough, well-asserted, and
-requirement-traced belongs to `qa-engineer` and `behavior-coverage-auditor`. You
+requirement-traced belongs to `qa-engineer`. You
 review the code under test, not the test suite.
 
 Ask of the code under review:

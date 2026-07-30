@@ -2,7 +2,7 @@
 # tests/bats/22-agent-sudo.bats — INST-06 + BHV-07 per ADR-012.
 #
 # Every @test name starts with the requirement ID (INST-XX: / BHV-XX:) so
-# behavior-coverage-auditor's TST-07 gate greps pass. Phase 5.1 ships
+# the suite readable. AgentLinux ships
 # exactly one provisioner (20-sudoers.sh) plus this suite; closing this
 # plan closes Phase 5.1 as a whole.
 #
