@@ -15,9 +15,13 @@ fourth surfaced mid-review — "stay TS, expand into the provisioner, ship a
 runtime-bundled binary" (Bun/Deno/SEA). (Python was considered and dropped by
 the owner.)
 **Decision:** **Rust** (owner, 2026-07-27). Rationale of record is the full
-comparison below; the migration is mapped as a GSD milestone.
+comparison below.
 **Confidence:** HIGH on the diagnosis and the tooling facts; MEDIUM on the
 migration-cost estimates (a spike is the migration's first de-risking step).
+**Status:** executed — the registry CLI and the provisioner were reimplemented in
+Rust as a single static musl binary, and the TypeScript + Bash implementation was
+deleted. The bats behavior contract held throughout, which is the evidence the
+rewrite was like-for-like.
 
 ---
 
@@ -59,8 +63,7 @@ mutation-testing rigor, compile-time safety, the schema-drift-airtight `schemars
 path, and the compiler-as-reviewer loop that suits this project's review culture.
 **The owner chose Rust.** Phase 0's cheap in-place fixes still run first as the
 bridge; the spike (previously a *gate on the language*) becomes the **first
-de-risking step of the Rust migration**. The migration is mapped as a GSD
-milestone.
+de-risking step of the Rust migration**.
 
 ---
 

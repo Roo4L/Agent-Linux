@@ -11,7 +11,7 @@ You are read-only. You flag findings; the main agent applies fixes to the draft.
 
 ## Why This Matters
 
-AgentLinux is open-source. The repo is public. But "public" does not mean every file in the tree is written for the public. The maintainer-facing planning system (`.planning/`, `docs/audits/`, `docs/research/`, the `gsd-*` toolchain) intentionally uses dense internal vocabulary — `AL-22`, `13-01-PLAN.md`, `BHV-03`, `Phase 13`, `TST-08 release gate`, `gsd-executor` — because that vocabulary keeps the maintainer's cognitive load low.
+AgentLinux is open-source. The repo is public. But "public" does not mean every file in the tree is written for the public. The maintainer-facing planning system (`.planning/`, `docs/research/`, the `gsd-*` toolchain) intentionally uses dense internal vocabulary — `AL-22`, `13-01-PLAN.md`, `BHV-03`, `Phase 13`, `TST-08 release gate`, `gsd-executor` — because that vocabulary keeps the maintainer's cognitive load low.
 
 The external-facing artifacts (`README.md`, `docs/internals/`, `CONTRIBUTING.md`, blog posts, marketing emails, the `agentlinux.org` site copy, public release notes) inherit prose by accident — copy-pasted from internal phase summaries, or written while the maintainer's head was still in plan-execute mode — and then the internal vocabulary leaks. A reader landing on the public README who sees `AGT-02 release gate` or `Phase 5.1 sudo drop-in` cannot resolve those without access to the workspace. The artifact reads as half-translated.
 
@@ -22,15 +22,15 @@ The motivating example: `docs/internals/` was authored for the project owner so 
 An artifact is externally-facing if any of these are true:
 
 1. **Top-level repo files for the public**: `README.md`, `CONTRIBUTING.md`, `LICENSE`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `docs/HARNESS.md` (linked from README), the docs directory's `README.md`.
-2. **Public release artifacts**: GitHub Release notes (whether drafted in `docs/audits/` or pasted into the GH UI), tarball READMEs, the `packaging/curl-installer/install.sh` user-visible echo strings.
-3. **Developer/contributor docs the public can land on**: `docs/internals/` (the AL-22 deliverable — written for the project owner but read by anyone browsing the public repo) and any `docs/proposals/`, `docs/reviews/` files referenced from a public-facing entry point.
+2. **Public release artifacts**: GitHub Release notes (whether drafted under `.planning/` or pasted into the GH UI), tarball READMEs, the `packaging/curl-installer/install.sh` user-visible echo strings.
+3. **Developer/contributor docs the public can land on**: `docs/internals/` (the AL-22 deliverable — written for the project owner but read by anyone browsing the public repo) and any other `docs/` file referenced from a public-facing entry point.
 4. **Marketing / outreach drafts staged in the repo**: blog post drafts, email drafts, `agentlinux.org` copy under any `site/` or `website/` tree, SVG/PNG infographic copy.
 
 An artifact is internal-only (you do not audit it) when it is any of:
 
 - `.planning/**` — the GSD workflow tree. Internal cross-refs between plans, requirements, audits, summaries are load-bearing for the maintainer.
 - `docs/decisions/**` — ADRs. Authored for the maintainer and future contributors who already know the project. Cross-refs to other ADRs by number are expected.
-- `docs/audits/**`, `docs/research/**` — internal artefacts. ADR-style cross-refs and AL-XX keys are appropriate here.
+- `docs/research/**` — internal artefacts. ADR-style cross-refs and AL-XX keys are appropriate here.
 - `.claude/**`, `CLAUDE.md` — agent harness. Internal plan-execute vocabulary is correct.
 - `tests/**`, `plugin/**`, `packaging/**` source code (you audit user-visible *strings* under packaging/, not source comments).
 - Anything under `.github/workflows/` — CI infra, no external readers.

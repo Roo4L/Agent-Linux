@@ -1,8 +1,16 @@
 # Stability Model Reconsideration — Catalog Install/Upgrade/Remove
 
 **Date:** 2026-04-19
-**Context:** User reframing during Phase 4 smart-discuss — "ship stable curated versions, support user-owned escape hatch, reconcile on release." Earlier research (`cli-vs-apt-advisor.md`) rejected on criterion-1 grounds: that research assumed we wanted latest-always; user explicitly wants controlled-lag.
-**Outcome:** Option **A'** (custom CLI + version-locked catalog + reconcile verb + pin) recommended. Supersedes earlier recommendation (which was effectively "thin wrapper" = rejected D').
+**Question:** Should AgentLinux install whatever npm has today, or ship curated
+versions it has actually tested together?
+**Premise change:** [`cli-vs-apt-advisor.md`](cli-vs-apt-advisor.md) assumed
+latest-always. This research replaces that assumption with deliberate
+controlled-lag — "ship a stable version users can rely on; let power users go
+ahead; detect divergence and reconcile on release" — which reopens options that
+research had rejected.
+**Outcome:** Option **A'** (custom CLI + version-locked catalog + reconcile verb
++ sticky pin) — adopted as ADR-011. Supersedes the earlier recommendation, which
+amounted to the thin-wrapper option this research rejects.
 
 ---
 
@@ -118,26 +126,6 @@ The earlier "Option A" was effectively the now-rejected D' (thin wrapper, no pin
 
 B' does not become competitive under new criteria. Split-brain (#11), poor reconcile (#4), non-portability (#9), submitter friction (#10) unchanged. PPA cadence (#6) now actively worse. The "version pinning" criterion (#1) satisfied equally well by A' via JSON field, with none of B''s costs.
 
-## Phase 4 Scope Delta
-
-Current Phase 4 (baseline Option A, 5 plans):
-
-| Plan | Baseline (now D') | **Option A' (recommended)** |
-|------|------|------|
-| 04-01 | CLI scaffolding + `list` | Same + read `pinned_version` from catalog |
-| 04-02 | `install` verb (npm pass-through) | `install` honors `pinned_version`; writes `installed.json` sentinel with version+source (curated\|override\|latest) |
-| 04-03 | `remove` verb + `--purge` | Same + clears sentinel |
-| 04-04 | Catalog schema + 3 entries | Schema adds `pinned_version` (required), `npm_package_name`, optional `version_constraint` |
-| 04-05 | bats coverage | Same + pinned_version honor + divergence detection bats |
-| **04-06 NEW** | — | **`agentlinux upgrade` verb + reconcile flow (3-way diff)** |
-| **04-07 NEW** | — | **Catalog snapshot manifest shipped with release; `agentlinux pin` verb for sticky overrides** |
-
-**Plan-count delta:** 5 → 7 plans.
-
-Phase 5: AGT-02b "install pinned, assert version" added (1 extra `@test`, not a plan).
-
-Phase 6: release pipeline ships catalog snapshot artifact alongside tarball (1 workflow step, not a plan).
-
 ## Escape-Hatch UX Spec (Option A')
 
 **Detection** (on `agentlinux upgrade` or `agentlinux list --verbose`):
@@ -177,18 +165,14 @@ playwright     [not installed]       1.55.0      —
 | **npm `package-lock.json` + `overrides`** | Lock pins resolved; `overrides` force a version | `agentlinux pin <name>=2.1.7` syntax |
 | **Debian stable vs sid (apt-pinning)** | `/etc/apt/preferences.d/` for per-package pins; default "stable, don't surprise me" | Conceptual precedent for curated-default + documented escape |
 
-## What to Do Next
+## What shipped
 
-1. **Author ADR-011** — "stability-first version pinning with explicit reconciliation." Captures reframe so re-litigation doesn't happen. Cites sticky-override, snapshot, reversal analysis.
-2. **Update Phase 4 plan count 5 → 7** in ROADMAP.md. Add 04-06 (`upgrade` verb + reconcile) and 04-07 (snapshot + `pin` verb).
-3. **Extend `plugin/catalog/schema.json`** — add `pinned_version` (required, semver), `npm_package_name` (required), `version_constraint` (optional, semver range).
-4. **Add NEW requirements to REQUIREMENTS.md:**
-   - **CAT-04**: Each catalog entry declares `pinned_version` validated by JSON Schema.
-   - **CAT-05**: Release artifact includes catalog snapshot at `/opt/agentlinux/catalog/<release>/catalog.json`.
-   - **CLI-06**: `agentlinux upgrade` detects per-agent divergence and offers per-agent reconcile.
-   - **CLI-07**: `agentlinux pin <name>=<curated|latest|x.y.z>` sets persistent override.
-   - **TST-08**: CI installs pinned combo and runs full bats suite before release tag.
-   - **AGT-02b**: Installing pinned version produces exactly that version; `claude --version` matches `pinned_version`.
-5. **Update Phase 6** scope — release pipeline publishes `catalog-<version>.json` sibling of tarball + `.sha256`.
-6. **(Optional)** Create user-facing `docs/STABILITY-MODEL.md` documenting "we lag on purpose; here's how to override." Marketing-grade message.
-7. **(Optional, v0.4+)** Follow-up research: migrate A' → C' (symlink profiles) for richer rollback UX. Defer.
+Option A' was adopted and built: ADR-011 records the decision;
+`plugin/catalog/schema.json` carries `pinned_version`, `npm_package_name`, and
+the optional `version_constraint`; the CLI gained `upgrade` (per-agent divergence
+detection + reconcile) and `pin` (sticky override); releases publish a catalog
+snapshot alongside the tarball; and [`docs/STABILITY-MODEL.md`](../STABILITY-MODEL.md)
+is the user-facing "we lag on purpose, here's how to override" explanation.
+
+The one deferred item is C'-style symlink profiles for richer rollback — still
+unbuilt, and still the natural upgrade path if users ask for it.

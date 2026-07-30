@@ -1,9 +1,13 @@
-# Advisor Research: Custom `agentlinux` CLI vs Distro-Native Package Managers
+# Custom `agentlinux` CLI vs Distro-Native Package Managers
 
 **Date:** 2026-04-19
-**Context:** User-raised grey area during Phase 4 smart-discuss — "why build a custom CLI when Ubuntu already has apt?"
-**Scope:** The command users run to install/remove catalog agents (Claude Code, GSD, Playwright). NOT the installer itself (ADR-006 locked).
-**Outcome:** Option A (custom CLI) recommended; decision preserved in Phase 4 scope.
+**Question:** Why build a custom CLI when Ubuntu already has `apt`?
+**Scope:** The command users run to install and remove catalog agents. Not the
+installer itself, which ADR-006 had already locked.
+**Outcome:** Option A (custom CLI) — adopted. Reinforces ADR-008; the follow-on
+question of *which version* the CLI installs is answered in
+[`stability-model-reconsideration.md`](stability-model-reconsideration.md) and
+settled by ADR-011.
 
 ---
 
@@ -63,18 +67,6 @@ The canonical acceptance test: user opens Claude Code and types `/update`. What 
 |--------|----------------------------|
 | **A / C** | `plugin/catalog/agents/<name>/agent.json` (10-20 lines) + `install.sh` (20-40 lines) + `uninstall.sh` (symmetric) + PR. JSON Schema validates entry. CI runs bats install+run+uninstall. |
 | **B / D** | Full `debian/` directory (`control`, `rules`, `changelog`, `postinst`, `prerm`) + `build.sh` (fpm) + release-pipeline entry + signing-key config + PR. Debian-build CI runs. Infrastructure lint validates apt metadata. |
-
-## Phase 4 Scope Adjustment
-
-**Not applicable:** Option A wins and Phase 4's current scope (registry CLI + JSON-schema catalog + per-agent recipes + symmetric uninstall) stands unchanged.
-
-## What to Do Next
-
-1. **Keep Phase 4 scope as specified in ROADMAP.md.**
-2. **Leave ADR-008 (Commander.js for CLI) accepted as-is.** This research reinforces rather than challenges it.
-3. **(Optional) Author ADR-011 "custom CLI over distro package manager for catalog agents"** capturing this decision so the "why not apt?" question isn't re-litigated.
-4. **(Optional, v0.4+)** Revisit Option C (ship the CLI itself as a `.deb` in a public PPA) once INF-01 is in scope. Agent-level installs should remain npm-driven regardless.
-5. **Validate in Phase 5's AGT-02 test** that the `install.sh` recipe for Claude Code uses `sudo -u agent -H` exclusively — this is the single load-bearing implementation detail across every option.
 
 ## Sources
 

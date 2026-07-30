@@ -13,9 +13,6 @@ review summary), it goes here.
   `AGENTS.md` / `CLAUDE.md` split, skills, Stop hooks).
 - `decisions/` — Architecture Decision Records (ADRs). New ADRs land as
   decisions resolve.
-- `research/v0.3.0/` — v0.3.0 research outputs (STACK, FEATURES, ARCHITECTURE,
-  PITFALLS, SUMMARY).
-- `research/v0.2.0/` — archived v0.2.0 research (carry-forward reference).
-- `proposals/` — design proposals pre-ADR.
-- `analysis/` — gap analyses, comparison studies.
+- `research/` — long-lived research worth keeping: one self-contained document
+  per question, flat, no milestone subdirectories.
 - `reviews/` — review-loop outputs worth preserving across sessions.

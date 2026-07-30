@@ -56,8 +56,8 @@ for every change.
 | `^tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
 | `^plugin/catalog/(agents/.+/.+\.(sh|json)|catalog\.json|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` (add `bash-engineer` for shell recipes) |
 | `^plugin/catalog/agents/.+/.+\.(js|mjs|ts)$` | `node-engineer`, `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
-| `^docs/.+\.md$` (not ADRs/research summaries) | `technical-writer`, `fact-checker`, `ai-deslop` |
-| `^docs/decisions/.+\.md$` or `^docs/research/.+/SUMMARY\.md$` | `technical-writer`, `fact-checker` |
+| `^docs/.+\.md$` (not ADRs/research) | `technical-writer`, `fact-checker`, `ai-deslop` |
+| `^docs/decisions/.+\.md$` or `^docs/research/.+\.md$` | `technical-writer`, `fact-checker` |
 | `^(AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md)$` | `technical-writer`, `fact-checker` (add `external-audience-auditor` for contributor/public copy) |
 | `^README\.md$` | `technical-writer`, `fact-checker`, `ai-deslop`, `external-audience-auditor` |
 | `^\.(claude|codex)/(hooks|skills)/.+$` | `technical-writer`, `fact-checker`, `ai-deslop` (add `bash-engineer` and `security-engineer` for hooks) |

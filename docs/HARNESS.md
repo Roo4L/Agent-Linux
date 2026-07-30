@@ -220,20 +220,21 @@ docs/
 │   ├── 002-behavior-contract-framing.md
 │   ├── 003-no-default-agents-installed.md
 │   └── ...
-├── research/                       # Research outputs (active + promoted from .planning)
-│   ├── v0.3.0/
-│   │   ├── STACK.md
-│   │   ├── FEATURES.md
-│   │   ├── ARCHITECTURE.md
-│   │   ├── PITFALLS.md
-│   │   └── SUMMARY.md
-│   └── v0.2.0/                     # Archived for carry-forward reference
-├── proposals/                      # Design proposals in flight (pre-ADR)
-├── analysis/                       # Gap analyses, comparison studies
-└── reviews/                        # Review-loop outputs worth preserving across sessions
+└── research/                       # Long-lived research — flat, one file per question
+    ├── stack-reconsideration.md
+    ├── stability-model-reconsideration.md
+    └── cli-vs-apt-advisor.md
 ```
 
-**Routing rule:** If the output of a task is a document (analysis, decision, proposal, review, any reference material), it goes in `docs/` from the start — draft or finished. `.planning/` retains only GSD operational artifacts: phase plans (PLAN.md), execution state (STATE.md), config, todos, notes. Research outputs produced by GSD's research phase may start under `.planning/research/` but should graduate into `docs/research/` once the milestone locks.
+**Routing rule:** If the output of a task is a document (analysis, decision, proposal, review, any reference material), it goes in `docs/` from the start — draft or finished. `.planning/` retains only GSD operational artifacts: phase plans (PLAN.md), execution state (STATE.md), config, todos, notes.
+
+**Promoting research into `docs/research/`.** Research is *not* promoted by default — most of it is scaffolding for one decision and dies with it. Promotion is a deliberate three-step act:
+
+1. **Decide whether it is worth keeping.** Keep research that a future reader will need in order to not re-litigate a settled question, or to understand why an option was rejected. Do not keep survey output, option tables that only fed one plan, or anything whose conclusion is already stated in an ADR. When it is genuinely unclear, ask the maintainer rather than promoting speculatively.
+2. **Put it at the top level of `docs/research/`** — no milestone or version subdirectories. Research is not always tied to a milestone, and grouping by one makes it unfindable. One question, one file, named for the question.
+3. **Rewrite it to stand alone before it lands.** A promoted document must make sense to someone with no access to the planning workspace: no phase numbers, no plan filenames, no GSD workflow vocabulary, no "what to do next" task lists. State the question, the date, the options, the outcome, and what actually shipped. If the decision produced an ADR, link it.
+
+Research that is not promoted stays in `.planning/` and is stripped before merge like the rest of the working state.
 
 ### 2.3 Decision Records (ADRs)
 
@@ -411,11 +412,11 @@ This section originally noted the project had no CLAUDE.md at the repo root — 
 - **Review loop rule:** "Before reporting any task complete, run the review feedback loop on all changed files" (link to `/review` skill and §4 of this file).
 - **Commands:**
   - Run bats locally inside Docker: `./tests/docker/run.sh ubuntu-24.04`
-  - Run CLI unit tests: `cd plugin/cli && pnpm test`
-  - Lint bash + TS: `pre-commit run --all-files`
+  - Run Rust unit tests: `cd rust && cargo test --workspace`
+  - Lint bash + catalog: `pre-commit run --all-files`
   - Build release tarball: `./scripts/build-release.sh vX.Y.Z`
   - Preview docs: (none yet; docs are plain markdown)
-- **Pointers:** `@.planning/ROADMAP.md`, `@.planning/REQUIREMENTS.md`, `@docs/HARNESS.md` (this file), `@docs/research/v0.3.0/SUMMARY.md`, relevant skills (§5).
+- **Pointers:** `@.planning/ROADMAP.md`, `@.planning/REQUIREMENTS.md`, `@docs/HARNESS.md` (this file), `@docs/research/`, relevant skills (§5).
 
 Everything else — installer internals, schema details, historical v0.2.0 lessons — stays in skills and docs where it loads on demand.
 
@@ -434,7 +435,7 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 - [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, biome, catalog-schema-validate; run `pre-commit install`
 - [x] Create `CLAUDE.md` (< 150 lines) per §6
 - [ ] Create `docs/README.md` index + `docs/decisions/000-template.md` ADR template
-- [ ] Move `.planning/research/` → `docs/research/v0.3.0/` (and archive v0.2.0 research already sitting in `.planning/milestones/v0.2.0-research/` into `docs/research/v0.2.0/`)
+- [ ] Promote any research worth keeping into `docs/research/` per §2.2 — rewritten to stand alone, flat, no milestone subdirectories
 - [ ] Seed ADR-001 through ADR-010 from the list in §2.3
 - [ ] Set up `.github/workflows/test.yml` — run pre-commit + CLI unit tests + Docker bats matrix on every PR
 - [ ] Add stryker-mutator config to `plugin/cli/` (`stryker.config.json`) targeting `src/` with mutation score threshold of 75 (warning, non-blocking in v0.3.0)

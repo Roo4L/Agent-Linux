@@ -23,7 +23,7 @@ Two problems surfaced during Phase 4 smart-discuss (2026-04-19):
    A thin-wrapper AgentLinux always pulls the latest, exposing users to every
    upstream regression the moment it publishes.
 
-Alternatives considered (see `docs/research/v0.3.0/stability-model-reconsideration.md`):
+Alternatives considered (see `docs/research/stability-model-reconsideration.md`):
 
 - **A'. Custom CLI + version-locked catalog** — ship a `pinned_version` field
   per catalog entry; `agentlinux install` honors the pin; `agentlinux upgrade`
@@ -122,10 +122,10 @@ Concrete implications:
 
 ## References
 
-- `docs/research/v0.3.0/cli-vs-apt-advisor.md` — earlier (2026-04-18) advisor
+- `docs/research/cli-vs-apt-advisor.md` — earlier (2026-04-18) advisor
   research comparing custom CLI to apt/dnf/dpkg. Recommended Option A; did not
   yet consider the stability-first criterion.
-- `docs/research/v0.3.0/stability-model-reconsideration.md` — this ADR's
+- `docs/research/stability-model-reconsideration.md` — this ADR's
   primary justification; reversal-analysis section explains why the earlier
   research's conclusion extends to A' rather than flipping to B'.
 - ADR-004 — per-user npm prefix (the substrate this ADR builds on).
