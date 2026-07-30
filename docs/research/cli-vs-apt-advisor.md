@@ -4,10 +4,16 @@
 **Question:** Why build a custom CLI when Ubuntu already has `apt`?
 **Scope:** The command users run to install and remove catalog agents. Not the
 installer itself, which ADR-006 had already locked.
-**Outcome:** Option A (custom CLI) — adopted. Reinforces ADR-008; the follow-on
-question of *which version* the CLI installs is answered in
+**Outcome:** Option A (custom CLI) — adopted, and still the shape of the product.
+The TypeScript implementation it assumed (ADR-008, Commander.js) was later
+replaced by Rust; see [`stack-reconsideration.md`](stack-reconsideration.md). The
+follow-on question of *which version* the CLI installs is answered in
 [`stability-model-reconsideration.md`](stability-model-reconsideration.md) and
 settled by ADR-011.
+
+**AGT-02**, the acceptance test this argument keeps returning to, is the
+project's core invariant: the agent user runs Claude Code's self-update and it
+succeeds, with no EACCES and no sudo.
 
 ---
 
@@ -17,7 +23,7 @@ Should AgentLinux use a custom `agentlinux install <name>` CLI (Commander.js/TS 
 
 ## Options Considered
 
-- **A.** Custom `agentlinux` CLI (current Plan 4)
+- **A.** Custom `agentlinux` CLI (the planned direction)
 - **B.** Distro-native apt/dnf with one `.deb` per catalog agent
 - **C.** Hybrid: `agentlinux` CLI ships as a `.deb`; agent installs go through the CLI via npm (agent-user)
 - **D.** Pure apt repo, no CLI at all
@@ -26,9 +32,9 @@ Should AgentLinux use a custom `agentlinux install <name>` CLI (Commander.js/TS 
 
 | Option | Pros | Cons | Complexity | Recommendation |
 |---|---|---|---|---|
-| **A. Custom `agentlinux` CLI** | Uniform UX across Ubuntu/Fedora/Arch (v0.4+ DST-01..03); reads per-agent `install.sh` as agent user so ADR-004 prefix is honored by construction; CAT-03 submitter ships JSON entry + small shell recipe; symmetric `install`/`remove` with sentinel-tracked state; no middleman between npm publish and user; `claude update` runs in the exact environment we provisioned so AGT-02 is straightforward | New artifact to design/test (Commander.js + schema + dispatcher); "why not just apt?" requires explanation; CLI must itself be bootstrapped onto PATH (already handled by Phase 3 `.npm-global/bin`) | 4-6 files (`plugin/cli/src/commands/{list,install,remove,info}.ts`, `plugin/cli/src/catalog/validate.ts`, `plugin/cli/src/runner.ts`) + per-agent `plugin/catalog/agents/<name>/install.sh` recipes. Risk: schema drift between CLI + catalog; AGT-02 subtly if `install.sh` uses the wrong path. Fully in scope of Phase 4 as planned. | **Recommended for v0.3.0.** |
+| **A. Custom `agentlinux` CLI** | Uniform UX across Ubuntu/Fedora/Arch (v0.4+ DST-01..03); reads per-agent `install.sh` as agent user so ADR-004 prefix is honored by construction; CAT-03 submitter ships JSON entry + small shell recipe; symmetric `install`/`remove` with sentinel-tracked state; no middleman between npm publish and user; `claude update` runs in the exact environment we provisioned so AGT-02 is straightforward | New artifact to design/test (Commander.js + schema + dispatcher); "why not just apt?" requires explanation; CLI must itself be bootstrapped onto PATH (already handled by the per-user `.npm-global/bin` on PATH) | 4-6 files (`plugin/cli/src/commands/{list,install,remove,info}.ts`, `plugin/cli/src/catalog/validate.ts`, `plugin/cli/src/runner.ts`) + per-agent `plugin/catalog/agents/<name>/install.sh` recipes. Risk: schema drift between CLI + catalog; AGT-02 subtly if `install.sh` uses the wrong path. | **Recommended for v0.3.0.** |
 | **B. Per-agent `.deb`s via apt** | Leverages apt's dependency graph, rollback, and `apt remove` symmetry; familiar `apt install agentlinux-claude-code` UX; `postinst`/`prerm` hooks are well-worn | `postinst` runs as **root** so must `sudo -u agent -H npm install -g` anyway — defeats half the benefit; per-agent `.deb`s must be **rebuilt on every upstream npm publish** (Claude Code publishes weekly+); **breaks AGT-02**: apt considers itself the install owner, but `claude update` detects npm-global and reinstalls to `/home/agent/.npm-global`, clobbering apt's view → split-brain state → next `apt upgrade` reverses it; requires public apt repo + signing key (INF-01, deferred to v0.4+); `.deb` not portable to Fedora/Arch (v0.4+ needs `.rpm` track doubled); CAT-03 submitter must author `debian/{control,rules,changelog,postinst,prerm}` instead of 20-line shell recipe — major friction | Touches 4+ files per agent, plus infra: public apt repo, package-signing GPG key, `fpm` build matrix, per-agent release workflows. Risk: **AGT-02 regression**, ownership ambiguity, stale-repo hazard, rpm fork maintenance from v0.4. | **Not recommended.** |
-| **C. Hybrid (CLI-as-.deb)** | Bootstrapping the CLI itself via apt is a small, low-risk concession (single `.deb`, not per-agent); keeps single uniform UX for agent install/remove; no AGT-02 regression because agent installs go through agent-user npm path | Extra packaging path for v0.3.0 (CLI already ships via `.npm-global` from Phase 2-3); requires public apt repo (INF-01 deferred); two CLI install paths to keep in sync | 1-2 additional artifacts; infra still needs apt repo or GitHub-Releases `.deb`. Same per-agent recipe structure as Option A. | **Revisit in v0.4+** once INF-01 (public PPA) is in scope. |
+| **C. Hybrid (CLI-as-.deb)** | Bootstrapping the CLI itself via apt is a small, low-risk concession (single `.deb`, not per-agent); keeps single uniform UX for agent install/remove; no AGT-02 regression because agent installs go through agent-user npm path | Extra packaging path for v0.3.0 (the CLI already ships via `.npm-global`); requires public apt repo (INF-01 deferred); two CLI install paths to keep in sync | 1-2 additional artifacts; infra still needs apt repo or GitHub-Releases `.deb`. Same per-agent recipe structure as Option A. | **Revisit in v0.4+** once INF-01 (public PPA) is in scope. |
 | **D. Pure apt, no CLI** | Maximum "why roll our own?" answer — zero new UX; `apt search agentlinux-*` is a discovery primitive for free | All of B's drawbacks plus: no `agentlinux list` with installed-state UX; no `agentlinux doctor`; "install recipe runs as agent user" is an invariant of each `postinst`, which any submitter could break; non-portable to non-Debian distros; CAT-03 submitter friction extreme; same AGT-02 regression; no API for future v0.4 features | Highest infra burden, lowest code surface, highest maintenance surface | **Not recommended.** |
 
 ## Recommendation

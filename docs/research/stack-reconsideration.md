@@ -9,19 +9,22 @@ worth it now?
 **Researched:** 2026-07-26 · **Decision recorded:** 2026-07-27
 **Scope:** the registry CLI (`plugin/cli/`, ~2,800 LOC TS) and its Bash boundary
 (`plugin/lib/`, `plugin/provisioner/`, `plugin/catalog/agents/*/install.sh`).
-**Decision-grade:** yes — ends in a decision + staged path.
+Paths are the pre-rewrite tree; all but the per-agent recipes are gone now.
 **Candidates evaluated:** Rust, Go, "stay on TypeScript, shrink Bash," and a
 fourth surfaced mid-review — "stay TS, expand into the provisioner, ship a
 runtime-bundled binary" (Bun/Deno/SEA). (Python was considered and dropped by
 the owner.)
-**Decision:** **Rust** (owner, 2026-07-27). Rationale of record is the full
-comparison below.
+**Decision:** **Rust** (owner, 2026-07-27).
 **Confidence:** HIGH on the diagnosis and the tooling facts; MEDIUM on the
-migration-cost estimates (a spike is the migration's first de-risking step).
-**Status:** executed — the registry CLI and the provisioner were reimplemented in
-Rust as a single static musl binary, and the TypeScript + Bash implementation was
-deleted. The bats behavior contract held throughout, which is the evidence the
-rewrite was like-for-like.
+migration-cost estimates.
+**Status:** executed on the Rust-rewrite branch (unmerged at time of writing) —
+the registry CLI and the provisioner were reimplemented as a single static musl
+binary. Deleted: the TypeScript CLI and the ~4.3k LOC of provisioner Bash. The
+~27 per-agent `install.sh` recipes stay Bash by design, exactly as the TL;DR
+below argues they must in any language. The behavior-level bats suites were
+re-pointed at the new binary and stayed green; the Bash-unit fixtures that
+sourced the deleted libraries were removed, their logic having moved into
+`agentlinux-core`.
 
 ---
 
@@ -61,7 +64,7 @@ testable), with **Rust and Go both live** on a real tension — Go owns the
 provisioner's subprocess ergonomics + cheaper agent loops; Rust owns
 mutation-testing rigor, compile-time safety, the schema-drift-airtight `schemars`
 path, and the compiler-as-reviewer loop that suits this project's review culture.
-**The owner chose Rust.** Phase 0's cheap in-place fixes still run first as the
+**The owner chose Rust.** Step 1's cheap in-place fixes still run first as the
 bridge; the spike (previously a *gate on the language*) becomes the **first
 de-risking step of the Rust migration**.
 
@@ -328,7 +331,7 @@ route to the biggest testability gain."
 
 ## Recommendation
 
-### Phase 0 — fix in place first (do this regardless; ~1-2 weeks, reversible)
+### Step 1 — fix in place first (do this regardless; ~1-2 weeks, reversible)
 
 1. **Adopt property testing now.** Add `fast-check`; write invariants for the
    pure core (`classify` is total and deterministic; `sticky ⇒ status ∈
@@ -347,9 +350,9 @@ route to the biggest testability gain."
 
 Then **measure** the residual pain over a milestone.
 
-### Phase 1 — the Rust rewrite (chosen 2026-07-27)
+### Step 2 — the Rust rewrite (chosen 2026-07-27)
 
-Phase 0 leaves the ~4.3k LOC of provisioner logic untestable — a plain TS script
+Step 1 leaves the ~4.3k LOC of provisioner logic untestable — a plain TS script
 can't reach it. Making that logic testable is the original motivation, so a binary
 rewrite is the route, and **the owner chose Rust**. Scope: ~2,800 LOC CLI **plus**
 ~4,363 LOC provisioner (recipes stay Bash) ≈ **~7k LOC** to port behind the
@@ -405,7 +408,7 @@ The **bats spec is the safety net** (rewrite behind it, keep it green — nothin
 **Gaps:** no published head-to-head cargo-mutants vs StrykerJS benchmark; no
 rewrite spike to validate the cost estimate or surface porting surprises (e.g.
 node-semver prerelease edge cases). A time-boxed Rust spike porting
-`classify.ts` + `divergence.ts` **plus one provisioner unit** (per §"Phase 1" —
+`classify.ts` + `divergence.ts` **plus one provisioner unit** (per §"Step 2" —
 the provisioner is the real unknown) behind the existing tests will convert the
 MEDIUM cost estimate to HIGH — it is the migration's first step.
 
@@ -459,7 +462,3 @@ MEDIUM cost estimate to HIGH — it is the migration's first step.
 [cxr]: https://www.infoq.com/news/2025/06/codex-cli-rust-native-rewrite/
 
 ---
-
-*Stack reconsideration for AgentLinux — registry CLI + Bash boundary.*
-*Researched 2026-07-26; Rust decision recorded 2026-07-27. Companion to*
-*`stability-model-reconsideration.md`.*

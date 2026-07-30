@@ -73,10 +73,8 @@ agent-linux/                            # Workspace root
 │   ├── README.md                       # Index
 │   ├── HARNESS.md                      # This file
 │   ├── decisions/                      # ADRs
-│   ├── research/                       # Archived + active research outputs
-│   ├── proposals/                      # Design proposals pre-ADR
-│   ├── analysis/                       # SUMMARY.md, gap analyses
-│   └── reviews/                        # Review-loop outputs worth preserving
+│   ├── research/                       # Long-lived research — flat, one file per question
+│   └── internals/                      # Developer docs, one per component (ADR-015)
 ├── .planning/                          # GSD operational state (not reference material)
 ├── .claude/                            # Claude Code project config
 │   ├── agents/                         # Portable reviewer role prompts (§4)
@@ -228,13 +226,13 @@ docs/
 
 **Routing rule:** If the output of a task is a document (analysis, decision, proposal, review, any reference material), it goes in `docs/` from the start — draft or finished. `.planning/` retains only GSD operational artifacts: phase plans (PLAN.md), execution state (STATE.md), config, todos, notes.
 
-**Promoting research into `docs/research/`.** Research is *not* promoted by default — most of it is scaffolding for one decision and dies with it. Promotion is a deliberate three-step act:
+**Promoting research into `docs/research/`.** Most research is scaffolding for one decision; it stays in `.planning/research/`. Promote only when the document holds what the ADR drops — the options that were rejected and why they lost. If the document's content *is* the conclusion, the ADR is the record. Unsure: ask, don't promote.
 
-1. **Decide whether it is worth keeping.** Keep research that a future reader will need in order to not re-litigate a settled question, or to understand why an option was rejected. Do not keep survey output, option tables that only fed one plan, or anything whose conclusion is already stated in an ADR. When it is genuinely unclear, ask the maintainer rather than promoting speculatively.
-2. **Put it at the top level of `docs/research/`** — no milestone or version subdirectories. Research is not always tied to a milestone, and grouping by one makes it unfindable. One question, one file, named for the question.
-3. **Rewrite it to stand alone before it lands.** A promoted document must make sense to someone with no access to the planning workspace: no phase numbers, no plan filenames, no GSD workflow vocabulary, no "what to do next" task lists. State the question, the date, the options, the outcome, and what actually shipped. If the decision produced an ADR, link it.
+A promoted document must be usable by someone with no access to `.planning/`:
 
-Research that is not promoted stays in `.planning/` and is stripped before merge like the rest of the working state.
+- **Flat.** `docs/research/<question>.md`. No milestone or version subdirectories.
+- **Header:** `Date`, `Question`, `Scope`, `Outcome`. `Outcome` names the decision, links the ADR if there is one, and says what actually shipped — including where the implementation diverged from the design.
+- **No workspace vocabulary.** No phase numbers, plan filenames, GSD terms, or "what to do next" lists. Gloss requirement IDs (`AGT-02`, `CAT-03`) on first use.
 
 ### 2.3 Decision Records (ADRs)
 
@@ -435,7 +433,7 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 - [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, biome, catalog-schema-validate; run `pre-commit install`
 - [x] Create `CLAUDE.md` (< 150 lines) per §6
 - [ ] Create `docs/README.md` index + `docs/decisions/000-template.md` ADR template
-- [ ] Promote any research worth keeping into `docs/research/` per §2.2 — rewritten to stand alone, flat, no milestone subdirectories
+- [x] Flatten `docs/research/` and promote the three keepers (§2.2)
 - [ ] Seed ADR-001 through ADR-010 from the list in §2.3
 - [ ] Set up `.github/workflows/test.yml` — run pre-commit + CLI unit tests + Docker bats matrix on every PR
 - [ ] Add stryker-mutator config to `plugin/cli/` (`stryker.config.json`) targeting `src/` with mutation score threshold of 75 (warning, non-blocking in v0.3.0)

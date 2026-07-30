@@ -6,22 +6,23 @@ versions it has actually tested together?
 **Premise change:** [`cli-vs-apt-advisor.md`](cli-vs-apt-advisor.md) assumed
 latest-always. This research replaces that assumption with deliberate
 controlled-lag — "ship a stable version users can rely on; let power users go
-ahead; detect divergence and reconcile on release" — which reopens options that
-research had rejected.
+ahead; detect divergence and reconcile on release" — which reopens options the
+earlier research had rejected.
 **Outcome:** Option **A'** (custom CLI + version-locked catalog + reconcile verb
-+ sticky pin) — adopted as ADR-011. Supersedes the earlier recommendation, which
-amounted to the thin-wrapper option this research rejects.
++ sticky pin) — adopted as ADR-011. Extends the earlier recommendation with the
+version-pinning layer it lacked; the custom-CLI-over-apt conclusion still stands
+(see "Strict superset" below).
 
 ---
 
 ## The Reframe
 
-Earlier research (2026-04-18) recommended Option A (custom CLI + `npm install -g` pass-through) on three arguments:
+Earlier research (2026-04-19) recommended Option A (custom CLI + `npm install -g` pass-through) on three arguments:
 1. apt lags upstream (problem if we want latest).
 2. apt + npm self-update = split-brain.
 3. CAT-03 submitter friction.
 
-User's reframing (2026-04-19):
+The maintainer's reframing (2026-04-19):
 > "Last GSD update I hit an upstream bug fixed days later. I want to save my users from poor upstream testing. Ship a STABLE version they can rely on. Let power-users go ahead if they want — detect divergence, reconcile on next release. Don't be a thin wrapper around npm — that's of no value to users."
 
 This flips argument (1): lagging upstream is now a **feature**, not a bug. But A' achieves *controlled* lag (pinned_version, CI-tested) where B' lags uncontrolledly. Arguments (2) and (3) are unchanged against B'.
@@ -87,9 +88,9 @@ AGT-02 is a **permission invariant**, not a **version invariant**. Under A':
 - User runs `claude update` → Claude Code's auto-updater detects npm-global → runs `npm install -g @latest` as agent user → writes to same agent-owned path → success, no EACCES.
 - Result: claude-code now 2.2.0; AGT-02 passes; `agentlinux list` surfaces divergence on next run.
 
-**Add companion test AGT-02b**: install pinned version, assert `claude --version == pinned_version`, no EACCES. Verifies "version-lock mechanism works."
+A companion test **AGT-02b** was added on the back of this: install the pinned version, assert `claude --version == pinned_version`, no EACCES — verifying the version-lock mechanism itself.
 
-## CI Testing-Gate Spec (Phase 6)
+## CI Testing-Gate Spec
 
 Before tagging AgentLinux 0.3.1:
 - (a) Install pinned combo: `agentlinux install --all-curated` + run all bats.
@@ -169,10 +170,23 @@ playwright     [not installed]       1.55.0      —
 
 Option A' was adopted and built: ADR-011 records the decision;
 `plugin/catalog/schema.json` carries `pinned_version`, `npm_package_name`, and
-the optional `version_constraint`; the CLI gained `upgrade` (per-agent divergence
-detection + reconcile) and `pin` (sticky override); releases publish a catalog
-snapshot alongside the tarball; and [`docs/STABILITY-MODEL.md`](../STABILITY-MODEL.md)
-is the user-facing "we lag on purpose, here's how to override" explanation.
+the optional `version_constraint`; the CLI gained `upgrade` and `pin` (sticky
+override); releases publish a catalog snapshot alongside the tarball; and
+[`docs/STABILITY-MODEL.md`](../STABILITY-MODEL.md) is the user-facing "we lag on
+purpose, here's how to override" explanation.
 
-The one deferred item is C'-style symlink profiles for richer rollback — still
-unbuilt, and still the natural upgrade path if users ask for it.
+Two things shipped differently from the design above, and the design text is left
+as written rather than retrofitted:
+
+- **`upgrade` reconciles in bulk, not per agent.** Divergence *detection* is
+  per-agent and uses the state model described here. Reconciliation is driven by
+  flags (`--reset-all-curated`, `--respect-overrides`, `--all-latest`), and the
+  default run is report-only. The interactive per-agent
+  `[k]eep / [c]urated / [l]atest` chooser in the walkthrough and the escape-hatch
+  spec was never built.
+- **The sentinel is a directory, not a file.** This document and ADR-011 specify
+  `/opt/agentlinux/state/installed.json`; what shipped is
+  `/opt/agentlinux/state/installed.d/` with one file per agent.
+
+The one deliberately deferred item is C'-style symlink profiles for richer
+rollback — still unbuilt, and still the natural upgrade path if users ask for it.

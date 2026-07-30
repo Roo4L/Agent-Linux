@@ -15,4 +15,3 @@ review summary), it goes here.
   decisions resolve.
 - `research/` — long-lived research worth keeping: one self-contained document
   per question, flat, no milestone subdirectories.
-- `reviews/` — review-loop outputs worth preserving across sessions.
