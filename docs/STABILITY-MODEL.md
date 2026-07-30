@@ -11,12 +11,13 @@ way to reconcile.
 
 ## What's a curated combo
 
-Every release bundles a catalog snapshot that AgentLinux CI has exercised
-against the full Docker + QEMU matrix before the tag shipped. The snapshot
+Every release bundles a catalog snapshot that CI has exercised on freshly
+booted VMs of every supported distribution before the tag shipped. The snapshot
 is staged on disk at `/opt/agentlinux/catalog/<version>/catalog.json` and is
 the source of truth for `agentlinux install <name>`.
 
-v0.3.0 pins:
+The catalog currently pins 26 tools; `agentlinux list` is the live answer. The
+three it started with:
 
 - `claude-code` — **2.1.98** (Anthropic's native installer; self-updates via
   `claude update` into the agent-owned install tree)
@@ -26,74 +27,96 @@ v0.3.0 pins:
   launch libraries are installed through the agent user's non-interactive
   sudo permission)
 
-The release-gate test installs the full pinned combo on a clean Ubuntu host
-and runs the agent bats suite before the tag can publish. A red combo cannot
-ship.
+Before a release can publish, CI installs the entire pinned set on freshly
+booted VMs of every supported distribution and runs the full behavior suite
+against them. If any agent in the combo fails, the release does not ship.
 
-## The three divergence states
+## What `agentlinux upgrade` compares
 
-`agentlinux upgrade` compares three numbers per agent:
+For each agent, `agentlinux upgrade` lines up four numbers — the four version
+columns in its table:
 
-- **installed** — what `npm ls -g --json` or the agent's native binary
-  reports on disk (the sentinel at `/opt/agentlinux/state/installed.d/<id>.json`
-  is cross-checked).
-- **curated** — the `pinned_version` from the release's catalog snapshot.
-- **upstream latest** — whatever `npm view <pkg> version` resolves (checked
-  only when you pass `--check-upstream`; offline-by-default otherwise).
+- **sentinel** — the version AgentLinux recorded when it last installed or
+  pinned this agent. Think of it as "what AgentLinux believes is installed."
+- **installed** — what is actually on disk. For npm-installed agents this is
+  read live from the global npm tree, so it can disagree with the sentinel. For
+  agents that ship their own installer, AgentLinux reports the recorded version
+  (see the limitation below).
+- **curated** — the pin from this release's catalog snapshot.
+- **latest** — the newest published upstream version. Resolved only for
+  npm-backed agents, and only when you pass `--check-upstream`; otherwise it
+  shows `-` and no network call is made.
 
-Outcomes:
+The STATUS column is the verdict:
 
-- `synced` — installed == curated. Nothing to do.
-- `override-ahead` — installed > curated. You ran the agent's own updater
-  past the pin, or passed `--version` explicitly, or pinned `=latest`.
-- `override-behind` — installed < curated. A new AgentLinux release rolled
-  the pin forward; you have not yet upgraded.
+- `synced` — installed matches the curated pin. Nothing to do.
+- `drift-undeclared` — the sentinel and the disk disagree: something updated
+  this agent outside AgentLinux. This is the state a self-updater or a stray
+  `npm i -g` produces.
+- `override-ahead` / `override-behind` — the sentinel and the disk agree, but
+  sit above or below the curated pin. You installed with an explicit version, or
+  a new release rolled the pin past you.
+- `pinned-override` — you are off the curated pin on purpose, recorded with
+  `agentlinux pin`. AgentLinux stops flagging it.
+- `not-installed` / `present` — not installed, or installed by hand and not yet
+  managed by AgentLinux (`agentlinux adopt` takes it over).
 
-## Worked example: "I ran `claude update`"
+> **Known limitation.** Drift detection currently works only for npm-installed
+> agents. Agents with their own installer — Claude Code among them — report the
+> recorded version rather than probing disk, so a self-update is invisible to
+> `agentlinux upgrade` and the row stays `synced`.
 
-The canonical path. Claude Code ships with its own self-updater that writes
-into the agent-owned install tree — that is the whole point of AgentLinux.
-After `claude update`, the curated pin and the installed version
-disagree; `agentlinux upgrade` surfaces the diff rather than silently
-overwriting your choice:
+## Worked example: something updated behind AgentLinux's back
+
+Agents update themselves — that is the point of the environment AgentLinux
+provisions. When one does, the version AgentLinux recorded and the version on
+disk stop agreeing, and `agentlinux upgrade` says so instead of quietly
+overwriting your machine:
 
 ```
-$ claude update                               # Claude Code's own updater
-✓ Claude Code 2.1.114 installed
-
+$ npm i -g @opengsd/gsd-core@1.8.0     # or the tool updated itself
 $ agentlinux upgrade
-ID              STATUS          SENTINEL  INSTALLED  CURATED  LATEST  SRC
-claude-code     override-ahead  2.1.98    2.1.114    2.1.98   -       npm
-gsd             synced          1.7.0     1.7.0      1.7.0    -       npm
-playwright-cli  synced          0.1.17    0.1.17     0.1.17   -       npm
+ID              STATUS            SENTINEL  INSTALLED  CURATED  LATEST  SRC
+claude-code     synced            2.1.98    2.1.98     2.1.98   -       curated
+gsd             drift-undeclared  1.7.0     1.8.0      1.7.0    -       curated
+playwright-cli  synced            0.1.17    0.1.17     0.1.17   -       curated
 ```
 
-**`agentlinux upgrade` on its own changes nothing.** With no flag it prints the
-table and exits — the report *is* the default. Nothing is installed, removed, or
-downgraded until you say so. (`LATEST` stays `-` unless you pass
-`--check-upstream`; resolving it costs a network call.)
+(Trimmed — the real table prints one row per catalog entry. Run it as the agent
+user; AgentLinux's commands refuse to run as anyone else.)
 
-You then choose, and there are two ways to do it:
+**`agentlinux upgrade` on its own changes nothing.** With no flags it prints the
+table and exits: report first, decide, then apply — the same shape as
+`apt list --upgradable` before `apt upgrade`. Nothing is installed, removed, or
+downgraded until you pass a flag. (`LATEST` stays `-` unless you add
+`--check-upstream`, which costs a network call; `upgrade` is offline by default.)
 
-**Per agent — set the pin, then upgrade.**
+Applying a decision is one flag:
 
 ```bash
-agentlinux pin claude-code=latest      # keep your override, stop being told about it
-agentlinux upgrade --respect-overrides # bring everything else to curated
+agentlinux upgrade --reset-all-curated  # everything back to the tested combo
+agentlinux upgrade --respect-overrides  # move only the agents still on curated
+agentlinux upgrade --all-latest         # npm-backed agents to upstream latest
 ```
 
-**All at once — one flag, no pinning.**
+To keep one agent out of those sweeps, record the decision first:
 
 ```bash
-agentlinux upgrade --reset-all-curated  # every agent back to the tested combo
-agentlinux upgrade --respect-overrides  # curated, except where you pinned
-agentlinux upgrade --all-latest         # every agent to upstream latest
+agentlinux pin gsd=1.8.0                # "I meant to be on 1.8.0" -> pinned-override
+agentlinux upgrade --respect-overrides  # everything else to curated, gsd left alone
 ```
 
-There is no interactive prompt. The per-agent decision is `agentlinux pin`,
-which is durable and scriptable; `upgrade` then acts on the pins you have set.
-AgentLinux will not pick for you silently, but it also will not stop and ask
-mid-run — which is what lets it run unattended in a provisioning script.
+`agentlinux pin` only writes down your intent — it never reinstalls anything.
+The next `upgrade` acts on what you recorded. Note that `--reset-all-curated` is
+the blunt instrument: it drags **every** agent back to the curated pin, clearing
+recorded overrides as it goes.
+
+There is no interactive prompt, by design. `agentlinux upgrade` should run the
+same way in a provisioning script or a cron job as it does in your shell, and a
+command that blocks on stdin cannot. So the per-agent decision moves earlier:
+you record it once with `agentlinux pin`, where it is durable, greppable, and
+still there at the next release — instead of re-answering it from memory on
+every run.
 
 ## Escape hatch: `agentlinux pin`
 
@@ -103,35 +126,29 @@ agentlinux pin claude-code=curated
 agentlinux pin gsd=1.7.0
 ```
 
-- `=latest` — follow upstream for this agent. Sticky. Skipped by
-  `agentlinux upgrade --all-latest --respect-overrides`.
+- `=latest` — hands off. AgentLinux stops moving this agent: both
+  `--respect-overrides` and `--all-latest` skip it, and you take updates through
+  the tool's own updater. Clear it with `=curated`.
 - `=curated` — clear the sticky override. Return to the catalog pin on the
   next release.
 - `=<semver>` — hold at an exact version, even past the curated choice.
   Sticky. Useful for bisecting a regression or waiting out a broken upstream
   release.
 
-Precedent: Homebrew's `brew pin` + `brew outdated` + `brew upgrade` loop.
+If you have used `brew pin`, this is the same idea.
 
-## Why pin at all (the trade-off)
+## Why pin at all
 
-Without pinning, AgentLinux would be a thin wrapper around `npm install -g`.
-Two problems:
+Claude Code, GSD, and Playwright publish daily to weekly, and broken versions
+do ship — one GSD regression landed, shipped, and got fixed inside a few days.
+Anything that always installs the newest version hands you every one of those
+regressions the moment it publishes, on whatever morning you happen to run it.
 
-1. **It provides no value over what users could do themselves.** Running
-   `sudo -u agent -H npm install -g <pkg>` by hand is a one-liner. A CLI
-   that only forwards the call adds no product surface.
-2. **Upstream instability hits users immediately.** Claude Code, GSD, and
-   Playwright publish daily-to-weekly; broken versions occasionally ship
-   (a documented GSD upstream regression surfaced, then shipped, then got
-   fixed over the course of a few days). A thin-wrapper AgentLinux would
-   always pull the latest — which would expose users to every upstream
-   regression the moment it publishes.
-
-Pinning is the explicit contract: **we test exactly what we ship, and you
-decide when to move.** Running ahead is supported (`pin =latest`); staying
-behind is supported (`pin =<semver>`); reconciling is one command
-(`agentlinux upgrade`). What is *not* supported is silent drift.
+Pinning is the trade you get instead: **we test exactly what we ship, and you
+decide when to move.** Running ahead is supported (`pin =latest`), holding
+behind is supported (`pin =<semver>`), and reconciling is one flag
+(`agentlinux upgrade --reset-all-curated`). What is *not* supported is silent
+drift.
 
 ## Related
 

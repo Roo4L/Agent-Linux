@@ -31,10 +31,10 @@ agent-linux/                            # Workspace root
 │       │       ├── cli.rs              # clap arg definitions
 │       │       ├── cmd/                # list / adopt / install / remove / upgrade / pin / provision
 │       │       ├── catalog.rs          # JSON Schema-validated catalog reader
-│       │       └── runner.rs           # Dispatches to catalog/agents/<name>/install.sh
+│       │       └── dispatcher.rs       # Dispatches to catalog/agents/<name>/install.sh
 │       └── agentlinux-core/            # I/O-free logic (classify, divergence, semver shim)
 ├── plugin/                             # Shippable non-Rust assets
-│   ├── bin/agentlinux                  # The built musl binary, staged for the tarball
+│   ├── bin/agentlinux                  # Build output — staged into the tarball, not in git
 │   └── catalog/                        # Agent recipe catalog
 │       ├── schema.json                 # JSON Schema 2020-12 contract
 │       ├── catalog.json                # Curated catalog entries (none installed by default)
@@ -56,9 +56,7 @@ agent-linux/                            # Workspace root
 │   └── qemu/                           # Definitive release-gate harness — cloud-image VMs
 │       ├── boot.sh                     # Fresh Ubuntu cloud image → SSH → install → bats
 │       └── cloud-init/
-├── website/                            # (existing v0.1.0) Landing page — agentlinux.org
-│   ├── index.html
-│   └── assets/
+├── index.html, assets/                 # Landing page — agentlinux.org, served from repo root
 ├── docs/                               # All reference documentation (see §2)
 │   ├── README.md                       # Index
 │   ├── HARNESS.md                      # This file
@@ -93,8 +91,8 @@ Three languages in this project: **Rust** (provisioner + registry CLI), **bash**
 | Language | Lint | Format | Notes |
 |---------|------|--------|-------|
 | Rust | `cargo clippy` | `cargo fmt` | Enforced in the `rust` CI job, a required status check |
-| Bash | `shellcheck` | `shfmt` | `--language-dialect bash` (not POSIX); `-i 2` for 2-space indent |
-| JSON | JSON Schema validation | — | Catalog entries validated against `plugin/catalog/schema.json` in pre-commit |
+| Bash | `shellcheck` | `shfmt` | `--shell=bash` (not POSIX); `-i 2` for 2-space indent |
+| JSON | jq structural gate | — | Pre-commit checks catalog shape; full JSON-Schema validation is the schemars drift-check in `cargo test -p agentlinux-core schema` |
 | Bats | (bats-core has no lint) | `shfmt` | Treat `.bats` files as bash for formatting |
 
 ```yaml
@@ -123,14 +121,21 @@ repos:
       - id: shfmt
         args: [-i, '2', -ci, -bn]
 
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks
+
   - repo: local
     hooks:
       - id: catalog-schema-validate
         name: Validate catalog.json against schema
         entry: scripts/check-catalog-schema.sh
         language: system
-        files: ^plugin/catalog/(catalog|agents/.*/recipe)\.json$
+        files: ^plugin/catalog/catalog\.json$
         pass_filenames: false
+      # plus: check-version-lockstep, check-distro-leak, and
+      # sync-codex-agents --check — see the real file for their filters.
 ```
 
 ### 1.3 Testing
@@ -139,16 +144,18 @@ Four test layers. Each answers a different question. Mutation testing is the met
 
 | Layer | Tool | Question Answered | Run When |
 |-------|------|-------------------|----------|
-| Unit + property | `cargo test` (incl. `proptest`) | "Does the CLI parse args, read the catalog, and dispatch correctly? Does the pure core hold under generated input?" | Pre-commit, every PR |
-| Behavior (bats) | `bats-core` 1.11.x | "Does an installed AgentLinux meet every BHV/RT/AGT/CLI/CAT/INST requirement?" | Docker matrix on every PR; QEMU nightly + release gate |
+| Unit + property | `cargo test` (incl. `proptest`) | "Does the CLI parse args, read the catalog, and dispatch correctly? Does the pure core hold under generated input?" | The `rust` CI job on every PR |
+| Behavior (bats) | `bats-core` (the distro package; 22.04 ships 1.2.1) | "Does an installed AgentLinux meet every BHV/RT/AGT/CLI/CAT/INST requirement?" | Docker matrix on every PR; QEMU nightly + release gate |
 | Release smoke | Shell script over SSH | "Does a fresh install on a fresh Ubuntu cloud image succeed?" | Release-gate job only |
-| **Mutation** | `cargo-mutants` (Rust) + custom bash mutator (recipes) | **"Are our tests actually testing something? Would they catch a real regression?"** | `--in-diff` gate on every PR; full-crate score nightly |
+| **Mutation** | `cargo-mutants` (the pure core only) | **"Are our tests actually testing something? Would they catch a real regression?"** | `--in-diff` gate on every PR; full-crate score nightly |
 
 **Why mutation testing.** Without it, "100% behavior-test coverage" can be a green-bar lie: tests that execute every line but assert nothing meaningful. Mutation testing introduces small intentional faults into the source (`>` → `>=`, `&&` → `||`, delete a `set -e`, flip a sudoers permission bit) and checks that *the test suite catches the mutation*. Mutation score (mutants killed / mutants generated) is the truth-meter for test quality.
 
-**For Rust:** [`cargo-mutants`](https://mutants.rs/) runs in two modes. On every PR the `rust` job runs it with `--in-diff` — only mutants inside the diff must be killed, which keeps the gate fast and makes it *blocking*. Nightly, `nightly-mutation.yml` scores the whole crate and is advisory. Both jobs pin the same `cargo-mutants` version so the merge gate and the nightly score share one mutant set.
+**Scope: the pure core only.** Both mutation jobs run `--package agentlinux-core`. On every PR the `rust` job adds `--in-diff` against the diff of `crates/agentlinux-core/**` — only mutants introduced by that diff must be killed, which keeps the gate fast enough to be *blocking*. Nightly, `nightly-mutation.yml` scores the whole core crate and is advisory. Both pin the same `cargo-mutants` version so the merge gate and the nightly score share one mutant set.
 
-**For bash (per-agent recipes + bats helpers):** mature mutation tooling for bash does not exist. We ship a minimal in-house mutator at `tests/mutation/bash-mutator.sh` performing a small, audit-friendly set of mutations (negation flip, comparison-operator swap, `set -e` removal, `as_user` → direct invocation) and run the bats suite against each mutant. It is intentionally narrow — false negatives are expected; the value is catching high-impact mutations (security-relevant flips, idempotency breaks) early. Advisory only.
+**Nothing outside `agentlinux-core` is mutation-tested.** The `agentlinux` bin crate — the I/O adapters, the dispatcher, the provisioner — yields zero mutants, so new logic there passes the gate untested. That is the price of keeping the gate fast; the bats behavior suite is what covers it.
+
+**The per-agent Bash recipes are not mutation-tested.** Mature mutation tooling for bash does not exist, and the in-house scaffold that once stood in was removed along with the Bash provisioner. The recipes are covered by the bats behavior suite instead.
 
 **Running the unit + property suite:**
 ```bash
@@ -412,7 +419,7 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 - [ ] Seed ADR-001 through ADR-010 from the list in §2.3
 - [ ] Set up `.github/workflows/test.yml` — run pre-commit + `cargo test` + Docker bats matrix on every PR
 - [ ] Wire `cargo-mutants --in-diff` into the `rust` CI job as a blocking gate
-- [ ] Create `tests/mutation/bash-mutator.sh` (minimal in-house mutator) + `.github/workflows/nightly-mutation.yml` — full-crate `cargo-mutants` score plus bash-mutator, advisory, posted to the Actions summary
+- [ ] Create `.github/workflows/nightly-mutation.yml` — full-crate `cargo-mutants` score on the pure core, advisory, warning-annotated on survivors
 
 ### Phase B: Review Infrastructure
 
@@ -454,8 +461,7 @@ Measurable signals that the harness is working.
 | Review catch rate | > 90% of errors caught before reaching human review | Count of errors caught by automated review vs. errors human reviewer flags on the PR |
 | Pre-commit pass rate | > 95% on first commit attempt | Pre-commit hook failure rate from git history |
 | Behavior-test coverage | 100% of BHV/RT/AGT/CLI/CAT/INST requirements have at least one bats test | `behavior-coverage-auditor` report across every phase end |
-| Mutation score (Rust) | Zero surviving mutants in the diff — proves new code is covered by assertions, not just executed | `cargo-mutants --in-diff` gate on every PR; full-crate score nightly |
-| Mutation score (bash recipes) | Advisory — proves bats tests catch real recipe regressions | Custom `tests/mutation/bash-mutator.sh` nightly report |
+| Mutation score (Rust core) | Zero surviving mutants in the diff — proves new pure-core code is covered by assertions, not just executed | `cargo-mutants --in-diff --package agentlinux-core` on every PR; full-crate score nightly |
 | CI green rate on first push | > 85% of PRs pass CI on first push | GitHub Actions pass/fail on `pr-opened` event |
 | Release-gate QEMU pass rate | 100% — any red QEMU run blocks release | Release workflow dashboard |
 

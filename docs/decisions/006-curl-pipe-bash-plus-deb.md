@@ -1,6 +1,6 @@
 # 006: curl-pipe-bash primary + optional .deb distribution
 
-**Status:** Accepted (2026-04-18) — **Superseded-in-part by Phase 58 (DIST-02, v0.4.0):**
+**Status:** Accepted (2026-04-18) — **Superseded-in-part (v0.4.0):**
 channel (2), the optional fpm `.deb`, is **removed**. The sole distribution channel
 is now the reproducible x86_64-musl tarball + its sibling `.sha256`. Channel (1)
 (curl-pipe-bash) and the mandatory `.sha256`-before-exec consequence **survive and
@@ -32,15 +32,14 @@ uploaded to each GitHub Release.
   `dpkg -i` from the GitHub Release asset, not via `apt install`. Promoting to a
   real PPA is deferred to post-v0.3.0.
 
-## Superseded-in-part (Phase 58, DIST-02 — v0.4.0)
+## Superseded-in-part (v0.4.0)
 
 The v0.4.0 Rust rewrite makes the static x86_64-musl `agentlinux` binary the shipped
 artifact and removes the optional fpm `.deb` channel entirely:
 
 - **Channel (2) removed.** `packaging/deb/` (the fpm postinst bridge), the
   `build-release.sh` fpm branch (`--no-deb`/`SKIP_DEB`), the `release.yml` "Install fpm"
-  step + `agentlinux_*.deb` publish glob, and the HRN-01 `packaging/deb` layout
-  assertion are all deleted. The `.deb` was best-effort and unused; a single
+    step + `agentlinux_*.deb` publish glob are all deleted. The `.deb` was best-effort and unused; a single
   reproducible channel avoids drift.
 - **Channel (1) survives and is reinforced.** `curl -fsSL … | bash` remains the
   primary (now sole) path. The installer still verifies the tarball's sibling
