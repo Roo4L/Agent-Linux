@@ -334,6 +334,26 @@ fn adoption_child_env(home: &str) -> Vec<(String, String)> {
 /// `--dry-run` / `--purge` are structural stubs here (Wave 5 lands the report /
 /// dry-run parity + purge); they return 0 with a loud "Wave 5" marker so the seam
 /// exists.
+/// The H-1 adoption-safety gate: refuse to adopt an EXISTING system account
+/// (UID < 1000) — so `userdel -r` can never remove a system/daemon account and a
+/// system home is never overwritten + granted NOPASSWD sudo.
+///
+/// One function, two call sites, because they must never diverge: the second
+/// (after the alt-user branch) exists precisely because an operator can TYPE a
+/// name that never passed the first, and `validate_user_name`'s reserved
+/// denylist is not exhaustive of system accounts.
+fn adoption_gate(user: &str) -> Result<(), ExitCode> {
+    if provision::probe::user_adoptable(user) {
+        return Ok(());
+    }
+    eprintln!(
+        "agentlinux provision: refusing to adopt existing system account \
+         '{user}' (UID < 1000). Choose a name that is free or a regular \
+         login (UID >= 1000)."
+    );
+    Err(ExitCode::from(EX_USAGE))
+}
+
 pub fn provision(args: &ProvisionArgs) -> ExitCode {
     // 1. Flag validation (contradictions + report-format) → EX_USAGE on failure.
     if let Err(code) = check_flag_contradictions(args) {
@@ -372,13 +392,8 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //     granted NOPASSWD sudo), for the explicit --user AND the default/env-
     //     resolved user alike. A non-existent name (created fresh / idempotent
     //     purge) and a regular login (UID >= 1000, adopted) both pass.
-    if !provision::probe::user_adoptable(&install_user) {
-        eprintln!(
-            "agentlinux provision: refusing to adopt existing system account \
-             '{install_user}' (UID < 1000). Choose a name that is free or a regular \
-             login (UID >= 1000)."
-        );
-        return ExitCode::from(EX_USAGE);
+    if let Err(code) = adoption_gate(&install_user) {
+        return code;
     }
 
     // 3. --purge (Q3). Ordered 7-step teardown — runs BEFORE the log-file tee (the
@@ -437,13 +452,8 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //     NOPASSWD sudo + a re-owned home (the elevation user_adoptable blocks).
     //     `validate_user_name`'s reserved denylist is not exhaustive of system
     //     accounts, so re-run the passwd-DB gate on the final name.
-    if !provision::probe::user_adoptable(&install_user) {
-        eprintln!(
-            "agentlinux provision: refusing to adopt existing system account \
-             '{install_user}' (UID < 1000). Choose a name that is free or a regular \
-             login (UID >= 1000)."
-        );
-        return ExitCode::from(EX_USAGE);
+    if let Err(code) = adoption_gate(&install_user) {
+        return code;
     }
 
     // 6. DECIDE phase (PROV-02): probe the host + iterate the Rust `canonical_path`
@@ -490,7 +500,9 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     // 7b. Flush aggregated bails: if any core component resolved to an
     //     unconsented state-overwrite, print the [BAIL] lines + exit 65 (EX_DATAERR)
     //     NOW — before log-init / the step loop mutates anything.
-    provision::remediate::flush_or_exit(&bails);
+    if let Err(code) = provision::remediate::flush_bails(&bails) {
+        return code;
+    }
 
     // 8. Open the install transcript (INST-01) — mirrors the Bash entrypoint's
     //    `install -m 0644 /dev/null "$LOG_FILE"` + tee. Best-effort: a create
@@ -564,7 +576,7 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
 
     // Step 1: per-agent uninstall.sh for every sentinel. Look up recipe paths from
     // the catalog snapshot keyed by the sentinel BASENAME — NOT from sentinel JSON.
-    let state_dir = std::path::PathBuf::from("/opt/agentlinux/state/installed.d");
+    let state_dir = crate::sentinel::installed_dir();
     if state_dir.is_dir() {
         if let Ok(entries) = std::fs::read_dir(&state_dir) {
             for entry in entries.flatten() {
@@ -860,12 +872,12 @@ mod provision_tests {
     }
 
     #[test]
-    fn adoption_gate_refuses_uid_below_1000() {
-        // H-1: an EXISTING system account (UID < 1000) is not adoptable — the gate
-        // the purge path + install path both consult. `root` (UID 0) exists on
-        // every host.
-        assert!(!provision::probe::user_adoptable("root"));
-        assert!(!provision::probe::user_adoptable("daemon"));
+    fn adoption_gate_refuses_an_existing_system_account() {
+        // H-1: an EXISTING system account (UID < 1000) is refused with EX_USAGE,
+        // so `userdel -r` can never reach it and it is never granted NOPASSWD
+        // sudo. `root` and `daemon` exist on every Linux host.
+        assert_eq!(adoption_gate("root"), Err(ExitCode::from(EX_USAGE)));
+        assert_eq!(adoption_gate("daemon"), Err(ExitCode::from(EX_USAGE)));
     }
 
     #[test]
@@ -900,17 +912,11 @@ mod provision_tests {
     }
 
     #[test]
-    fn adoption_gate_allows_regular_login_and_nonexistent() {
-        // A regular login (UID >= 1000) or a free name is adoptable — the agent
-        // user (UID >= 1000) must still purge/install cleanly.
-        assert!(provision::probe::user_adoptable(
-            "nonexistent-user-xyz-9042"
-        ));
-        let self_uid = nix::unistd::Uid::current();
-        if self_uid.as_raw() >= 1000 {
-            if let Ok(Some(me)) = nix::unistd::User::from_uid(self_uid) {
-                assert!(provision::probe::user_adoptable(&me.name));
-            }
-        }
+    fn adoption_gate_allows_a_free_name() {
+        // A name nobody holds is created fresh, so it passes. (The
+        // regular-login-passes case is asserted from a literal in
+        // provision::probe — it used to be guarded by `if self_uid >= 1000`,
+        // which deleted it on the root CI runners this suite mostly runs on.)
+        assert_eq!(adoption_gate("nonexistent-user-xyz-9042"), Ok(()));
     }
 }

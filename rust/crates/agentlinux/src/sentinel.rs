@@ -38,7 +38,13 @@ const DEFAULT_INSTALLED_DIR: &str = "/opt/agentlinux/state/installed.d";
 
 /// Resolve the installed.d dir lazily: `$AGENTLINUX_STATE_DIR` (bats seam) else
 /// the default. Port of `installedDir()` (sentinel.ts:24-26).
-fn installed_dir() -> PathBuf {
+///
+/// `pub(crate)` because EVERY reader of installed.d must come through here.
+/// `--purge` used to read a hard-coded `/opt/agentlinux/state/installed.d`, so a
+/// bats fixture that redirects state — which install/remove/list all obey — was
+/// ignored by the one verb that deletes things, which then walked the host's
+/// real /opt tree.
+pub(crate) fn installed_dir() -> PathBuf {
     match std::env::var("AGENTLINUX_STATE_DIR") {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
         _ => PathBuf::from(DEFAULT_INSTALLED_DIR),

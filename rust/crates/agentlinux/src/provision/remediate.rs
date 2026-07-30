@@ -8,7 +8,7 @@
 //! DECIDE-THEN-ACT (remediate.sh:6-13): `decide_core` probes host state and writes
 //! `Resolution` tokens with ZERO mutation; a state-overwriting Remediate WITHOUT
 //! consent registers a `Bail`. `flush_or_exit` then prints every `[BAIL]` line and
-//! `exit 65` (EX_DATAERR) BEFORE the step loop — so a refused host is left
+//! exit 65 (EX_DATAERR) BEFORE the step loop — so a refused host is left
 //! byte-identical (the NO-MUTATION-SNAPSHOT contract).
 //!
 //! Consent policy (remediate.sh `remediate_action_overwrites_state`): additive
@@ -20,8 +20,12 @@
 use crate::provision::probe::{self, NpmPrefixState, SudoersState};
 use crate::provision::{Resolution, Resolutions};
 use std::io::IsTerminal;
+use std::process::ExitCode;
 
-/// An aggregated incompatible-host-state record. `flush_or_exit` renders each as
+/// EX_DATAERR (sysexits.h) — incompatible host state.
+const EX_DATAERR: u8 = 65;
+
+/// An aggregated incompatible-host-state record. `flush_bails` renders each as
 /// `[BAIL] component=<component> reason=<reason> hint=<hint>` (remediate.sh:162).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bail {
@@ -218,12 +222,19 @@ fn prompt_component(component: &str, marker: &str, description: &str) -> Resolut
 }
 
 /// `flush_bails_or_continue` (remediate.sh:150-166): if any bail was aggregated,
-/// print every `[BAIL]` line + the exit-code footer and `exit 65` (EX_DATAERR)
-/// — SHORT-CIRCUITING before the step loop so a refused host is never mutated.
-/// Returns normally (continue) when there are no bails.
-pub fn flush_or_exit(bails: &[Bail]) {
+/// print every `[BAIL]` line + the exit-code footer and return `Err(65)`
+/// (EX_DATAERR) — SHORT-CIRCUITING before the step loop so a refused host is
+/// never mutated. `Ok(())` (continue) when there are no bails.
+///
+/// Returns rather than calling `std::process::exit`: the NO-MUTATION-SNAPSHOT
+/// contract ("print every [BAIL], exit 65, mutate nothing") is the most
+/// safety-critical thing the provisioner does, and a library function that ends
+/// the process makes it structurally unassertable — a test reaching it kills the
+/// test binary. Its neighbours (`check_flag_contradictions`,
+/// `check_report_format`) already return `Result<(), ExitCode>`.
+pub fn flush_bails(bails: &[Bail]) -> Result<(), ExitCode> {
     if bails.is_empty() {
-        return;
+        return Ok(());
     }
     for b in bails {
         eprintln!(
@@ -235,7 +246,7 @@ pub fn flush_or_exit(bails: &[Bail]) {
         "Exit code 65 (EX_DATAERR — incompatible host state). Re-run with --yes to remediate, \
          or see agentlinux provision --help."
     );
-    std::process::exit(65);
+    Err(ExitCode::from(EX_DATAERR))
 }
 
 #[cfg(test)]
@@ -305,5 +316,41 @@ mod remediate_tests {
         let (r, b) = decide_npm_prefix(NpmPrefixState::WrongOwner, false, false);
         assert_eq!(r, Resolution::Bail);
         assert_eq!(b.unwrap().component, "npm-prefix");
+    }
+}
+
+#[cfg(test)]
+mod flush_tests {
+    //! The NO-MUTATION-SNAPSHOT contract, now assertable in-process. While
+    //! `flush_or_exit` called `std::process::exit(65)` from library code, a test
+    //! that reached it killed the test binary — so the most safety-critical
+    //! behaviour the provisioner has had no test at all.
+    use super::*;
+
+    fn bail(component: &'static str, reason: &'static str) -> Bail {
+        Bail {
+            component,
+            reason,
+            hint: "run with --yes",
+        }
+    }
+
+    #[test]
+    fn no_bails_continues() {
+        assert!(flush_bails(&[]).is_ok());
+    }
+
+    #[test]
+    fn any_bail_stops_the_run_with_exit_65() {
+        let err = flush_bails(&[bail("sudoers", "drift")]).unwrap_err();
+        assert_eq!(err, ExitCode::from(65));
+    }
+
+    #[test]
+    fn every_aggregated_bail_is_reported_not_just_the_first() {
+        // The operator needs the WHOLE list to fix the host in one pass; short-
+        // circuiting on the first would hide the second behind a re-run.
+        let bails = [bail("npm-prefix", "wrong-owner"), bail("sudoers", "drift")];
+        assert_eq!(flush_bails(&bails).unwrap_err(), ExitCode::from(65));
     }
 }
