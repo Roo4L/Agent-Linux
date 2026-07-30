@@ -601,26 +601,28 @@ mod install_tests {
         }
     }
 
-    fn set_env(cat: &std::path::Path, state: &std::path::Path) {
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat);
-        std::env::set_var("AGENTLINUX_STATE_DIR", state);
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
-    }
-    fn clear_env() {
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+    /// Point the catalog/state/detect-cache reads at fixtures for the lifetime of
+    /// `env_scope` — which restores them on drop, so a failing assertion cannot
+    /// leak a fixture path into whatever test runs next.
+    fn set_env(
+        env_scope: &mut crate::test_support::EnvScope,
+        cat: &std::path::Path,
+        state: &std::path::Path,
+    ) {
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat);
+        env_scope.set("AGENTLINUX_STATE_DIR", state);
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
     }
 
     // --- Usage exit rows (64) ---
 
     #[test]
     fn dry_run_and_yes_is_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             install_with(
                 "test-dummy",
@@ -629,16 +631,15 @@ mod install_tests {
             ),
             ExitCode::from(EX_USAGE)
         );
-        clear_env();
     }
 
     #[test]
     fn unknown_agent_is_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             install_with(
                 "ghost",
@@ -647,16 +648,15 @@ mod install_tests {
             ),
             ExitCode::from(EX_USAGE)
         );
-        clear_env();
     }
 
     #[test]
     fn test_only_without_include_test_is_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             install_with(
                 "test-dummy",
@@ -665,16 +665,15 @@ mod install_tests {
             ),
             ExitCode::from(EX_USAGE)
         );
-        clear_env();
     }
 
     #[test]
     fn bad_version_semver_is_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             install_with(
                 "test-dummy",
@@ -690,18 +689,17 @@ mod install_tests {
             ),
             ExitCode::from(EX_USAGE)
         );
-        clear_env();
     }
 
     // --- create path + --version override → source=override ---
 
     #[test]
     fn create_path_writes_curated_sentinel() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             install_with(
                 "test-dummy",
@@ -714,16 +712,15 @@ mod install_tests {
         assert_eq!(s.version, "0.0.1");
         assert_eq!(s.source, "curated");
         assert_eq!(s.status.as_deref(), Some("installed"));
-        clear_env();
     }
 
     #[test]
     fn version_override_records_source_override() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             install_with(
                 "test-dummy",
@@ -735,18 +732,17 @@ mod install_tests {
         let s = sentinel::read_sentinel("test-dummy").unwrap().unwrap();
         assert_eq!(s.version, "9.9.9");
         assert_eq!(s.source, "override");
-        clear_env();
     }
 
     // --- idempotent no-op ---
 
     #[test]
     fn idempotent_second_install_is_noop() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         // First install writes the sentinel.
         let _ = install_with(
             "test-dummy",
@@ -762,18 +758,17 @@ mod install_tests {
             ),
             ExitCode::SUCCESS
         );
-        clear_env();
     }
 
     // --- recipe failure propagates the exit code ---
 
     #[test]
     fn recipe_failure_propagates_exit_code() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         // A fresh install with a failing recipe → exit 7 (propagated), no sentinel.
         assert_eq!(
             install_with(
@@ -784,18 +779,17 @@ mod install_tests {
             ExitCode::from(7)
         );
         assert!(sentinel::read_sentinel("test-dummy").unwrap().is_none());
-        clear_env();
     }
 
     // --- --dry-run: no dispatch, no sentinel, exit 0 ---
 
     #[test]
     fn dry_run_creates_no_sentinel_and_does_not_dispatch() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         // A failing dispatcher must never run under --dry-run.
         assert_eq!(
             install_with(
@@ -806,7 +800,6 @@ mod install_tests {
             ExitCode::SUCCESS
         );
         assert!(sentinel::read_sentinel("test-dummy").unwrap().is_none());
-        clear_env();
     }
 
     // --- exact literal shapes (byte strings incl. ▸ + [REUSE-03]/[REMEDIATE-04]) ---

@@ -160,6 +160,7 @@ fn dispatch(command: Command) -> ExitCode {
 
 #[cfg(test)]
 pub(crate) mod test_support {
+    use std::ffi::OsStr;
     use std::sync::{Mutex, MutexGuard};
     /// Single process-wide lock serializing every test that mutates the
     /// global AGENTLINUX_* env vars. A per-module lock cannot serialize
@@ -167,7 +168,59 @@ pub(crate) mod test_support {
     /// Poison-tolerant: a panic in one env test must not cascade-poison
     /// the lock for the rest.
     pub static ENV_LOCK: Mutex<()> = Mutex::new(());
-    pub fn env_guard() -> MutexGuard<'static, ()> {
-        ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+
+    /// Take the env lock and restore, on drop, every variable this scope
+    /// touched.
+    ///
+    /// Env vars are process-global, so a test that sets one and clears it AFTER
+    /// its assertions leaks that variable into whatever runs next the moment an
+    /// assertion fails — turning one red test into a cascade whose cause is two
+    /// modules away. `EnvScope` is the only sanctioned way to mutate the
+    /// environment in a test: it releases the lock and puts every variable back
+    /// (including "back to unset") on the unwind path too.
+    #[must_use]
+    pub struct EnvScope {
+        _lock: MutexGuard<'static, ()>,
+        saved: Vec<(String, Option<String>)>,
+    }
+
+    impl EnvScope {
+        pub fn new() -> Self {
+            Self {
+                _lock: ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner()),
+                saved: Vec::new(),
+            }
+        }
+
+        /// Set `key` for the lifetime of this scope.
+        pub fn set(&mut self, key: &str, value: impl AsRef<OsStr>) -> &mut Self {
+            self.remember(key);
+            std::env::set_var(key, value);
+            self
+        }
+
+        /// Unset `key` for the lifetime of this scope.
+        pub fn unset(&mut self, key: &str) -> &mut Self {
+            self.remember(key);
+            std::env::remove_var(key);
+            self
+        }
+
+        fn remember(&mut self, key: &str) {
+            if !self.saved.iter().any(|(k, _)| k == key) {
+                self.saved.push((key.to_string(), std::env::var(key).ok()));
+            }
+        }
+    }
+
+    impl Drop for EnvScope {
+        fn drop(&mut self) {
+            for (key, prior) in self.saved.drain(..) {
+                match prior {
+                    Some(v) => std::env::set_var(&key, v),
+                    None => std::env::remove_var(&key),
+                }
+            }
+        }
     }
 }

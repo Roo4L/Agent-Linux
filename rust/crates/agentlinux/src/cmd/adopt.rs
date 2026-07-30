@@ -290,63 +290,63 @@ mod adopt_tests {
 
     #[test]
     fn no_name_no_all_exits_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
         assert_eq!(
             adopt(None, &args(false, false, false)),
             ExitCode::from(EX_USAGE)
         );
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
     }
 
     #[test]
     fn unknown_agent_exits_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
         assert_eq!(
             adopt(Some("ghost"), &args(false, false, false)),
             ExitCode::from(EX_USAGE)
         );
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
     }
 
     #[test]
     fn test_only_without_include_test_exits_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
         assert_eq!(
             adopt(Some("test-dummy"), &args(false, false, false)),
             ExitCode::from(EX_USAGE)
         );
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
     }
 
     #[test]
     fn greenfield_all_is_a_noop_exit_0() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
         // No cache → nothing adopted, no sentinel written, exit 0.
         assert_eq!(adopt(None, &args(true, false, false)), ExitCode::SUCCESS);
         assert!(sentinel::list_sentinels().unwrap().is_empty());
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
     }
 
     #[test]
     fn adopts_present_in_window_agent_as_reused_sentinel() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         let bindir = tempdir().unwrap();
@@ -379,10 +379,10 @@ mod adopt_tests {
             ]}"#,
         )
         .unwrap();
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", &cache);
-        std::env::set_var("AGENTLINUX_AGENT_HOME", bindir.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
+        env_scope.set("AGENTLINUX_AGENT_HOME", bindir.path());
 
         assert_eq!(
             adopt(Some("rtk"), &args(false, false, false)),
@@ -396,10 +396,10 @@ mod adopt_tests {
             Some(bin.display().to_string().as_str())
         );
 
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
-        std::env::remove_var("AGENTLINUX_AGENT_HOME");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_AGENT_HOME");
     }
 
     #[test]

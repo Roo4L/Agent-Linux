@@ -850,13 +850,13 @@ mod provision_tests {
         // M-1: the default/env-resolved user must go through the SAME denylist.
         // Force $AGENTLINUX_USER to a reserved name and confirm the None (default)
         // path rejects it with EX_USAGE, exactly as the explicit --user path does.
-        let _g = crate::test_support::env_guard();
-        std::env::set_var("AGENTLINUX_USER", "root");
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_USER", "root");
         assert_eq!(
             resolve_provision_user(None).unwrap_err(),
             ExitCode::from(EX_USAGE)
         );
-        std::env::remove_var("AGENTLINUX_USER");
+        env_scope.unset("AGENTLINUX_USER");
     }
 
     #[test]
@@ -890,10 +890,10 @@ mod provision_tests {
     fn adoption_child_env_forwards_agentlinux_seams() {
         // The bats harness sets AGENTLINUX_* seams; the non-login child must
         // inherit them (the login shell would have sourced /etc/agentlinux.env).
-        let _g = crate::test_support::env_guard();
-        std::env::set_var("AGENTLINUX_STATE_DIR", "/tmp/fixture-state");
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_STATE_DIR", "/tmp/fixture-state");
         let env = adoption_child_env("/home/agent");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
         assert!(env
             .iter()
             .any(|(k, v)| k == "AGENTLINUX_STATE_DIR" && v == "/tmp/fixture-state"));

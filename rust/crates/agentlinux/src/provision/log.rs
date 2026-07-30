@@ -106,20 +106,20 @@ mod log_tests {
 
     #[test]
     fn log_path_honors_env_else_default() {
-        let _g = crate::test_support::env_guard();
-        std::env::remove_var("AGENTLINUX_LOG");
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.unset("AGENTLINUX_LOG");
         assert_eq!(log_path(), PathBuf::from(DEFAULT_LOG));
-        std::env::set_var("AGENTLINUX_LOG", "/tmp/al-test.log");
+        env_scope.set("AGENTLINUX_LOG", "/tmp/al-test.log");
         assert_eq!(log_path(), PathBuf::from("/tmp/al-test.log"));
-        std::env::remove_var("AGENTLINUX_LOG");
+        env_scope.unset("AGENTLINUX_LOG");
     }
 
     #[test]
     fn init_creates_log_and_line_appends() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("install.log");
-        std::env::set_var("AGENTLINUX_LOG", &path);
+        env_scope.set("AGENTLINUX_LOG", &path);
 
         let resolved = init();
         assert_eq!(resolved, path);
@@ -134,6 +134,6 @@ mod log_tests {
         assert!(body.contains("agentlinux-install v0.3.6 starting"));
         assert!(body.contains("agentlinux-install complete"));
 
-        std::env::remove_var("AGENTLINUX_LOG");
+        env_scope.unset("AGENTLINUX_LOG");
     }
 }

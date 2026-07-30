@@ -200,9 +200,9 @@ mod sentinel_tests {
 
     #[test]
     fn atomic_round_trip_write_then_read() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
 
         let mut s = Sentinel::new("gsd".into(), "1.7.0".into(), "curated".into(), false);
         s.installed_at = Some("2026-07-28T00:00:00Z".into());
@@ -213,7 +213,7 @@ mod sentinel_tests {
         let back = read_sentinel("gsd").unwrap().unwrap();
         assert_eq!(back, s);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     #[test]
@@ -235,21 +235,21 @@ mod sentinel_tests {
 
     #[test]
     fn write_produces_trailing_newline() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
         let s = Sentinel::new("x".into(), "1.0.0".into(), "curated".into(), false);
         write_sentinel(&s).unwrap();
         let body = std::fs::read_to_string(dir.path().join("x.json")).unwrap();
         assert!(body.ends_with("}\n"), "trailing newline expected: {body:?}");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     #[test]
     fn delete_is_enoent_tolerant_and_list_skips_missing() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
 
         // Delete before any write — idempotent no-op.
         delete_sentinel("ghost").unwrap();
@@ -276,15 +276,15 @@ mod sentinel_tests {
             .collect();
         assert_eq!(ids, vec!["b".to_string()]);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     #[test]
     fn read_missing_is_none() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
         assert!(read_sentinel("nope").unwrap().is_none());
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 }

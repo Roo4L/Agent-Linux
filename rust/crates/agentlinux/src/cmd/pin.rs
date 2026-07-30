@@ -191,12 +191,12 @@ mod pin_tests {
 
     #[test]
     fn latest_then_curated_round_trip_mutates_sentinel_only() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
 
         // Seed an installed sentinel.
         let mut s = Sentinel::new("test-dummy".into(), "0.0.1".into(), "curated".into(), false);
@@ -224,33 +224,33 @@ mod pin_tests {
         assert_eq!(after.source, "pinned");
         assert_eq!(after.version, "1.2.3");
 
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     #[test]
     fn unknown_agent_exits_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
         assert_eq!(pin("nonexistent=latest"), ExitCode::from(EX_USAGE));
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
     }
 
     #[test]
     fn not_installed_exits_1() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
         // Known agent, but no sentinel and no detect cache → exit 1.
         assert_eq!(pin("test-dummy=latest"), ExitCode::from(1));
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
     }
 }

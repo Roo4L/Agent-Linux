@@ -31,13 +31,34 @@ pub fn stdin_is_tty() -> bool {
 /// user in a REMEDIATE/wrong-shell state, so the extra state checks are load-bearing.
 #[must_use]
 pub fn should_prompt_install_user(user: &str, home: &str) -> bool {
-    use crate::provision::probe::{
-        npm_prefix_state, sudoers_state, user_state, NpmPrefixState, SudoersState, UserState,
-    };
-    !std::path::Path::new("/etc/agentlinux.env").exists()
-        && user_state(user) != UserState::WrongShell
-        && sudoers_state(user) != SudoersState::Drifted
-        && npm_prefix_state(user, home) != NpmPrefixState::WrongOwner
+    use crate::provision::probe::{npm_prefix_state, sudoers_state, user_state};
+    should_prompt_from(
+        std::path::Path::new(&crate::recipe_env::env_file_path()).exists(),
+        user_state(user),
+        sudoers_state(user),
+        npm_prefix_state(user, home),
+    )
+}
+
+/// The pure predicate behind [`should_prompt_install_user`] — the four host facts
+/// in, the decision out. The mis-fire this replaced (keying on the env-file alone)
+/// is a one-line test here instead of a fixture that has to manufacture a
+/// brownfield host.
+#[must_use]
+pub fn should_prompt_from(
+    env_file_exists: bool,
+    user: crate::provision::probe::UserState,
+    sudoers: crate::provision::probe::SudoersState,
+    npm_prefix: crate::provision::probe::NpmPrefixState,
+) -> bool {
+    use crate::provision::probe::{NpmPrefixState, SudoersState, UserState};
+    !env_file_exists
+        // Both irreconcilable user states have their own flow (the alt-user gate
+        // / the home-not-writable bail); prompting first would swallow their
+        // answers.
+        && matches!(user, UserState::Absent | UserState::Conforming)
+        && sudoers != SudoersState::Drifted
+        && npm_prefix != NpmPrefixState::WrongOwner
 }
 
 /// Testable core of the install-user prompt: render the context + prompt to

@@ -472,8 +472,12 @@ mod catalog_tests {
 
     #[test]
     fn resolve_catalog_dir_honors_env_seam() {
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", "/tmp/fixture-catalog");
+        // Under the env lock: five cmd/* modules point this same variable at a
+        // TempDir while holding it, and cargo runs them as threads in ONE
+        // process — an unlocked write here could repoint the catalog dir out
+        // from under a test that is mid-`load_catalog`.
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_CATALOG_DIR", "/tmp/fixture-catalog");
         assert_eq!(resolve_catalog_dir(), PathBuf::from("/tmp/fixture-catalog"));
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
     }
 }

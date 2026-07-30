@@ -705,13 +705,13 @@ mod upgrade_tests {
 
     #[test]
     fn reconcile_continue_on_failure_exits_zero_and_preserves_sentinel() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog_two(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
 
         // Both agents have a diverged (override) sentinel so --reset-all-curated
         // targets them. The dispatcher FAILS for every entry.
@@ -749,20 +749,20 @@ mod upgrade_tests {
             "override"
         );
 
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
     }
 
     #[test]
     fn report_only_default_does_not_mutate() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog_two(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
 
         let mut s = Sentinel::new("a-agent".into(), "1.0.0".into(), "override".into(), false);
         s.status = Some("installed".to_string());
@@ -786,8 +786,8 @@ mod upgrade_tests {
             "override"
         );
 
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
     }
 }

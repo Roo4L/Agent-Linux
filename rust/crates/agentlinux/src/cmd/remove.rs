@@ -189,22 +189,25 @@ mod remove_tests {
         }
     }
 
-    fn set_env(cat: &std::path::Path, state: &std::path::Path) {
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat);
-        std::env::set_var("AGENTLINUX_STATE_DIR", state);
-    }
-    fn clear_env() {
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+    /// Point the catalog/state reads at fixtures for the lifetime of
+    /// `env_scope` — which restores them on drop, so a failing assertion cannot
+    /// leak a fixture path into whatever test runs next.
+    fn set_env(
+        env_scope: &mut crate::test_support::EnvScope,
+        cat: &std::path::Path,
+        state: &std::path::Path,
+    ) {
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat);
+        env_scope.set("AGENTLINUX_STATE_DIR", state);
     }
 
     #[test]
     fn unknown_agent_is_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             remove_with(
                 "ghost",
@@ -216,16 +219,15 @@ mod remove_tests {
             ),
             ExitCode::from(EX_USAGE)
         );
-        clear_env();
     }
 
     #[test]
     fn not_installed_without_force_is_1() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             remove_with(
                 "test-dummy",
@@ -237,16 +239,15 @@ mod remove_tests {
             ),
             ExitCode::from(1)
         );
-        clear_env();
     }
 
     #[test]
     fn not_installed_with_force_is_0_noop() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         assert_eq!(
             remove_with(
                 "test-dummy",
@@ -258,16 +259,15 @@ mod remove_tests {
             ),
             ExitCode::SUCCESS
         );
-        clear_env();
     }
 
     #[test]
     fn installed_remove_dispatches_and_deletes_sentinel() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         sentinel::write_sentinel(&Sentinel::new(
             "test-dummy".into(),
             "0.0.1".into(),
@@ -288,16 +288,15 @@ mod remove_tests {
         );
         // Sentinel deleted after a successful uninstall.
         assert!(sentinel::read_sentinel("test-dummy").unwrap().is_none());
-        clear_env();
     }
 
     #[test]
     fn recipe_failure_propagates_and_preserves_sentinel() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        set_env(cat.path(), state.path());
+        set_env(&mut env_scope, cat.path(), state.path());
         sentinel::write_sentinel(&Sentinel::new(
             "test-dummy".into(),
             "0.0.1".into(),
@@ -318,7 +317,6 @@ mod remove_tests {
         );
         // Sentinel PRESERVED on a failed uninstall (deletion only after success).
         assert!(sentinel::read_sentinel("test-dummy").unwrap().is_some());
-        clear_env();
     }
 
     #[test]

@@ -105,45 +105,45 @@ mod probe_tests {
 
     #[test]
     fn reads_installed_version_from_package_json() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let prefix = tempdir().unwrap();
         stage_package_json(
             prefix.path(),
             "@openai/codex",
             r#"{"name":"@openai/codex","version":"1.2.3"}"#,
         );
-        std::env::set_var("NPM_CONFIG_PREFIX", prefix.path());
+        env_scope.set("NPM_CONFIG_PREFIX", prefix.path());
 
         let e = entry("codex", "npm", Some("@openai/codex"));
         assert_eq!(probe_installed_version(&e).as_deref(), Some("1.2.3"));
 
-        std::env::remove_var("NPM_CONFIG_PREFIX");
+        env_scope.unset("NPM_CONFIG_PREFIX");
     }
 
     #[test]
     fn normalizes_a_v_prefixed_version() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let prefix = tempdir().unwrap();
         stage_package_json(prefix.path(), "gsd-core", r#"{"version":"v1.37.1"}"#);
-        std::env::set_var("NPM_CONFIG_PREFIX", prefix.path());
+        env_scope.set("NPM_CONFIG_PREFIX", prefix.path());
 
         let e = entry("gsd", "npm", Some("gsd-core"));
         // semver.valid drops the leading `v` (probe.ts:42).
         assert_eq!(probe_installed_version(&e).as_deref(), Some("1.37.1"));
 
-        std::env::remove_var("NPM_CONFIG_PREFIX");
+        env_scope.unset("NPM_CONFIG_PREFIX");
     }
 
     #[test]
     fn none_when_package_json_absent() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let prefix = tempdir().unwrap();
-        std::env::set_var("NPM_CONFIG_PREFIX", prefix.path());
+        env_scope.set("NPM_CONFIG_PREFIX", prefix.path());
 
         let e = entry("codex", "npm", Some("@openai/codex"));
         assert_eq!(probe_installed_version(&e), None);
 
-        std::env::remove_var("NPM_CONFIG_PREFIX");
+        env_scope.unset("NPM_CONFIG_PREFIX");
     }
 
     #[test]
@@ -156,13 +156,13 @@ mod probe_tests {
 
     #[test]
     fn none_when_version_field_missing_or_not_semver() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let prefix = tempdir().unwrap();
         // Missing version field.
         stage_package_json(prefix.path(), "nover", r#"{"name":"nover"}"#);
         // Non-semver version string.
         stage_package_json(prefix.path(), "badver", r#"{"version":"not-a-version"}"#);
-        std::env::set_var("NPM_CONFIG_PREFIX", prefix.path());
+        env_scope.set("NPM_CONFIG_PREFIX", prefix.path());
 
         assert_eq!(
             probe_installed_version(&entry("a", "npm", Some("nover"))),
@@ -173,6 +173,6 @@ mod probe_tests {
             None
         );
 
-        std::env::remove_var("NPM_CONFIG_PREFIX");
+        env_scope.unset("NPM_CONFIG_PREFIX");
     }
 }

@@ -149,6 +149,23 @@ pub fn decide_core(
                 hint: "use --user=NAME with a compatible user",
             });
         }
+        probe::UserState::HomeNotWritable => {
+            // REUSE-01: adopting a user who cannot write their own home hands
+            // every later step the EACCES this project exists to eliminate, so it
+            // is irreconcilable — and unlike a chown of `.npm-global`, re-owning
+            // someone's whole home is not a remediation we offer.
+            eprintln!("agentlinux: existing user \"{user}\" is incompatible (home-not-writable).");
+            eprintln!(
+                "Re-run with --user=NAME using a compatible user, or make the existing user's \
+                 home writable by them."
+            );
+            res.user = Resolution::Bail;
+            bails.push(Bail {
+                component: "user",
+                reason: "home-not-writable",
+                hint: "use --user=NAME with a compatible user",
+            });
+        }
     }
 
     // Component prompt order (prompt::run_all): npm-prefix BEFORE sudoers. This is

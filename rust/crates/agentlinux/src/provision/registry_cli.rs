@@ -389,16 +389,16 @@ mod registry_cli_tests {
 
     #[test]
     fn src_root_honors_env_else_default() {
-        let _g = crate::test_support::env_guard();
-        std::env::remove_var("AGENTLINUX_SRC_ROOT");
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.unset("AGENTLINUX_SRC_ROOT");
         // With the env var unset the current_exe derivation runs first, but the
         // test runner's own bin is not laid out as a plugin root (no sibling
         // bin/agentlinux + catalog/), so it correctly falls through to the
         // container default.
         assert_eq!(src_root(), PathBuf::from(DEFAULT_SRC_ROOT));
-        std::env::set_var("AGENTLINUX_SRC_ROOT", "/tmp/x/plugin");
+        env_scope.set("AGENTLINUX_SRC_ROOT", "/tmp/x/plugin");
         assert_eq!(src_root(), PathBuf::from("/tmp/x/plugin"));
-        std::env::remove_var("AGENTLINUX_SRC_ROOT");
+        env_scope.unset("AGENTLINUX_SRC_ROOT");
     }
 
     #[test]
@@ -428,12 +428,12 @@ mod registry_cli_tests {
 
     #[test]
     fn agentlinux_version_falls_back_to_cargo_pkg_version() {
-        let _g = crate::test_support::env_guard();
-        std::env::remove_var("AGENTLINUX_VERSION");
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.unset("AGENTLINUX_VERSION");
         assert_eq!(agentlinux_version(), env!("CARGO_PKG_VERSION"));
-        std::env::set_var("AGENTLINUX_VERSION", "9.9.9");
+        env_scope.set("AGENTLINUX_VERSION", "9.9.9");
         assert_eq!(agentlinux_version(), "9.9.9");
-        std::env::remove_var("AGENTLINUX_VERSION");
+        env_scope.unset("AGENTLINUX_VERSION");
     }
 
     #[test]
@@ -456,22 +456,22 @@ mod registry_cli_tests {
     fn agentlinux_version_falls_back_when_normalized_empty() {
         // A garbage AGENTLINUX_VERSION that normalizes to empty must not corrupt
         // the /opt/agentlinux/<ver>/ path — fall back to the compiled version.
-        let _g = crate::test_support::env_guard();
-        std::env::set_var("AGENTLINUX_VERSION", "v");
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_VERSION", "v");
         assert_eq!(agentlinux_version(), env!("CARGO_PKG_VERSION"));
-        std::env::set_var("AGENTLINUX_VERSION", "");
+        env_scope.set("AGENTLINUX_VERSION", "");
         assert_eq!(agentlinux_version(), env!("CARGO_PKG_VERSION"));
-        std::env::remove_var("AGENTLINUX_VERSION");
+        env_scope.unset("AGENTLINUX_VERSION");
     }
 
     #[test]
     fn agentlinux_version_normalizes_a_tag_to_its_base() {
         // The curl-installer sets AGENTLINUX_VERSION to the raw tag; staging must
         // resolve to the bare base so it matches the runtime catalog lookup.
-        let _g = crate::test_support::env_guard();
-        std::env::set_var("AGENTLINUX_VERSION", "v0.4.0-rc1");
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_VERSION", "v0.4.0-rc1");
         assert_eq!(agentlinux_version(), "0.4.0");
-        std::env::remove_var("AGENTLINUX_VERSION");
+        env_scope.unset("AGENTLINUX_VERSION");
     }
 
     #[test]

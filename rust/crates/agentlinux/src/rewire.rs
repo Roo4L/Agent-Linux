@@ -185,9 +185,9 @@ mod rewire_tests {
     // provider's (rtk) rewire recipe exactly once, excluding the agent itself.
     #[test]
     fn rewires_installed_providers_into_new_agent() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let state = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
 
         // rtk (provider, has a rewire recipe) + claude-code are both installed.
         sentinel::write_sentinel(&Sentinel::new(
@@ -215,15 +215,15 @@ mod rewire_tests {
         // Exactly rtk's rewire ran (claude-code excluded as the installed id).
         assert_eq!(DISPATCH_COUNT.load(Ordering::SeqCst), 1);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     // A provider that is NOT installed (no sentinel) is skipped.
     #[test]
     fn skips_uninstalled_providers() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let state = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
         // Only claude-code installed; rtk is in the catalog but has no sentinel.
         sentinel::write_sentinel(&Sentinel::new(
             "claude-code".into(),
@@ -238,15 +238,15 @@ mod rewire_tests {
         reconcile_cross_wiring_with("claude-code", &agents, "/opt/cat", "agent", counting_ok);
         assert_eq!(DISPATCH_COUNT.load(Ordering::SeqCst), 0);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     // A non-zero rewire exit does NOT panic or propagate — best-effort.
     #[test]
     fn failed_rewire_is_best_effort_no_panic() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let state = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
         sentinel::write_sentinel(&Sentinel::new(
             "rtk".into(),
             "1.0.0".into(),
@@ -274,6 +274,6 @@ mod rewire_tests {
         // Must simply return (the assertion is "no panic").
         reconcile_cross_wiring_with("claude-code", &agents, "/opt/cat", "agent", failing);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 }
