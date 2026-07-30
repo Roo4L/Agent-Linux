@@ -343,6 +343,41 @@ pub fn ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
 /// DBs (`nix::unistd::{User,Group}::from_name`, the `user` feature), matching the
 /// Bash `chown user:group` name resolution. `${owner%:*}` / `${owner#*:}` split
 /// on the FIRST colon.
+/// `chown <user>:<group> <path>` by name — resolve the passwd/group entries and
+/// apply via `std::os::unix::fs::chown` (the sanctioned syscall; nix's `fs`
+/// feature is not enabled).
+///
+/// The ONE copy: `provision::{agent_user, nodejs, path_wiring, registry_cli,
+/// sudoers}` each carried their own, so "did this step re-assert ownership?" had
+/// seven answers and no single place to substitute in a test.
+pub fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
+    let (uid, gid) = resolve_owner(owner)?;
+    std::os::unix::fs::chown(path, Some(uid), Some(gid))
+        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
+}
+
+/// `chown -h <user>:<group> <link>` — change the SYMLINK itself, not its target.
+pub fn chown_symlink_by_name(link: &Path, owner: &str) -> io::Result<()> {
+    let (uid, gid) = resolve_owner(owner)?;
+    std::os::unix::fs::lchown(link, Some(uid), Some(gid))
+        .map_err(|e| io::Error::other(format!("chown -h {} failed: {e}", link.display())))
+}
+
+/// `command -v <name>` — resolve a program on PATH, `None` if absent.
+#[must_use]
+pub fn which(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let cand = dir.join(name);
+            if cand.is_file() {
+                Some(cand)
+            } else {
+                None
+            }
+        })
+    })
+}
+
 fn resolve_owner(owner: &str) -> io::Result<(u32, u32)> {
     let (user, group) = owner.split_once(':').ok_or_else(|| {
         io::Error::new(

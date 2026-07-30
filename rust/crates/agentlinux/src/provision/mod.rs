@@ -29,6 +29,8 @@ pub mod sudoers;
 pub mod wizard;
 
 use crate::distro::Family;
+use std::io;
+use std::path::{Path, PathBuf};
 
 /// The per-component decision token — the DECIDE phase's output for one
 /// provisioner component. Mirrors the Bash `RESOLUTIONS[<component>]` values
@@ -148,12 +150,60 @@ impl Resolution {
     }
 }
 
+/// The privileged operations a step performs that a test cannot: changing a
+/// file's owner, asking `visudo` whether a sudoers file parses, installing a
+/// package. Injected as fn pointers (the shape `cmd/upgrade.rs`'s `UpgradeDeps`
+/// and `npm.rs`'s `NpmDispatcher` already use) so a step's ORDERING and its
+/// error handling — install only after visudo accepts, re-assert ownership after
+/// the marker block — are assertable without root and without a real host.
+#[derive(Clone, Copy)]
+pub struct Effects {
+    /// `chown <user>:<group> <path>`, owner given as `"user:group"`.
+    pub chown: fn(&Path, &str) -> io::Result<()>,
+    /// `mkdir -p` + re-assert mode and owner.
+    pub ensure_dir: fn(&Path, u32, &str) -> io::Result<()>,
+    /// `chown -h` — retarget the SYMLINK's owner, never its target.
+    pub chown_symlink: fn(&Path, &str) -> io::Result<()>,
+    /// `visudo -cf <path>` — `Err` when the file does not parse.
+    pub visudo_validate: fn(&Path) -> io::Result<()>,
+    /// The family-correct package install verb.
+    pub pkg_install: fn(Family, &[&str]) -> io::Result<()>,
+    /// `command -v <name>` — `None` when the program is not on PATH.
+    pub which: fn(&str) -> Option<PathBuf>,
+}
+
+impl Default for Effects {
+    fn default() -> Self {
+        Self {
+            chown: crate::sysio::chown_by_name,
+            ensure_dir: crate::sysio::ensure_dir,
+            chown_symlink: crate::sysio::chown_symlink_by_name,
+            visudo_validate: crate::sysio::visudo_validate,
+            pkg_install: crate::pkg::pkg_install,
+            which: crate::sysio::which,
+        }
+    }
+}
+
+impl std::fmt::Debug for Effects {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Effects { .. }")
+    }
+}
+
 /// The context every provisioner step receives — the settled install identity,
 /// the distro family, the resolution tokens, and the mutation-gate flags. A step
 /// reads what it needs and does I/O; it never re-resolves the user or re-detects
 /// the distro (both are settled once in the orchestrator).
 #[derive(Debug, Clone)]
 pub struct ProvisionCtx {
+    /// Filesystem root every system-owned artefact is written under — `/` in
+    /// production, a TempDir in tests. The per-user artefacts already route
+    /// through `install_home`, so together the two make a step's whole write set
+    /// redirectable.
+    pub root: PathBuf,
+    /// The privileged operations, injected. See [`Effects`].
+    pub fx: Effects,
     /// The resolved install user (`--user` > `$AGENTLINUX_USER` > `agent`,
     /// charset+reserved-validated upstream).
     pub install_user: String,
@@ -168,4 +218,38 @@ pub struct ProvisionCtx {
     /// `--dry-run` — no host mutation (Wave 5 lands the full report/dry-run
     /// parity; Wave 1 short-circuits before the step loop).
     pub dry_run: bool,
+}
+
+impl ProvisionCtx {
+    /// Resolve an absolute system path (`/etc/sudoers.d`) under [`Self::root`].
+    #[must_use]
+    pub fn sys(&self, absolute: &str) -> PathBuf {
+        if self.root == Path::new("/") {
+            PathBuf::from(absolute)
+        } else {
+            self.root.join(absolute.trim_start_matches('/'))
+        }
+    }
+
+    /// The production context: the real filesystem root and the real effects.
+    #[must_use]
+    pub fn new(
+        install_user: String,
+        install_home: String,
+        family: Family,
+        resolutions: Resolutions,
+        yes: bool,
+        dry_run: bool,
+    ) -> Self {
+        Self {
+            root: PathBuf::from("/"),
+            fx: Effects::default(),
+            install_user,
+            install_home,
+            family,
+            resolutions,
+            yes,
+            dry_run,
+        }
+    }
 }

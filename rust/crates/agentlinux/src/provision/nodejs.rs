@@ -288,6 +288,8 @@ mod nodejs_tests {
 
     fn ctx_with(node: Resolution, npm_prefix: Resolution, home: &str) -> ProvisionCtx {
         ProvisionCtx {
+            root: std::path::PathBuf::from("/"),
+            fx: crate::provision::Effects::default(),
             install_user: "agent".into(),
             install_home: home.into(),
             family: Family::Debian,

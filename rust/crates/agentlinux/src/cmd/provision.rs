@@ -471,14 +471,14 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
         &mut bails,
     );
 
-    let ctx = ProvisionCtx {
+    let ctx = ProvisionCtx::new(
         install_user,
         install_home,
-        family: distro.family,
+        distro.family,
         resolutions,
-        yes: args.yes,
-        dry_run: args.dry_run,
-    };
+        args.yes,
+        args.dry_run,
+    );
 
     // 7. --dry-run (Q3): print the pre-flight report + the per-agent decisions,
     //    exit 0, ZERO mutation. After the DECIDE phase so the report reflects every

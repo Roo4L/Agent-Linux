@@ -34,7 +34,7 @@
 
 use crate::dispatcher;
 use crate::provision::ProvisionCtx;
-use crate::sysio;
+
 use std::fs;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
@@ -134,8 +134,37 @@ pub fn agentlinux_version() -> String {
     normalized
 }
 
-/// `run` — the 50-registry-cli.sh port.
+/// `run` — the 50-registry-cli.sh port: stage the payload, then verify the
+/// symlink resolves AS THE INSTALL USER (50-registry-cli.sh:137-140, T-04-15).
+///
+/// The staging half is [`stage`]; the verification shells out through the
+/// dispatcher, which is why it is not part of it.
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
+    let symlink = stage(ctx)?;
+
+    // as_user prepends its own `--`; pass the command + args verbatim.
+    let argv: Vec<String> = ["test", "-x", &symlink.to_string_lossy()]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let r = dispatcher::as_user(&ctx.install_user, &argv, &[], false, None);
+    if r.exit_code != 0 {
+        return Err(io::Error::other(format!(
+            "agentlinux symlink not executable as install user '{}' (CLI-01 regression)",
+            ctx.install_user
+        )));
+    }
+
+    eprintln!("50-registry-cli: done (CLI-01 + CAT-01..05 + INST-02 staging complete)");
+    Ok(())
+}
+
+/// Stage the musl bin, the catalog snapshot, the state dir and the PATH symlink.
+/// Returns the symlink path. Every write lands under `ctx.root` and every
+/// ownership change goes through `ctx.fx`, so the whole step is drivable from a
+/// TempDir — which is what makes "install.sh is executable", "the bin is 0755"
+/// and "the state dir belongs to the install user" assertable at all.
+pub fn stage(ctx: &ProvisionCtx) -> io::Result<PathBuf> {
     eprintln!("50-registry-cli: starting");
 
     let user = &ctx.install_user;
@@ -143,9 +172,9 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let owner = format!("{user}:{user}");
     let version = agentlinux_version();
 
-    let cli_stage_dir = PathBuf::from(format!("/opt/agentlinux/cli/{version}"));
-    let catalog_stage_dir = PathBuf::from(format!("/opt/agentlinux/catalog/{version}"));
-    let state_dir = PathBuf::from("/opt/agentlinux/state");
+    let cli_stage_dir = ctx.sys(&format!("/opt/agentlinux/cli/{version}"));
+    let catalog_stage_dir = ctx.sys(&format!("/opt/agentlinux/catalog/{version}"));
+    let state_dir = ctx.sys("/opt/agentlinux/state");
     let symlink = PathBuf::from(format!("{home}/.npm-global/bin/agentlinux"));
 
     let root = src_root();
@@ -192,19 +221,19 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // /opt/agentlinux/cli/<ver>/bin/agentlinux — the `install -m 0755 -o root
     // -g root` of the single static bin replaces the Bash `cp -R dist/. …`.
     let cli_bin_stage = cli_stage_dir.join("bin").join("agentlinux");
-    sysio::ensure_dir(Path::new("/opt/agentlinux"), 0o755, "root:root")?;
+    (ctx.fx.ensure_dir)(&ctx.sys("/opt/agentlinux"), 0o755, "root:root")?;
     if let Some(parent) = cli_stage_dir.parent() {
-        sysio::ensure_dir(parent, 0o755, "root:root")?;
+        (ctx.fx.ensure_dir)(parent, 0o755, "root:root")?;
     }
-    sysio::ensure_dir(&cli_stage_dir, 0o755, "root:root")?;
-    sysio::ensure_dir(&cli_stage_dir.join("bin"), 0o755, "root:root")?;
+    (ctx.fx.ensure_dir)(&cli_stage_dir, 0o755, "root:root")?;
+    (ctx.fx.ensure_dir)(&cli_stage_dir.join("bin"), 0o755, "root:root")?;
     // `install -m 0755 -o root -g root <bin> <stage>/bin/agentlinux` — the bin
     // is world-executable so any user (incl. the agent via the PATH symlink) can
     // run it; no Node/shebang dispatch (it is a static binary).
-    install_file(&cli_bin_src, &cli_bin_stage, 0o755, "root:root")?;
+    install_file(ctx, &cli_bin_src, &cli_bin_stage, 0o755, "root:root")?;
 
     // Stage the catalog snapshot (50-registry-cli.sh:103-107).
-    sysio::ensure_dir(&catalog_stage_dir, 0o755, "root:root")?;
+    (ctx.fx.ensure_dir)(&catalog_stage_dir, 0o755, "root:root")?;
     copy_tree_contents(&catalog_src, &catalog_stage_dir)?;
     chmod_recursive_ugo(&catalog_stage_dir)?;
     // install.sh / uninstall.sh must be executable for the CLI dispatcher.
@@ -212,37 +241,22 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
 
     // State dir — owned by the install user (the CLI writes sentinels via atomic
     // rename). CAT-02: installed.d/ is created EMPTY (50-registry-cli.sh:113-114).
-    sysio::ensure_dir(&state_dir, 0o755, &owner)?;
-    sysio::ensure_dir(&state_dir.join("installed.d"), 0o755, &owner)?;
+    (ctx.fx.ensure_dir)(&state_dir, 0o755, &owner)?;
+    (ctx.fx.ensure_dir)(&state_dir.join("installed.d"), 0o755, &owner)?;
 
     // Symlink `agentlinux` onto the install user's PATH (50-registry-cli.sh:123-126).
     // ln -sfn (force + no-deref) is idempotent; chown -h retargets the LINK.
-    sysio::ensure_dir(Path::new(&format!("{home}/.npm-global/bin")), 0o755, &owner)?;
+    (ctx.fx.ensure_dir)(Path::new(&format!("{home}/.npm-global/bin")), 0o755, &owner)?;
     let symlink_target = cli_bin_stage.clone();
     ln_sfn(&symlink_target, &symlink)?;
-    chown_symlink(&symlink, &owner)?;
+    (ctx.fx.chown_symlink)(&symlink, &owner)?;
     eprintln!(
         "50-registry-cli: symlinked {} -> {}",
         symlink.display(),
         symlink_target.display()
     );
 
-    // Verify the symlink resolves + is executable AS THE INSTALL USER
-    // (50-registry-cli.sh:137-140, T-04-15). as_user prepends its own `--`; pass
-    // the command + args verbatim without a leading `--`.
-    let argv: Vec<String> = ["test", "-x", &symlink.to_string_lossy()]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    let r = dispatcher::as_user(user, &argv, &[], false, None);
-    if r.exit_code != 0 {
-        return Err(io::Error::other(format!(
-            "agentlinux symlink not executable as install user '{user}' (CLI-01 regression)"
-        )));
-    }
-
-    eprintln!("50-registry-cli: done (CLI-01 + CAT-01..05 + INST-02 staging complete)");
-    Ok(())
+    Ok(symlink)
 }
 
 /// `cp -R <src>/. <dst>/` — recursively copy the CONTENTS of `src` into the
@@ -277,11 +291,17 @@ fn copy_tree_contents(src: &Path, dst: &Path) -> io::Result<()> {
 
 /// `install -m <mode> -o <u> -g <g> <src> <dst>` — copy the file bytes, set the
 /// exact mode, chown to owner. Overwrites an existing dst.
-fn install_file(src: &Path, dst: &Path, mode: u32, owner: &str) -> io::Result<()> {
+fn install_file(
+    ctx: &ProvisionCtx,
+    src: &Path,
+    dst: &Path,
+    mode: u32,
+    owner: &str,
+) -> io::Result<()> {
     let _ = fs::remove_file(dst);
     fs::copy(src, dst)?;
     fs::set_permissions(dst, fs::Permissions::from_mode(mode))?;
-    chown_path(dst, owner)?;
+    (ctx.fx.chown)(dst, owner)?;
     Ok(())
 }
 
@@ -348,44 +368,223 @@ fn ln_sfn(target: &Path, link: &Path) -> io::Result<()> {
     Ok(())
 }
 
-/// `chown <owner> <path>` on a regular path (follows nothing special; the file
-/// is a plain file/dir). Resolves `user:group` → uid/gid.
-fn chown_path(path: &Path, owner: &str) -> io::Result<()> {
-    let (uid, gid) = resolve_owner(owner)?;
-    std::os::unix::fs::chown(path, Some(uid), Some(gid))
-        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
-}
-
-/// `chown -h <owner> <link>` — change the SYMLINK itself, not its target.
-fn chown_symlink(link: &Path, owner: &str) -> io::Result<()> {
-    let (uid, gid) = resolve_owner(owner)?;
-    std::os::unix::fs::lchown(link, Some(uid), Some(gid))
-        .map_err(|e| io::Error::other(format!("chown -h {} failed: {e}", link.display())))
-}
-
-/// Resolve `"user:group"` → `(uid, gid)` via the passwd/group DBs (mirrors
-/// `sysio::resolve_owner`, which is private to that module).
-fn resolve_owner(owner: &str) -> io::Result<(u32, u32)> {
-    let (user, group) = owner
-        .split_once(':')
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "owner must be user:group"))?;
-    let uid = nix::unistd::User::from_name(user)
-        .map_err(|e| io::Error::other(format!("resolve_owner: user {user}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("resolve_owner: unknown user {user}")))?
-        .uid
-        .as_raw();
-    let gid = nix::unistd::Group::from_name(group)
-        .map_err(|e| io::Error::other(format!("resolve_owner: group {group}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("resolve_owner: unknown group {group}")))?
-        .gid
-        .as_raw();
-    Ok((uid, gid))
-}
-
 #[cfg(test)]
 mod registry_cli_tests {
     use super::*;
+    use crate::provision::{Effects, Resolution, Resolutions};
+    use std::cell::RefCell;
     use tempfile::tempdir;
+
+    // --- `stage`, driven end-to-end under a test root ---
+    //
+    // Twelve tests and none of them ran the step, so "the recipes are
+    // executable", "the staged bin is 0755", "the state dir belongs to the
+    // install user" and "the symlink points at the staged bin" were all
+    // unasserted from Rust.
+
+    thread_local! {
+        static OWNERS: RefCell<Vec<(PathBuf, String)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn fake_chown(path: &Path, owner: &str) -> io::Result<()> {
+        OWNERS.with(|c| c.borrow_mut().push((path.to_path_buf(), owner.to_string())));
+        Ok(())
+    }
+
+    fn fake_ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
+        fs::create_dir_all(path)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+        fake_chown(path, owner)
+    }
+
+    fn owner_of(path: &Path) -> Option<String> {
+        OWNERS.with(|c| {
+            c.borrow()
+                .iter()
+                .rev()
+                .find(|(p, _)| p == path)
+                .map(|(_, o)| o.clone())
+        })
+    }
+
+    /// Lay out a plausible plugin source root: the musl bin plus a catalog with
+    /// one agent carrying an install.sh and a non-executable data file.
+    fn plugin_root(at: &Path) -> PathBuf {
+        let root = at.join("src/plugin");
+        fs::create_dir_all(root.join("bin")).unwrap();
+        fs::write(root.join("bin/agentlinux"), b"\x7fELF-ish").unwrap();
+        fs::set_permissions(root.join("bin/agentlinux"), fs::Permissions::from_mode(0o755)).unwrap();
+        let agent = root.join("catalog/agents/test-dummy");
+        fs::create_dir_all(&agent).unwrap();
+        fs::write(root.join("catalog/catalog.json"), r#"{"agents":[]}"#).unwrap();
+        // Deliberately NOT executable in the source tree — chmod_sh_scripts_0755
+        // is what has to fix that.
+        fs::write(agent.join("install.sh"), "#!/usr/bin/env bash\n").unwrap();
+        fs::set_permissions(agent.join("install.sh"), fs::Permissions::from_mode(0o644)).unwrap();
+        fs::write(agent.join("uninstall.sh"), "#!/usr/bin/env bash\n").unwrap();
+        fs::set_permissions(agent.join("uninstall.sh"), fs::Permissions::from_mode(0o644)).unwrap();
+        fs::write(agent.join("notes.txt"), "not a script\n").unwrap();
+        root
+    }
+
+    fn ctx_at(root: &Path) -> ProvisionCtx {
+        OWNERS.with(|c| c.borrow_mut().clear());
+        let home = root.join("home/agent");
+        fs::create_dir_all(&home).unwrap();
+        ProvisionCtx {
+            root: root.to_path_buf(),
+            fx: Effects {
+                chown: fake_chown,
+                ensure_dir: fake_ensure_dir,
+                chown_symlink: fake_chown,
+                ..Effects::default()
+            },
+            install_user: "agent".into(),
+            install_home: home.to_string_lossy().into_owned(),
+            family: crate::distro::Family::Debian,
+            resolutions: Resolutions::seed_create(),
+            yes: false,
+            dry_run: false,
+        }
+    }
+
+    fn mode_of(path: &Path) -> u32 {
+        fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    /// Run `stage` with the source root and version pinned via env.
+    fn stage_at(root: &Path) -> io::Result<PathBuf> {
+        let src = plugin_root(root);
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope
+            .set("AGENTLINUX_SRC_ROOT", &src)
+            .set("AGENTLINUX_VERSION", "v9.9.9-rc1");
+        stage(&ctx_at(root))
+    }
+
+    #[test]
+    fn stage_installs_the_musl_bin_0755_root_owned() {
+        let d = tempdir().unwrap();
+        stage_at(d.path()).unwrap();
+        let staged = d.path().join("opt/agentlinux/cli/9.9.9/bin/agentlinux");
+        assert!(staged.is_file());
+        assert_eq!(mode_of(&staged), 0o755);
+        assert_eq!(owner_of(&staged).as_deref(), Some("root:root"));
+    }
+
+    #[test]
+    fn stage_makes_every_recipe_script_executable() {
+        // A staged install.sh that is not executable makes `agentlinux install
+        // <anything>` fail at dispatch — and nothing else in the tree checks it.
+        let d = tempdir().unwrap();
+        stage_at(d.path()).unwrap();
+        let agent = d
+            .path()
+            .join("opt/agentlinux/catalog/9.9.9/agents/test-dummy");
+        assert_eq!(mode_of(&agent.join("install.sh")), 0o755);
+        assert_eq!(mode_of(&agent.join("uninstall.sh")), 0o755);
+        // A non-script data file stays 0644.
+        assert_eq!(mode_of(&agent.join("notes.txt")), 0o644);
+    }
+
+    #[test]
+    fn stage_creates_an_empty_state_dir_owned_by_the_install_user() {
+        // CAT-02: installed.d must exist and be EMPTY — no agent is installed by
+        // default — and the CLI writes sentinels into it as the install user.
+        let d = tempdir().unwrap();
+        stage_at(d.path()).unwrap();
+        let installed = d.path().join("opt/agentlinux/state/installed.d");
+        assert!(installed.is_dir());
+        assert_eq!(fs::read_dir(&installed).unwrap().count(), 0);
+        assert_eq!(owner_of(&installed).as_deref(), Some("agent:agent"));
+    }
+
+    #[test]
+    fn stage_symlinks_the_staged_bin_onto_the_users_path() {
+        let d = tempdir().unwrap();
+        let link = stage_at(d.path()).unwrap();
+        assert_eq!(link, d.path().join("home/agent/.npm-global/bin/agentlinux"));
+        assert_eq!(
+            fs::read_link(&link).unwrap(),
+            d.path().join("opt/agentlinux/cli/9.9.9/bin/agentlinux")
+        );
+        // chown -h, not chown: the LINK is retargeted, never its root-owned target.
+        assert_eq!(owner_of(&link).as_deref(), Some("agent:agent"));
+    }
+
+    #[test]
+    fn stage_replaces_a_stale_symlink_without_following_it() {
+        let d = tempdir().unwrap();
+        let bin = d.path().join("home/agent/.npm-global/bin");
+        fs::create_dir_all(&bin).unwrap();
+        std::os::unix::fs::symlink("/opt/agentlinux/cli/0.0.1/bin/agentlinux", bin.join("agentlinux"))
+            .unwrap();
+
+        let link = stage_at(d.path()).unwrap();
+
+        assert_eq!(
+            fs::read_link(&link).unwrap(),
+            d.path().join("opt/agentlinux/cli/9.9.9/bin/agentlinux")
+        );
+    }
+
+    #[test]
+    fn stage_is_idempotent() {
+        let d = tempdir().unwrap();
+        stage_at(d.path()).unwrap();
+        let first = fs::read(d.path().join("opt/agentlinux/cli/9.9.9/bin/agentlinux")).unwrap();
+        stage_at(d.path()).unwrap();
+        let second = fs::read(d.path().join("opt/agentlinux/cli/9.9.9/bin/agentlinux")).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(
+            mode_of(&d.path().join("opt/agentlinux/cli/9.9.9/bin/agentlinux")),
+            0o755
+        );
+    }
+
+    #[test]
+    fn stage_refuses_a_malformed_tarball() {
+        // Each guard names the artefact that is wrong, so an operator can tell a
+        // bad release from a runtime bug.
+        let d = tempdir().unwrap();
+        let src = plugin_root(d.path());
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope
+            .set("AGENTLINUX_SRC_ROOT", &src)
+            .set("AGENTLINUX_VERSION", "9.9.9");
+
+        // (a) a non-executable bin
+        fs::set_permissions(src.join("bin/agentlinux"), fs::Permissions::from_mode(0o644)).unwrap();
+        let err = stage(&ctx_at(d.path())).unwrap_err();
+        assert!(err.to_string().contains("not executable"), "err={err}");
+
+        // (b) a missing catalog.json
+        fs::set_permissions(src.join("bin/agentlinux"), fs::Permissions::from_mode(0o755)).unwrap();
+        fs::remove_file(src.join("catalog/catalog.json")).unwrap();
+        let err = stage(&ctx_at(d.path())).unwrap_err();
+        assert!(err.to_string().contains("catalog.json missing"), "err={err}");
+
+        // (c) a missing bin
+        fs::remove_file(src.join("bin/agentlinux")).unwrap();
+        let err = stage(&ctx_at(d.path())).unwrap_err();
+        assert!(err.to_string().contains("musl bin missing"), "err={err}");
+    }
+
+    #[test]
+    fn stage_and_the_runtime_resolver_agree_on_the_version_dir() {
+        // OBS-05: staging normalized `v9.9.9-rc1` while the runtime resolver read
+        // the bare CARGO_PKG_VERSION, so `agentlinux list` looked in a directory
+        // staging never wrote. Assert the two land in the SAME place.
+        let d = tempdir().unwrap();
+        stage_at(d.path()).unwrap();
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_VERSION", "v9.9.9-rc1");
+        assert!(d
+            .path()
+            .join(format!("opt/agentlinux/catalog/{}", agentlinux_version()))
+            .join("catalog.json")
+            .is_file());
+    }
 
     #[test]
     fn src_root_honors_env_else_default() {

@@ -224,6 +224,8 @@ mod agent_user_tests {
     #[test]
     fn bail_resolution_is_defensive_error() {
         let ctx = ProvisionCtx {
+            root: std::path::PathBuf::from("/"),
+            fx: crate::provision::Effects::default(),
             install_user: "agent".into(),
             install_home: "/home/agent".into(),
             family: crate::distro::Family::Debian,

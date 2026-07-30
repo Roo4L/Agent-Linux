@@ -27,7 +27,6 @@
 //!   - `ReuseWithWarning` → `[REUSE-WARN]` marker, leave the file as-is.
 //!   - `Bail` → unreachable (a bail exits 65 before the step loop); defensive Err.
 
-use crate::pkg;
 use crate::provision::{ProvisionCtx, Resolution};
 use crate::sysio;
 use std::io;
@@ -35,7 +34,7 @@ use std::path::Path;
 
 /// The canonical sudoers drop-in path (byte-for-byte with
 /// `remediate/sudoers.sh:36`).
-const SUDOERS_FILE: &str = "/etc/sudoers.d/agentlinux";
+const SUDOERS_FILE: &str = crate::provision::probe::SUDOERS_FILE;
 
 /// The static ADR-012 header — byte-for-byte with the single-quoted heredoc in
 /// `remediate/sudoers.sh:46-47`. The em-dash is the UTF-8 `—` (0xe2 0x80 0x94),
@@ -69,14 +68,14 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // and `visudo`); we need `visudo` to validate the drop-in. Install BEFORE the
     // dispatch so even REUSE/REMEDIATE arms have visudo for validation. Routes
     // through the family-correct pkg verb (apt on debian, dnf on rhel).
-    if which("visudo").is_none() {
+    if (ctx.fx.which)("visudo").is_none() {
         eprintln!("20-sudoers: visudo not found; installing 'sudo' package");
-        pkg::pkg_install(ctx.family, &["sudo"])?;
+        (ctx.fx.pkg_install)(ctx.family, &["sudo"])?;
     }
 
     // ensure_dir re-asserts mode+ownership when the dir already exists (drift
     // correction) — matches `ensure_dir /etc/sudoers.d 0755 root:root`.
-    sysio::ensure_dir(Path::new("/etc/sudoers.d"), 0o755, "root:root")?;
+    (ctx.fx.ensure_dir)(&ctx.sys("/etc/sudoers.d"), 0o755, "root:root")?;
 
     match ctx.resolutions.sudoers {
         Resolution::Reuse => {
@@ -137,7 +136,8 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
 /// either visudo gate is a hard error — a malformed sudoers can never land.
 fn install_or_overwrite(ctx: &ProvisionCtx, action: &str) -> io::Result<()> {
     let content = sudoers_content(&ctx.install_user);
-    let dest = Path::new(SUDOERS_FILE);
+    let dest = ctx.sys(SUDOERS_FILE);
+    let dest = dest.as_path();
 
     // Write the candidate to a tmpfile in the DEST's parent dir (/etc/sudoers.d)
     // so the later atomic install is same-filesystem. Validate it BEFORE it is
@@ -151,7 +151,7 @@ fn install_or_overwrite(ctx: &ProvisionCtx, action: &str) -> io::Result<()> {
 
     // Pre-install gate (TOCTOU belt, part 1): refuse to install a syntactically
     // invalid sudoers.
-    if let Err(e) = sysio::visudo_validate(&tmp) {
+    if let Err(e) = (ctx.fx.visudo_validate)(&tmp) {
         eprintln!(
             "20-sudoers: [REMEDIATE-03:visudo-fail] tmpfile syntax check failed; refusing to install {SUDOERS_FILE}"
         );
@@ -166,11 +166,11 @@ fn install_or_overwrite(ctx: &ProvisionCtx, action: &str) -> io::Result<()> {
     // install(1) -o root -g root: re-assert owner explicitly (write_file_atomic
     // sets mode but inherits the creating euid — root here, but be explicit so a
     // non-root-but-CAP_CHOWN caller still lands root:root).
-    chown_root_root(dest)?;
+    (ctx.fx.chown)(dest, "root:root")?;
 
     // Post-install verify (TOCTOU belt, part 2): catches any corruption between
     // the rename and here — a post-install failure is a hard error.
-    if let Err(e) = sysio::visudo_validate(dest) {
+    if let Err(e) = (ctx.fx.visudo_validate)(dest) {
         eprintln!(
             "20-sudoers: [REMEDIATE-03:visudo-fail] post-install verify failed for {SUDOERS_FILE}"
         );
@@ -236,38 +236,6 @@ impl Drop for TmpCleanup {
     }
 }
 
-/// `chown root:root <path>` — re-assert the drop-in's owner (mirrors the Bash
-/// `install -o root -g root`). root:group root is uid 0 / gid 0 on every Linux.
-fn chown_root_root(path: &Path) -> io::Result<()> {
-    let uid = nix::unistd::User::from_name("root")
-        .map_err(|e| io::Error::other(format!("chown_root_root: user root: {e}")))?
-        .ok_or_else(|| io::Error::other("chown_root_root: unknown user root"))?
-        .uid
-        .as_raw();
-    let gid = nix::unistd::Group::from_name("root")
-        .map_err(|e| io::Error::other(format!("chown_root_root: group root: {e}")))?
-        .ok_or_else(|| io::Error::other("chown_root_root: unknown group root"))?
-        .gid
-        .as_raw();
-    std::os::unix::fs::chown(path, Some(uid), Some(gid))
-        .map_err(|e| io::Error::other(format!("chown_root_root {} failed: {e}", path.display())))
-}
-
-/// `command -v <name>` — resolve a program on PATH, `None` if absent (matches the
-/// Bash `command -v visudo`).
-fn which(name: &str) -> Option<std::path::PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).find_map(|dir| {
-            let cand = dir.join(name);
-            if cand.is_file() {
-                Some(cand)
-            } else {
-                None
-            }
-        })
-    })
-}
-
 #[cfg(test)]
 mod sudoers_tests {
     use super::*;
@@ -310,28 +278,278 @@ mod sudoers_tests {
         assert!(SUDOERS_HEADER.contains('\u{2014}'));
     }
 
-    // A `Bail` resolution is a defensive error (the step loop never sees it in
-    // practice; a bail exits 65 upstream) — mirrors agent_user.rs.
-    #[test]
-    fn bail_resolution_is_defensive_error() {
-        let ctx = ProvisionCtx {
+    // --- the write path, driven under a test root ---
+    //
+    // `install_or_overwrite` — the pre-install visudo gate, the atomic 0440
+    // install and the post-install TOCTOU re-verify described at the top of this
+    // file — previously had no test at all, and the one test that named `run`
+    // asserted the struct field it had just written. Installing before
+    // validating, dropping the re-verify, or 0440 → 0644 (visudo REFUSES a
+    // group/world-writable file, so a mode regression bricks sudo host-wide) all
+    // stayed green.
+
+    use crate::provision::{Effects, Resolutions};
+    use std::cell::RefCell;
+    use std::path::PathBuf;
+
+    thread_local! {
+        /// What the injected effects were asked to do, in order.
+        static CALLS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn record(entry: String) {
+        CALLS.with(|c| c.borrow_mut().push(entry));
+    }
+
+    fn calls() -> Vec<String> {
+        CALLS.with(|c| c.borrow().clone())
+    }
+
+    fn reset_calls() {
+        CALLS.with(|c| c.borrow_mut().clear());
+    }
+
+    fn fake_chown(path: &Path, owner: &str) -> io::Result<()> {
+        record(format!("chown {} {owner}", path.display()));
+        Ok(())
+    }
+
+    fn fake_ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
+        record(format!("ensure_dir {} {mode:o} {owner}", path.display()));
+        std::fs::create_dir_all(path)?;
+        Ok(())
+    }
+
+    fn visudo_accepts(path: &Path) -> io::Result<()> {
+        record(format!("visudo {}", path.display()));
+        Ok(())
+    }
+
+    fn visudo_rejects(path: &Path) -> io::Result<()> {
+        record(format!("visudo {}", path.display()));
+        Err(io::Error::other("visudo -cf rejected"))
+    }
+
+    /// Reject only the POST-install re-verify: the tmpfile passes, the installed
+    /// file does not. The TOCTOU window this belt exists to close.
+    fn visudo_rejects_installed_file(path: &Path) -> io::Result<()> {
+        record(format!("visudo {}", path.display()));
+        if path.ends_with("agentlinux") {
+            Err(io::Error::other("visudo -cf rejected the installed file"))
+        } else {
+            Ok(())
+        }
+    }
+
+    fn visudo_present(_name: &str) -> Option<PathBuf> {
+        Some(PathBuf::from("/usr/sbin/visudo"))
+    }
+
+    fn visudo_absent(_name: &str) -> Option<PathBuf> {
+        None
+    }
+
+    fn pkg_install_records(family: crate::distro::Family, pkgs: &[&str]) -> io::Result<()> {
+        record(format!("pkg_install {family:?} {}", pkgs.join(",")));
+        Ok(())
+    }
+
+    fn pkg_install_unreachable(_f: crate::distro::Family, pkgs: &[&str]) -> io::Result<()> {
+        panic!("pkg_install must not run when visudo is already present (asked for {pkgs:?})");
+    }
+
+    fn ctx_at(root: &Path, sudoers: Resolution) -> ProvisionCtx {
+        reset_calls();
+        ProvisionCtx {
+            root: root.to_path_buf(),
+            fx: Effects {
+                chown: fake_chown,
+                ensure_dir: fake_ensure_dir,
+                visudo_validate: visudo_accepts,
+                pkg_install: pkg_install_unreachable,
+                which: visudo_present,
+                ..Effects::default()
+            },
             install_user: "agent".into(),
             install_home: "/home/agent".into(),
             family: crate::distro::Family::Debian,
-            resolutions: crate::provision::Resolutions {
+            resolutions: Resolutions {
                 user: Resolution::Create,
-                sudoers: Resolution::Bail,
+                sudoers,
                 node: Resolution::Create,
                 npm_prefix: Resolution::Create,
                 agents: std::collections::BTreeMap::new(),
             },
             yes: false,
             dry_run: false,
-        };
-        // `run` reaches the dispatch only after the visudo probe + ensure_dir;
-        // those may succeed or fail depending on the host, so assert the token
-        // maps to the defensive error via a direct match instead. The content +
-        // dispatch logic is what this test pins.
-        assert!(matches!(ctx.resolutions.sudoers, Resolution::Bail));
+        }
+    }
+
+    fn dropin(root: &Path) -> PathBuf {
+        root.join("etc/sudoers.d/agentlinux")
+    }
+
+    fn mode_of(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    #[test]
+    fn create_installs_the_canonical_dropin_at_0440_root_root() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Create);
+        run(&ctx).unwrap();
+
+        let file = dropin(d.path());
+        assert_eq!(
+            std::fs::read_to_string(&file).unwrap(),
+            sudoers_content("agent")
+        );
+        // BHV-07: visudo refuses a group- or world-writable sudoers file, so the
+        // mode is a hard requirement, not hygiene.
+        assert_eq!(mode_of(&file), 0o440);
+        assert!(
+            calls().contains(&format!("chown {} root:root", file.display())),
+            "calls={:?}",
+            calls()
+        );
+    }
+
+    #[test]
+    fn visudo_gates_the_install_before_the_file_is_ever_written() {
+        // T-14-02: a tmpfile visudo rejects must NOT land. The deleted
+        // 14-remediate.bats test left behind a comment reading "visudo-fail gate
+        // UPHELD" above no code; this is the code.
+        let d = tempfile::TempDir::new().unwrap();
+        let mut ctx = ctx_at(d.path(), Resolution::Create);
+        ctx.fx.visudo_validate = visudo_rejects;
+
+        let err = run(&ctx).unwrap_err();
+        assert!(err.to_string().contains("visudo"), "err={err}");
+        assert!(
+            !dropin(d.path()).exists(),
+            "a rejected sudoers must never be installed"
+        );
+        // Exactly one visudo call: the PRE-install gate. Nothing past it ran.
+        assert_eq!(
+            calls().iter().filter(|c| c.starts_with("visudo")).count(),
+            1
+        );
+        assert!(!calls().iter().any(|c| c.starts_with("chown")));
+    }
+
+    #[test]
+    fn the_pre_install_gate_validates_the_tmpfile_not_the_destination() {
+        // Validating the destination instead would check the OLD contents and
+        // let a malformed candidate through.
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Create);
+        run(&ctx).unwrap();
+
+        let validated: Vec<String> = calls()
+            .into_iter()
+            .filter(|c| c.starts_with("visudo "))
+            .collect();
+        assert_eq!(validated.len(), 2, "pre-install + post-install: {validated:?}");
+        assert!(
+            validated[0].contains(".agentlinux-sudoers."),
+            "first check must be the tmpfile: {validated:?}"
+        );
+        assert!(
+            validated[1].ends_with("etc/sudoers.d/agentlinux"),
+            "second check must be the installed file: {validated:?}"
+        );
+    }
+
+    #[test]
+    fn a_failed_post_install_verify_is_a_hard_error() {
+        let d = tempfile::TempDir::new().unwrap();
+        let mut ctx = ctx_at(d.path(), Resolution::Create);
+        ctx.fx.visudo_validate = visudo_rejects_installed_file;
+
+        let err = run(&ctx).unwrap_err();
+        assert!(err.to_string().contains("visudo"), "err={err}");
+    }
+
+    #[test]
+    fn the_validation_tmpfile_is_cleaned_up_on_both_paths() {
+        for (label, validate) in [
+            ("success", visudo_accepts as fn(&Path) -> io::Result<()>),
+            ("rejection", visudo_rejects),
+        ] {
+            let d = tempfile::TempDir::new().unwrap();
+            let mut ctx = ctx_at(d.path(), Resolution::Create);
+            ctx.fx.visudo_validate = validate;
+            let _ = run(&ctx);
+
+            let leftovers: Vec<_> = std::fs::read_dir(d.path().join("etc/sudoers.d"))
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .filter(|n| n.starts_with(".agentlinux-sudoers."))
+                .collect();
+            assert!(leftovers.is_empty(), "{label}: leaked {leftovers:?}");
+        }
+    }
+
+    #[test]
+    fn remediate_overwrites_a_drifted_dropin_through_the_same_helper() {
+        let d = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(d.path().join("etc/sudoers.d")).unwrap();
+        // A deliberately narrowed grant — the drift REMEDIATE-03 overwrites.
+        std::fs::write(dropin(d.path()), "agent ALL=(ALL) NOPASSWD: /usr/bin/apt\n").unwrap();
+
+        let ctx = ctx_at(d.path(), Resolution::Remediate);
+        run(&ctx).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(dropin(d.path())).unwrap(),
+            sudoers_content("agent")
+        );
+        assert_eq!(mode_of(&dropin(d.path())), 0o440);
+    }
+
+    #[test]
+    fn reuse_and_reuse_with_warning_leave_the_file_untouched() {
+        for resolution in [Resolution::Reuse, Resolution::ReuseWithWarning] {
+            let d = tempfile::TempDir::new().unwrap();
+            std::fs::create_dir_all(d.path().join("etc/sudoers.d")).unwrap();
+            std::fs::write(dropin(d.path()), "pre-existing\n").unwrap();
+
+            run(&ctx_at(d.path(), resolution)).unwrap();
+
+            assert_eq!(
+                std::fs::read_to_string(dropin(d.path())).unwrap(),
+                "pre-existing\n",
+                "{resolution:?} must not rewrite the drop-in"
+            );
+        }
+    }
+
+    #[test]
+    fn a_missing_visudo_installs_the_sudo_package_first() {
+        // Minimal cloud/Docker images ship without `sudo`; the install must
+        // happen BEFORE the dispatch so even the REUSE arm has a validator.
+        let d = tempfile::TempDir::new().unwrap();
+        let mut ctx = ctx_at(d.path(), Resolution::Create);
+        ctx.fx.which = visudo_absent;
+        ctx.fx.pkg_install = pkg_install_records;
+
+        run(&ctx).unwrap();
+
+        let c = calls();
+        let pkg = c.iter().position(|x| x.starts_with("pkg_install")).unwrap();
+        let first_visudo = c.iter().position(|x| x.starts_with("visudo")).unwrap();
+        assert_eq!(c[pkg], "pkg_install Debian sudo");
+        assert!(pkg < first_visudo, "calls={c:?}");
+    }
+
+    // A `Bail` resolution is a defensive error (the step loop never sees it in
+    // practice; a bail exits 65 upstream) — mirrors agent_user.rs.
+    #[test]
+    fn bail_resolution_is_defensive_error() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Bail);
+        assert!(run(&ctx).is_err());
+        assert!(!dropin(d.path()).exists());
     }
 }

@@ -82,10 +82,21 @@ fn invoker_username() -> String {
     std::env::var("USER").unwrap_or_default()
 }
 
+/// Build the concrete argv for the ambient invoker (the production entry point).
+fn resolve_argv(user: &str, argv: &[String]) -> Vec<String> {
+    resolve_argv_for(&invoker_username(), user, argv)
+}
+
 /// Build the concrete argv: direct when invoker==target, else the sudo hop.
 /// The `--` terminator is load-bearing (T-56-01).
-fn resolve_argv(user: &str, argv: &[String]) -> Vec<String> {
-    if invoker_username() == user {
+///
+/// `invoker` is a parameter rather than an ambient `getuid()` read so the argv
+/// SHAPE — the flags this module's doc calls load-bearing — can be asserted
+/// directly. Every dispatcher test that goes through `as_user` necessarily runs
+/// as the current user, i.e. takes the short-circuit, so the sudo arm was never
+/// executed by any assertion that looked at it.
+fn resolve_argv_for(invoker: &str, user: &str, argv: &[String]) -> Vec<String> {
+    if invoker == user {
         argv.to_vec()
     } else {
         let mut v = vec![
@@ -505,6 +516,77 @@ mod dispatcher_tests {
         assert_eq!(r.exit_code, 0);
         assert!(r.stdout.contains("buffered"));
         assert!(!r.streamed, "buffered path must not claim streamed");
+    }
+
+    // --- the sudo hop's ARGV SHAPE (T-56-01) ---
+    //
+    // Every flag below is load-bearing and every one of them used to be
+    // unasserted: the only test touching the sudo branch ran an unknown user and
+    // checked `exit_code != 0`, which passes identically if `--` is deleted, if
+    // `-E` is dropped, if `-H` is dropped, or if the flags are reordered.
+
+    #[test]
+    fn sudo_hop_argv_is_exact() {
+        assert_eq!(
+            resolve_argv_for("root", "agent", &argv(&["bash", "/opt/recipe.sh"])),
+            argv(&[
+                "sudo",
+                "-u",
+                "agent",
+                "-H",
+                "-E",
+                "--",
+                "bash",
+                "/opt/recipe.sh"
+            ])
+        );
+    }
+
+    #[test]
+    fn sudo_hop_keeps_h_so_the_child_gets_the_target_home() {
+        // Dropping -H runs the recipe with ROOT's HOME, so `npm install -g`
+        // writes to /root/.npm — the ownership bug class AgentLinux exists to
+        // eliminate.
+        let out = resolve_argv_for("root", "agent", &argv(&["bash", "x.sh"]));
+        assert!(out.contains(&"-H".to_string()), "argv={out:?}");
+    }
+
+    #[test]
+    fn sudo_hop_terminator_precedes_every_caller_supplied_word() {
+        // `--` ends sudo's option parsing, so a recipe path that begins with a
+        // dash can never be reparsed as a sudo flag.
+        let out = resolve_argv_for("root", "agent", &argv(&["bash", "-not-a-flag.sh"]));
+        let term = out.iter().position(|w| w == "--").expect("-- terminator");
+        let recipe = out.iter().position(|w| w == "-not-a-flag.sh").unwrap();
+        assert!(term < recipe, "argv={out:?}");
+        // …and it is the LAST sudo-owned word: everything after it is ours.
+        assert_eq!(&out[term + 1..], &argv(&["bash", "-not-a-flag.sh"])[..]);
+    }
+
+    #[test]
+    fn sudo_hop_preserves_env_explicitly() {
+        // -E is only leak-safe because base_command env_clear()s first; the two
+        // are coupled, so pin that -E is actually emitted.
+        let out = resolve_argv_for("root", "agent", &argv(&["bash", "x.sh"]));
+        assert!(out.contains(&"-E".to_string()), "argv={out:?}");
+    }
+
+    #[test]
+    fn invoker_equals_target_short_circuits_without_sudo() {
+        // agent→agent sudo is broken on a default Ubuntu host (no drop-in), so
+        // the short-circuit is a correctness requirement, not an optimisation.
+        let a = argv(&["bash", "x.sh"]);
+        assert_eq!(resolve_argv_for("agent", "agent", &a), a);
+        assert!(!resolve_argv_for("agent", "agent", &a).contains(&"sudo".to_string()));
+    }
+
+    #[test]
+    fn the_target_user_lands_in_the_u_slot_verbatim() {
+        // An alternate install user (AL-50) must reach sudo as its own argument
+        // — never spliced into a longer word.
+        let out = resolve_argv_for("root", "claude", &argv(&["bash", "x.sh"]));
+        assert_eq!(out[1], "-u");
+        assert_eq!(out[2], "claude");
     }
 
     // Case 4 (:84): the sudo branch fires when invoker != target; an unknown

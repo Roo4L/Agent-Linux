@@ -63,8 +63,8 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
 
     // Ensure <home>/.local{,/bin} exist so the PATH prefix isn't a dangling
     // reference (40-path-wiring.sh:49-52). ensure_dir re-asserts mode+ownership.
-    sysio::ensure_dir(Path::new(&format!("{home}/.local")), 0o755, &owner)?;
-    sysio::ensure_dir(Path::new(&format!("{home}/.local/bin")), 0o755, &owner)?;
+    (ctx.fx.ensure_dir)(Path::new(&format!("{home}/.local")), 0o755, &owner)?;
+    (ctx.fx.ensure_dir)(Path::new(&format!("{home}/.local/bin")), 0o755, &owner)?;
 
     // The ONE canonical PATH string — reused for artefacts 3 AND 4 so the two
     // lines are byte-identical to each other AND to the Phase-56 recipe env
@@ -75,7 +75,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let profile = profile_d_content(user, home);
     sysio::write_file_atomic(
         0o644,
-        Path::new("/etc/profile.d/agentlinux.sh"),
+        &ctx.sys("/etc/profile.d/agentlinux.sh"),
         profile.as_bytes(),
     )?;
     eprintln!("40-path-wiring: wrote /etc/profile.d/agentlinux.sh");
@@ -85,23 +85,23 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let bashrc_path = Path::new(&bashrc);
     // Create an empty user-owned file first if absent (minimal container with no
     // skel copy) so ensure_marker_block has a target (40-path-wiring.sh:99-101).
-    create_if_absent_0644(bashrc_path, &owner)?;
+    create_if_absent_0644(ctx, bashrc_path, &owner)?;
     sysio::ensure_marker_block(bashrc_path, "agentlinux-path", Placement::Top, BASHRC_BODY)?;
     // ensure_marker_block writes via write_file_atomic(0o644, …) leaving the file
     // root-owned; re-assert <user>:<user> + 0644 so the user can edit outside the
     // block (40-path-wiring.sh:110-113).
     std::fs::set_permissions(bashrc_path, std::fs::Permissions::from_mode(0o644))?;
-    chown_by_name(bashrc_path, &owner)?;
+    (ctx.fx.chown)(bashrc_path, &owner)?;
     eprintln!("40-path-wiring: wrote agentlinux-path marker block to {bashrc} (--top)");
 
     // Artefact 3: /etc/agentlinux.env (0644 root:root) — literal KEY=VALUE.
     let env_file = agentlinux_env_content(user, home, &canonical_path);
-    sysio::write_file_atomic(0o644, Path::new("/etc/agentlinux.env"), env_file.as_bytes())?;
+    sysio::write_file_atomic(0o644, &ctx.sys("/etc/agentlinux.env"), env_file.as_bytes())?;
     eprintln!("40-path-wiring: wrote /etc/agentlinux.env (systemd EnvironmentFile + cron header template)");
 
     // Artefact 4: /etc/cron.d/agentlinux (0644 root:root) — same PATH literal.
     let cron = cron_d_content(user, &canonical_path);
-    sysio::write_file_atomic(0o644, Path::new("/etc/cron.d/agentlinux"), cron.as_bytes())?;
+    sysio::write_file_atomic(0o644, &ctx.sys("/etc/cron.d/agentlinux"), cron.as_bytes())?;
     eprintln!(
         "40-path-wiring: wrote /etc/cron.d/agentlinux (PATH + locale header; no default jobs)"
     );
@@ -222,38 +222,13 @@ AGY_CLI_DISABLE_AUTO_UPDATE=true\n"
 /// `install -m 0644 -o <user> -g <user> /dev/null <path>` (40-path-wiring.sh:100).
 /// A present file is left untouched (ensure_marker_block then mutates it). Shared
 /// shape with nodejs.rs.
-fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
+fn create_if_absent_0644(ctx: &ProvisionCtx, path: &Path, owner: &str) -> io::Result<()> {
     if path.exists() {
         return Ok(());
     }
     std::fs::File::create(path)?;
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
-    chown_by_name(path, owner)
-}
-
-/// `chown <user>:<group> <path>` by name — resolve the passwd/group entries (the
-/// `user` nix feature) and apply via `std::os::unix::fs::chown` (the sanctioned
-/// syscall; nix's `fs` feature is not enabled). Shared shape with nodejs.rs /
-/// sudoers.rs / agent_user.rs.
-fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
-    let (user, group) = owner.split_once(':').ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "chown: owner must be user:group",
-        )
-    })?;
-    let uid = nix::unistd::User::from_name(user)
-        .map_err(|e| io::Error::other(format!("chown: user {user}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("chown: unknown user {user}")))?
-        .uid
-        .as_raw();
-    let gid = nix::unistd::Group::from_name(group)
-        .map_err(|e| io::Error::other(format!("chown: group {group}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("chown: unknown group {group}")))?
-        .gid
-        .as_raw();
-    std::os::unix::fs::chown(path, Some(uid), Some(gid))
-        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
+    (ctx.fx.chown)(path, owner)
 }
 
 #[cfg(test)]
@@ -476,5 +451,214 @@ fi"
         assert!(is_reused(Resolution::Remediate));
         assert!(!is_reused(Resolution::Create));
         assert!(!is_reused(Resolution::Bail));
+    }
+
+    // --- `run` itself, under a test root ---
+    //
+    // Ten content tests and none of them called `run`, so the wiring between the
+    // generators and the disk was unasserted: an artefact written 0755 instead of
+    // 0644, or a dropped `chown` after `ensure_marker_block` leaving `.bashrc`
+    // root-owned (the re-assert this file's own comment calls load-bearing), was
+    // invisible to `cargo test`.
+
+    use crate::provision::{Effects, Resolutions};
+    use std::cell::RefCell;
+    use std::path::PathBuf;
+
+    thread_local! {
+        static CHOWNS: RefCell<Vec<(PathBuf, String)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn fake_chown(path: &Path, owner: &str) -> io::Result<()> {
+        CHOWNS.with(|c| c.borrow_mut().push((path.to_path_buf(), owner.to_string())));
+        Ok(())
+    }
+
+    fn fake_ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
+        std::fs::create_dir_all(path)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+        fake_chown(path, owner)
+    }
+
+    fn chowns() -> Vec<(PathBuf, String)> {
+        CHOWNS.with(|c| c.borrow().clone())
+    }
+
+    /// A ctx rooted at `root` with `<root>/home/agent` as the install home and
+    /// the two system dirs the artefacts land in pre-created (they exist on
+    /// every real host).
+    fn ctx_at(root: &Path, user_resolution: Resolution) -> ProvisionCtx {
+        CHOWNS.with(|c| c.borrow_mut().clear());
+        for dir in ["etc/profile.d", "etc/cron.d"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let home = root.join("home/agent");
+        std::fs::create_dir_all(&home).unwrap();
+        ProvisionCtx {
+            root: root.to_path_buf(),
+            fx: Effects {
+                chown: fake_chown,
+                ensure_dir: fake_ensure_dir,
+                ..Effects::default()
+            },
+            install_user: "agent".into(),
+            install_home: home.to_string_lossy().into_owned(),
+            family: crate::distro::Family::Debian,
+            resolutions: Resolutions {
+                user: user_resolution,
+                sudoers: Resolution::Create,
+                node: Resolution::Create,
+                npm_prefix: Resolution::Create,
+                agents: std::collections::BTreeMap::new(),
+            },
+            yes: false,
+            dry_run: false,
+        }
+    }
+
+    fn mode_of(path: &Path) -> u32 {
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    #[test]
+    fn run_writes_all_four_artefacts_with_the_generated_bytes() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Create);
+        run(&ctx).unwrap();
+
+        let home = &ctx.install_home;
+        let canonical = recipe_env::canonical_path(home);
+        let read = |p: PathBuf| std::fs::read_to_string(p).unwrap();
+
+        assert_eq!(
+            read(d.path().join("etc/profile.d/agentlinux.sh")),
+            profile_d_content("agent", home)
+        );
+        assert_eq!(
+            read(d.path().join("etc/agentlinux.env")),
+            agentlinux_env_content("agent", home, &canonical)
+        );
+        assert_eq!(
+            read(d.path().join("etc/cron.d/agentlinux")),
+            cron_d_content("agent", &canonical)
+        );
+        assert!(read(PathBuf::from(format!("{home}/.bashrc"))).contains(BASHRC_BODY));
+    }
+
+    #[test]
+    fn every_artefact_lands_at_0644() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Create);
+        run(&ctx).unwrap();
+
+        for p in [
+            d.path().join("etc/profile.d/agentlinux.sh"),
+            d.path().join("etc/agentlinux.env"),
+            d.path().join("etc/cron.d/agentlinux"),
+            PathBuf::from(format!("{}/.bashrc", ctx.install_home)),
+        ] {
+            assert_eq!(mode_of(&p), 0o644, "{}", p.display());
+        }
+    }
+
+    #[test]
+    fn bashrc_ownership_is_reasserted_after_the_marker_block() {
+        // ensure_marker_block rewrites through write_file_atomic, which leaves
+        // the file owned by the writer (root). Without the re-assert the user
+        // cannot edit their own .bashrc outside our block.
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Create);
+        run(&ctx).unwrap();
+
+        let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
+        assert!(
+            chowns().contains(&(bashrc, "agent:agent".to_string())),
+            "chowns={:?}",
+            chowns()
+        );
+    }
+
+    #[test]
+    fn the_local_bin_prefixes_are_created_owned_by_the_user() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Create);
+        run(&ctx).unwrap();
+
+        for suffix in [".local", ".local/bin"] {
+            let p = PathBuf::from(format!("{}/{suffix}", ctx.install_home));
+            assert!(p.is_dir(), "{} must exist", p.display());
+            assert_eq!(mode_of(&p), 0o755);
+            assert!(chowns().contains(&(p.clone(), "agent:agent".to_string())));
+        }
+    }
+
+    #[test]
+    fn run_preserves_user_content_outside_the_marker_block() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Create);
+        let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
+        std::fs::write(&bashrc, "case $- in *i*) ;; *) return;; esac\nalias ll='ls -l'\n").unwrap();
+
+        run(&ctx).unwrap();
+
+        let out = std::fs::read_to_string(&bashrc).unwrap();
+        assert!(out.contains("alias ll='ls -l'\n"), "user content survives");
+        let begin = out.find("# >>> agentlinux-path begin >>>").unwrap();
+        let skel = out.find("case $- in *i*)").unwrap();
+        assert!(begin < skel, "the block must precede the skel early-return");
+    }
+
+    #[test]
+    fn run_is_idempotent_across_repeated_provisions() {
+        // The whole step is advertised as safe to re-run; the classic failure is
+        // a second marker block (or a second PATH prepend) on the second pass.
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), Resolution::Create);
+        run(&ctx).unwrap();
+        let after_first: Vec<String> = ["etc/profile.d/agentlinux.sh", "etc/agentlinux.env", "etc/cron.d/agentlinux"]
+            .iter()
+            .map(|p| std::fs::read_to_string(d.path().join(p)).unwrap())
+            .collect();
+        let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
+        let bashrc_first = std::fs::read_to_string(&bashrc).unwrap();
+
+        run(&ctx).unwrap();
+
+        for (i, p) in ["etc/profile.d/agentlinux.sh", "etc/agentlinux.env", "etc/cron.d/agentlinux"]
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(std::fs::read_to_string(d.path().join(p)).unwrap(), after_first[i], "{p}");
+        }
+        let bashrc_second = std::fs::read_to_string(&bashrc).unwrap();
+        assert_eq!(bashrc_first, bashrc_second);
+        assert_eq!(
+            bashrc_second
+                .matches("# >>> agentlinux-path begin >>>")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn run_wires_an_alternate_install_user_everywhere() {
+        // AL-59: every per-user path must interpolate the resolved user, and the
+        // three-way PATH equality must hold for that user's home too.
+        let d = tempfile::TempDir::new().unwrap();
+        let mut ctx = ctx_at(d.path(), Resolution::Create);
+        let home = d.path().join("home/claude");
+        std::fs::create_dir_all(&home).unwrap();
+        ctx.install_user = "claude".into();
+        ctx.install_home = home.to_string_lossy().into_owned();
+
+        run(&ctx).unwrap();
+
+        let env3 = std::fs::read_to_string(d.path().join("etc/agentlinux.env")).unwrap();
+        let cron4 = std::fs::read_to_string(d.path().join("etc/cron.d/agentlinux")).unwrap();
+        assert!(env3.contains("AGENTLINUX_USER=claude\n"));
+        assert!(env3.contains(&format!("AGENTLINUX_AGENT_HOME={}\n", ctx.install_home)));
+        assert_eq!(path_line(&env3), path_line(&cron4));
+        assert_eq!(path_line(&env3), recipe_env::canonical_path(&ctx.install_home));
+        assert!(home.join(".bashrc").exists());
     }
 }
