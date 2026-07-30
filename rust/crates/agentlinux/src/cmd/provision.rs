@@ -412,6 +412,13 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //    complete` banner (INST-01) + run best-effort agent adoption.
     match run_steps(&ctx) {
         Ok(()) => {
+            // DETECT-phase cache write (detect/agents.sh): scan the host for every
+            // catalog agent + persist `/run/agentlinux-detect.json`. Runs AFTER the
+            // steps (PATH wiring + Node are in place, so the login-shell probe
+            // resolves agent-owned bins) and BEFORE adoption, so a subsequent
+            // `agentlinux install <id>` / `adopt --all` reads real host state and
+            // REUSE-03 / REMEDIATE-04 can fire. Best-effort (logs on failure).
+            crate::detect::scan_and_write(&ctx.install_user, &ctx.install_home);
             run_agent_adoption(&ctx.install_user, &ctx.install_home);
             // M-3: only name the transcript path when it was actually persisted;
             // if log::init could not open the file, the banner must not assert a

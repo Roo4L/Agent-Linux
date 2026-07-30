@@ -17,6 +17,7 @@ mod cache;
 mod catalog;
 mod cli;
 mod cmd;
+mod detect;
 mod dispatcher;
 mod distro;
 mod guard;
