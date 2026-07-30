@@ -79,21 +79,17 @@ pub fn parse_lenient(raw: &str) -> Result<Version, SemverError> {
 }
 
 /// Coerce a bare `MAJOR.MINOR` partial to `MAJOR.MINOR.0`, and a bare `MAJOR`
-/// to `MAJOR.0.0`, matching node-semver's loose coercion. Only fires when every
-/// present component is purely numeric and there is no pre-release/build
-/// metadata (a `-`/`+`), so real full versions and rc strings are untouched.
+/// to `MAJOR.0.0`, matching node-semver's loose coercion; a 3+-component string
+/// (a full version, prerelease, or build) is left untouched.
+///
+/// The coercion keys purely on the dot-component COUNT and lets the downstream
+/// [`Version::parse`] in [`parse_lenient`] be the sole validator: appending `.0`
+/// to a non-numeric partial (`"1.beta"` → `"1.beta.0"`) still fails to parse, so a
+/// separate numeric/`-`/`+` pre-guard would only ever reject inputs `parse` already
+/// rejects — it changes no observable outcome. Keeping the single count switch
+/// avoids that redundant, unobservable branch (and the equivalent-mutant it breeds).
 fn coerce_partial(v: &str) -> String {
-    if v.contains('-') || v.contains('+') {
-        return v.to_string();
-    }
-    let parts: Vec<&str> = v.split('.').collect();
-    let all_numeric = parts
-        .iter()
-        .all(|p| !p.is_empty() && p.bytes().all(|b| b.is_ascii_digit()));
-    if !all_numeric {
-        return v.to_string();
-    }
-    match parts.len() {
+    match v.split('.').count() {
         1 => format!("{v}.0.0"),
         2 => format!("{v}.0"),
         _ => v.to_string(),
@@ -251,6 +247,35 @@ mod tests {
         ));
     }
 
+    #[test]
+    fn parse_lenient_coerces_bare_major_partial() {
+        // A single-component partial "2" coerces to "2.0.0" (the `1 =>` match arm
+        // in coerce_partial); without that arm "2" would fail Version::parse.
+        assert_eq!(parse_lenient("2").unwrap(), Version::new(2, 0, 0));
+        assert_eq!(parse_lenient("2").unwrap(), parse_lenient("2.0.0").unwrap());
+    }
+
+    #[test]
+    fn parse_lenient_leaves_prerelease_and_build_uncoerced() {
+        // Coercion must NOT touch a full/prerelease/build string — the numeric-part
+        // guard rejects any component that isn't all-digit, so these parse as-is.
+        assert_eq!(
+            parse_lenient("1.2.3-rc1").unwrap(),
+            Version::parse("1.2.3-rc1").unwrap()
+        );
+        // A two-part string whose second component is non-numeric is NOT coerced to
+        // "1.beta.0"; it stays "1.beta" and fails to parse (guards the coercion set).
+        assert!(parse_lenient("1.beta").is_err());
+    }
+
+    #[test]
+    fn gt_is_strict_not_ge() {
+        // Strictly-greater: equal versions are NOT gt (guards `>` vs `>=`).
+        assert!(!gt("1.2.3", "1.2.3").unwrap());
+        assert!(gt("2.0.0", "1.9.9").unwrap());
+        assert!(!gt("1.0.0", "2.0.0").unwrap());
+    }
+
     // --- max_satisfying: the divergence.test.ts corpus divergences ---
 
     #[test]
@@ -278,6 +303,19 @@ mod tests {
             .map(|s| s.to_string())
             .collect();
         assert_eq!(max_satisfying(&versions, "*").unwrap(), Some("2.1.0"));
+    }
+
+    #[test]
+    fn max_satisfying_picks_max_not_last_when_unsorted() {
+        // The input is DESCENDING, so "keep current if it's >= the candidate" and
+        // "always take the latest seen" diverge: the true max (1.2.0) comes FIRST,
+        // and a later-but-smaller match (1.0.0) must NOT displace it. Guards the
+        // `*cur >= parsed` selection against an always-replace mutation.
+        let versions: Vec<String> = ["1.2.0", "1.1.0", "1.0.0"]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        assert_eq!(max_satisfying(&versions, "^1.0").unwrap(), Some("1.2.0"));
     }
 
     #[test]

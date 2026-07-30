@@ -629,6 +629,15 @@ mod tests {
             None
         );
     }
+
+    // The exact reason strings the TS `RemediateHit.reason` carries — consumed by
+    // the install verb's `[REMEDIATE-04] ... reason=<...>` marker + the bats
+    // contract. Pinned so a wrong/empty string is a failure, not a silent drift.
+    #[test]
+    fn remediate_reason_as_str_is_exact() {
+        assert_eq!(RemediateReason::Broken.as_str(), "broken");
+        assert_eq!(RemediateReason::PathMismatch.as_str(), "path-mismatch");
+    }
 }
 
 #[cfg(test)]
