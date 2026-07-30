@@ -300,7 +300,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   setup_brownfield_for_dry_run_combo
   # Pipe Y\nY\n on stdin BUT no script(1) wrapper → [[ -t 0 ]] is false → the
   # prompt loop is skipped, and the Phase 14 non-TTY bail-or-yes path fires.
-  run bash -c 'printf "Y\nY\n" | bash '"$INSTALLER"
+  run bash -c 'printf "Y\nY\n" | '"$INSTALLER"' provision'
   [[ "$status" -eq 65 ]] \
     || __fail "UX-02" "non-TTY without --yes bails with 65 (Phase 14 contract)" "exit=$status output=$output" "$LOG"
   printf '%s' "$output" | grep -qE '^\[BAIL\]' \
@@ -399,7 +399,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
 @test "UX-04 (D-15-08 non-TTY bail-with-hint): non-TTY installer on wrong-shell fixture exits 65 with literal '--user=agent2' hint" {
   setup_brownfield_host_user_wrong_shell
   # No TTY allocation — pipe a dummy stdin so [[ -t 0 ]] is false.
-  run bash -c 'printf "" | bash '"$INSTALLER"
+  run bash -c 'printf "" | '"$INSTALLER"' provision'
   [[ "$status" -eq 65 ]] \
     || __fail "UX-04" "non-TTY alt-user bail exits 65" "exit=$status output=$output" "$LOG"
   printf '%s' "$output" | grep -qF 'agentlinux: existing user "agent" is incompatible (wrong-shell).' \
@@ -435,7 +435,7 @@ TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
   "$INSTALLER" provision --purge >/dev/null 2>&1 || true
   # Non-TTY normal install path — must succeed (greenfield: user is created
   # fresh; reuse::user_decision returns 'create'; alt-user gate is skipped).
-  run bash -c 'printf "" | bash '"$INSTALLER"
+  run bash -c 'printf "" | '"$INSTALLER"' provision'
   [[ "$status" -eq 0 ]] \
     || __fail "UX-04" "greenfield install exits 0 (no alt-user gate fires)" "exit=$status output=$output" "$LOG"
   if printf '%s' "$output" | grep -qF '[ALT-USER]'; then

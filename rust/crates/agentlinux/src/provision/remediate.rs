@@ -151,44 +151,52 @@ pub fn decide_core(
         }
     }
 
-    let sudoers_state = probe::sudoers_state(user);
-    let (mut sudoers_res, sudoers_bail) = decide_sudoers(sudoers_state, yes, is_tty);
-    if sudoers_state == SudoersState::Drifted && !yes && is_tty {
-        sudoers_res = confirm_or_decline("sudoers");
-    }
-    res.sudoers = sudoers_res;
-    if let Some(b) = sudoers_bail {
-        bails.push(b);
-    }
-
+    // Component prompt order (prompt::run_all): npm-prefix BEFORE sudoers. This is
+    // load-bearing — the tests feed answers positionally (e.g. `n\nY\n` = decline
+    // npm-prefix, accept sudoers).
     let npm_state = probe::npm_prefix_state(user, home);
     let (mut npm_res, npm_bail) = decide_npm_prefix(npm_state, yes, is_tty);
     if npm_state == NpmPrefixState::WrongOwner && !yes && is_tty {
-        npm_res = confirm_or_decline("npm-prefix");
+        npm_res = prompt_component(
+            "npm-prefix",
+            "REMEDIATE-01",
+            &format!("chown ~{user}/.npm-global to {user}:{user}"),
+        );
     }
     res.npm_prefix = npm_res;
     if let Some(b) = npm_bail {
         bails.push(b);
     }
+
+    let sudoers_state = probe::sudoers_state(user);
+    let (mut sudoers_res, sudoers_bail) = decide_sudoers(sudoers_state, yes, is_tty);
+    if sudoers_state == SudoersState::Drifted && !yes && is_tty {
+        sudoers_res = prompt_component(
+            "sudoers",
+            "REMEDIATE-03",
+            "overwrite /etc/sudoers.d/agentlinux with canonical ADR-012 line",
+        );
+    }
+    res.sudoers = sudoers_res;
+    if let Some(b) = sudoers_bail {
+        bails.push(b);
+    }
 }
 
-/// Interactive consent for a state-overwriting remediation (TTY path only —
-/// `provision --yes` and non-TTY never reach here). Y/Enter → `Remediate`,
-/// anything else → `ReuseWithWarning` (leave the drifted state as-is).
-fn confirm_or_decline(component: &str) -> Resolution {
-    eprint!("agentlinux provision: {component} state needs a remediation that overwrites existing state. Proceed with this remediation? [Y/n] ");
-    let mut line = String::new();
-    match std::io::stdin().read_line(&mut line) {
-        Ok(_) => {
-            let a = line.trim();
-            if a.is_empty() || a.eq_ignore_ascii_case("y") || a.eq_ignore_ascii_case("yes") {
-                Resolution::Remediate
-            } else {
-                eprintln!("agentlinux provision: {component} remediation declined — leaving existing state (a later run with --yes can remediate)");
-                Resolution::ReuseWithWarning
-            }
-        }
-        Err(_) => Resolution::ReuseWithWarning,
+/// Interactive consent for one state-overwriting remediation (TTY path only —
+/// `provision --yes` and non-TTY never reach here). Delegates the `[Y/n]` prompt
+/// to `wizard::confirm_remediate`; accept → `Remediate`, decline → the grep-stable
+/// `[REMEDIATE-NN] DECLINED by user …` marker + `ReuseWithWarning` (the step layer
+/// renders `[REUSE-WARN]` and leaves the drifted state untouched).
+fn prompt_component(component: &str, marker: &str, description: &str) -> Resolution {
+    if crate::provision::wizard::confirm_remediate(component, description) {
+        Resolution::Remediate
+    } else {
+        eprintln!(
+            "[{marker}] DECLINED by user — skipping {component}; install continues \
+             (state will be marked reused-with-warning)"
+        );
+        Resolution::ReuseWithWarning
     }
 }
 

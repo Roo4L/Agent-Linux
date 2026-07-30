@@ -27,6 +27,9 @@ use std::process::ExitCode;
 const EX_USAGE: u8 = 64;
 /// EX_SOFTWARE (sysexits.h) — a runtime provisioner failure (a step's I/O error).
 const EX_SOFTWARE: u8 = 70;
+/// EX_DATAERR (sysexits.h) — incompatible host state (a wrong-shell user bail /
+/// an operator-declined alt-user prompt).
+const EX_DATAERR: u8 = 65;
 
 /// Reserved / system-account denylist — byte-for-byte with
 /// `AGENTLINUX_RESERVED_USER_NAMES` (`plugin/lib/remediate.sh:78-82`). A name
@@ -101,6 +104,55 @@ fn resolve_provision_user(user_flag: Option<&str>) -> Result<String, ExitCode> {
              ^[a-z][a-z0-9_-]*$ and must not be root or a reserved/system account"
         );
         Err(ExitCode::from(EX_USAGE))
+    }
+}
+
+/// UX-04 wrong-shell alt-user gate (`prompt::alt_user_or_bail`). Returns the user
+/// to provision under: the same name when it is absent or shell-conforming; the
+/// operator-chosen alternate on a TTY; else an `Err(exit)` — 65 for a non-TTY
+/// bail-with-hint or an EOF decline, 64 for 3 invalid names. On a TTY the accepted
+/// alternate is a fresh user provisioned via the normal Create path.
+fn resolve_wrong_shell(user: &str) -> Result<String, ExitCode> {
+    if provision::probe::user_state(user) != provision::probe::UserState::WrongShell {
+        return Ok(user.to_string());
+    }
+    let suggested = provision::wizard::find_alt_user_name();
+
+    if !provision::wizard::stdin_is_tty() {
+        eprintln!("agentlinux: existing user \"{user}\" is incompatible (wrong-shell).");
+        match suggested.as_deref() {
+            Some(s) => eprintln!("Re-run with --user={s} or fix the existing user manually."),
+            None => eprintln!(
+                "Re-run with --user=NAME (no auto-suggested name available — agent2..agent99 \
+                 all taken) or fix the existing user manually."
+            ),
+        }
+        return Err(ExitCode::from(EX_DATAERR));
+    }
+
+    eprintln!(
+        "pre-flight: existing user \"{user}\" has a wrong shell (DET-01 requires bash + a \
+         writable home)."
+    );
+    eprintln!("AgentLinux can create a new install user instead.");
+    match suggested.as_deref() {
+        Some(s) => eprintln!("Suggested alternate name: {s}"),
+        None => eprintln!("No auto-suggested name available (agent2..agent99 all taken)."),
+    }
+
+    match provision::wizard::alt_user_prompt(suggested.as_deref(), &validate_user_name) {
+        provision::wizard::AltUser::Chosen(name) => {
+            eprintln!("[ALT-USER] accepted: {name}");
+            Ok(name)
+        }
+        provision::wizard::AltUser::DeclinedEof => {
+            eprintln!("[ALT-USER] declined — exiting 65 (EOF on prompt)");
+            Err(ExitCode::from(EX_DATAERR))
+        }
+        provision::wizard::AltUser::Exhausted => {
+            eprintln!("[ALT-USER] 3 invalid responses — exiting 64 EX_USAGE");
+            Err(ExitCode::from(EX_USAGE))
+        }
     }
 }
 
@@ -297,12 +349,14 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //    Bash prompt::choose_install_user). The curl-installer path passes --user
     //    (or is non-TTY), so it never prompts. The wizard's result is already
     //    validated; a bare Enter / EOF / 3 invalid tries fall back to the default.
+    let default_user = resolve_install_user();
+    let default_home = format!("/home/{default_user}");
     let install_user = if args.user.is_none()
         && !args.dry_run
         && provision::wizard::stdin_is_tty()
-        && provision::wizard::is_greenfield()
+        && provision::wizard::should_prompt_install_user(&default_user, &default_home)
     {
-        provision::wizard::choose_install_user(&resolve_install_user(), &validate_user_name)
+        provision::wizard::choose_install_user(&default_user, &validate_user_name)
     } else {
         match resolve_provision_user(args.user.as_deref()) {
             Ok(u) => u,
@@ -356,6 +410,40 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
             &distro,
             args.report_format.as_deref(),
         );
+    }
+
+    // 5b. UX-04 wrong-shell alt-user gate. An EXISTING install user with a non-bash
+    //     shell cannot be adopted (no chsh handler). On the real path (not report /
+    //     dry-run — those preview the bail): a TTY prompts for an alternate name,
+    //     a non-TTY prints the `--user=<suggested>` hint + exits 65. An accepted
+    //     alternate is a FRESH user, so the normal Create path fully provisions it.
+    let pre_alt_user = install_user.clone();
+    let install_user = if args.dry_run {
+        install_user
+    } else {
+        match resolve_wrong_shell(&install_user) {
+            Ok(u) => u,
+            Err(code) => return code,
+        }
+    };
+    let install_home = format!("/home/{install_user}");
+    // Whether the alt-user gate swapped in a fresh name (a newly-created user) —
+    // drives the partial-provision recovery hint on a step failure below.
+    let alt_user_chosen = install_user != pre_alt_user;
+
+    // 5c. Re-gate adoption safety (H-1): the alt-user branch may have swapped in an
+    //     operator-TYPED name that never passed the UID<1000 gate at step 2b. A
+    //     typed EXISTING bash account with UID < 1000 would otherwise be granted
+    //     NOPASSWD sudo + a re-owned home (the elevation user_adoptable blocks).
+    //     `validate_user_name`'s reserved denylist is not exhaustive of system
+    //     accounts, so re-run the passwd-DB gate on the final name.
+    if !provision::probe::user_adoptable(&install_user) {
+        eprintln!(
+            "agentlinux provision: refusing to adopt existing system account \
+             '{install_user}' (UID < 1000). Choose a name that is free or a regular \
+             login (UID >= 1000)."
+        );
+        return ExitCode::from(EX_USAGE);
     }
 
     // 6. DECIDE phase (PROV-02): probe the host + iterate the Rust `canonical_path`
@@ -438,7 +526,21 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
             }
             ExitCode::SUCCESS
         }
-        Err(code) => code,
+        Err(code) => {
+            // Operability: an accepted alt-user is created fresh mid-run. If a
+            // later step failed, that user is left half-provisioned — name the
+            // recovery verbs so an orphan is a one-command fix, not a mystery.
+            if alt_user_chosen {
+                log::line(&format!(
+                    "agentlinux provision: NOTE — newly-created install user '{u}' was only \
+                     partially provisioned before this failure. Re-run \
+                     `agentlinux provision --user {u}` to resume, or \
+                     `agentlinux provision --purge --user {u}` to remove it.",
+                    u = ctx.install_user
+                ));
+            }
+            code
+        }
     }
 }
 
