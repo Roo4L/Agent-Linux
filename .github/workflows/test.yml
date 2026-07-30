@@ -288,6 +288,29 @@ jobs:
             echo "has_bats=false" >> "$GITHUB_OUTPUT"
             echo "No bats suite yet — skipping (lands in Phase 2)"
           fi
+      # tests/docker/run.sh builds the static-musl `agentlinux` bin ON THE HOST
+      # runner (host_build_musl) before staging it into the container, so this job
+      # needs the same musl toolchain the `rust` job installs — the musl target +
+      # the `musl-gcc` linker (musl-tools). Without them the host build fails
+      # `linker musl-gcc not found` and run.sh aborts loud (refusing to bats a
+      # missing artifact), which is the correct fail — the fix is to provide the
+      # toolchain here, not to silence it.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        if: steps.guard.outputs.has_bats == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        if: steps.guard.outputs.has_bats == 'true'
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        if: steps.guard.outputs.has_bats == 'true'
+        with:
+          workspaces: rust
       - name: Run Docker bats matrix
         if: steps.guard.outputs.has_bats == 'true'
         run: bash tests/docker/run.sh ${{ matrix.target }}
