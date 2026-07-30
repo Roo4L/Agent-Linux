@@ -62,21 +62,38 @@ $ claude update                               # Claude Code's own updater
 ✓ Claude Code 2.1.114 installed
 
 $ agentlinux upgrade
-Per-agent divergence (report-only; pass --reset-all-curated or per-agent
-choice to mutate):
-
-  claude-code  installed=2.1.114  curated=2.1.98   state=override-ahead
-  gsd          installed=1.7.0    curated=1.7.0    state=synced
-  playwright-cli installed=0.1.17 curated=0.1.17 state=synced
-
-  Choose per-agent: [keep override] [accept curated] [accept upstream latest]
-  Or apply to all: --reset-all-curated | --respect-overrides | --all-latest
+ID              STATUS          SENTINEL  INSTALLED  CURATED  LATEST  SRC
+claude-code     override-ahead  2.1.98    2.1.114    2.1.98   -       npm
+gsd             synced          1.7.0     1.7.0      1.7.0    -       npm
+playwright-cli  synced          0.1.17    0.1.17     0.1.17   -       npm
 ```
 
-Choosing `keep override` here marks the entry sticky, so the next release's
-`agentlinux upgrade` does not re-nag. `accept curated` downgrades back to the
-tested combo. Either is a defensible choice; AgentLinux just refuses to make
-it for you silently.
+**`agentlinux upgrade` on its own changes nothing.** With no flag it prints the
+table and exits — the report *is* the default. Nothing is installed, removed, or
+downgraded until you say so. (`LATEST` stays `-` unless you pass
+`--check-upstream`; resolving it costs a network call.)
+
+You then choose, and there are two ways to do it:
+
+**Per agent — set the pin, then upgrade.**
+
+```bash
+agentlinux pin claude-code=latest      # keep your override, stop being told about it
+agentlinux upgrade --respect-overrides # bring everything else to curated
+```
+
+**All at once — one flag, no pinning.**
+
+```bash
+agentlinux upgrade --reset-all-curated  # every agent back to the tested combo
+agentlinux upgrade --respect-overrides  # curated, except where you pinned
+agentlinux upgrade --all-latest         # every agent to upstream latest
+```
+
+There is no interactive prompt. The per-agent decision is `agentlinux pin`,
+which is durable and scriptable; `upgrade` then acts on the pins you have set.
+AgentLinux will not pick for you silently, but it also will not stop and ask
+mid-run — which is what lets it run unattended in a provisioning script.
 
 ## Escape hatch: `agentlinux pin`
 

@@ -4,9 +4,9 @@
 
 This document specifies the project structure, tooling, and review processes required to run AgentLinux v0.3.0 development through supported coding-agent hosts, including Claude Code and Codex. Goal: agents run longer, produce better results, and ship faster — while humans retain decision authority over irreversible actions (releases, destructive migrations, schema breaks).
 
-**Scope:** Project organization, code quality infrastructure, documentation structure, and the automated review feedback loop. Not the installer design itself (that's `.planning/REQUIREMENTS.md` + `.planning/ROADMAP.md`).
+**Scope:** Project organization, code quality infrastructure, documentation structure, and the automated review feedback loop. Not the installer design itself (that's the per-milestone behavior contracts under `.planning/milestones/` + `.planning/ROADMAP.md`).
 
-**Reference template:** Adapted from the ELS-OS-Migration-to-PatchFlow HARNESS.md (Python/API/DB) for AgentLinux's stack (bash installer + Node.js/TypeScript registry CLI, no database, minimal external APIs).
+**Reference template:** Adapted from the ELS-OS-Migration-to-PatchFlow HARNESS.md (Python/API/DB) for AgentLinux's stack (Rust provisioner + registry CLI, bash install recipes, no database, minimal external APIs).
 
 ---
 
@@ -23,28 +23,18 @@ agent-linux/                            # Workspace root
 ├── AGENTS.md                           # Shared project context and critical rules
 ├── CLAUDE.md                           # Claude Code host adapter (< 150 lines)
 ├── README.md                           # User-facing README
-├── plugin/                             # The installable plugin — bash installer + Node CLI
-│   ├── bin/
-│   │   └── agentlinux-install          # Installer entrypoint (bash)
-│   ├── lib/                            # Shared bash helpers (logging, idempotency, as_user)
-│   │   ├── log.sh
-│   │   ├── idempotency.sh
-│   │   ├── as_user.sh
-│   │   └── distro_detect.sh
-│   ├── provisioner/                    # Ordered installer steps (bash)
-│   │   ├── 10-agent-user.sh
-│   │   ├── 30-nodejs.sh
-│   │   ├── 40-path-wiring.sh
-│   │   └── 50-registry-cli.sh
-│   ├── cli/                            # Node.js/TS registry CLI — `agentlinux`
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   ├── src/
-│   │   │   ├── index.ts                # Entry — Commander.js setup
-│   │   │   ├── commands/               # list / adopt / install / remove / upgrade / pin
-│   │   │   ├── catalog.ts              # JSON Schema-validated catalog reader
-│   │   │   └── runner.ts               # Dispatches to catalog/agents/<name>/install.sh
-│   │   └── test/                       # node:test unit tests for the CLI
+├── rust/                               # Cargo workspace — provisioner + registry CLI
+│   ├── Cargo.toml                      # Workspace root; Cargo.lock is committed
+│   └── crates/
+│       ├── agentlinux/                 # The `agentlinux` bin (static x86_64-musl)
+│       │   └── src/
+│       │       ├── cli.rs              # clap arg definitions
+│       │       ├── cmd/                # list / adopt / install / remove / upgrade / pin / provision
+│       │       ├── catalog.rs          # JSON Schema-validated catalog reader
+│       │       └── runner.rs           # Dispatches to catalog/agents/<name>/install.sh
+│       └── agentlinux-core/            # I/O-free logic (classify, divergence, semver shim)
+├── plugin/                             # Shippable non-Rust assets
+│   ├── bin/agentlinux                  # The built musl binary, staged for the tarball
 │   └── catalog/                        # Agent recipe catalog
 │       ├── schema.json                 # JSON Schema 2020-12 contract
 │       ├── catalog.json                # Curated catalog entries (none installed by default)
@@ -90,28 +80,25 @@ agent-linux/                            # Workspace root
 
 **Key decisions:**
 
-- **Root is a workspace, not a single Node project.** No `package.json` or `tsconfig.json` at the root. Those live inside `plugin/cli/` so `pnpm install` in that directory only touches the CLI. This keeps the root clean for peer repos we may clone during development (Claude Code repo, example installers, scratch Ubuntu test images).
-- **`plugin/` is the shippable artifact.** Everything in `plugin/` is what goes into the release tarball. `packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux-install`.
+- **Root is a workspace, not a single Cargo project.** No `Cargo.toml` at the root; the cargo workspace lives under `rust/`. This keeps the root clean for peer repos we may clone during development (Claude Code repo, example installers, scratch Ubuntu test images).
+- **`plugin/` is the shippable artifact.** Everything in `plugin/` is what goes into the release tarball. `packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux provision`.
 - **`tests/` is separate from `plugin/`.** Tests never ship. Black-box: they run against an *installed* `plugin/`, not against source.
 - **`docs/` for reference, `.planning/` for workflow state.** Identical routing rule to the reference: if the output of a task is a document intended to be read later (ADR, research report, design proposal, review summary), it goes in `docs/`, even as a draft. `.planning/` holds PLAN.md, STATE.md, config — workflow machinery, not documentation.
 - **Existing `packer/` stays in-tree as read-only reference** until v0.3.1 when we can decide whether to delete it. It documents the retired distro path and contains provisioner scripts that inform the plugin's installer logic.
 
 ### 1.2 Code Quality: Pre-commit
 
-Three languages in this project: **bash** (installer + provisioner scripts), **TypeScript/JavaScript** (registry CLI), and **JSON** (catalog + config). One toolchain per language.
+Three languages in this project: **Rust** (provisioner + registry CLI), **bash** (per-agent install recipes), and **JSON** (catalog + config). One toolchain per language.
 
 | Language | Lint | Format | Notes |
 |---------|------|--------|-------|
+| Rust | `cargo clippy` | `cargo fmt` | Enforced in the `rust` CI job, a required status check |
 | Bash | `shellcheck` | `shfmt` | `--language-dialect bash` (not POSIX); `-i 2` for 2-space indent |
-| TS/JS | `biome` | `biome` | One tool instead of eslint+prettier; fast; Rust-based |
-| JSON | `biome` + JSON Schema validation | `biome` | Catalog entries validated against `plugin/catalog/schema.json` in pre-commit |
+| JSON | JSON Schema validation | — | Catalog entries validated against `plugin/catalog/schema.json` in pre-commit |
 | Bats | (bats-core has no lint) | `shfmt` | Treat `.bats` files as bash for formatting |
 
 ```yaml
 # .pre-commit-config.yaml
-default_language_version:
-  node: '22'
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -136,17 +123,11 @@ repos:
       - id: shfmt
         args: [-i, '2', -ci, -bn]
 
-  - repo: https://github.com/biomejs/pre-commit
-    rev: v1.9.4
-    hooks:
-      - id: biome-check
-        files: ^plugin/cli/
-
   - repo: local
     hooks:
       - id: catalog-schema-validate
         name: Validate catalog.json against schema
-        entry: node plugin/cli/scripts/validate-catalog.mjs
+        entry: scripts/check-catalog-schema.sh
         language: system
         files: ^plugin/catalog/(catalog|agents/.*/recipe)\.json$
         pass_filenames: false
@@ -158,30 +139,24 @@ Four test layers. Each answers a different question. Mutation testing is the met
 
 | Layer | Tool | Question Answered | Run When |
 |-------|------|-------------------|----------|
-| CLI unit | `node:test` (built-in, no deps) | "Does the registry CLI parse args, read the catalog, and dispatch correctly?" | Pre-commit, every PR |
+| Unit + property | `cargo test` (incl. `proptest`) | "Does the CLI parse args, read the catalog, and dispatch correctly? Does the pure core hold under generated input?" | Pre-commit, every PR |
 | Behavior (bats) | `bats-core` 1.11.x | "Does an installed AgentLinux meet every BHV/RT/AGT/CLI/CAT/INST requirement?" | Docker matrix on every PR; QEMU nightly + release gate |
 | Release smoke | Shell script over SSH | "Does a fresh install on a fresh Ubuntu cloud image succeed?" | Release-gate job only |
-| **Mutation** | `stryker-mutator` (Node CLI) + custom bash mutator (installer) | **"Are our tests actually testing something? Would they catch a real regression?"** | Nightly + before any release branch is cut |
+| **Mutation** | `cargo-mutants` (Rust) + custom bash mutator (recipes) | **"Are our tests actually testing something? Would they catch a real regression?"** | `--in-diff` gate on every PR; full-crate score nightly |
 
 **Why mutation testing.** Without it, "100% behavior-test coverage" can be a green-bar lie: tests that execute every line but assert nothing meaningful. Mutation testing introduces small intentional faults into the source (`>` → `>=`, `&&` → `||`, delete a `set -e`, flip a sudoers permission bit) and checks that *the test suite catches the mutation*. Mutation score (mutants killed / mutants generated) is the truth-meter for test quality.
 
-**For the Node.js CLI:** [`stryker-mutator`](https://stryker-mutator.io/) is mature and well-supported. Target: **mutation score ≥ 75%** for `plugin/cli/src/`. Equivalent mutants (mutations that produce identical behavior) are reviewed manually and excluded.
+**For Rust:** [`cargo-mutants`](https://mutants.rs/) runs in two modes. On every PR the `rust` job runs it with `--in-diff` — only mutants inside the diff must be killed, which keeps the gate fast and makes it *blocking*. Nightly, `nightly-mutation.yml` scores the whole crate and is advisory. Both jobs pin the same `cargo-mutants` version so the merge gate and the nightly score share one mutant set.
 
-**For bash (installer + provisioner + bats helpers):** mature mutation tooling for bash does not exist. We ship a minimal in-house mutator at `tests/mutation/bash-mutator.sh` that performs a small, audit-friendly set of mutations (negation flip, comparison-operator swap, `set -e` removal, sudoers mode bit flip, `as_user` → direct invocation) and runs the bats suite against each mutant. Target: **mutation score ≥ 60%** for `plugin/lib/`, `plugin/provisioner/`, `plugin/bin/`. Lower target than the CLI because the mutator is intentionally narrow — false-negatives are expected and acceptable; the value is catching the high-impact mutations (security-relevant flips, idempotency breaks) early.
+**For bash (per-agent recipes + bats helpers):** mature mutation tooling for bash does not exist. We ship a minimal in-house mutator at `tests/mutation/bash-mutator.sh` performing a small, audit-friendly set of mutations (negation flip, comparison-operator swap, `set -e` removal, `as_user` → direct invocation) and run the bats suite against each mutant. It is intentionally narrow — false negatives are expected; the value is catching high-impact mutations (security-relevant flips, idempotency breaks) early. Advisory only.
 
-**Mutation results are advisory, not blocking, in v0.3.0.** A regression that drops the mutation score significantly opens a follow-up issue; it does not block the release. We promote mutation score to a release gate in v0.4 once we have a baseline and false-positive rate.
-
-**CLI unit tests:**
-```json
-// plugin/cli/package.json (excerpt)
-{
-  "scripts": {
-    "test": "node --test --experimental-test-coverage test/",
-    "lint": "biome check src/ test/",
-    "format": "biome format --write src/ test/"
-  }
-}
+**Running the unit + property suite:**
+```bash
+cd rust && cargo test --workspace          # all crates
+cargo test -p agentlinux-core parity       # the node-semver parity goldens
 ```
+
+Proptest counterexample seeds under `rust/**/proptest-regressions/` are **committed** — a failure found once must replay on every future run, so that directory is deliberately not gitignored.
 
 **Bats assertions:** one file per requirement category (see layout above). Tests execute inside the target environment (a container or a QEMU guest), not on the developer's host. A shared `tests/bats/helpers/` provides assertion helpers (`assert_agent_can_run`, `assert_no_eacces_in_log`, `assert_self_update_succeeds`, etc.) so individual tests stay short and readable.
 
@@ -414,7 +389,7 @@ This section originally noted the project had no CLAUDE.md at the repo root — 
   - Lint bash + catalog: `pre-commit run --all-files`
   - Build release tarball: `./scripts/build-release.sh vX.Y.Z`
   - Preview docs: (none yet; docs are plain markdown)
-- **Pointers:** `@.planning/ROADMAP.md`, `@.planning/REQUIREMENTS.md`, `@docs/HARNESS.md` (this file), `@docs/research/`, relevant skills (§5).
+- **Pointers:** `@.planning/ROADMAP.md`, `@.planning/milestones/`, `@docs/HARNESS.md` (this file), `@docs/research/`, relevant skills (§5).
 
 Everything else — installer internals, schema details, historical v0.2.0 lessons — stays in skills and docs where it loads on demand.
 
@@ -429,15 +404,15 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 ### Phase A: Project Infrastructure (do first)
 
 - [ ] Create directory skeleton: `plugin/`, `tests/`, `packaging/`, `docs/` (structure only, empty files or READMEs)
-- [ ] Create `plugin/cli/package.json`, `plugin/cli/tsconfig.json`, `plugin/cli/biome.json` — Commander.js + node:test baseline, no real CLI code yet
-- [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, biome, catalog-schema-validate; run `pre-commit install`
+- [ ] Create the `rust/` cargo workspace — `agentlinux` bin + `agentlinux-core` lib, no real logic yet
+- [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, catalog-schema-validate; run `pre-commit install`
 - [x] Create `CLAUDE.md` (< 150 lines) per §6
 - [ ] Create `docs/README.md` index + `docs/decisions/000-template.md` ADR template
 - [x] Flatten `docs/research/` and promote the three keepers (§2.2)
 - [ ] Seed ADR-001 through ADR-010 from the list in §2.3
-- [ ] Set up `.github/workflows/test.yml` — run pre-commit + CLI unit tests + Docker bats matrix on every PR
-- [ ] Add stryker-mutator config to `plugin/cli/` (`stryker.config.json`) targeting `src/` with mutation score threshold of 75 (warning, non-blocking in v0.3.0)
-- [ ] Create `tests/mutation/bash-mutator.sh` (minimal in-house mutator) + `.github/workflows/nightly-mutation.yml` — runs both stryker and bash-mutator nightly, posts a report to Actions summary
+- [ ] Set up `.github/workflows/test.yml` — run pre-commit + `cargo test` + Docker bats matrix on every PR
+- [ ] Wire `cargo-mutants --in-diff` into the `rust` CI job as a blocking gate
+- [ ] Create `tests/mutation/bash-mutator.sh` (minimal in-house mutator) + `.github/workflows/nightly-mutation.yml` — full-crate `cargo-mutants` score plus bash-mutator, advisory, posted to the Actions summary
 
 ### Phase B: Review Infrastructure
 
@@ -479,8 +454,8 @@ Measurable signals that the harness is working.
 | Review catch rate | > 90% of errors caught before reaching human review | Count of errors caught by automated review vs. errors human reviewer flags on the PR |
 | Pre-commit pass rate | > 95% on first commit attempt | Pre-commit hook failure rate from git history |
 | Behavior-test coverage | 100% of BHV/RT/AGT/CLI/CAT/INST requirements have at least one bats test | `behavior-coverage-auditor` report across every phase end |
-| Mutation score (Node CLI) | ≥ 75% — proves CLI tests assert real behavior, not just execute lines | `stryker-mutator` nightly report on `plugin/cli/src/` |
-| Mutation score (bash) | ≥ 60% — proves bats tests catch real installer regressions | Custom `tests/mutation/bash-mutator.sh` nightly report |
+| Mutation score (Rust) | Zero surviving mutants in the diff — proves new code is covered by assertions, not just executed | `cargo-mutants --in-diff` gate on every PR; full-crate score nightly |
+| Mutation score (bash recipes) | Advisory — proves bats tests catch real recipe regressions | Custom `tests/mutation/bash-mutator.sh` nightly report |
 | CI green rate on first push | > 85% of PRs pass CI on first push | GitHub Actions pass/fail on `pr-opened` event |
 | Release-gate QEMU pass rate | 100% — any red QEMU run blocks release | Release workflow dashboard |
 
@@ -488,5 +463,5 @@ The harness improves iteratively. After each milestone, audit which review loops
 
 ---
 
-*Created: 2026-04-18 — adapted from ELS-OS-Migration HARNESS.md v3 template for AgentLinux's bash + Node.js stack*
+*Created: 2026-04-18 — adapted from ELS-OS-Migration HARNESS.md v3 template; retargeted to the Rust provisioner + CLI at the v0.4.0 cutover*
 *Next review: After Phase A implementation*

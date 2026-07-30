@@ -105,7 +105,7 @@ bats tests/harness/70-planning-clean-gate.bats  # Self-test the .planning/ hygie
 ## Pointers
 
 - `@.planning/ROADMAP.md` — phase plan (1 Harness → 2 Installer → 3 Node → 4 CLI → 5 Agents → 6 Release)
-- `@.planning/REQUIREMENTS.md` — behavior contract (BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC)
+- `@.planning/milestones/` — per-milestone behavior contracts (BHV/RT/AGT/CLI/CAT/INST/TST/DOC)
 - `@docs/HARNESS.md` — authoritative harness spec (§1 layout, §2 docs, §3 systems, §4 review, §5 skills, §6 this file, §7 checklist, §8 criteria)
 - `@docs/codex.md` — Codex CLI support (install, AGENTS.md, skills, Stop hooks)
 - `@docs/research/` — long-lived research, one document per question
