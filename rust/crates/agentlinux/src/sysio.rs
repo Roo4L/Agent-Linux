@@ -70,6 +70,11 @@ impl TmpGuard {
 
     /// Disarm the guard after the tmpfile has been renamed into place (the
     /// rename consumed the tmpfile, so there is nothing left to unlink).
+    ///
+    /// Not mutation-tested: skipping the disarm makes `Drop` unlink a path the
+    /// rename already consumed, which is a no-op — there is no observable
+    /// difference for a test to assert.
+    #[cfg_attr(test, mutants::skip)]
     fn disarm(&mut self) {
         self.path = None;
     }
@@ -88,7 +93,12 @@ impl Drop for TmpGuard {
 /// `fs::rename` atomic on one filesystem (57-RESEARCH Pitfall 1). The name is a
 /// leading-dot `.{base}.{pid}.{nanos}` — collision-hardened by the monotonic
 /// nanos + O_CREAT|O_EXCL retry so two concurrent provisioner runs never clobber.
-fn mktemp_in(dir: &Path, base: &str) -> io::Result<(fs::File, PathBuf)> {
+/// Not mutation-tested: the surviving mutants are all in the O_EXCL
+/// collision-retry arm, which needs two processes to open the same
+/// pid+nanosecond name in the same instant. The happy path is exercised by every
+/// `write_file_atomic` test.
+#[cfg_attr(test, mutants::skip)]
+pub(crate) fn mktemp_in(dir: &Path, base: &str) -> io::Result<(fs::File, PathBuf)> {
     use std::time::{SystemTime, UNIX_EPOCH};
     let pid = std::process::id();
     for attempt in 0..1000u32 {
@@ -291,6 +301,10 @@ fn useradd_argv(name: &str) -> Vec<String> {
 /// Resolves the user via `nix::unistd::User::from_name`; a hit is a NO-OP (never
 /// modifies an existing identity — matches the Bash `id … && return 0`). A miss
 /// runs `useradd --create-home --shell /bin/bash --user-group <name>`.
+/// Not mutation-tested: killing `-> Ok(())` requires actually creating a user,
+/// which needs root and mutates the host. The two halves that CAN be tested are:
+/// [`useradd_argv`] (the exact argv) and [`user_exists`] (the id-gate).
+#[cfg_attr(test, mutants::skip)]
 pub fn ensure_user(name: &str) -> io::Result<()> {
     if user_exists(name)? {
         return Ok(());
@@ -400,8 +414,23 @@ fn resolve_owner(owner: &str) -> io::Result<(u32, u32)> {
 
 /// `visudo_validate <file>` — `visudo -cf <file>` safety check before installing
 /// a sudoers drop-in. A non-zero check maps to an `Err`.
+///
+/// Not mutation-tested: this wrapper only binds the program name, and killing
+/// `-> Ok(())` here would need a real `visudo` on the test host. Both arms of the
+/// logic live in [`visudo_validate_with`], which is tested.
+#[cfg_attr(test, mutants::skip)]
 pub fn visudo_validate(file: &Path) -> io::Result<()> {
-    let status = Command::new("visudo").arg("-cf").arg(file).status()?;
+    visudo_validate_with("visudo", file)
+}
+
+/// [`visudo_validate`] against a named program.
+///
+/// The program is a parameter so the ACCEPT and REJECT arms are both reachable
+/// from a test (point it at `true`/`false`) on a host that may not ship visudo
+/// at all. Guarding a test with "if visudo exists" would delete the assertion on
+/// the minimal container images this code most needs to work on.
+pub fn visudo_validate_with(program: &str, file: &Path) -> io::Result<()> {
+    let status = Command::new(program).arg("-cf").arg(file).status()?;
     if !status.success() {
         return Err(io::Error::other(format!(
             "visudo_validate: sudoers syntax check failed for {} (visudo -cf rejected)",
@@ -682,5 +711,96 @@ mod sysio_tests {
     fn user_exists_false_for_absent_user() {
         // A name virtually certain to be absent.
         assert!(!user_exists("agentlinux-nonexistent-user-xyzzy").unwrap());
+    }
+}
+
+#[cfg(test)]
+mod sysio_seam_tests {
+    //! The arms `cargo mutants` showed surviving: an error path with no
+    //! assertion behind it is a function whose failure handling is decoration.
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn which_finds_a_program_on_path_and_misses_one_that_is_absent() {
+        let sh = which("sh").expect("every POSIX host has sh on PATH");
+        assert!(sh.ends_with("sh"), "{}", sh.display());
+        assert!(sh.is_absolute());
+        assert!(which("no-such-program-agentlinux-xyzzy").is_none());
+    }
+
+    #[test]
+    fn chown_by_name_rejects_an_unknown_user_and_a_malformed_owner() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("x");
+        fs::write(&f, b"x").unwrap();
+
+        let err = chown_by_name(&f, "no-such-user-agentlinux-xyzzy:root").unwrap_err();
+        assert!(err.to_string().contains("unknown user"), "err={err}");
+
+        // The owner must be `user:group` — a bare username is a caller bug, not
+        // a silent chown to the primary group.
+        let err = chown_by_name(&f, "root").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn chown_symlink_by_name_rejects_an_unknown_user() {
+        let d = TempDir::new().unwrap();
+        let link = d.path().join("l");
+        std::os::unix::fs::symlink("/nowhere", &link).unwrap();
+        assert!(chown_symlink_by_name(&link, "no-such-user-agentlinux-xyzzy:root").is_err());
+    }
+
+    #[test]
+    fn visudo_validate_maps_a_rejecting_checker_to_an_error() {
+        // `false` exits non-zero for any argument — the "visudo rejected this
+        // sudoers" arm, reachable on a host with no visudo installed.
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("sudoers");
+        fs::write(&f, b"agent ALL=(ALL) NOPASSWD: ALL\n").unwrap();
+
+        let err = visudo_validate_with("false", &f).unwrap_err();
+        assert!(err.to_string().contains("syntax check failed"), "err={err}");
+        assert!(
+            err.to_string().contains(&f.display().to_string()),
+            "the error must name the file it rejected: {err}"
+        );
+
+        // …and an accepting checker is Ok.
+        assert!(visudo_validate_with("true", &f).is_ok());
+    }
+
+    #[test]
+    fn a_missing_checker_is_an_error_not_a_silent_pass() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("sudoers");
+        fs::write(&f, b"x\n").unwrap();
+        // ENOENT on the checker must NOT read as "the file is fine".
+        assert!(visudo_validate_with("no-such-visudo-agentlinux-xyzzy", &f).is_err());
+    }
+
+    #[test]
+    fn a_failed_write_leaves_no_residual_tmpfile() {
+        // The TmpGuard's whole job. Renaming onto a path that is a DIRECTORY
+        // fails (EISDIR), so the write aborts after the tmpfile exists.
+        let d = TempDir::new().unwrap();
+        let dest = d.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+
+        assert!(write_file_atomic(0o644, &dest, b"body").is_err());
+
+        let residue: Vec<String> = fs::read_dir(d.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "dest")
+            .collect();
+        assert!(residue.is_empty(), "leaked {residue:?}");
+    }
+
+    #[test]
+    fn user_exists_gates_ensure_user_on_the_passwd_db() {
+        assert!(user_exists("root").unwrap());
+        assert!(!user_exists("no-such-user-agentlinux-xyzzy").unwrap());
     }
 }

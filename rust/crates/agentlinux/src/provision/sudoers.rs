@@ -188,32 +188,12 @@ fn install_or_overwrite(ctx: &ProvisionCtx, action: &str) -> io::Result<()> {
 /// `write_file_atomic`). Mirrors the Bash `mktemp` + `printf '%s\n' >"$tmpfile"`.
 fn write_tmp(dir: &Path, body: &[u8]) -> io::Result<std::path::PathBuf> {
     use std::io::Write;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let pid = std::process::id();
-    for attempt in 0..1000u32 {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let candidate = dir.join(format!(".agentlinux-sudoers.{pid}.{nanos}.{attempt}"));
-        match std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&candidate)
-        {
-            Ok(mut f) => {
-                f.write_all(body)?;
-                f.flush()?;
-                return Ok(candidate);
-            }
-            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
-            Err(e) => return Err(e),
-        }
-    }
-    Err(io::Error::new(
-        io::ErrorKind::AlreadyExists,
-        "write_tmp: exhausted unique-name attempts",
-    ))
+    // The same O_CREAT|O_EXCL retry `write_file_atomic` uses — one copy, so the
+    // collision-hardening cannot diverge between the two tmpfile users.
+    let (mut f, path) = sysio::mktemp_in(dir, "agentlinux-sudoers")?;
+    f.write_all(body)?;
+    f.flush()?;
+    Ok(path)
 }
 
 /// Unlinks a tmpfile on drop — the Rust twin of the Bash `trap "rm -f" RETURN`,

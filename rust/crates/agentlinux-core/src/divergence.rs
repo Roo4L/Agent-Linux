@@ -286,7 +286,7 @@ mod proptests {
     //! OR one of the three typed `DivergenceError` variants — never a panic, and
     //! never an `Ok` that violates the constraint.
     use super::*;
-    use crate::proptest_strategies::{prerelease_version_str, range_str, version_str};
+    use crate::proptest_strategies::{prerelease_version_str, range_str};
     use crate::semver_shim;
     use proptest::prelude::*;
 

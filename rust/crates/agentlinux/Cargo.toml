@@ -40,6 +40,7 @@ serde_json = "1"
 thiserror = "1"
 
 [dev-dependencies]
+mutants = "0.0.4"
 # tempfile — per-adapter unit tests inject tmp dirs for the AGENTLINUX_STATE_DIR /
 # AGENTLINUX_CATALOG_DIR / AGENTLINUX_DETECT_CACHE seams (sentinel atomic
 # round-trip, catalog load, cache dual-shape parse).

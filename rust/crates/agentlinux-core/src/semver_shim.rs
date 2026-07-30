@@ -579,9 +579,7 @@ mod proptests {
     //! becomes machine-checked over the generated loose-input space, not just the
     //! handful of example rows.
     use super::*;
-    use crate::proptest_strategies::{
-        loose_version_str, prerelease_version_str, range_str, version_str,
-    };
+    use crate::proptest_strategies::{loose_version_str, prerelease_version_str, range_str};
     use proptest::prelude::*;
 
     proptest! {

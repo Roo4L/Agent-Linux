@@ -42,7 +42,11 @@ jobs:
       # plugin/catalog/ (outside the rust/ workspace); cargo-mutants' default
       # copy-tree isolation would abort the baseline. Same rationale as the
       # per-PR gate in test.yml.
-      - name: Full-crate mutation score (agentlinux-core)
+      # Both crates. The bin crate is ~1100 mutants against agentlinux-core's ~90,
+      # so this runs with --jobs 4 and is the reason the nightly exists: the per-PR
+      # gate only ever sees diff-touched lines, so a module nobody edits is never
+      # re-scored.
+      - name: Full-workspace mutation score
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
-        run: cargo mutants --package agentlinux-core --minimum-test-timeout 20 --in-place || echo "::warning::surviving mutants (nightly full-crate advisory)"
+        run: cargo mutants --minimum-test-timeout 20 --in-place --jobs 4 || echo "::warning::surviving mutants (nightly full-workspace advisory)"
