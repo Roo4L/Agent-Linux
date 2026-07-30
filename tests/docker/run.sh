@@ -221,13 +221,20 @@ host_build_musl() {
   # return silently staged a stale bin across waves (a false green/red risk on
   # the acceptance oracle). Fall back to an existing prebuilt bin only when cargo
   # is absent (the CI prebuilt-stage path).
+  #
+  # A FAILED build is fatal here, not a warning. The only downstream guard is
+  # `[[ -x $HOST_MUSL_BIN ]]` — existence, not freshness — so with a warm
+  # rust/target a compile error left yesterday's binary in place, staged it, ran
+  # all 242 tests against code that does not compile, and printed PASS.
   if command -v cargo >/dev/null 2>&1 || [[ -f "$HOME/.cargo/env" ]]; then
     # shellcheck disable=SC1091  # optional, path checked
     [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
     echo "-- building/refreshing host musl binary (cargo incremental) --"
-    (cd "$REPO_ROOT/rust" \
-      && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux) \
-      || echo "-- WARN: host musl build failed --"
+    if ! (cd "$REPO_ROOT/rust" \
+      && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux); then
+      echo "ERROR: host musl build FAILED — refusing to run bats against a possibly stale binary" >&2
+      exit 1
+    fi
   elif [[ -x $HOST_MUSL_BIN ]]; then
     echo "-- cargo unavailable; using existing prebuilt musl binary --"
   else

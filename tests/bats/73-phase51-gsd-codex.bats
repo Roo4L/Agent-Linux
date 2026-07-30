@@ -27,15 +27,14 @@ LOG=/var/log/agentlinux-install.log
     __fail "AGT-04/no-shim" "Open GSD recipe has no legacy package or /usr/local shim" "$output" "$LOG"
 }
 
-@test "AGT-04: detection, reuse, and Node remediation identify gsd-core as canonical" {
-  # The canonical-path map + the detect/reuse gates now live in the Rust
-  # provisioner (the TS CLI + Bash libs were retired at the cutover).
-  run grep -Ern 'gsd-core|@opengsd/gsd-core' \
-    "$SOURCE_ROOT/rust/crates/agentlinux/src/main.rs" \
-    "$SOURCE_ROOT/rust/crates/agentlinux-core/src/detect_gates.rs" \
-    "$SOURCE_ROOT/rust/crates/agentlinux-core/src/reuse.rs"
-  assert_exit_zero "AGT-04/canonical-surfaces"
-}
+# The canonical-path map used to be "covered" here by
+# `grep -Ern 'gsd-core' main.rs detect_gates.rs reuse.rs; assert_exit_zero` —
+# which grep satisfies from a match in ANY of the three files, and the only
+# occurrences in the two gate modules are #[cfg(test)] constants. The map could
+# have been deleted from both and it stayed green. It now lives where it can be
+# asserted: `canonical_path_map_pins_each_id` (rust/crates/agentlinux/src/main.rs)
+# pins the map, and `gsd_system_version_path_reuses` (agentlinux-core/src/reuse.rs)
+# covers the decision that path drives.
 
 @test "AGT-04: GSD removal preserves Open GSD user-owned dev-preferences" {
   local home

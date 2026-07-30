@@ -224,3 +224,69 @@ pub(crate) mod test_support {
         }
     }
 }
+
+#[cfg(test)]
+mod canonical_map_tests {
+    use super::*;
+
+    // main.rs carried ZERO tests while owning the map the whole DECIDE phase
+    // enumerates (PROV-02: "the Rust map is the single authoritative per-agent
+    // enumerator"). The bats file that claimed to cover it grepped for a string
+    // across three files and would have passed on a comment.
+
+    #[test]
+    fn canonical_path_map_pins_each_id() {
+        assert_eq!(
+            canonical_path("claude-code"),
+            Some("/home/agent/.local/bin/claude")
+        );
+        assert_eq!(
+            canonical_path("gsd"),
+            Some("/home/agent/.npm-global/bin/gsd-core")
+        );
+        assert_eq!(
+            canonical_path("playwright-cli"),
+            Some("/home/agent/.npm-global/bin/playwright-cli")
+        );
+    }
+
+    #[test]
+    fn an_unknown_id_has_no_canonical_path() {
+        // Not a panic and not a guess: a future catalog id with no map entry
+        // falls through to Create rather than mis-REUSEing something.
+        assert_eq!(canonical_path("some-future-agent"), None);
+        assert_eq!(canonical_path(""), None);
+    }
+
+    #[test]
+    fn every_canonical_id_has_a_map_entry() {
+        // CANONICAL_IDS is what the provisioner iterates; an id listed there
+        // with no path would silently decide Create for an agent that IS
+        // installed.
+        for id in CANONICAL_IDS {
+            assert!(
+                canonical_path(id).is_some(),
+                "CANONICAL_IDS lists {id} with no canonical_path entry"
+            );
+        }
+    }
+
+    #[test]
+    fn verb_names_match_the_cli_subcommands() {
+        // The name reaches the user inside the CLI-05 diagnostic ("try: sudo -u
+        // agent -H agentlinux <verb>"), so a wrong one prints an uncopyable hint.
+        // Parsed through clap so the name is the one the CLI actually accepts.
+        for (argv, expected) in [
+            (vec!["agentlinux", "list"], "list"),
+            (vec!["agentlinux", "install", "gsd"], "install"),
+            (vec!["agentlinux", "remove", "gsd"], "remove"),
+            (vec!["agentlinux", "upgrade"], "upgrade"),
+            (vec!["agentlinux", "adopt"], "adopt"),
+            (vec!["agentlinux", "pin", "gsd=latest"], "pin"),
+            (vec!["agentlinux", "provision"], "provision"),
+        ] {
+            let cli = Cli::try_parse_from(&argv).expect("argv parses");
+            assert_eq!(verb_name(&cli.command), expected, "argv={argv:?}");
+        }
+    }
+}

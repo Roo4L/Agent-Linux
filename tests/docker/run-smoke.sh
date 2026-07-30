@@ -70,11 +70,18 @@ done
 echo "== stage sources + Rust musl provisioner =="
 docker exec "$CID" bash -c 'cp -R /workspace /opt/agentlinux-src'
 HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
-if [[ ! -x $HOST_MUSL_BIN ]]; then
+# Always rebuild when cargo is available: gating the build on "the binary is
+# absent" means a stale binary is never refreshed, so the smoke run silently
+# tests whatever was built last.
+if command -v cargo >/dev/null 2>&1 || [[ -f "$HOME/.cargo/env" ]]; then
   # shellcheck disable=SC1091
   [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
   (cd "$REPO_ROOT/rust" && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux)
 fi
+[[ -x $HOST_MUSL_BIN ]] || {
+  echo "ERROR: the Rust provisioner musl bin is absent — refusing to smoke-test a missing artifact" >&2
+  exit 1
+}
 docker exec "$CID" install -d /opt/agentlinux-src/plugin/bin
 docker cp "$HOST_MUSL_BIN" "$CID:/opt/agentlinux-src/plugin/bin/agentlinux"
 docker exec "$CID" chmod 0755 /opt/agentlinux-src/plugin/bin/agentlinux
