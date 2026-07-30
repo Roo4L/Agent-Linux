@@ -1,36 +1,31 @@
 #!/usr/bin/env bats
 # HRN-01: project layout matches docs/HARNESS.md §1.1
 # Every @test asserts one directory / file the harness spec requires.
+#
+# Post-cutover (v0.4.0): the registry CLI + provisioner are the Rust workspace
+# under rust/ (the legacy plugin/cli TS + plugin/lib + plugin/provisioner Bash
+# were deleted). plugin/catalog/ (the Bash recipes) and packaging/curl-installer
+# remain. JSON validity is checked with jq (no Node prerequisite).
 
-@test "HRN-01: plugin/bin/agentlinux-install exists and is executable" {
-  [ -x plugin/bin/agentlinux-install ]
+@test "HRN-01: rust/Cargo.toml (cargo workspace root) exists" {
+  [ -f rust/Cargo.toml ]
 }
 
-@test "HRN-01: plugin/lib directory exists" {
-  [ -d plugin/lib ]
+@test "HRN-01: rust/crates/agentlinux (the bin crate) exists" {
+  [ -d rust/crates/agentlinux ]
 }
 
-@test "HRN-01: plugin/provisioner directory exists" {
-  [ -d plugin/provisioner ]
+@test "HRN-01: rust/crates/agentlinux-core (the pure-logic crate) exists" {
+  [ -d rust/crates/agentlinux-core ]
 }
 
 @test "HRN-01: plugin/catalog/catalog.json is valid JSON" {
-  run node -e "JSON.parse(require('fs').readFileSync('plugin/catalog/catalog.json','utf8'))"
-  [ "$status" -eq 0 ]
-}
-
-@test "HRN-01: plugin/cli/tsconfig.json is valid JSON" {
-  run node -e "JSON.parse(require('fs').readFileSync('plugin/cli/tsconfig.json','utf8'))"
-  [ "$status" -eq 0 ]
-}
-
-@test "HRN-01: plugin/cli/biome.json is valid JSON" {
-  run node -e "JSON.parse(require('fs').readFileSync('plugin/cli/biome.json','utf8'))"
+  run jq empty plugin/catalog/catalog.json
   [ "$status" -eq 0 ]
 }
 
 @test "HRN-01: plugin/catalog/schema.json is valid JSON" {
-  run node -e "JSON.parse(require('fs').readFileSync('plugin/catalog/schema.json','utf8'))"
+  run jq empty plugin/catalog/schema.json
   [ "$status" -eq 0 ]
 }
 

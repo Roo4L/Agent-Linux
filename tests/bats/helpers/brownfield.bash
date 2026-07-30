@@ -70,7 +70,7 @@ setup_brownfield_host() {
   # not default to --remove-nodejs). Run as root; bats runs as root in the
   # container per the harness contract. Suppress output — the purge transcript
   # is verbose and not load-bearing for the @test.
-  bash /opt/agentlinux-src/plugin/bin/agentlinux-install --purge >/dev/null 2>&1 || true
+  /opt/agentlinux-src/plugin/bin/agentlinux provision --purge >/dev/null 2>&1 || true
 
   # Step 1: Create the agent user manually (NOT via 10-agent-user.sh — that's
   # exactly what we're testing REUSE-01 skips).
@@ -138,7 +138,7 @@ setup_brownfield_host() {
 # baseline to trigger its targeted remediate handler — fixture-isolation
 # invariant carried from Plan 14-01.
 _brownfield_baseline() {
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
   useradd -m -s /bin/bash agent >/dev/null 2>&1 || usermod -s /bin/bash agent
   local tmp
   tmp=$(mktemp)
@@ -333,7 +333,7 @@ setup_brownfield_broken_claude_code() {
   # required because the brownfield npm-prefix (seeded with root /usr from
   # baseline) may trigger REMEDIATE-01 npm-prefix decision (depending on
   # whether _brownfield_baseline reseeded agent ownership).
-  bash "$INSTALLER" --yes >/dev/null 2>&1 || true
+  "$INSTALLER" provision --yes >/dev/null 2>&1 || true
   # Step 3: install claude-code via npm at the PATH-MISMATCH location.
   # Use --no-fund --no-audit for cleaner transcripts; sudo -u agent -H is
   # mandatory (CLAUDE.md critical rule — never `sudo npm install -g`).
@@ -444,7 +444,7 @@ setup_brownfield_host_user_wrong_shell() {
   local wrong_shell
   wrong_shell=$(distro_wrong_shell)
   log_brownfield "purging any existing AgentLinux state (idempotent)"
-  bash /opt/agentlinux-src/plugin/bin/agentlinux-install --purge >/dev/null 2>&1 || true
+  /opt/agentlinux-src/plugin/bin/agentlinux provision --purge >/dev/null 2>&1 || true
   log_brownfield "creating agent user with shell=${wrong_shell} (DET-01 incompatible, family-correct non-bash, functional login shell)"
   if ! id -u agent >/dev/null 2>&1; then
     useradd -m -s "$wrong_shell" agent
@@ -494,10 +494,10 @@ setup_brownfield_host_with_agent2_taken() {
 # this helper as the canonical base. Adding a new brownfield fixture? Call
 # this first.
 _setup_brownfield_apt_layer() {
-  local installer=/opt/agentlinux-src/plugin/bin/agentlinux-install
+  local installer=/opt/agentlinux-src/plugin/bin/agentlinux
 
   log_brownfield "purging any existing AgentLinux state (idempotent)"
-  bash "$installer" --purge >/dev/null 2>&1 || true
+  "$installer" provision --purge >/dev/null 2>&1 || true
 
   if ! id -u agent >/dev/null 2>&1; then
     log_brownfield "creating agent user (useradd -m -s /bin/bash)"
@@ -546,7 +546,7 @@ _setup_brownfield_apt_layer() {
 # The gsd + playwright-cli installs are REUSE fixtures — at canonical paths,
 # healthy. They demonstrate the REUSE-03 short-circuit on a populated host.
 setup_brownfield_host_full() {
-  local installer=/opt/agentlinux-src/plugin/bin/agentlinux-install
+  local installer=/opt/agentlinux-src/plugin/bin/agentlinux
   local pkg_version catalog
   pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
   catalog=/opt/agentlinux/catalog/${pkg_version}/catalog.json
@@ -558,7 +558,7 @@ setup_brownfield_host_full() {
   # subsequent npm-global installs (mirrors setup_brownfield_broken_claude_code).
   # --yes required because brownfield npm-prefix may trigger REMEDIATE-01.
   log_brownfield "running agentlinux-install --yes to wire PATH for agent's login shell"
-  bash "$installer" --yes >/dev/null 2>&1 || true
+  "$installer" provision --yes >/dev/null 2>&1 || true
 
   # Re-resolve catalog path after install (catalog is staged by the installer).
   catalog=/opt/agentlinux/catalog/${pkg_version}/catalog.json

@@ -1,4 +1,4 @@
-# Mutation Testing — AgentLinux v0.3.0
+# Mutation Testing — AgentLinux
 
 Mutation testing introduces small intentional faults into the source (mutants) and
 verifies the test suite catches each one. Mutation score (mutants killed / mutants
@@ -7,46 +7,36 @@ assert real behavior from tests that merely execute lines.
 
 ## Scope
 
-| Target | Tool | Score target |
-|--------|------|--------------|
-| `plugin/cli/src/**/*.ts` (Node.js CLI) | [stryker-mutator](https://stryker-mutator.io/) — config at `plugin/cli/stryker.config.json` | ≥ 75 % |
-| `plugin/bin`, `plugin/lib`, `plugin/provisioner` (bash) | In-house `tests/mutation/bash-mutator.sh` | ≥ 60 % |
+Post-cutover (v0.4.0), the registry CLI + provisioner are the Rust workspace under
+`rust/`, so mutation testing is [`cargo-mutants`](https://mutants.rs/) on the Rust
+crates. The legacy TypeScript `stryker` job and the in-house `bash-mutator.sh`
+scaffold were removed with `plugin/cli/` + the Bash provisioner. The `~25` per-agent
+recipes under `plugin/catalog/agents/` stay Bash (irreducible npm/apt/curl glue) and
+are covered by the bats behavior suite, not mutation-tested.
 
-Targets match `docs/HARNESS.md` §1.3. The CLI target is higher because stryker is
-mature and generates many equivalence-checked mutants; the bash mutator is a
-narrow, audit-friendly set (negation flip, comparison swap, `set -e` removal,
-sudoers mode bit flip, `as_user` bypass).
+| Target | Tool | Where |
+|--------|------|-------|
+| `rust/crates/agentlinux-core` (pure logic) + `rust/crates/agentlinux` | [`cargo-mutants`](https://mutants.rs/) (pinned) | gating `--in-diff` step in `test.yml`'s `rust` job; full-crate advisory score in `nightly-mutation.yml` |
 
-## Advisory — not blocking
+## Two surfaces
 
-Mutation results are **advisory in v0.3.0**. Both the nightly workflow job
-(`.github/workflows/nightly-mutation.yml`) and stryker itself
-(`thresholds.break: 0` in the config) are explicitly configured so a low score
-cannot fail CI or block a merge. A regression that drops the score significantly
-opens a follow-up issue, not a release blocker.
-
-Promotion to a blocking release gate is a **v0.4 decision** — see ADR-007
-follow-up. The intent: let v0.3.0 build up a mutation-score baseline and a
-false-positive catalogue before we enforce a floor.
+- **Gating (per-PR):** `test.yml`'s `rust` job runs `cargo-mutants --in-diff` over the
+  changed Rust lines — a zero-survivor gate scoped to the diff, so a PR that adds
+  untested logic fails. See `.github/workflows/test.yml`.
+- **Advisory (nightly):** `.github/workflows/nightly-mutation.yml`'s `rust-mutants`
+  job runs the full-crate score `continue-on-error: true` — a regression opens a
+  follow-up, not a release blocker.
 
 ## Run locally
 
 ```bash
-# Node.js CLI (stryker)
-cd plugin/cli
-npm install
-npx stryker run
-
-# Bash installer scripts (in-house mutator)
-bash tests/mutation/bash-mutator.sh
+cd rust
+cargo install --locked --version 27.1.0 cargo-mutants   # pinned, matches CI
+# full-crate score:
+cargo mutants
+# diff-scoped (what the PR gate runs), from the repo root:
+cargo mutants --in-diff <(git diff origin/master...HEAD -- rust/) --relative
 ```
 
-Both commands print scores to stdout. On a Phase 1 empty plugin both commands
-skip gracefully and exit 0 — no CLI source yet, no installer bash yet.
-
-## Next steps (Phase 2+)
-
-- Flesh out `bash-mutator.sh` to actually apply the five mutation operators and
-  re-run the bats suite under Docker for each mutant.
-- Wire stryker to the TypeScript CLI once real commands ship in Phase 4.
-- Track mutation-score baseline per release in `docs/reviews/mutation-baseline.md`.
+`cargo-mutants` restores the tree after each run. A clean diff yields "no mutants
+to test" and exits 0.

@@ -42,7 +42,7 @@ docker run --rm -v "$PWD":/code -w /code bats/bats:latest tests/harness/
 | `30-workflows.bats` | HRN-08 — four GH Actions workflows parse + empty-plugin-pass |
 | `40-adrs-and-research.bats` | HRN-04 + HRN-05 — ADR-001..010 seeded + research migrated |
 | `50-agents-and-skills.bats` | HRN-06 + HRN-07 + HRN-09 + TST-07 scaffolding — six review subagents + /review skill + four project-scoped skill skeletons |
-| `60-mutation-scaffolding.bats` | TST-06 — stryker config + bash-mutator runnable + advisory |
+| `60-mutation-scaffolding.bats` | TST-06 — cargo-mutants gate (test.yml) + full-crate advisory score (nightly) |
 
 ## What a failure means
 
