@@ -19,7 +19,6 @@
 
 use crate::provision::probe::{self, NpmPrefixState, SudoersState};
 use crate::provision::{Resolution, Resolutions};
-use std::io::IsTerminal;
 use std::process::ExitCode;
 
 /// EX_DATAERR (sysexits.h) — incompatible host state.
@@ -132,7 +131,27 @@ pub fn decide_core(
     res: &mut Resolutions,
     bails: &mut Vec<Bail>,
 ) {
-    let is_tty = std::io::stdin().is_terminal();
+    let mut prompter = crate::provision::wizard::Stdio::new();
+    decide_core_with(user, home, yes, res, bails, &mut prompter);
+}
+
+/// [`decide_core`] against an injected [`Prompter`].
+///
+/// The consent surface is a parameter because the ORDER of the prompts is
+/// load-bearing and shares one read buffer: the npm-prefix answer's trailing
+/// newline carries into the sudoers prompt as its Enter. That contract lived in
+/// two comments ("the tests feed answers positionally") and had no in-process
+/// test, because every prompt re-locked global stdin. It is the bug class this
+/// project has shipped twice.
+pub fn decide_core_with(
+    user: &str,
+    home: &str,
+    yes: bool,
+    res: &mut Resolutions,
+    bails: &mut Vec<Bail>,
+    prompter: &mut dyn crate::provision::wizard::Prompter,
+) {
+    let is_tty = prompter.is_tty();
 
     // User (REUSE-01): absent → Create; bash-shell existing → Reuse (re-attach
     // path wiring, [REMEDIATE-02]); wrong-shell → irreconcilable BAIL with the
@@ -179,6 +198,7 @@ pub fn decide_core(
     let (mut npm_res, npm_bail) = decide_npm_prefix(npm_state, yes, is_tty);
     if npm_state == NpmPrefixState::WrongOwner && !yes && is_tty {
         npm_res = prompt_component(
+            prompter,
             "npm-prefix",
             "REMEDIATE-01",
             &format!("chown ~{user}/.npm-global to {user}:{user}"),
@@ -193,6 +213,7 @@ pub fn decide_core(
     let (mut sudoers_res, sudoers_bail) = decide_sudoers(sudoers_state, yes, is_tty);
     if sudoers_state == SudoersState::Drifted && !yes && is_tty {
         sudoers_res = prompt_component(
+            prompter,
             "sudoers",
             "REMEDIATE-03",
             "overwrite /etc/sudoers.d/agentlinux with canonical ADR-012 line",
@@ -209,8 +230,13 @@ pub fn decide_core(
 /// to `wizard::confirm_remediate`; accept → `Remediate`, decline → the grep-stable
 /// `[REMEDIATE-NN] DECLINED by user …` marker + `ReuseWithWarning` (the step layer
 /// renders `[REUSE-WARN]` and leaves the drifted state untouched).
-fn prompt_component(component: &str, marker: &str, description: &str) -> Resolution {
-    if crate::provision::wizard::confirm_remediate(component, description) {
+fn prompt_component(
+    prompter: &mut dyn crate::provision::wizard::Prompter,
+    component: &str,
+    marker: &str,
+    description: &str,
+) -> Resolution {
+    if prompter.confirm(component, description) {
         Resolution::Remediate
     } else {
         eprintln!(
@@ -352,5 +378,106 @@ mod flush_tests {
         // circuiting on the first would hide the second behind a re-run.
         let bails = [bail("npm-prefix", "wrong-owner"), bail("sudoers", "drift")];
         assert_eq!(flush_bails(&bails).unwrap_err(), ExitCode::from(65));
+    }
+}
+
+#[cfg(test)]
+mod prompt_order_tests {
+    //! The cross-component read-ahead contract, in-process for the first time.
+    use super::*;
+    use crate::provision::wizard::{Prompter, Stdio};
+    use std::io::Cursor;
+
+    /// A prompter over ONE in-memory reader holding every answer in order —
+    /// the same shared-buffer shape as the production stdin lock.
+    fn scripted(answers: &str) -> Stdio<Cursor<Vec<u8>>, Vec<u8>> {
+        Stdio::with_streams(true, Cursor::new(answers.as_bytes().to_vec()), Vec::new())
+    }
+
+    /// A non-TTY prompter: no prompt is possible, so consent must come from
+    /// --yes or the component bails.
+    fn no_tty() -> Stdio<Cursor<Vec<u8>>, Vec<u8>> {
+        Stdio::with_streams(false, Cursor::new(Vec::new()), Vec::new())
+    }
+
+    fn decide(prompter: &mut dyn Prompter, yes: bool) -> Resolutions {
+        // A tempdir home with no .npm-global and no sudoers drop-in is the
+        // clean-host shape: both components resolve without a prompt.
+        let d = tempfile::tempdir().unwrap();
+        let mut res = Resolutions::seed_create();
+        let mut bails = Vec::new();
+        decide_core_with(
+            "no-such-user-agentlinux-xyzzy",
+            &d.path().to_string_lossy(),
+            yes,
+            &mut res,
+            &mut bails,
+            prompter,
+        );
+        res
+    }
+
+    #[test]
+    fn a_clean_host_needs_no_answers_at_all() {
+        // An empty answer script would make any prompt read EOF and decline, so
+        // "everything is Create" also proves nothing prompted.
+        let res = decide(&mut scripted(""), false);
+        assert_eq!(res.user, Resolution::Create);
+        assert_eq!(res.npm_prefix, Resolution::Create);
+        assert_eq!(res.sudoers, Resolution::Create);
+    }
+
+    #[test]
+    fn each_component_consumes_exactly_one_byte_of_the_shared_buffer() {
+        // `confirm` reads ONE byte and does NOT drain after a valid answer, so
+        // consecutive answers are consecutive BYTES of one stream. This is the
+        // contract two comments asserted and nothing checked.
+        let mut p = scripted("nY");
+        assert!(!p.confirm("npm-prefix", "chown"), "byte 1 = 'n' → decline");
+        assert!(p.confirm("sudoers", "overwrite"), "byte 2 = 'Y' → accept");
+    }
+
+    #[test]
+    fn a_trailing_newline_becomes_the_next_components_enter() {
+        // The read-ahead the module doc calls INTENTIONAL, pinned: after a valid
+        // answer the trailing `\n` is left in the buffer and the NEXT prompt reads
+        // it as Enter — i.e. accept. A driver feeding `n\nY\n` therefore answers
+        // decline-then-ACCEPT-VIA-ENTER and leaves `Y\n` unread; it is not
+        // decline-then-Y. Anyone scripting these prompts positionally needs this
+        // stated, and any change to the drain behaviour must fail here.
+        let mut p = scripted("n\nY\n");
+        assert!(!p.confirm("npm-prefix", "chown"));
+        assert!(
+            p.confirm("sudoers", "overwrite"),
+            "the leftover newline is the second prompt's Enter"
+        );
+    }
+
+    #[test]
+    fn an_exhausted_answer_script_declines_rather_than_blocking() {
+        // EOF is a decline, so a truncated driver script can never silently
+        // consent to a state-overwriting remediation.
+        let mut p = scripted("Y");
+        assert!(p.confirm("npm-prefix", "chown"));
+        assert!(!p.confirm("sudoers", "overwrite"), "EOF → decline");
+    }
+
+    #[test]
+    fn an_invalid_answer_is_re_prompted_and_the_rest_of_the_line_is_discarded() {
+        // T-15-01-03: only the FIRST byte steers the decision; the rest of an
+        // invalid line is drained unevaluated, so a pasted `xrm -rf /\nY` cannot
+        // smuggle a second answer.
+        let mut p = scripted("xrm -rf /\nY");
+        assert!(p.confirm("npm-prefix", "chown"), "re-prompt reads the Y");
+    }
+
+    #[test]
+    fn a_non_tty_never_prompts() {
+        // The curl-installer path. With --yes absent this is where the bails come
+        // from; with --yes it proceeds without consulting the prompter at all.
+        let res = decide(&mut no_tty(), false);
+        assert_eq!(res.sudoers, Resolution::Create);
+        let res = decide(&mut no_tty(), true);
+        assert_eq!(res.sudoers, Resolution::Create);
     }
 }

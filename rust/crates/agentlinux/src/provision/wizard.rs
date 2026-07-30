@@ -200,6 +200,60 @@ pub fn confirm_remediate(component: &str, description: &str) -> bool {
     confirm_remediate_io(component, description, stdin.lock(), std::io::stderr())
 }
 
+/// The consent surface the DECIDE phase talks to: is this a terminal, and does
+/// the operator accept this remediation?
+///
+/// A trait rather than two free functions because the invariant between the
+/// prompts is a SHARED READ BUFFER. Each prompt reads a line; the answer to the
+/// first carries its trailing newline through the same buffer into the second,
+/// which is why the npm-prefix-before-sudoers order is load-bearing. With
+/// `std::io::stdin()` re-locked per call that invariant was documented in two
+/// comments and enforced by nothing — and a desync test (feed `n\nY\n`, expect
+/// decline-then-accept) could not be written at all. The production `Stdio`
+/// holds ONE reader for its lifetime, so the invariant is structural.
+pub trait Prompter {
+    /// Whether stdin is a terminal (no prompt is possible when it is not).
+    fn is_tty(&self) -> bool;
+    /// `[Y/n]` for one state-overwriting remediation.
+    fn confirm(&mut self, component: &str, description: &str) -> bool;
+}
+
+/// The production prompter: one stdin reader, held for the whole DECIDE phase.
+pub struct Stdio<R: BufRead, W: Write> {
+    tty: bool,
+    input: R,
+    err: W,
+}
+
+impl Stdio<std::io::StdinLock<'static>, std::io::Stderr> {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            tty: stdin_is_tty(),
+            input: std::io::stdin().lock(),
+            err: std::io::stderr(),
+        }
+    }
+}
+
+impl<R: BufRead, W: Write> Stdio<R, W> {
+    /// A prompter over supplied streams — the seam a test drives with an
+    /// in-memory cursor holding EVERY answer, in order.
+    pub fn with_streams(tty: bool, input: R, err: W) -> Self {
+        Self { tty, input, err }
+    }
+}
+
+impl<R: BufRead, W: Write> Prompter for Stdio<R, W> {
+    fn is_tty(&self) -> bool {
+        self.tty
+    }
+
+    fn confirm(&mut self, component: &str, description: &str) -> bool {
+        confirm_remediate_io(component, description, &mut self.input, &mut self.err)
+    }
+}
+
 // --- UX-04: wrong-shell alt-user prompt (prompt::alt_user_or_bail) ---
 
 /// First free `agent2..agent99` (remediate::find_alt_user_name), or `None` when
