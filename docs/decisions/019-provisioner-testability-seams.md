@@ -138,9 +138,15 @@ removed (attaching a real pty, a real passwd DB). They carry
 This is a real cost of the design and is stated so it is not rediscovered: every
 seam of this kind trades a testable branch for an untestable adapter. The trade
 is worth it because the adapter is one line with no logic, while the branch it
-freed carries the decision. Prefer the shape that needs NO skip where it exists —
-`real_choose_user` has none, because the caller re-validates whatever the wizard
-returns, which kills both of its mutants and closes a trust gap at the same time.
+freed carries the decision — and the behaviour a wrong adapter would cause is
+asserted THROUGH the seam, from literals, on both settings.
+
+What does NOT discharge the skip: having the caller validate the adapter's
+output. That is worth doing for its own sake — `provision_with` re-checks the
+wizard's answer, which closes a real trust gap — but it does not make the
+adapter's mutants observable, because no test drives the production adapter at
+all. Measured, not assumed: `real_choose_user`'s two mutants still survived a
+full `cargo mutants` run after the re-validation landed.
 
 `pkg.rs`'s executor half — `pkg_install`, `pkg_remove`, `nodesource_setup` — is
 part of the SAME gap and is named here explicitly, because this list is read by

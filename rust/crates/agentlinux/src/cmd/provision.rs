@@ -382,10 +382,18 @@ impl Default for ProvisionDeps {
 
 /// The production install-user wizard, as a plain fn pointer.
 ///
-/// Its mutants ARE killed, by `a_wizard_answer_that_is_not_a_legal_user_is_refused`
-/// — the caller re-validates whatever comes back, so `String::new()` and
-/// `"xyzzy".into()` both fail. That is the preferable shape: an adapter whose
-/// output the caller checks needs no skip.
+/// Not mutation-tested — ADR-019 §5, "production wiring adapters", same as
+/// `cmd/install::real_is_tty`. `choose_install_user` reads real stdin, so no
+/// test drives THIS function; every test injects its own `choose_user`, which
+/// means a mutant returning `String::new()` here is unobservable in-process.
+///
+/// The caller re-validating the answer (see `provision_with`) does NOT kill
+/// these mutants — it closes a trust gap, which is worth doing on its own
+/// merits, but the adapter stays unkillable. Recording that plainly rather than
+/// claiming otherwise: the behaviour a wrong return would cause IS asserted, by
+/// `a_wizard_answer_that_is_not_a_legal_user_is_refused`, which drives "",
+/// "root" and "Bad User!" through the seam.
+#[cfg_attr(test, mutants::skip)]
 fn real_choose_user(default_user: &str) -> String {
     provision::wizard::choose_install_user(default_user, &validate_user_name)
 }
