@@ -97,8 +97,10 @@ fi
 # Test-secret forwarding. Append rows here in lockstep with .env.local.example
 # and docs/internals/test-secrets.md.
 SECRET_ALLOWLIST=(
-  ANTHROPIC_API_KEY # interactive Claude Code behavioral tests
-  FOO               # test-secrets convention smoke
+  ANTHROPIC_API_KEY  # interactive Claude Code tests; opencode + qwen-code smokes
+  OPENAI_API_KEY     # codex smoke (OpenAI-only)
+  ANTIGRAVITY_CLI_QA # antigravity-cli smoke
+  FOO                # test-secrets convention smoke
 )
 
 # Source .env.local if present so the allowlist sees vars set there.

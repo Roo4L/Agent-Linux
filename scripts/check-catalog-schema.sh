@@ -3,17 +3,24 @@
 # scripts/check-catalog-schema.sh — commit-time structural gate for the catalog.
 #
 # Replaces the pre-cutover `node plugin/cli/scripts/validate-catalog.mjs` (ajv)
-# hook, which was deleted with the TypeScript CLI. The AUTHORITATIVE catalog
-# validation is now the Rust schemars drift-check (`cargo test -p agentlinux-core
-# schema`, TEST-03) — it regenerates plugin/catalog/schema.json from the Rust
-# types and fails on drift. That runs in CI (the rust job).
+# hook, deleted with the TypeScript CLI.
 #
-# This hook is the fast, jq-only commit-time backstop: it confirms catalog.json
-# parses and every required field named in schema.json's `required` lists is
-# present, so a contributor cannot land a structurally-broken entry that would
-# only fail later in the Rust suite. It intentionally does NOT re-implement full
-# JSON-Schema validation (types, enums, conditionals) — that is the Rust suite's
-# job and duplicating it in jq would drift.
+# WHAT ACTUALLY GUARDS THE CATALOG, so the layering is not misread:
+#   1. This hook — fast, jq-only, commit-time. Confirms catalog.json parses and
+#      that the required fields are present. Catches a structurally-broken entry
+#      before it is committed.
+#   2. `cargo test -p agentlinux catalog::catalog_tests::shipped_catalog_satisfies_its_schema`
+#      — loads the REAL catalog.json through the Rust types and asserts the
+#      constraints serde cannot express (source_kind enum, semver pin, npm
+#      requires npm_package_name, https endpoint_url). This is the strongest gate.
+#   3. `cargo test -p agentlinux-core schema` — regenerates schema.json from the
+#      Rust types and fails on drift. It compares BYTES ONLY; it never opens
+#      catalog.json, so it is not catalog validation.
+#
+# No JSON-Schema validator runs in this repo. The required-field list below is
+# therefore a deliberate, small duplication of schema.json's `required` — kept
+# because it is what makes this hook fast enough for pre-commit. Gate (2) is the
+# one that must be kept in step with the schema.
 
 set -euo pipefail
 
@@ -55,7 +62,7 @@ if ! err=$(jq -e '
   | if ($errs | length) > 0 then error($errs | join("; ")) else true end
 ' "$CAT_JSON" 2>&1 >/dev/null); then
   printf 'check-catalog-schema: %s failed structural validation:\n  %s\n' "$CAT_JSON" "$err" >&2
-  printf '(Full JSON-Schema validation runs in `cargo test -p agentlinux-core schema`.)\n' >&2
+  printf '(Deeper field checks run in `cargo test -p agentlinux catalog::catalog_tests::shipped_catalog_satisfies_its_schema`.\n No JSON-Schema validator runs anywhere in this repo — see schema_gen.rs.)\n' >&2
   exit 1
 fi
 
