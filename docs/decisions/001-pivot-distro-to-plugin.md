@@ -25,5 +25,7 @@ existing Ubuntu systems (22.04 + 24.04 LTS), starting with v0.3.0.
   apt repo / OpenNebula contextualization become N/A.
 - Provisioner-script lessons from v0.2.0 (Node.js install patterns, agent-user
   ownership, correct-path wiring) carry forward directly into the plugin.
-- Legacy `packer/` directory stays in-tree as read-only reference; final archive
-  sweep is deferred to v0.3.1.
+- Legacy `packer/` directory stayed in-tree as read-only reference past the
+  original v0.3.1 target; the final archive sweep removed it during the v0.4.0
+  cycle (2026-07-31) — the v0.2.0 phase archive under
+  `.planning/milestones/v0.2.0-phases/` remains the durable historical record.
