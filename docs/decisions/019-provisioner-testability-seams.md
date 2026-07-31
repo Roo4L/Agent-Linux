@@ -71,8 +71,15 @@ would make the safe combination the only reachable one. Not done yet.
 
 ### 3. Nothing in the DECIDE phase may read the host
 
-`decide_core_with` takes the sudoers path and the `Prompter`; it reads neither
-`/etc` nor global stdin. This is the strictest rule here, because breaking it
+`decide_core_with` takes a `HostFacts` value and a `Prompter`. It reads no
+filesystem, no passwd DB and no stdin; `HostFacts::probe` is the one place that
+does, and the orchestrator calls it. An earlier revision of this ADR claimed the
+property while `decide_core_with` still called `probe::user_state` and
+`probe::npm_prefix_state` inline — which had a second cost beyond the claim
+being false: a fixture could only steer the user verdict by naming a user no
+host would have, so `UserState::Absent` was the only reachable arm, and
+`Conforming`, `WrongShell` and `HomeNotWritable` — two of which raise the `Bail`
+that stops the provisioner touching a brownfield host — had no coverage at all. This is the strictest rule here, because breaking it
 fails in a way that is worse than a missing test: the suite passed unprivileged
 (the 0440 drop-in is unreadable, so a provisioned host looked clean) and
 inverted as root (the same fixture classified `Drifted`, and a "clean host needs
@@ -82,6 +89,17 @@ QEMU harnesses run as root.
 **Consequence, enforced:** `cargo test` must produce identical results as an
 unprivileged user and as root. A test whose verdict depends on the runner is a
 bug regardless of which way it currently falls.
+
+### 3b. The orchestrator's phase ORDER is a property, so it needs a seam too
+
+`provision_with(args, &ProvisionDeps)` injects the phases `provision` composes.
+The orderings are the contract — `--purge` before distro detection,
+`--report-only`/`--dry-run` returning before the step loop, the bail flush before
+`log::init` and before any step, the detect re-scan after the steps and before
+adoption — and while every dependency was reached statically, all of them could
+be permuted with the whole suite still green. That includes §4's
+NO-MUTATION-SNAPSHOT contract, whose entire content is "nothing ran before the
+flush": it was asserted on `flush_bails` in isolation, never on the sequence.
 
 ### 4. Library code returns exit codes; it does not exit
 

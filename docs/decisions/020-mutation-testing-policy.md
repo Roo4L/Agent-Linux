@@ -90,6 +90,25 @@ Two escape hatches, both requiring a written reason at the site:
 Neither hatch may be used to silence a mutant that survives because the test is
 weak. That is the finding, not the noise.
 
+**Third case, added after the gate went enforcing.** ADR-019 §5 records modules
+that are deliberately unseamed. The enforcing per-PR gate covers the whole
+workspace, so a PR touching a line in one of them meets a red gate on a mutant
+no writable test could kill — and the contributor's only exits are "build the
+seam" (correct, but unscoped in their PR) or "reach for `#[mutants::skip]`",
+which the paragraph above forbids. The collision is real: `cargo mutants --list`
+puts tens of mutants in `nodejs`, `agent_user` and the purge/report paths.
+
+So a mutant may also be skipped when it is **structurally unreachable pending a
+recorded seam gap**, on one condition: the `#[mutants::skip]` carries a
+back-reference to the ADR-019 §5 entry explaining why. That keeps the hatch
+auditable — `grep -c 'ADR-019 §5'` is the size of the debt — and makes closing
+the gap delete the skips rather than leave them behind. A skip with no
+back-reference is still a finding.
+
+The interaction is smaller than that count suggests: `provision_with`
+(ADR-019 §3b) made the orchestrator's phases injectable, so most of
+`cmd/provision`'s share became killable.
+
 ### 5. The cost, stated honestly
 
 `--in-place` means the per-PR run is serial. At roughly 6 seconds per mutant a
