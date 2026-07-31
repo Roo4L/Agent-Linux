@@ -79,8 +79,10 @@ property while `decide_core_with` still called `probe::user_state` and
 being false: a fixture could only steer the user verdict by naming a user no
 host would have, so `UserState::Absent` was the only reachable arm, and
 `Conforming`, `WrongShell` and `HomeNotWritable` — two of which raise the `Bail`
-that stops the provisioner touching a brownfield host — had no coverage at all. This is the strictest rule here, because breaking it
-fails in a way that is worse than a missing test: the suite passed unprivileged
+that stops the provisioner touching a brownfield host — had no coverage at all.
+
+This is the strictest rule here, because breaking it fails in a way that is
+worse than a missing test: the suite passed unprivileged
 (the 0440 drop-in is unreadable, so a provisioned host looked clean) and
 inverted as root (the same fixture classified `Drifted`, and a "clean host needs
 no answers" test consented to a remediation nobody asked for). The Docker and
