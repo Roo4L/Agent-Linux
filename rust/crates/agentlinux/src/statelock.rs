@@ -19,10 +19,12 @@
 //!
 //! # Two failure modes, deliberately opposite
 //! **Contention fails CLOSED.** Another run holds the lock → refuse with
-//! `EX_TEMPFAIL`, naming the file. A caller that waits looks identical to a
+//! `EX_TEMPFAIL` (75), naming the file. A caller that waits looks identical to a
 //! caller that hung, which is exactly the confusion the timeouts elsewhere in
-//! this crate exist to remove; `--wait-lock` covers the automation case where
-//! queueing IS wanted.
+//! this crate exist to remove. There is deliberately no queue-and-wait option:
+//! `EX_TEMPFAIL` is the conventional "try again later" signal, and an automation
+//! author's `until agentlinux install x; do sleep 10; done` is both more flexible
+//! than a built-in cap and something we do not have to carry.
 //!
 //! **Unavailability fails OPEN.** If the lock file cannot be created or opened at
 //! all — no `/run/lock`, a read-only filesystem, a container without the usual
@@ -55,7 +57,7 @@ use std::fs::{File, OpenOptions};
 use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+
 
 /// The lock file — FHS lock directory, world-writable, and outside the tree
 /// `--purge` removes. See the module docs for why each of those three matters.
@@ -71,45 +73,26 @@ const LOCK_PATH_ENV: &str = "AGENTLINUX_LOCK_FILE";
 /// `agentlinux adopt --all`, which would be refused by the run that started it.
 pub const LOCK_INHERITED_ENV: &str = "AGENTLINUX_LOCK_INHERITED";
 
-/// How long `--wait-lock` waits before giving up.
+/// Why a caller is allowed to proceed.
 ///
-/// Must exceed the longest legitimate hold or the queue-behind option would give
-/// up on a HEALTHY holder — a single recipe may legitimately run for the
-/// 30-minute `DEFAULT_RECIPE_TIMEOUT_MS`, and a provision runs several. An hour
-/// is comfortably past that while still bounded, so a queued automation run fails
-/// inside a normal job timeout rather than holding a runner forever.
-const WAIT_TIMEOUT: Duration = Duration::from_secs(3600);
-
-/// Poll interval while waiting. `flock` has no timed variant, so a blocking
-/// acquire cannot be bounded — polling the non-blocking form is what makes
-/// `WAIT_TIMEOUT` enforceable.
-const WAIT_POLL: Duration = Duration::from_millis(250);
-
-/// Whether a caller queues behind a held lock or is refused immediately.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OnContention {
-    /// Refuse at once, naming the other run. The default for an interactive verb.
-    Fail,
-    /// Wait up to `WAIT_TIMEOUT` for the other run to finish (`--wait-lock`).
-    Wait,
-}
-
-/// A held host lock, or a documented absence of one.
-///
-/// Releases on drop — including on panic, and on process exit, because the kernel
-/// drops `flock` with the fd. Callers keep it alive for the whole operation;
-/// dropping it early would re-open the window it exists to close, hence
-/// `#[must_use]`.
+/// No caller matches on this — every variant means "go ahead", and the value
+/// exists to be KEPT ALIVE: dropping it releases the lock, which is why it is
+/// `#[must_use]`. The variants are here so a debug print and the tests can say
+/// which case occurred. Releases on drop including on panic and on process exit,
+/// because the kernel drops `flock` with the fd.
 #[derive(Debug)]
 #[must_use = "the lock is released as soon as this is dropped"]
 pub enum HostLock {
-    /// The lock is held for as long as this value lives.
+    /// The lock is held for as long as this value lives. The `Flock` is never
+    /// read — it is retained purely for its `Drop`.
     Held(#[allow(dead_code)] Flock<File>),
     /// Locking was unavailable on this host and the caller proceeded anyway. The
     /// warning has already been emitted.
     Unavailable,
     /// This process inherited the lock from the `agentlinux` run that spawned it.
     Inherited,
+    /// The verb does not mutate host state, so no lock was sought.
+    NotRequired,
 }
 
 /// Resolve the lock file path: `$AGENTLINUX_LOCK_FILE` else the default.
@@ -120,7 +103,32 @@ fn lock_path() -> PathBuf {
     }
 }
 
-/// Open the lock file, `O_NOFOLLOW`, preferring read-only.
+/// Why `open_lock_file` could not hand back a usable lock file. The two arms get
+/// opposite treatment, which is the whole reason the type exists.
+enum LockOpenError {
+    /// The host cannot support the lock: no `/run/lock`, a read-only filesystem,
+    /// no permission to create. A property of the machine, so we fail OPEN.
+    Unavailable(io::Error),
+    /// Something is sitting at the lock path that should not be — a symlink, a
+    /// FIFO, a directory. `/run/lock` is world-writable, so that is a local user
+    /// planting an object, not a host-shape problem, and we fail CLOSED.
+    Hostile(String),
+}
+
+/// The open flags every attempt carries.
+///
+/// `O_NOFOLLOW` refuses a symlink at the final component. `O_NONBLOCK` is the
+/// other half and is NOT optional: `O_NOFOLLOW` says nothing about other file
+/// types, and `open()` on a FIFO blocks in the kernel until a writer appears —
+/// no timeout, no signal escape, and nothing in this crate's bounding scheme
+/// applies because it happens before any child is spawned. One
+/// `mkfifo /run/lock/agentlinux.lock` by any local user would otherwise hang
+/// every privileged verb forever, silently, before the transcript is even open.
+fn lock_open_flags() -> i32 {
+    (OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits()
+}
+
+/// Open the lock file, preferring read-only, and prove it is a regular file.
 ///
 /// Read-only first is what lets an unprivileged verb lock a file that `provision`
 /// created as root: `flock(2)` locks the open file DESCRIPTION and does not care
@@ -128,27 +136,51 @@ fn lock_path() -> PathBuf {
 /// as well as `O_RDWR` would — and `O_RDWR` would fail with EACCES. Creation only
 /// happens on the absent path, and needs write permission on the DIRECTORY, not
 /// on the file.
-fn open_lock_file(path: &std::path::Path) -> io::Result<File> {
-    let nofollow = OFlag::O_NOFOLLOW.bits();
-    match OpenOptions::new()
+fn open_lock_file(path: &std::path::Path) -> Result<File, LockOpenError> {
+    let file = match OpenOptions::new()
         .read(true)
-        .custom_flags(nofollow)
+        .custom_flags(lock_open_flags())
         .open(path)
     {
-        Ok(f) => Ok(f),
+        Ok(f) => f,
         Err(e) if e.kind() == io::ErrorKind::NotFound => {
             if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
+                std::fs::create_dir_all(parent).map_err(LockOpenError::Unavailable)?;
             }
             OpenOptions::new()
                 .create(true)
                 .read(true)
                 .write(true)
                 .truncate(false)
-                .custom_flags(nofollow)
+                .custom_flags(lock_open_flags())
                 .open(path)
+                .map_err(LockOpenError::Unavailable)?
         }
-        Err(e) => Err(e),
+        // ELOOP is what `O_NOFOLLOW` returns for a planted symlink. Routing it to
+        // `Unavailable` would mean a one-line `ln -s` silently disabled host
+        // serialization for every future run — the warning would scroll past and
+        // nothing would ever repair the path.
+        Err(e) if e.raw_os_error() == Some(nix::errno::Errno::ELOOP as i32) => {
+            return Err(LockOpenError::Hostile(format!(
+                "{} is a symlink; the lock path must be a regular file",
+                path.display()
+            )))
+        }
+        Err(e) => return Err(LockOpenError::Unavailable(e)),
+    };
+
+    // `O_NONBLOCK` kept the FIFO case from hanging; this is what makes it an
+    // error rather than a lock taken on the wrong kind of object. A directory
+    // opens and `flock`s perfectly well, which would hand an attacker a lockable
+    // object they could hold indefinitely.
+    match file.metadata() {
+        Ok(m) if m.file_type().is_file() => Ok(file),
+        Ok(m) => Err(LockOpenError::Hostile(format!(
+            "{} is not a regular file ({:?}); refusing to lock it",
+            path.display(),
+            m.file_type()
+        ))),
+        Err(e) => Err(LockOpenError::Unavailable(e)),
     }
 }
 
@@ -160,54 +192,57 @@ fn open_lock_file(path: &std::path::Path) -> io::Result<File> {
 /// The lock file's CONTENTS are never read: `flock` state lives in the kernel, so
 /// an empty file is the whole mechanism and there is no stale-PID file to
 /// garbage-collect — a killed process releases the lock the moment its fd closes.
-pub fn acquire(verb: &str, on_contention: OnContention) -> io::Result<HostLock> {
-    if std::env::var_os(LOCK_INHERITED_ENV).is_some() {
+pub fn acquire(verb: &str) -> io::Result<HostLock> {
+    if std::env::var(LOCK_INHERITED_ENV).as_deref() == Ok("1") {
+        // Announce it. This variable disables host serialization outright, and
+        // anything that exports it — a shell profile, a CI job copying env
+        // wholesale, a debugging session left over — silently turns the guard off
+        // for every verb. A bypass nobody can see is worse than no bypass.
+        crate::plog!(
+            "agentlinux: {LOCK_INHERITED_ENV} is set — `{verb}` is treating the \
+             host lock as already held by a parent run. If no agentlinux run \
+             spawned this one, unset that variable: it disables serialization."
+        );
         return Ok(HostLock::Inherited);
     }
     let path = lock_path();
     let file = match open_lock_file(&path) {
         Ok(f) => f,
-        // Fail OPEN: see the module docs. A host where we cannot even create the
-        // lock file is not a host where every verb should stop working.
-        Err(e) => {
+        // Fail OPEN: a host that cannot support the lock is not a host where
+        // every verb should stop working.
+        Err(LockOpenError::Unavailable(e)) => {
             crate::plog!(
                 "agentlinux: cannot open the operation lock {} ({e}) — continuing \
                  WITHOUT serialization. Do not run two agentlinux operations at \
-                 once on this host.",
+                 once on this host. Point {LOCK_PATH_ENV} at a writable path to \
+                 restore it.",
                 path.display()
             );
             return Ok(HostLock::Unavailable);
         }
+        // Fail CLOSED: something is squatting the path. Proceeding would disable
+        // serialization for every future run, permanently and quietly, because
+        // nothing here ever repairs the planted object.
+        Err(LockOpenError::Hostile(what)) => {
+            return Err(io::Error::other(format!(
+                "refusing to run `{verb}`: {what}. `{}` is world-writable, so this \
+                 is most likely another user squatting the path. Remove it (as \
+                 root) and re-run.",
+                path.parent().unwrap_or(&path).display()
+            )))
+        }
     };
 
-    let deadline = Instant::now() + WAIT_TIMEOUT;
-    let mut file = file;
-    loop {
-        match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
-            Ok(flock) => return Ok(HostLock::Held(flock)),
-            // `Flock::lock` hands the File back on failure so a retry can reuse it.
-            Err((returned, errno)) => {
-                file = returned;
-                if on_contention == OnContention::Fail {
-                    return Err(io::Error::other(format!(
-                        "another agentlinux operation is already running (lock: {}). \
-                         `{verb}` would change the same install state, so it is \
-                         refused rather than interleaved. Wait for the other run to \
-                         finish, or re-run with --wait-lock to queue behind it.",
-                        path.display()
-                    )));
-                }
-                if Instant::now() >= deadline {
-                    return Err(io::Error::other(format!(
-                        "timed out after {}s waiting for another agentlinux \
-                         operation to release {} (last error: {errno})",
-                        WAIT_TIMEOUT.as_secs(),
-                        path.display()
-                    )));
-                }
-                std::thread::sleep(WAIT_POLL);
-            }
-        }
+    match Flock::lock(file, FlockArg::LockExclusiveNonblock) {
+        Ok(flock) => Ok(HostLock::Held(flock)),
+        Err((_returned, _errno)) => Err(io::Error::other(format!(
+            "another agentlinux operation is already running (lock: {}). `{verb}` \
+             would change the same install state, so it is refused rather than \
+             interleaved — this is exit {}, the conventional \"try again later\". \
+             Wait for the other run to finish, or retry in a loop.",
+            path.display(),
+            crate::EX_TEMPFAIL
+        ))),
     }
 }
 
@@ -235,7 +270,7 @@ mod statelock_tests {
     #[test]
     fn acquires_when_uncontended() {
         with_temp_lock(|path| {
-            let held = acquire("install", OnContention::Fail).unwrap();
+            let held = acquire("install").unwrap();
             assert!(is_held(&held));
             assert!(path.exists());
             drop(held);
@@ -247,9 +282,9 @@ mod statelock_tests {
     #[test]
     fn releases_on_drop_so_the_next_run_proceeds() {
         with_temp_lock(|_| {
-            drop(acquire("install", OnContention::Fail).unwrap());
-            drop(acquire("upgrade", OnContention::Fail).unwrap());
-            drop(acquire("remove", OnContention::Fail).unwrap());
+            drop(acquire("install").unwrap());
+            drop(acquire("upgrade").unwrap());
+            drop(acquire("remove").unwrap());
         });
     }
 
@@ -259,15 +294,16 @@ mod statelock_tests {
     #[test]
     fn refuses_a_second_holder_with_an_actionable_message() {
         with_temp_lock(|path| {
-            let _held = acquire("install", OnContention::Fail).unwrap();
-            let err = acquire("upgrade", OnContention::Fail).unwrap_err();
+            let _held = acquire("install").unwrap();
+            let err = acquire("upgrade").unwrap_err();
             let msg = err.to_string();
             assert!(
                 msg.contains("another agentlinux operation is already running"),
                 "msg={msg}"
             );
             assert!(msg.contains("upgrade"), "must name the refused verb: {msg}");
-            assert!(msg.contains("--wait-lock"), "must offer the way out: {msg}");
+            assert!(msg.contains("try again later"), "must name the retry contract: {msg}");
+            assert!(msg.contains("75"), "must name the exit code: {msg}");
             assert!(
                 msg.contains(&path.display().to_string()),
                 "must name the lock file: {msg}"
@@ -275,26 +311,6 @@ mod statelock_tests {
         });
     }
 
-    // Waiting is bounded, and the wait ENDS when the holder releases.
-    #[test]
-    fn wait_mode_proceeds_once_the_holder_releases() {
-        with_temp_lock(|_| {
-            let held = acquire("install", OnContention::Fail).unwrap();
-            let releaser = std::thread::spawn(move || {
-                std::thread::sleep(Duration::from_millis(400));
-                drop(held);
-            });
-            let start = Instant::now();
-            let second = acquire("upgrade", OnContention::Wait).unwrap();
-            assert!(
-                start.elapsed() >= Duration::from_millis(300),
-                "must actually have waited"
-            );
-            assert!(start.elapsed() < WAIT_TIMEOUT, "must not have hit the cap");
-            drop(second);
-            releaser.join().unwrap();
-        });
-    }
 
     // An unprivileged verb must be able to lock a file `provision` created as
     // root. `flock` locks the open file description regardless of access mode, so
@@ -311,7 +327,7 @@ mod statelock_tests {
             std::os::unix::fs::PermissionsExt::set_mode(&mut perms, 0o444);
             std::fs::set_permissions(path, perms).unwrap();
 
-            let held = acquire("install", OnContention::Fail).unwrap();
+            let held = acquire("install").unwrap();
             assert!(is_held(&held), "read-only file must still be lockable");
         });
     }
@@ -329,7 +345,7 @@ mod statelock_tests {
         std::fs::write(&blocker, b"").unwrap();
         std::env::set_var(LOCK_PATH_ENV, blocker.join("agentlinux.lock"));
 
-        let lock = acquire("install", OnContention::Fail).unwrap();
+        let lock = acquire("install").unwrap();
         assert!(matches!(lock, HostLock::Unavailable));
 
         std::env::remove_var(LOCK_PATH_ENV);
@@ -342,10 +358,10 @@ mod statelock_tests {
     #[test]
     fn a_nested_run_inherits_rather_than_contending() {
         with_temp_lock(|_| {
-            let _parent = acquire("provision", OnContention::Fail).unwrap();
+            let _parent = acquire("provision").unwrap();
             // The child sees the marker the parent sets on its env.
             std::env::set_var(LOCK_INHERITED_ENV, "1");
-            let child = acquire("adopt", OnContention::Fail).unwrap();
+            let child = acquire("adopt").unwrap();
             assert!(matches!(child, HostLock::Inherited));
             std::env::remove_var(LOCK_INHERITED_ENV);
         });

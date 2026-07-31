@@ -789,7 +789,10 @@ mod sysio_tests {
             after.windows(17).any(|w| w == b"alias ll='ls -la'"),
             "user content outside the block was lost"
         );
-        assert!(after.windows(15).any(|w| w == b"export EDITOR=vi"[..15].as_ref()));
+        assert!(
+            after.windows(16).any(|w| w == b"export EDITOR=vi"),
+            "a plain ASCII line after the undecodable one was lost"
+        );
         assert!(after.starts_with(b"# >>> agentlinux-path begin >>>\n"));
     }
 

@@ -38,7 +38,6 @@ use crate::sysio;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::process::Command;
 
 /// `run` — the 30-nodejs.sh port. `ctx.resolutions.node` selects the CREATE/REUSE
 /// path; the npm-prefix REMEDIATE-01 dispatch (`ctx.resolutions.npm_prefix`) runs
@@ -197,15 +196,25 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
 /// an unparsable version maps to major 0 (→ the RT-01 hard-fail), mirroring the
 /// Bash `${node_major:-0}` default.
 fn node_major_version() -> io::Result<u32> {
-    let out = match Command::new("node").arg("--version").output() {
-        Ok(o) => o,
-        // ENOENT (node absent) → major 0 so the RT-01 gate hard-fails loudly.
-        Err(_) => return Ok(0),
-    };
-    if !out.status.success() {
+    // Bounded and process-grouped like every other spawn in the crate. `node
+    // --version` is instant in every healthy case, but "instant in every healthy
+    // case" is exactly what the unbounded calls this crate spent a release fixing
+    // also looked like — a node binary on a stalled NFS mount, or one that a
+    // botched install left waiting on stdin, would hang the provisioner here with
+    // no timeout and no diagnostic. 30s is far past any real answer.
+    let r = crate::dispatcher::as_user(
+        &crate::recipe_env::resolve_install_user(),
+        &["node".to_string(), "--version".to_string()],
+        &[],
+        crate::dispatcher::Capture::Buffered,
+        Some(30_000),
+    );
+    if r.exit_code != 0 {
+        // Absent, non-zero, or timed out → major 0 so the RT-01 gate hard-fails
+        // loudly rather than silently accepting an unknown runtime.
         return Ok(0);
     }
-    let ver = String::from_utf8_lossy(&out.stdout);
+    let ver = r.stdout;
     // Parse `v22.11.0` → 22 (strip a leading `v`, take the pre-`.` field).
     let major = ver
         .trim()

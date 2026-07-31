@@ -7,7 +7,10 @@ not re-litigate settled ground or contradict it by accident.
 **This index is the navigation layer.** Scan the **Tags** column for your topic,
 follow the link, read the one ADR that applies. Reviewer subagents are pointed
 here rather than carrying copies of project invariants in their prompts. If code
-contradicts an Accepted decision, that contradiction is a finding.
+contradicts an Accepted decision, that contradiction is a finding — and where an
+ADR records an accepted trade-off, re-filing that trade-off is noise. An ADR whose
+claims no longer describe the code is itself a finding: it grants immunity, so a
+stale one is worse than none.
 
 Format and rationale for the ADR itself: [`../HARNESS.md`](../HARNESS.md) §2.3.
 New ADR: copy [`000-template.md`](000-template.md) and add a row below.
@@ -38,4 +41,4 @@ New ADR: copy [`000-template.md`](000-template.md) and add a row below.
 | [017](017-distro-family-bucket.md) | Distro-family bucket (`AGENTLINUX_DISTRO_FAMILY`) + single `pkg.sh` dispatch | distro, installer | Accepted |
 | [018](018-mcp-thin-installer-in-client-auth.md) | MCP entries are thin client-config installers; auth happens in-client | catalog, mcp, security | Accepted |
 | [019](019-idempotent-convergence-over-completion-markers.md) | Provisioner steps converge and self-verify; no per-step completion markers | installer, reliability | Accepted |
-| [020](020-bounded-degradation-under-hostile-io.md) | Every wait is bounded; expiry degrades loudly (truncate, refuse, retry) rather than blocking | installer, reliability | Accepted |
+| [020](020-bounded-degradation-under-hostile-io.md) | Every wait is bounded; on expiry the tool degrades loudly rather than blocking | installer, cli, reliability | Accepted |

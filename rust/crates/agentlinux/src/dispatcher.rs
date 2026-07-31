@@ -473,10 +473,17 @@ fn escalate_kill(child: &mut std::process::Child, label: &str) {
     }
     // The direct child exited during the grace period but its grandchildren may
     // not have — that leak is what keeps the pipe open and the npm prefix
-    // contended. Sweep the group ONCE, here, while the child is still un-reaped
-    // so the PGID is guaranteed to be ours. Sweeping after the caller's wait()
-    // would risk signalling a recycled PID. ESRCH just means the group is already
-    // empty, which is the normal case.
+    // contended. Sweep the group once.
+    //
+    // The child has ALREADY been reaped at this point (`poll_until` gets its
+    // answer from `try_wait`), so this signals a PGID whose leader is gone. That
+    // is still safe, and not because of the ordering: Linux refcounts `struct
+    // pid`, and every member of a process group holds a reference to the pid
+    // backing its PGID. The number therefore cannot be recycled while the group
+    // still has members — which is exactly the case we are signalling into. If
+    // the group is empty the pid may have been freed, and the call returns ESRCH,
+    // which is the normal outcome and is ignored below. `kill(-pgid)` after the
+    // leader exits is a standard idiom for precisely this reason.
     if let Err(e) = kill(group, Signal::SIGKILL) {
         if e != nix::errno::Errno::ESRCH {
             crate::plog!("agentlinux: group sweep after `{label}` failed: {e}");

@@ -135,12 +135,10 @@ fn verb_name(command: &Command) -> &'static str {
 /// mismatch it prints the diagnostic and returns `ExitCode::from(64)`, which we
 /// propagate immediately.
 ///
-/// All seven verbs are wired. `provision` takes the root-guarded arm below;
-/// the other six run behind the CLI-05 invoker guard.
 /// `EX_TEMPFAIL` — "try again later", the sysexits code for a contended lock.
 /// Distinct from the usage/data/software codes so a wrapper script can retry on
 /// this one alone.
-const EX_TEMPFAIL: u8 = 75;
+pub(crate) const EX_TEMPFAIL: u8 = 75;
 
 /// Take the host state lock for a mutating verb, or `None` after printing why.
 ///
@@ -152,26 +150,20 @@ const EX_TEMPFAIL: u8 = 75;
 ///    contract those modes exist to offer — and a preview refused while an
 ///    install runs is the same operability problem as a blocked `list`.
 ///  - `install --dry-run`, likewise.
-fn hold_state_lock(command: &Command) -> Option<Option<statelock::HostLock>> {
-    let (needs_lock, wait) = match command {
-        Command::List(_) => (false, false),
-        Command::Provision(a) => (!a.dry_run && !a.report_only, a.wait_lock),
-        Command::Install(a) => (!a.dry_run, a.wait_lock),
-        Command::Adopt(a) => (true, a.wait_lock),
-        Command::Pin(a) => (true, a.wait_lock),
-        Command::Remove(a) => (true, a.wait_lock),
-        Command::Upgrade(a) => (true, a.wait_lock),
+fn hold_state_lock(command: &Command) -> Option<statelock::HostLock> {
+    let needs_lock = match command {
+        Command::List(_) => false,
+        Command::Provision(a) => !a.dry_run && !a.report_only,
+        Command::Install(a) => !a.dry_run,
+        // Bare `upgrade` is a report; only the flags below install anything.
+        Command::Upgrade(a) => a.reset_all_curated || a.respect_overrides || a.all_latest,
+        Command::Adopt(_) | Command::Pin(_) | Command::Remove(_) => true,
     };
     if !needs_lock {
-        return Some(None);
+        return Some(statelock::HostLock::NotRequired);
     }
-    let on_contention = if wait {
-        statelock::OnContention::Wait
-    } else {
-        statelock::OnContention::Fail
-    };
-    match statelock::acquire(verb_name(command), on_contention) {
-        Ok(lock) => Some(Some(lock)),
+    match statelock::acquire(verb_name(command)) {
+        Ok(lock) => Some(lock),
         Err(e) => {
             crate::plog!("agentlinux: {e}");
             None
@@ -179,6 +171,10 @@ fn hold_state_lock(command: &Command) -> Option<Option<statelock::HostLock>> {
     }
 }
 
+/// Route a parsed verb to its handler.
+///
+/// All seven verbs are wired. `provision` takes the root-guarded arm below;
+/// the other six run behind the CLI-05 invoker guard.
 fn dispatch(command: Command) -> ExitCode {
     // `provision` is the PRE-Node provisioner entrypoint: it runs privileged
     // systems I/O BEFORE any agent user exists, so it dispatches through

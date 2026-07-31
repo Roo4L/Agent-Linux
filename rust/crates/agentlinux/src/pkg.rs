@@ -40,12 +40,6 @@ const DEFAULT_PKG_TIMEOUT_MS: u64 = 20 * 60 * 1000;
 /// Env override for `DEFAULT_PKG_TIMEOUT_MS`.
 const PKG_TIMEOUT_ENV: &str = "AGENTLINUX_PKG_TIMEOUT_MS";
 
-/// How many times a retryable package command is attempted in total.
-const PKG_ATTEMPTS: u32 = 3;
-
-/// Base backoff between attempts; attempt N waits `PKG_RETRY_BACKOFF * 2^(N-1)`.
-const PKG_RETRY_BACKOFF: Duration = Duration::from_secs(5);
-
 /// How much of a failing child's stderr is kept for the error message.
 const STDERR_TAIL: usize = 4096;
 
@@ -87,11 +81,15 @@ pub struct PkgCmd {
     pub argv: Vec<String>,
 }
 
-/// One finished package-manager attempt: the exit code plus whatever the child
-/// said on stderr, which is where apt and dnf explain themselves.
+/// One finished package-manager run: the exit code plus whatever the child said
+/// on stderr, which is where apt and dnf explain themselves.
 struct PkgOutcome {
     exit_code: i32,
+    /// Set when the run hit `bound_ms` rather than exiting on its own.
     timed_out: bool,
+    /// The bound this run actually carried, so the failure message reports the
+    /// number that applied instead of re-reading the environment later.
+    bound_ms: Option<u64>,
     stderr: String,
 }
 
@@ -100,18 +98,26 @@ impl PkgOutcome {
         self.exit_code == 0 && !self.timed_out
     }
 
-    /// The operator-facing reason this attempt failed, stderr included.
+    /// The operator-facing reason this run failed, stderr included.
+    ///
+    /// The argv is rendered shell-shaped, not `{:?}`. The operator's next move is
+    /// to run the command by hand; `["apt-get", "-o", "DPkg::Lock::Timeout=300",
+    /// "update"]` makes them un-Rust it first.
     fn failure_reason(&self, argv: &[String]) -> String {
-        let what = if self.timed_out {
-            format!("timed out after {}ms", pkg_timeout_ms().unwrap_or(0))
-        } else {
-            format!("exited {}", self.exit_code)
+        let cmd = argv.join(" ");
+        let what = match (self.timed_out, self.bound_ms) {
+            (true, Some(ms)) => format!(
+                "timed out after {ms}ms — raise or disable the bound with \
+                 {PKG_TIMEOUT_ENV} if this is legitimately slow"
+            ),
+            (true, None) => "timed out".to_string(),
+            (false, _) => format!("exited {}", self.exit_code),
         };
         let tail = self.stderr.trim();
         if tail.is_empty() {
-            format!("pkg verb failed: {argv:?} ({what}; no stderr)")
+            format!("`{cmd}` {what}; it printed nothing on stderr")
         } else {
-            format!("pkg verb failed: {argv:?} ({what}): {tail}")
+            format!("`{cmd}` {what}: {tail}")
         }
     }
 }
@@ -150,7 +156,7 @@ impl PkgCmd {
     /// the package manager's own explanation instead of just the argv. stdin is
     /// `/dev/null`: under `curl … | sudo bash` the installer's stdin is the
     /// SCRIPT, and an apt prompt that reads it consumes the rest of the installer.
-    fn run_once(&self) -> io::Result<PkgOutcome> {
+    fn run(&self) -> io::Result<PkgOutcome> {
         // Every `PkgCmd` in this module is built from a literal argv, so this is
         // unreachable today — but indexing `[0]` on an empty argv would PANIC,
         // and a panic inside a privileged provisioner is the one failure mode
@@ -176,8 +182,9 @@ impl PkgCmd {
         std::thread::spawn(move || {
             let _ = tx.send(tee_and_keep_tail(stderr_pipe));
         });
+        let bound = pkg_timeout_ms();
         let (exit_code, timed_out) =
-            crate::dispatcher::wait_with_timeout(&mut child, pkg_timeout_ms(), &label);
+            crate::dispatcher::wait_with_timeout(&mut child, bound, &label);
         // BOUNDED, for the same reason `dispatcher::collect` is: the pipe closes
         // only when every holder closes it, and an apt/dnf postinst that starts a
         // daemon leaves that daemon holding our stderr. On the timeout path the
@@ -196,36 +203,11 @@ impl PkgCmd {
         Ok(PkgOutcome {
             exit_code,
             timed_out,
+            bound_ms: bound,
             stderr,
         })
     }
 
-    /// Spawn this command, retrying a failure up to `PKG_ATTEMPTS` times with
-    /// exponential backoff.
-    ///
-    /// Every command here is idempotent — `apt-get update`, `install -y`, `dnf
-    /// remove -y` all converge on re-run — so a retry cannot corrupt state, and
-    /// the failures that motivated it are overwhelmingly transient: a DNS blip, a
-    /// mirror 503, a lock held a moment longer than `DPKG_LOCK_TIMEOUT`. A
-    /// genuinely broken command still fails, three attempts later, with the same
-    /// error the first attempt produced.
-    fn run(&self) -> io::Result<PkgOutcome> {
-        let mut last = self.run_once()?;
-        for attempt in 2..=PKG_ATTEMPTS {
-            if last.success() {
-                return Ok(last);
-            }
-            let backoff = PKG_RETRY_BACKOFF * 2u32.pow(attempt - 2);
-            crate::plog!(
-                "agentlinux: {} — retrying in {}s (attempt {attempt}/{PKG_ATTEMPTS})",
-                last.failure_reason(&self.argv),
-                backoff.as_secs()
-            );
-            std::thread::sleep(backoff);
-            last = self.run_once()?;
-        }
-        Ok(last)
-    }
 }
 
 /// Read a child's stderr to EOF, forwarding every byte to our own stderr and
@@ -286,7 +268,7 @@ pub fn install_cmds(family: Family, pkgs: &[&str]) -> Vec<PkgCmd> {
 
 /// `pkg_install <pkg...>` — install one or more packages.
 pub fn pkg_install(family: Family, pkgs: &[&str]) -> io::Result<()> {
-    run_all(&install_cmds(family, pkgs))
+    require_all_success(&install_cmds(family, pkgs))
 }
 
 /// The command `pkg_remove` runs (debian apt-get purge, rhel dnf remove).
@@ -307,7 +289,7 @@ pub fn remove_cmd(family: Family, pkgs: &[&str]) -> PkgCmd {
 
 /// `pkg_remove <pkg...>` — remove packages (purge config on debian).
 pub fn pkg_remove(family: Family, pkgs: &[&str]) -> io::Result<()> {
-    run_one(&remove_cmd(family, pkgs))
+    require_success(&remove_cmd(family, pkgs))
 }
 
 /// The command `pkg_autoremove` runs.
@@ -320,7 +302,7 @@ pub fn autoremove_cmd(family: Family) -> PkgCmd {
 
 /// `pkg_autoremove` — drop orphaned dependencies.
 pub fn pkg_autoremove(family: Family) -> io::Result<()> {
-    run_one(&autoremove_cmd(family))
+    require_success(&autoremove_cmd(family))
 }
 
 // ---------------------------------------------------------------------------
@@ -362,7 +344,7 @@ pub fn nodesource_prereqs_cmds(family: Family) -> Vec<PkgCmd> {
 
 /// `nodesource_prereqs` — install the prerequisites setup_22.x expects.
 pub fn nodesource_prereqs(family: Family) -> io::Result<()> {
-    run_all(&nodesource_prereqs_cmds(family))
+    require_all_success(&nodesource_prereqs_cmds(family))
 }
 
 /// The NodeSource setup URL for `family` (deb vs rpm). The live verb pipes
@@ -451,10 +433,10 @@ pub fn nodesource_module_reset_cmd(family: Family) -> Option<PkgCmd> {
 pub fn nodesource_module_reset(family: Family) -> io::Result<()> {
     if let Some(cmd) = nodesource_module_reset_cmd(family) {
         // Non-fatal (Bash `|| true`) — a host with no `nodejs` module to reset is
-        // the normal case. `run_once` rather than `run`: retrying a command whose
+        // the normal case. `run` rather than `run`: retrying a command whose
         // failure we are about to ignore only costs backoff. Reported, not
         // swallowed: if the Node install later loses to AppStream, this says why.
-        let outcome = cmd.run_once()?;
+        let outcome = cmd.run()?;
         if !outcome.success() {
             crate::plog!(
                 "agentlinux: {} (non-fatal; no AppStream nodejs module to reset)",
@@ -501,13 +483,13 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
             // Install `locales` if locale-gen is absent (best-effort), then
             // locale-gen + update-locale, then the availability gate.
             if sysio::which("locale-gen").is_none() {
-                run_all(&install_cmds(Family::Debian, &["locales"]))?;
+                require_all_success(&install_cmds(Family::Debian, &["locales"]))?;
             }
             // locale-gen C.UTF-8 stays non-fatal (the Bash verb's `|| true`) —
             // on 24.04 C.UTF-8 is built in and locale-gen has nothing to do. But
             // a failure is no longer DISCARDED: if the gate below then fails,
             // this line is the only thing that says why.
-            let locale_gen = PkgCmd::new(&[], &["locale-gen", "C.UTF-8"]).run_once()?;
+            let locale_gen = PkgCmd::new(&[], &["locale-gen", "C.UTF-8"]).run()?;
             if !locale_gen.success() {
                 crate::plog!(
                     "agentlinux: locale-gen C.UTF-8 {} (non-fatal; \
@@ -515,7 +497,7 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
                     locale_gen.failure_reason(&["locale-gen".into(), "C.UTF-8".into()])
                 );
             }
-            run_one(&PkgCmd::new(
+            require_success(&PkgCmd::new(
                 &[],
                 &["update-locale", "LANG=C.UTF-8", "LC_ALL=C.UTF-8"],
             ))?;
@@ -535,11 +517,11 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
 
 /// Run the `locale -a` availability gate, mapping a miss to an `Err`.
 ///
-/// Deliberately `run_once`, not `run`: this is a read-only probe of state the
+/// Deliberately `run`, not `run`: this is a read-only probe of state the
 /// caller just finished writing. Retrying it three times with backoff would add
 /// 15 seconds to every failure without changing the answer.
 fn require_locale_available() -> io::Result<()> {
-    if !locale_available_cmd().run_once()?.success() {
+    if !locale_available_cmd().run()?.success() {
         return Err(io::Error::other(
             "locale_ensure: C.UTF-8 locale not available after enforcement \
              (checked with `locale -a`)",
@@ -554,9 +536,9 @@ fn require_locale_available() -> io::Result<()> {
 
 /// Run every command in sequence, failing fast on the first non-zero exit
 /// (matches the Bash `set -e` sequencing of the multi-command verbs).
-fn run_all(cmds: &[PkgCmd]) -> io::Result<()> {
+fn require_all_success(cmds: &[PkgCmd]) -> io::Result<()> {
     for c in cmds {
-        run_one(c)?;
+        require_success(c)?;
     }
     Ok(())
 }
@@ -564,7 +546,7 @@ fn run_all(cmds: &[PkgCmd]) -> io::Result<()> {
 /// Run one command, mapping a non-zero exit to an `Err` (the `set -e` default
 /// for a verb whose failure IS fatal — the individual `|| true` sites handle
 /// their own non-fatality inline). The error quotes the child's stderr.
-fn run_one(cmd: &PkgCmd) -> io::Result<()> {
+fn require_success(cmd: &PkgCmd) -> io::Result<()> {
     let outcome = cmd.run()?;
     if !outcome.success() {
         return Err(io::Error::other(outcome.failure_reason(&cmd.argv)));
@@ -776,7 +758,7 @@ mod pkg_tests {
     #[test]
     fn failure_reason_quotes_the_childs_stderr() {
         let cmd = PkgCmd::new(&[], &["bash", "-c", "echo 'E: mirror is unreachable' >&2; exit 100"]);
-        let outcome = cmd.run_once().unwrap();
+        let outcome = cmd.run().unwrap();
         assert!(!outcome.success());
         assert_eq!(outcome.exit_code, 100);
         let reason = outcome.failure_reason(&cmd.argv);
@@ -796,7 +778,7 @@ mod pkg_tests {
             STDERR_TAIL * 2
         );
         let cmd = PkgCmd::new(&[], &["bash", "-c", &script]);
-        let outcome = cmd.run_once().unwrap();
+        let outcome = cmd.run().unwrap();
         assert!(
             outcome.stderr.contains("THE-REAL-ERROR"),
             "the tail must survive the cap"
@@ -809,13 +791,13 @@ mod pkg_tests {
     }
 
     // A package command is bounded: a wedged child is killed rather than hanging
-    // the provision. `run_once` so the retry backoff doesn't lengthen the test.
+    // the provision. `run` so the retry backoff doesn't lengthen the test.
     #[test]
     fn a_wedged_package_command_is_killed_not_awaited() {
         let _g = crate::test_support::env_guard();
         std::env::set_var(PKG_TIMEOUT_ENV, "200");
         let start = std::time::Instant::now();
-        let outcome = PkgCmd::new(&[], &["bash", "-c", "sleep 60"]).run_once().unwrap();
+        let outcome = PkgCmd::new(&[], &["bash", "-c", "sleep 60"]).run().unwrap();
         std::env::remove_var(PKG_TIMEOUT_ENV);
         assert!(outcome.timed_out, "must report the timeout");
         assert!(!outcome.success());
@@ -835,7 +817,7 @@ mod pkg_tests {
     fn a_leaked_background_process_cannot_hang_a_package_command() {
         let start = std::time::Instant::now();
         let outcome = PkgCmd::new(&[], &["bash", "-c", "( sleep 120 ) & echo ok >&2"])
-            .run_once()
+            .run()
             .unwrap();
         assert!(outcome.success(), "the command itself succeeded");
         assert!(
@@ -851,7 +833,7 @@ mod pkg_tests {
     #[test]
     fn package_commands_get_no_stdin() {
         let outcome = PkgCmd::new(&[], &["bash", "-c", "read line && echo got: $line"])
-            .run_once()
+            .run()
             .unwrap();
         assert_eq!(
             outcome.exit_code, 1,

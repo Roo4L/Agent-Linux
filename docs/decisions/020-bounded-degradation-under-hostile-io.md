@@ -31,26 +31,36 @@ convenient but re-runs a command that may have partially applied.
 **Every wait in this codebase has a bound, and expiry is reported, never silent.**
 The specific resolutions:
 
-1. **Kill the process group, not the child.** Every spawn goes through
-   `process_group(0)`; every escalation signals the negated PGID. A timeout now
+1. **Kill the process group, not the child.** Every spawn this crate makes goes
+   through `process_group(0)`; every escalation signals the negated PGID. A timeout now
    means *the work stopped*, not *we stopped waiting* — which is what makes a
    retry safe, because there is no orphan left racing it over the same npm prefix.
 
-2. **Bound output collection; prefer truncation to hanging.** `collect` gives up
-   at `READER_DRAIN_GRACE` (5s, shared across both pipes) and says so on stderr.
-   The exit status is already known by then, so the caller can still act. A
-   truncated capture that announces itself is strictly better than a process that
-   never returns — and for the one caller that parses its capture (`npm ls
-   --json`), the announcement is what distinguishes "the probe was cut short" from
-   "npm printed nothing".
+2. **Bound output collection; prefer losing the capture to hanging.** `collect`
+   gives up at `READER_DRAIN_GRACE` (5s, shared across both pipes) and says so on
+   stderr. Be precise about the cost: it does not return a partial string, it
+   returns an EMPTY one — the accumulated bytes live in the reader thread and are
+   abandoned with it. The exit status is already known by then, so the caller can
+   still act. Several callers parse their capture (`npm ls -g --json` and `npm
+   view`, plus the version and `command -v` probes in `detect.rs`), and for each of
+   them the announcement is what separates "the probe was cut short" from "the tool
+   printed nothing" — which for a detect probe is the difference between "unknown"
+   and "absent".
 
 3. **Refuse concurrent mutating runs; do not queue by default.** `statelock`
    takes an exclusive `flock` for `provision`/`install`/`remove`/`upgrade`/
-   `adopt`/`pin` and fails fast with `EX_TEMPFAIL` (75), naming the lock file and
-   offering `--wait-lock`. Blocking by default would recreate the exact confusion
-   the timeouts exist to remove. `list`, `--dry-run` and `--report-only` take no
-   lock: the first is read-only, and the other two promise a byte-identical host,
-   which creating a lock file would break.
+   `adopt`/`pin` and fails fast with `EX_TEMPFAIL` (75), naming the lock file.
+   There is deliberately no queue-and-wait flag: `EX_TEMPFAIL` is the conventional
+   "try again later" signal, and `until agentlinux install x; do sleep 10; done` is
+   both more flexible than any cap we would hardcode and not ours to carry.
+
+   `list`, `--dry-run` and `--report-only` take no lock. The reason is
+   operability, not byte-identity: both preview modes already write the detect
+   cache under `/run`, and the no-mutation contract they advertise covers `/etc`,
+   `/home` and `/etc/passwd` rather than `/run`, so a lock file there would not
+   break it. They are exempt because a preview refused while an install runs is the
+   same problem as a blocked `list` — you reach for these commands precisely when
+   something else is busy.
 
    **Contention fails closed; unavailability fails OPEN.** If the lock file cannot
    be created or opened at all — no `/run/lock`, a read-only filesystem, an
@@ -69,12 +79,20 @@ The specific resolutions:
    `provision` created as root, and `O_NOFOLLOW` because the directory is
    world-writable.
 
-4. **Retry package operations, and only package operations.** `PkgCmd::run`
-   attempts three times with exponential backoff. This is safe *because* apt and
-   dnf commands are idempotent (`update`, `install -y`, `remove -y` all converge),
-   and it is worthwhile because the failures are overwhelmingly transient: a DNS
-   blip, a mirror 503, cloud-init still holding the dpkg lock. Nothing else in the
-   codebase retries. Every retry logs the attempt and the reason.
+4. **Do not add a general retry.** An earlier cut of this work retried every
+   package command three times with exponential backoff. It is gone, for two
+   reasons. It retried TIMEOUTS, so one `pkg_install` on debian could run two
+   commands x three attempts x the 20-minute bound — quietly multiplying the very
+   ceiling the rest of this ADR establishes. And the two transient cases that
+   motivated it already have targeted fixes: `DPkg::Lock::Timeout=300` for
+   cloud-init holding the dpkg lock, and `curl --retry 3 --retry-connrefused` for
+   the NodeSource fetch. A generic retry on top of those was generalisation ahead
+   of a requirement, on the privileged path, with no test.
+
+   Two narrow retries remain and are deliberate: the curl flags above, and
+   `userdel -r` falling back to `userdel -rf` during `--purge`. Both are bounded
+   and both target a named failure. Anything broader should be argued for on its
+   own evidence rather than inherited from this ADR.
 
 5. **Defaults are generous; overrides exist; `0` disables.**
    `AGENTLINUX_RECIPE_TIMEOUT_MS` (default 30 min) and `AGENTLINUX_PKG_TIMEOUT_MS`
@@ -85,9 +103,11 @@ The specific resolutions:
 
 ## Consequences
 
-**Accepted: a leaked background process can truncate a captured stream.** We
-prefer that to an unbounded wait. It is announced on stderr and in the transcript,
-and it only affects the *capture* — the live tee already forwarded every byte.
+**Accepted: a leaked background process costs us a captured stream.** We prefer
+that to an unbounded wait. It is announced on stderr, and during a provision in the
+transcript too — note the CLI verbs have no transcript today, so there it is
+stderr-only. It affects only the *capture*: on the streamed path the live tee
+already forwarded every byte to the console.
 
 **Accepted: a legitimately slow recipe can hit the 30-minute bound.** The escape
 hatch is one env var, named in this ADR and in the module docs. We judged the
@@ -110,12 +130,18 @@ and on its schedule, not ours. We do not work around it: overriding `use_pty` is
 sudoers-side setting we do not own, and widening the kill to catch the escaped
 session would mean signalling processes we did not create. The exposure is small
 because the dispatcher's invoker==target short-circuit means the sudo hop is not
-taken on the common path. Recorded here so it reads as a known boundary rather
-than an oversight; `dispatcher::escalate_kill` carries the same note.
+taken by the six CLI verbs, whose CLI-05 guard forces invoker == install user. It
+IS taken throughout `provision`, which runs as root — including the `--purge`
+uninstall dispatch — so treat the limitation as live there. Revisit if the sudo hop
+ever becomes the common path; the mitigating claim about sudo's monitor is an
+assumption about upstream behaviour that nothing here tests.
+`dispatcher::escalate_kill` carries the same note.
 
-**Accepted: three attempts can turn one 20-minute hang into a longer one.** Bounded
-at three attempts plus backoff, and each attempt is itself bounded, so the worst
-case is finite and computable rather than open-ended.
+**Accepted: `0` disables a bound.** A document titled "bound every wait" ships an
+explicit way to become unbounded. That is an operator's deliberate opt-out for a
+recipe that legitimately runs longer than any default we could pick; the invariant
+defended here is that we never become unbounded *by accident* — an unparseable
+value falls back to the default rather than to `None`.
 
 **What reviewers should not re-file.** Truncation-on-drain, fail-fast-on-lock,
 retry-on-package-ops, and the specific default timeout values are decided
