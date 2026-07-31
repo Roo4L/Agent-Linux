@@ -249,12 +249,11 @@ done
 
 [[ -n $diff_file ]] && check_diff "$diff_file"
 
-
 # A killed --in-place run leaves mutated source behind. Warn if the tree is
 # already dirty so a developer cannot mistake cargo-mutants' residue for their
 # own edits (CI checkouts are always clean, so this is silent there).
-if command -v git >/dev/null && git rev-parse --git-dir >/dev/null 2>&1 &&
-  ! git diff --quiet; then
+if command -v git >/dev/null && git rev-parse --git-dir >/dev/null 2>&1 \
+  && ! git diff --quiet; then
   echo "mutation gate: NOTE — working tree is dirty before the run; --in-place" >&2
   echo "  mutates in place, so check 'git diff' for '~ changed by cargo-mutants ~'" >&2
   echo "  residue if this run is interrupted." >&2
@@ -320,9 +319,21 @@ rm -rf "$OUT_DIR"
 # It is also a whole-machine workload — every mutant is a full rustc build plus
 # the entire test suite — so it yields to anything interactive. On a dedicated
 # CI runner nothing competes and `nice` costs nothing.
-timeout_secs="${MUTATION_GATE_TIMEOUT:-3600}"
+# A POSITIVE integer, validated: GNU `timeout 0` means NO timeout, so
+# `:-3600 -> :-0` silently removed the containment while every check still
+# passed. The default must also be below the CI job cap, or the inner timeout
+# provably cannot fire first and the whole SIGTERM-before-SIGKILL argument is
+# unreachable in the one path where it matters.
+timeout_secs="${MUTATION_GATE_TIMEOUT:-600}"
+[[ $timeout_secs =~ ^[1-9][0-9]*$ ]] || die "MUTATION_GATE_TIMEOUT must be a positive
+  integer of seconds, got '$timeout_secs'. Zero means NO timeout to timeout(1), which
+  removes the containment that keeps a killed --in-place run from leaving mutated
+  source behind."
 set +e
-nice -n 19 timeout --signal=TERM --kill-after=60s "$timeout_secs" \
+kill_grace="${MUTATION_GATE_KILL_GRACE:-60}"
+[[ $kill_grace =~ ^[1-9][0-9]*$ ]] || die "MUTATION_GATE_KILL_GRACE must be a positive
+  integer of seconds, got '$kill_grace'."
+nice -n 19 timeout --signal=TERM --kill-after="${kill_grace}s" "$timeout_secs" \
   cargo mutants --output . "$@"
 cargo_status=$?
 set -e
@@ -558,7 +569,12 @@ if [[ $survivors -eq 0 ]]; then
 fi
 
 echo "--- surviving mutants ---" >&2
-cat "$OUT_DIR/missed.txt" "$OUT_DIR/timeout.txt" 2>/dev/null >&2 || true
+# Order matters, and it was wrong: `2>/dev/null >&2` sends stderr to /dev/null
+# FIRST, then points stdout at the now-null stderr — so the list was discarded
+# every time, and the failure below has always said "see the list above" with
+# nothing above it. Redirect stdout to stderr first, then silence cat's own
+# complaints about a missing file.
+cat "$OUT_DIR/missed.txt" "$OUT_DIR/timeout.txt" >&2 2>/dev/null || true
 
 if [[ $mode == advisory ]]; then
   echo "::warning::${survivors} surviving mutant(s) — $summary"

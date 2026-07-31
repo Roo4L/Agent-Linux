@@ -219,7 +219,11 @@ jobs:
           git -c core.quotePath=false diff --relative origin/master...HEAD -- . \
             > "$RUNNER_TEMP/rust.diff"
           echo "diff: $(wc -l < "$RUNNER_TEMP/rust.diff") lines"
-          ../scripts/mutation-gate.sh enforce \
+          # Below this job's timeout-minutes (15). The gate SIGTERMs cargo-mutants
+          # so an --in-place run restores its mutated source; the job cap would
+          # SIGKILL it and leave the tree rewritten. The inner bound must fire
+          # first for that to mean anything.
+          MUTATION_GATE_TIMEOUT=660 ../scripts/mutation-gate.sh enforce \
             --in-place --minimum-test-timeout 20 --in-diff "$RUNNER_TEMP/rust.diff"
       - name: static musl build + ldd assertion (RUST-01)
         if: steps.guard.outputs.ready == 'true'

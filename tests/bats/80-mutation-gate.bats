@@ -678,8 +678,11 @@ EOF
   # on a scratch crate — a value the workflow never passes. So this test derives
   # the values from the WORKFLOW rather than restating them, and runs them
   # through the real tool. `--list` builds nothing, so it is cheap.
-  requires_real_cargo_mutants
-
+  #
+  # The PERMUTATION half below needs no tool, so it is not behind the guard: it
+  # is the only structural check that the four shards cover the workspace, and
+  # putting it behind cargo-mutants made it skip in every self-test run — where
+  # `[0, 1, 2, 2]` and `[1, 2, 3, 4]` then both survived.
   local wf="${BATS_TEST_DIRNAME}/../../.github/workflows/nightly-mutation.yml"
   [ -f "$wf" ]
 
@@ -711,6 +714,9 @@ EOF
     echo "a missing or duplicated value leaves part of the workspace unscored."
     return 1
   }
+
+  # Only the "does the tool accept these values" half needs the real tool.
+  requires_real_cargo_mutants
 
   cd "${BATS_TEST_DIRNAME}/../../rust" || return 1
   for v in $values; do
@@ -889,7 +895,8 @@ done
 mkdir -p mutants.out
 cat >mutants.out/outcomes.json <<'JSON'
 {"total_mutants": 0, "missed": 0, "caught": 0, "timeout": 0,
- "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z",
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"}]}
 JSON
 echo '[]' >mutants.out/mutants.json
 exit 0
@@ -1178,7 +1185,7 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
   # this case green through the exact one-word change it exists to catch.
   gate_call() {
     sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$1" |
-      grep -hE '^[[:space:]]*(run:[[:space:]]*)?[./A-Za-z_-]*scripts/mutation-gate\.sh[[:space:]]'
+      grep -hE '^[[:space:]]*(run:[[:space:]]*)?([A-Z_]+=[^[:space:]]*[[:space:]]+)*[./A-Za-z_-]*scripts/mutation-gate\.sh[[:space:]]'
   }
   local pr_call nightly_call
   pr_call="$(gate_call "$pr")"
@@ -1215,6 +1222,62 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
   # none of the above.
   [ "$(printf '%s\n' "$pr_call" | grep -c .)" -eq 1 ]
   [ "$(printf '%s\n' "$nightly_call" | grep -c .)" -eq 1 ]
+}
+
+@test "MUT-34d: neither gate step is allowed to not-fail" {
+  # The original bug was `|| echo "::warning::"` plus `continue-on-error: true`
+  # plus a flag pair the tool rejects. Two of those three live in YAML, and
+  # MUT-34 reads only the joined `run:` line — so adding `continue-on-error: true`
+  # to the enforcing step, or replacing its `if:` with `false`, leaves the merge
+  # gate switched off with all 67 cases green. ADR-020 §2 names
+  # `continue-on-error` explicitly as something advisory mode does NOT license.
+  local root="${BATS_TEST_DIRNAME}/../.."
+  local wf step
+  for wf in "$root/.github/workflows/test.yml" "$root/.github/workflows/nightly-mutation.yml"; do
+    # The step block: from the `- name:` line that mentions the gate, up to the
+    # next `- name:` at the same indentation.
+    step="$(awk '
+      /^      - name:/ { inblock = /mutants|mutation/ ? 1 : 0 }
+      inblock { print }
+    ' "$wf")"
+    [ -n "$step" ] || {
+      echo "no mutation-gate step found in $wf"
+      return 1
+    }
+    [[ "$step" != *"continue-on-error"* ]] || {
+      echo "$wf lets the mutation gate step not fail:"
+      echo "$step"
+      return 1
+    }
+    # The `if:` must be the readiness guard, not a constant that switches the
+    # step off entirely.
+    [[ "$step" != *"if: false"* && "$step" != *"if: \${{ false }}"* ]] || {
+      echo "$wf disables the mutation gate step with a constant if:"
+      return 1
+    }
+  done
+}
+
+@test "MUT-34e: the enforcing gate's own timeout fits inside the job cap" {
+  # `--in-place` mutates the working tree and cargo-mutants restores on SIGTERM
+  # but not SIGKILL, so the gate's timeout must fire BEFORE the job cap does.
+  # With the gate defaulting to 3600s inside a 15-minute job, the inner bound was
+  # unreachable in the only path where the argument matters.
+  local root="${BATS_TEST_DIRNAME}/../.."
+  local pr="$root/.github/workflows/test.yml"
+  local job_min gate_secs
+  job_min="$(awk '/^  rust:/{f=1} f && /timeout-minutes:/{print $2; exit}' "$pr")"
+  gate_secs="$(grep -oE 'MUTATION_GATE_TIMEOUT=[0-9]+' "$pr" | head -1 | cut -d= -f2)"
+  [ -n "$job_min" ] || { echo "no timeout-minutes on the rust job"; return 1; }
+  [ -n "$gate_secs" ] || {
+    echo "the enforcing step does not set MUTATION_GATE_TIMEOUT; it would default"
+    echo "to a value nothing ties to the job cap"
+    return 1
+  }
+  [ "$gate_secs" -lt "$((job_min * 60))" ] || {
+    echo "gate timeout ${gate_secs}s is not inside the ${job_min}m job cap"
+    return 1
+  }
 }
 
 @test "MUT-34b: both jobs pin the SAME cargo-mutants version" {
@@ -1606,6 +1669,201 @@ EOF
     echo "the mutation run is not niced: child=$child parent=$parent"
     return 1
   }
+}
+
+@test "MUT-47: a cargo-mutants that ignores SIGTERM is still killed" {
+  # `--kill-after` is the grace period after the TERM. Without it a tool that
+  # traps or ignores SIGTERM is never killed at all, so the bound that stops an
+  # interrupted `--in-place` run wedging the job does nothing.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+trap '' TERM
+sleep 30
+EOF
+  chmod +x "$BIN/cargo"
+  local start end
+  start=$(date +%s)
+  MUTATION_GATE_TIMEOUT=1 MUTATION_GATE_KILL_GRACE=1 run "$GATE" enforce --in-place
+  end=$(date +%s)
+  [ "$status" -ne 0 ]
+  # Without --kill-after the sleep runs its full 30s; with it, TERM is ignored,
+  # then KILL lands one grace period later and the gate returns promptly. The
+  # grace is an env knob so this can assert it in seconds rather than the
+  # production minute.
+  [ "$((end - start))" -lt 15 ] || {
+    echo "the run was not killed after the timeout ($((end - start))s elapsed)"
+    return 1
+  }
+}
+
+@test "MUT-47b: a path with surrounding whitespace is still checked" {
+  # `.strip()` before the quote-strip. Without it a `+++` header carrying a
+  # trailing space yields a path that does not end in `.rs`, so it silently
+  # leaves the checked set — fail-OPEN on the check that catches a diff whose
+  # paths do not resolve.
+  mk_cargo list_n=4 total=4 caught=4
+  printf 'diff --git a/rust/nope.rs b/rust/nope.rs\n--- a/rust/nope.rs\n+++ b/rust/nope.rs \n@@ -1 +1 @@\n-a\n+b\n' >spacey.diff
+  run "$GATE" enforce --in-diff spacey.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"path that does not exist relative"* ]]
+}
+
+@test "MUT-48: a path merely CONTAINING .rs is not a Rust file" {
+  # `endswith(".rs")` -> `".rs" in p`. Under the mutant `docs/x.rs.md` and
+  # `src/a.rst` enter the checked set, so an unresolvable path in a docs-only PR
+  # hard-fails the gate — a false RED nobody can act on.
+  mk_cargo list_n=4 total=4 caught=4
+  printf 'diff --git a/docs/x.rs.md b/docs/x.rs.md\n--- a/docs/x.rs.md\n+++ b/docs/x.rs.md\n@@ -1 +1 @@\n-a\n+b\n' >notrust.diff
+  run "$GATE" enforce --in-diff notrust.diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
+@test "MUT-49: only an ATTRIBUTE is a skip, not any line starting with #" {
+  # `startswith("#[")` -> `startswith("#")`. rustdoc hides lines in a doc example
+  # with a leading `#`, so `/// # use x::mutants::skip;` normalises to a line
+  # starting with `#` and containing the path — under the mutant a documented
+  # EXAMPLE is judged an unannotated skip.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  cat >src/x.rs <<'RS'
+fn documented() {}
+# use crate::mutants::skip;
+RS
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,2 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
+@test "MUT-50: two block comments in one attribute do not evade the policy" {
+  # The strip must be NON-greedy. Greedy `/\*.*\*/` spans from the first `/*` to
+  # the LAST `*/`, deleting `test, mutants ` along with the comments and leaving
+  # `#[cfg_attr(::skip)]` — which no longer contains `mutants::skip`, so the skip
+  # walks through unannotated.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  printf 'use std::fmt;\n#[cfg_attr(/*a*/test, mutants /*b*/:: skip)]\nfn adapter() {}\n' >src/x.rs
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,3 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ADR-020"* ]]
+}
+
+@test "MUT-44: a zero or malformed gate timeout is refused, not silently unbounded" {
+  # GNU `timeout 0` means NO timeout. `:-3600 -> :-0` therefore removed the
+  # containment while every other check still passed — and the containment is the
+  # whole reason an interrupted `--in-place` run does not leave mutated source
+  # behind.
+  mk_cargo list_n=4 total=4 caught=4
+  local bad
+  for bad in 0 abc -5 3.5; do
+    MUTATION_GATE_TIMEOUT="$bad" run "$GATE" enforce --in-place
+    [ "$status" -ne 0 ] || {
+      echo "MUTATION_GATE_TIMEOUT='$bad' was accepted"
+      return 1
+    }
+    [[ "$output" == *"positive"* ]] || {
+      echo "MUTATION_GATE_TIMEOUT='$bad' gave: $output"
+      return 1
+    }
+    # The KILL grace is the second bound and needs the same guard: `0` there
+    # means the SIGKILL never lands, so a tool ignoring SIGTERM runs forever.
+    MUTATION_GATE_KILL_GRACE="$bad" run "$GATE" enforce --in-place
+    [ "$status" -ne 0 ] || {
+      echo "MUTATION_GATE_TIMEOUT='$bad' was accepted"
+      return 1
+    }
+    [[ "$output" == *"positive"* ]] || {
+      echo "MUTATION_GATE_TIMEOUT='$bad' gave: $output"
+      return 1
+    }
+  done
+}
+
+@test "MUT-45: the rendered counts are the run's own, and survivors are named" {
+  # The summary line and the survivor list are the half a human reads. Three
+  # mutations of them survived: `${total} tested` -> `${caught} tested`, deleting
+  # the `cat missed.txt timeout.txt`, and `extra[:10]` -> `extra[:0]` (unexpected
+  # mutants counted but never named, while `unscored:` names were pinned — an
+  # asymmetry nothing justified).
+  export GITHUB_STEP_SUMMARY="$WORK/summary.md"
+  : >"$GITHUB_STEP_SUMMARY"
+  mk_cargo list_n=40 total=40 caught=36 missed=3 timeout=1 exit=3
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  # 40 tested, not 36: the count must describe the run, not one of its buckets.
+  [[ "$output" == *"mutants: 40 tested, 36 caught, 3 missed, 1 timeout"* ]] || {
+    echo "summary line misreports: $output"
+    return 1
+  }
+  # The failure says "see the list above", so there must be a list above.
+  [[ "$output" == *"--- surviving mutants ---"* ]]
+  [[ "$output" == *"crates/x.rs:1:1: replace a with b"* ]] || {
+    echo "the surviving mutants were not listed: $output"
+    return 1
+  }
+  # On the FAIL path the job summary carries die's verdict line, which must
+  # itself state the proportion — a reader of the summary alone should not have
+  # to open the log to learn how bad it was.
+  [[ "$(cat "$GITHUB_STEP_SUMMARY")" == *"**FAIL**"* ]]
+  [[ "$(cat "$GITHUB_STEP_SUMMARY")" == *"4 of 40"* ]]
+}
+
+@test "MUT-45b: an unexpected mutant is NAMED, not just counted" {
+  mk_cargo list_n=3 total=3 caught=3 planned=2 "extra=src/OTHER.rs:9:1: injected"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unexpected: src/OTHER.rs:9:1: injected"* ]] || {
+    echo "the unexpected mutant was counted but not named: $output"
+    return 1
+  }
+}
+
+@test "MUT-46: an ABSENT end_time is a partial run, not a completed one" {
+  # The completeness argument rests on end_time, and every stub emits the key —
+  # so `d.get("end_time")` -> `d.get("end_time", "x")` survived. A cargo-mutants
+  # revision that OMITS the key on an interrupted run rather than nulling it
+  # would defeat the first of the two independent completeness checks, and the
+  # fixture shape made that untestable.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then
+    for i in 1 2 3; do echo "src/x.rs:$i:1: replace a with b"; done
+    exit 0
+  fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 3, "missed": 0, "caught": 3, "timeout": 0, "unviable": 0,
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"}]}
+JSON
+python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1,4)], open('mutants.out/mutants.json','w'))"
+: >mutants.out/missed.txt
+: >mutants.out/timeout.txt
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"interrupted"* ]]
+  [[ "$output" != *"PASS"* ]]
 }
 
 @test "MUT-41: an ADDED file with a quoted path is refused, not reported missing" {

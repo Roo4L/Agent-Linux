@@ -140,15 +140,25 @@ trap cleanup EXIT
 trap 'cleanup; exit 130' INT
 trap 'cleanup; exit 143' TERM
 
-# Run the suite once. Echoes the verdict; aborts on anything that is not bats
-# reporting a result.
+# Run the suite once, setting $verdict to green or red. Aborts on anything that
+# is not bats reporting a result.
 #   0 -> suite green   1 -> a test failed   anything else -> could not run
+#
+# Sets a GLOBAL rather than echoing, and that is the whole point: an earlier
+# revision called this inside a command substitution, so `abort`'s `exit 2`
+# exited only the subshell. The substitution yielded the empty string, the
+# green-comparison was false, and the mutation was recorded KILLED. One OOM, one
+# fork failure under load, or one timeout on run 3 of 59 made the remaining 56
+# free kills — the tool printing a perfect score and exiting 0. That is the exact
+# inflation this script's header claims to have closed, surviving inside the
+# function that implements the claim.
+verdict=""
 run_suite() {
   local rc=0
   nice -n "$SELFTEST_NICE" timeout "$RUN_TIMEOUT" bats "$SUITE" >"$log" 2>&1 || rc=$?
   case $rc in
-    0) echo green ;;
-    1) echo red ;;
+    0) verdict=green ;;
+    1) verdict=red ;;
     124) abort "the suite hit the ${RUN_TIMEOUT}s timeout. Not scoring: a timeout
   is indistinguishable from a kill, and both would otherwise read as 'killed'." ;;
     *) abort "bats exited $rc — it did not run to a verdict (OOM, signal, or a
@@ -164,12 +174,14 @@ trap 'cleanup; rm -f "$log"' EXIT
 # baselined WITHOUT it and scored WITH it, which under $CI made every scored run
 # red for an unrelated reason and reported a perfect score.
 echo "checking the cargo-mutants contract once (MUT-14/MUT-20, unguarded)…"
-[[ $(run_suite) == green ]] || abort "the suite is not green before any mutation.
+run_suite
+[[ $verdict == green ]] || abort "the suite is not green before any mutation.
   Every 'killed' verdict below would be meaningless. See $log."
 
 export AGENTLINUX_GATE_SUITE_SKIP_TOOL=1
 echo "baseline in the scored configuration…"
-[[ $(run_suite) == green ]] || abort "the suite is not green with
+run_suite
+[[ $verdict == green ]] || abort "the suite is not green with
   AGENTLINUX_GATE_SUITE_SKIP_TOOL set. See $log."
 
 killed=0
@@ -199,7 +211,8 @@ open(p, "w").write(s.replace(old, new))
     return 0
   fi
 
-  if [[ $(run_suite) == green ]]; then
+  run_suite
+  if [[ $verdict == green ]]; then
     survived=$((survived + 1))
     survivors+=("$label")
     echo "  SURVIVED     $label"
@@ -321,10 +334,9 @@ timeout --signal=TERM
 %%
 run: drop the timeout
 @@
-nice -n 19 timeout --signal=TERM --kill-after=60s "$timeout_secs" \
-  cargo mutants --output . "$@"
+timeout --signal=TERM --kill-after="${kill_grace}s" "$timeout_secs" \
 @@
-nice -n 19 cargo mutants --output . "$@"
+\
 %%
 run: a timed-out run is not a failure
 @@
@@ -628,6 +640,114 @@ skips: any line containing a comment marker licenses
         if not any(x.startswith("//") for x in above):
 @@
         if not any("//" in x for x in above):
+%%
+founding: the missing-outcomes check
+@@
+[[ -f $outcomes ]] || die "no $outcomes after cargo-mutants exited $cargo_status.
+@@
+true || die "no $outcomes after cargo-mutants exited $cargo_status.
+%%
+reader: total taken from caught
+@@
+    d["total_mutants"], d["missed"], d["caught"], d["timeout"], d["unviable"],
+@@
+    d["caught"], d["missed"], d["caught"], d["timeout"], d["unviable"],
+%%
+reader: an absent end_time reads as finished
+@@
+    0 if d.get("end_time") is None else 1, planned, baseline,
+@@
+    0 if d.get("end_time", "x") is None else 1, planned, baseline,
+%%
+reader: any scenario counts as the baseline
+@@
+runs = [o for o in d.get("outcomes", []) if o.get("scenario") == "Baseline"]
+@@
+runs = [o for o in d.get("outcomes", [])]
+%%
+reader: mutants.json shape check dropped
+@@
+    planned = len(m) if isinstance(m, list) else -3
+@@
+    planned = len(m)
+%%
+sets: compare in one direction only
+@@
+missing = sorted(expected - scored)
+@@
+missing = []
+%%
+sets: unexpected mutants counted but never named
+@@
+for m in extra[:10]:
+@@
+for m in extra[:0]:
+%%
+sets: unscored mutants counted but never named
+@@
+for m in missing[:10]:
+@@
+for m in missing[:0]:
+%%
+report: the rendered count is a bucket, not the total
+@@
+summary="mutants: ${total} tested, ${caught} caught
+@@
+summary="mutants: ${caught} tested, ${caught} caught
+%%
+report: the survivor list is never printed
+@@
+cat "$OUT_DIR/missed.txt" "$OUT_DIR/timeout.txt" >&2 2>/dev/null || true
+@@
+: # no list
+%%
+run: the timeout loses its SIGKILL grace
+@@
+--kill-after="${kill_grace}s" "$timeout_secs" \
+@@
+"$timeout_secs" \
+%%
+run: an unbounded default timeout
+@@
+timeout_secs="${MUTATION_GATE_TIMEOUT:-600}"
+@@
+timeout_secs="${MUTATION_GATE_TIMEOUT:-0}"
+%%
+run: the timeout value is unvalidated
+@@
+[[ $timeout_secs =~ ^[1-9][0-9]*$ ]] || die "MUTATION_GATE_TIMEOUT must be a positive
+@@
+[[ 1 ]] || die "MUTATION_GATE_TIMEOUT must be a positive
+%%
+diff: a trailing space drops a path from the checked set
+@@
+[0].strip().strip("\""))
+@@
+[0].strip("\""))
+%%
+run: the kill grace is unvalidated
+@@
+[[ $kill_grace =~ ^[1-9][0-9]*$ ]] || die "MUTATION_GATE_KILL_GRACE must be a positive
+@@
+[[ 1 ]] || die "MUTATION_GATE_KILL_GRACE must be a positive
+%%
+diff: the .rs test becomes a substring test
+@@
+        cur = p if p.endswith(".rs") else None
+@@
+        cur = p if ".rs" in p else None
+%%
+skips: the attribute test becomes a hash test
+@@
+    return n.startswith("#[") and "mutants::skip" in n
+@@
+    return n.startswith("#") and "mutants::skip" in n
+%%
+skips: the block-comment strip becomes greedy
+@@
+re.sub(r"/\*.*?\*/", "", line)
+@@
+re.sub(r"/\*.*\*/", "", line)
 %%
 TABLE
 
