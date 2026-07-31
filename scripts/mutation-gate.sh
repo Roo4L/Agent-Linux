@@ -49,18 +49,35 @@ esac
 # logs "Diff file is empty" and exits 0. That is a legitimate outcome (a PR that
 # touches no Rust), but it must be visible rather than indistinguishable from a
 # clean pass, so name it here and skip the run.
-# Set once an --in-diff file has been seen and validated, and cleared by any
-# OTHER filter flag. Guards the "no mutants in the diff" skip below.
+# Set once an --in-diff file has been seen and validated; cleared by anything
+# that could ALSO have narrowed the mutant set.
 #
-# `--in-diff` must be the SOLE filter for that skip to mean anything. Pairing it
-# with `--file`, `--exclude`, `--re` or `--shard` also yields "exit 0, no results
-# file" — for a diff that may be full of uncaught mutants, because the second
-# filter is what emptied the set. Enumerating the flagless shapes (as the first
-# version did) closes instances; requiring sole-filter closes the class. This
-# matters concretely: test.yml's own comment tells the next maintainer to SHARD
-# this gate when the diff is large, which would otherwise walk straight into it.
+# This is an ALLOWLIST, not a denylist, and the distinction is the whole point.
+# Two previous rounds enumerated the filter spellings to reject — `--file`,
+# `--exclude`, `--shard`, `--list` — and a reviewer walked straight through nine
+# more (`-f`, `-e`, `-E`, `-F`, `-fVALUE`, `--iterate`, `--package`,
+# `--skip-calls`, `--list-files`). Denylisting a third-party CLI's grammar drifts
+# by construction: every cargo-mutants release may add another spelling, and the
+# test suite ends up co-blind with the code because it enumerates the same
+# strings. Anything not known-benign now disables the skip, so an unrecognised
+# flag fails CLOSED — a hard failure, never a green.
 saw_diff_file=0
 saw_other_filter=""
+
+# Arguments that cannot narrow which mutants are generated. Everything else is
+# treated as potentially narrowing, whatever it is called.
+is_benign_arg() {
+  case "$1" in
+    --in-place | --no-copy-vcs | --no-shuffle | --shuffle) return 0 ;;
+    --minimum-test-timeout | --minimum-test-timeout=* | --timeout | --timeout=*) return 0 ;;
+    --build-timeout | --build-timeout=* | --output | --output=* | -o | -o*) return 0 ;;
+    --jobs | --jobs=* | -j | -j*) return 0 ;;
+    -v | --verbose | -q | --quiet | --no-times | --colors | --colors=*) return 0 ;;
+    # A bare numeric/path operand belonging to one of the value-taking flags
+    # above; the loop below tracks that explicitly.
+    *) return 1 ;;
+  esac
+}
 
 check_diff_file() {
   local f="$1"
@@ -73,54 +90,78 @@ check_diff_file() {
 
   # The file must actually PARSE as a diff before "found no .rs paths" can mean
   # "nothing to check". Without this the extraction below is a fail-OPEN
-  # whitelist: a diff with `diff.noprefix`, custom `diff.srcPrefix`, CRLF line
-  # endings, a space in a path, `--stat` output, or plain garbage yields zero
-  # matches and is waved through as verified.
+  # whitelist: anything it cannot parse yields zero matches and is waved through
+  # as verified.
   grep -qE '^(diff --git |--- |\+\+\+ )' "$f" || die "--in-diff file '$f' is not
   a diff — no 'diff --git' or '---/+++' header found. Refusing to treat an
   unparseable file as 'nothing to check'."
 
-  # Every `+++ b/<path>.rs` in the diff must resolve from the directory this
-  # runs in. cargo-mutants matches --in-diff paths against the WORKSPACE root,
-  # so a diff carrying repo-root-relative paths (i.e. a missing --relative, or a
-  # step moved out of working-directory: rust) matches NOTHING and exits 0 —
-  # which is indistinguishable from an honest "nothing here is mutable" unless
-  # it is checked here. That failure is the one `test.yml` names as the reason
-  # --relative is load-bearing.
+  # Every `.rs` path named in a `+++` header must resolve from the directory
+  # this runs in. cargo-mutants matches --in-diff paths against the WORKSPACE
+  # root, so a diff carrying repo-root-relative paths (a missing --relative, or
+  # a step moved out of working-directory: rust) matches NOTHING and exits 0 —
+  # indistinguishable from an honest "nothing here is mutable" unless checked.
+  #
+  # Tolerant of: CRLF; a trailing tab+timestamp (GNU `diff -u` headers); git's
+  # `core.quotePath` double-quoting of non-ASCII names; a one-letter prefix
+  # (`a/`, `i/`, git's diff.srcPrefix/dstPrefix); `diff.noprefix` (no prefix at
+  # all); and spaces in paths. `/dev/null` (a deletion) is skipped.
+  #
+  # The prefix strip is an ALTERNATION, not two independently-optional pieces:
+  # `[a-z]\{0,1\}/\{0,1\}` turned `+++ src/lib.rs` into `rc/lib.rs`, which
+  # would hard-fail every legitimate PR under a runner with diff.noprefix set
+  # while a comment claimed the opposite.
   local p
   while read -r p; do
     [[ -f $p ]] || die "--in-diff names '$p', which does not exist relative to
   $(pwd). The diff's paths do not resolve against the workspace, so
   cargo-mutants would match nothing and exit 0 — a green gate that scored
   nothing. Check --relative and the step's working-directory."
-    # Tolerant of CRLF, of any one-letter prefix (git's diff.srcPrefix/dstPrefix),
-    # of `diff.noprefix`, and of spaces in paths: take everything after the header
-    # marker, strip an optional `<x>/` prefix and any trailing CR, and check only
-    # `.rs` names. `/dev/null` (a deletion) is skipped.
-  done < <(sed -n 's/\r$//; s|^+++ [a-z]\{0,1\}/\{0,1\}||p' "$f" |
+  done < <(sed -n 's/\r$//; s/\t.*$//; s|^+++ ||p' "$f" |
+    sed 's|^"||; s|"$||; s|^[a-z]/||' |
     grep -E '\.rs$' | grep -v '^dev/null$')
 
   saw_diff_file=1
 }
 
 want_diff_file=0
+expect_value=0
 for arg in "$@"; do
   if [[ $want_diff_file -eq 1 ]]; then
     check_diff_file "$arg"
     want_diff_file=0
     continue
   fi
+  if [[ $expect_value -eq 1 ]]; then
+    expect_value=0
+    continue
+  fi
   case "$arg" in
-    # Both spellings: cargo-mutants accepts `--in-diff F` and `--in-diff=F`, and
-    # matching only the first left the equals form skipping this check entirely.
-    --in-diff) want_diff_file=1 ;;
-    --in-diff=*) check_diff_file "${arg#--in-diff=}" ;;
-    # `--list` produces no score at all, so a gate can never be satisfied by one.
-    --list) die "--list produces no mutation score; the gate cannot run against it" ;;
-    --file | --file=* | --exclude | --exclude=* | --exclude-re | --exclude-re=* | --re | --re=* | --shard | --shard=*)
-      saw_other_filter="$arg"
+    --in-diff | -D)
+      want_diff_file=1
+      continue
+      ;;
+    --in-diff=* | -D*)
+      [[ $arg == -D ]] || check_diff_file "${arg#*=}"
+      continue
+      ;;
+    # No score is ever produced by a listing run, so a gate cannot be satisfied
+    # by one — under any spelling.
+    --list | --list-files)
+      die "'$arg' produces no mutation score; the gate cannot run against it"
       ;;
   esac
+  if is_benign_arg "$arg"; then
+    # Value-taking benign flags in their separated form consume the next token.
+    case "$arg" in
+      --minimum-test-timeout | --timeout | --build-timeout | --output | -o | --jobs | -j)
+        expect_value=1
+        ;;
+    esac
+    continue
+  fi
+  # Not recognised as benign → assume it can narrow the set.
+  saw_other_filter="$arg"
 done
 [[ $want_diff_file -eq 0 ]] || die "--in-diff given with no file argument"
 

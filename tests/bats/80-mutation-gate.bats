@@ -318,49 +318,71 @@ print('contract OK')
   [[ "$output" == *"does not exist relative to"* ]]
 }
 
-@test "MUT-18: --in-diff paired with any other filter cannot license the skip" {
-  # A second filter can empty the mutant set for a diff that is full of uncaught
-  # mutants, producing the same "exit 0, no results file" as an honest
-  # nothing-to-mutate run. Enumerating the flagless shapes closed instances;
-  # this closes the class. test.yml's own comment advises sharding this gate for
-  # a large diff, which would otherwise walk straight into it.
+@test "MUT-18: only known-benign flags may accompany --in-diff for a skip" {
+  # The property, not a list. Two rounds enumerated the filter spellings to
+  # reject and a reviewer walked through nine more (-f, -e, -E, -F, -fVALUE,
+  # --iterate, --package, --skip-calls, --list-files). The rule is now an
+  # allowlist, so this asserts the SHAPE: anything unrecognised must disable the
+  # skip. The sample below deliberately includes short and attached-value forms
+  # the previous denylist missed, plus a flag that does not exist — because the
+  # point is that the gate does not need to know what it means.
   stub_cargo_zero_mutants
   mkdir -p crates/c/src
   printf 'pub fn f() {}\n' >crates/c/src/lib.rs
   printf 'diff --git a/crates/c/src/lib.rs b/crates/c/src/lib.rs\n--- a/crates/c/src/lib.rs\n+++ b/crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >d.diff
 
-  for extra in "--file crates/zzz/**" "--exclude crates/c/**" "--shard 99/100"; do
+  for extra in "--file x" "-f x" "--exclude x" "-e x" "-E x" "-F x" "-fx" \
+    "--shard 9/10" "--iterate" "--package p" "-p p" "--skip-calls f" \
+    "--some-flag-invented-tomorrow"; do
     # shellcheck disable=SC2086
     run "$GATE" enforce --in-diff d.diff $extra
     [ "$status" -ne 0 ] || {
-      echo "BYPASS via $extra"
+      echo "BYPASS via: $extra"
       return 1
     }
   done
 
-  # --list can never produce a score, so it is refused outright.
-  run "$GATE" enforce --in-diff d.diff --list
-  [ "$status" -ne 0 ]
+  # A listing run can never produce a score, under either spelling.
+  for l in --list --list-files; do
+    run "$GATE" enforce --in-diff d.diff "$l"
+    [ "$status" -ne 0 ]
+  done
 
-  # …and --in-diff alone still skips.
-  run "$GATE" enforce --in-diff d.diff
+  # …and flags that cannot narrow the mutant set must NOT block the skip,
+  # or the gate becomes unusable and gets bypassed for real.
+  run "$GATE" enforce --in-diff d.diff --in-place --minimum-test-timeout 20 --jobs 4
   [ "$status" -eq 0 ]
 }
 
-@test "MUT-19: a file that is not a diff is never treated as verified" {
-  # The path check only fires on lines it recognises, so anything it cannot
-  # parse — diff.noprefix, custom srcPrefix, CRLF, a space in a path, --stat
-  # output, plain garbage — used to be waved through as "no .rs paths to check".
+@test "MUT-19: an unparseable or unresolvable diff is never treated as verified" {
   stub_cargo_zero_mutants
   printf 'this is not a diff\n' >garbage.diff
   run "$GATE" enforce --in-diff garbage.diff
   [ "$status" -ne 0 ]
-  [[ "$output" == *"not"*"diff"* ]]
 
-  # A real diff shape the old regex could not parse, naming a path that does
-  # not resolve, must still be caught.
+  # Real diff shapes naming a path that does NOT resolve. Each of these once
+  # yielded zero regex matches and was waved through as "no .rs paths to check":
+  # no prefix, CRLF, a tab+timestamp (GNU diff -u), and core.quotePath quoting.
   printf 'diff --git nope/x.rs nope/x.rs\n--- nope/x.rs\n+++ nope/x.rs\n@@ -1 +1 @@\n-x\n+y\n' >noprefix.diff
-  run "$GATE" enforce --in-diff noprefix.diff
-  [ "$status" -ne 0 ]
-  [[ "$output" == *"does not exist relative to"* ]]
+  printf 'diff --git a/nope/x.rs b/nope/x.rs\r\n--- a/nope/x.rs\r\n+++ b/nope/x.rs\r\n@@ -1 +1 @@\r\n-x\r\n+y\r\n' >crlf.diff
+  printf 'diff --git a/nope/x.rs b/nope/x.rs\n--- a/nope/x.rs\t2026-01-02 10:00:00\n+++ b/nope/x.rs\t2026-01-02 10:00:00\n@@ -1 +1 @@\n-x\n+y\n' >ts.diff
+  printf 'diff --git "a/nope/f.rs" "b/nope/f.rs"\n--- "a/nope/f.rs"\n+++ "b/nope/f.rs"\n@@ -1 +1 @@\n-x\n+y\n' >quoted.diff
+  for d in noprefix.diff crlf.diff ts.diff quoted.diff; do
+    run "$GATE" enforce --in-diff "$d"
+    [ "$status" -ne 0 ] || {
+      echo "waved through: $d"
+      return 1
+    }
+    [[ "$output" == *"does not exist relative to"* ]]
+  done
+
+  # The converse: a diff.noprefix diff naming a path that DOES resolve must
+  # pass. The first extractor mangled `+++ src/lib.rs` into `rc/lib.rs`, so it
+  # hard-failed every legitimate PR on such a runner while a comment claimed
+  # noprefix was tolerated.
+  mkdir -p crates/c/src
+  printf 'pub fn f() {}\n' >crates/c/src/lib.rs
+  printf 'diff --git crates/c/src/lib.rs crates/c/src/lib.rs\n--- crates/c/src/lib.rs\n+++ crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >npok.diff
+  run "$GATE" enforce --in-diff npok.diff
+  [ "$status" -eq 0 ]
 }
