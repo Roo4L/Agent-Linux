@@ -178,6 +178,18 @@ run_suite
 [[ $verdict == green ]] || abort "the suite is not green before any mutation.
   Every 'killed' verdict below would be meaningless. See $log."
 
+# `nice -n N` ADDS to the caller's niceness and caps at 19. Started from a shell
+# already at 19 — how this repo's guidance runs long jobs — the children stay at
+# 19, MUT-43 skips because nice(1) cannot raise further, and "run: drop the nice"
+# survives. So the score would silently depend on how the driver was launched.
+self_nice="$(ps -o nice= -p $$ | tr -d ' ')"
+if [[ $((self_nice + SELFTEST_NICE)) -ge 19 ]]; then
+  abort "this shell is already at niceness $self_nice; adding $SELFTEST_NICE reaches
+  nice(1)'s cap of 19, which is where the gate nices its own child — MUT-43 would
+  then skip and the nice mutations would survive for the wrong reason. Re-run from
+  a less niced shell (nice -n 0)."
+fi
+
 export AGENTLINUX_GATE_SUITE_SKIP_TOOL=1
 echo "baseline in the scored configuration…"
 run_suite
@@ -749,6 +761,78 @@ re.sub(r"/\*.*?\*/", "", line)
 @@
 re.sub(r"/\*.*\*/", "", line)
 %%
+expectation: swallow a failed --list query
+@@
+  die "could not ask cargo-mutants what this scope contains. The gate's
+@@
+  true "could not ask cargo-mutants what this scope contains. The gate's
+%%
+accounting: the identity holds in enforce only
+@@
+if [[ $accounted -ne $total ]]; then
+@@
+if [[ $accounted -ne $total && $mode == enforce ]]; then
+%%
+diff: the diff-header test loses its line anchor
+@@
+grep -qE '^(diff --git |--- |\+\+\+ )' "$f" ||
+@@
+grep -qE '(diff --git |--- |\+\+\+ )' "$f" ||
+%%
+diff: a broken reader is not fatal
+@@
+    die "could not read the --in-diff file '$f'. The gate cannot confirm its
+@@
+    true "could not read the --in-diff file '$f'. The gate cannot confirm its
+%%
+run: the nice level is nominal
+@@
+nice -n 19 timeout --signal=TERM
+@@
+nice -n 1 timeout --signal=TERM
+%%
+run: the default timeout outgrows the job cap
+@@
+timeout_secs="${MUTATION_GATE_TIMEOUT:-600}"
+@@
+timeout_secs="${MUTATION_GATE_TIMEOUT:-6000}"
+%%
+run: the default kill grace outgrows the job cap
+@@
+kill_grace="${MUTATION_GATE_KILL_GRACE:-60}"
+@@
+kill_grace="${MUTATION_GATE_KILL_GRACE:-600}"
+%%
+summary: the mode is not named
+@@
+  echo "- \`${mode:-mutation gate}\`: $*" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+@@
+  echo "- \`gate\`: $*" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+%%
+sets: only one unscored mutant is named
+@@
+for m in missing[:10]:
+@@
+for m in missing[:1]:
+%%
+sets: only one unexpected mutant is named
+@@
+for m in extra[:10]:
+@@
+for m in extra[:1]:
+%%
+sets: the first detail line is dropped
+@@
+detail=$(printf '%s\n' "${verdict[@]:2}")
+@@
+detail=$(printf '%s\n' "${verdict[@]:3}")
+%%
+reader: two baselines are tolerated
+@@
+if len(runs) > 1:
+@@
+if len(runs) > 2:
+%%
 TABLE
 
 # NUL-delimited so a pattern can contain anything at all.
@@ -758,6 +842,18 @@ while IFS= read -r -d '' label && IFS= read -r -d '' old && IFS= read -r -d '' n
   [[ -z $filter || $label == *"$filter"* ]] || continue
   score_one "$label" "$old" "$new"
 done <"$table"
+
+# The closing control. The header claimed this existed and it did not — anything
+# that turns the suite red mid-run for an unrelated reason (a workflow file being
+# edited under MUT-34*, a full /tmp, a stale mutants.out) converts every
+# remaining mutation into a reported kill, and the tool exits 0 with a perfect
+# score. That is the same inflation shape this script's history section says it
+# closed, surviving inside the sentence that claimed it.
+echo "closing baseline…"
+run_suite
+[[ $verdict == green ]] || abort "the suite is RED with the gate restored, so the
+  environment changed under the run and every 'killed' verdict after that point is
+  unreliable. Not reporting a score. See $log."
 
 scored=$((killed + survived))
 total=$((scored + drifted))

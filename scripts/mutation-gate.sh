@@ -392,7 +392,13 @@ except Exception:
 else:
     planned = len(m) if isinstance(m, list) else -3
 runs = [o for o in d.get("outcomes", []) if o.get("scenario") == "Baseline"]
-baseline = "missing" if not runs else str(runs[0].get("summary"))
+# EXACTLY one. A run establishes one baseline; two means the results file
+# describes something other than a single run, and picking either of them
+# the first or the last is a guess about which one the score belongs to.
+if len(runs) > 1:
+    baseline = "ambiguous"
+else:
+    baseline = "missing" if not runs else str(runs[0].get("summary"))
 print(
     d["total_mutants"], d["missed"], d["caught"], d["timeout"], d["unviable"],
     0 if d.get("end_time") is None else 1, planned, baseline,
@@ -420,6 +426,8 @@ esac
 
 case $baseline in
   Success) ;;
+  ambiguous) die "$outcomes records more than one \"Baseline\" scenario, so it does
+  not describe a single run and which baseline the score belongs to is a guess." ;;
   missing) die "this run established no baseline (no \"Baseline\" scenario in
   $outcomes), so 'caught' means nothing: with --baseline skip and a test command
   that fails for its own reasons, EVERY mutant is recorded as caught and every

@@ -109,8 +109,9 @@ import json
 scored = [
     {"name": "src/x.rs:%d:1: replace a with b" % i} for i in range(1, $planned + 1)
 ]
-if "$extra":
-    scored.append({"name": "$extra"})
+for name in "$extra".split(","):
+    if name:
+        scored.append({"name": name})
 json.dump(scored, open("mutants.out/mutants.json", "w"))
 outcomes = [{"scenario": {"Mutant": m}, "summary": "CaughtMutant"} for m in scored]
 baseline = "$baseline"
@@ -1654,19 +1655,26 @@ EOF
   # co-blind with the harness written to run it.
   local parent
   parent="$(ps -o nice= -p $$ | tr -d ' ')"
-  if [ "$parent" -ge 19 ]; then
+  # `nice` caps at 19, so from a parent at 18 even `nice -n 1` reaches 19 and the
+  # level is not distinguishable. Below that it is: `nice -n 19` always lands
+  # exactly at the cap.
+  if [ "$parent" -ge 18 ]; then
     # `nice` caps at 19, so from a parent already there it provably cannot
     # raise the child and this has nothing to measure. Stated, not silently
     # passed. The self-test driver deliberately stays below 19 for this reason.
-    skip "already at niceness $parent; nice(1) cannot raise the child further"
+    skip "at niceness $parent, nice(1)'s cap makes the level indistinguishable"
   fi
 
   run "$GATE" enforce --in-place
   [ "$status" -eq 0 ]
   local child
   child="$(cat "$WORK/niceness")"
-  [ "$child" -gt "$parent" ] || {
-    echo "the mutation run is not niced: child=$child parent=$parent"
+  # The LEVEL, not merely "niced at all": `nice -n 19 -> nice -n 1` survived a
+  # `child > parent` assertion. A mutation run is a whole-machine workload and
+  # must yield to everything, so pin it AT the cap — which `nice -n 19` reaches
+  # from any parent below 19, while any smaller increment does not.
+  [ "$child" -eq 19 ] || {
+    echo "the mutation run is not niced to the floor: child=$child parent=$parent"
     return 1
   }
 }
@@ -1765,6 +1773,160 @@ RS
   [[ "$output" == *"ADR-020"* ]]
 }
 
+@test "MUT-51: a FAILING --list query is fatal, not an empty scope" {
+  # The live "nothing ran -> green". Swallow the query failure and `expected=0`
+  # takes the nothing-mutable skip, which disables the outcomes check, BOTH
+  # completeness checks, the baseline check, the accounting identity and the
+  # survivor check in one step. The script's own comment says this was fixed; no
+  # stub in this file failed `--list`, so nothing would have noticed it coming
+  # back.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then
+    echo "error: could not read the workspace" >&2
+    exit 101
+  fi
+done
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  local mode
+  for mode in enforce advisory; do
+    run "$GATE" "$mode"
+    [ "$status" -ne 0 ] || {
+      echo "$mode passed on a failed --list query"
+      return 1
+    }
+    [[ "$output" == *"could not ask cargo-mutants"* ]] || {
+      echo "$mode gave: $output"
+      return 1
+    }
+    [[ "$output" != *"nothing mutable in scope"* ]] || {
+      echo "$mode reported an empty scope for a BROKEN query"
+      return 1
+    }
+  done
+}
+
+@test "MUT-51b: EVERY unscored and unexpected mutant is named, not just one" {
+  # `missing[:10] -> [:1]` and `extra[:10] -> [:1]` both survived: the die says
+  # "see the list above" while naming one of them. A reader cannot tell which
+  # part of the change went unmeasured from a single line.
+  mk_cargo list_n=6 total=3 caught=3 planned=3
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  local n
+  n="$(printf '%s\n' "$output" | grep -c 'unscored: ')"
+  [ "$n" -ge 3 ] || {
+    echo "only $n unscored mutants named, expected 3: $output"
+    return 1
+  }
+
+  # Same on the other side of the comparison — `extra[:10] -> [:1]` survived
+  # while the unscored side was pinned, an asymmetry nothing justified.
+  mk_cargo list_n=2 total=4 caught=4 planned=2 \
+    "extra=src/A.rs:1:1: injected,src/B.rs:2:1: injected"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"unexpected: src/A.rs"* && "$output" == *"unexpected: src/B.rs"* ]] || {
+    echo "not every unexpected mutant was named: $output"
+    return 1
+  }
+}
+
+@test "MUT-51c: a results file with TWO baselines is refused, not guessed at" {
+  # `runs[0] -> runs[-1]` survived. A run establishes one baseline; two means the
+  # file describes something other than a single run, and picking either is a
+  # guess about which one the score belongs to — the first passing while the
+  # second failed would report a clean sweep over a red tree.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0, "unviable": 0,
+ "end_time": "2026-07-31T00:00:00Z",
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"},
+              {"scenario": "Baseline", "summary": "Failure"}]}
+JSON
+echo '[{"name": "src/x.rs:1:1: replace a with b"}]' >mutants.out/mutants.json
+: >mutants.out/missed.txt
+: >mutants.out/timeout.txt
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"more than one"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-52: the accounting identity holds in ADVISORY too" {
+  # MUT-05b is enforce-only. In advisory the identity is the ONLY thing between a
+  # --check-shaped run (total > 0, all four buckets 0) and a green nightly:
+  # total != 0, viable > 0, survivors == 0 -> PASS.
+  mk_cargo list_n=5 total=5 caught=0
+  run "$GATE" advisory
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"accounted"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-53: a diff header must be at the START of a line" {
+  # Dropping the `^` anchor makes any file containing `--- ` anywhere — a log, a
+  # markdown horizontal rule — parse as a diff, yield zero .rs paths, and be
+  # waved through as "nothing to check". That is the fail-OPEN whitelist the
+  # anchor exists to close, and MUT-19's `this is not a diff` fixture fails both
+  # the anchored and unanchored patterns, so it could not tell them apart.
+  mk_cargo list_n=4 total=4 caught=4
+  printf 'a log line mentioning --- somewhere
+and +++ here too
+' >notadiff.txt
+  run "$GATE" enforce --in-diff notadiff.txt
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"is not"* && "$output" == *"diff"* ]]
+}
+
+@test "MUT-54: a broken diff reader is fatal, not a silent pass" {
+  # If the python that extracts paths and added skips cannot run, BOTH diff
+  # checks vanish. Simulated by making python3 unavailable to the gate.
+  mk_cargo list_n=4 total=4 caught=4
+  cat >"$BIN/python3" <<'EOF'
+#!/usr/bin/env bash
+exit 127
+EOF
+  chmod +x "$BIN/python3"
+  printf 'diff --git a/rust/nope.rs b/rust/nope.rs
+--- a/rust/nope.rs
++++ b/rust/nope.rs
+@@ -1 +1 @@
+-a
++b
+' >bad.diff
+  run "$GATE" enforce --in-diff bad.diff
+  rm -f "$BIN/python3"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"could not read the --in-diff file"* ]]
+}
+
+@test "MUT-55: the gate names its own mode in the job summary" {
+  # `${mode:-mutation gate}` -> a constant makes every rendered line stop saying
+  # WHICH gate produced it, in a repo where the enforcing and advisory gates
+  # write to the same summary.
+  export GITHUB_STEP_SUMMARY="$WORK/summary.md"
+  : >"$GITHUB_STEP_SUMMARY"
+  mk_cargo list_n=4 total=4 caught=4
+  run "$GATE" enforce
+  [ "$status" -eq 0 ]
+  [[ "$(cat "$GITHUB_STEP_SUMMARY")" == *'`enforce`'* ]] || {
+    echo "the summary does not name the mode: $(cat "$GITHUB_STEP_SUMMARY")"
+    return 1
+  }
+}
+
 @test "MUT-44: a zero or malformed gate timeout is refused, not silently unbounded" {
   # GNU `timeout 0` means NO timeout. `:-3600 -> :-0` therefore removed the
   # containment while every other check still passed — and the containment is the
@@ -1794,6 +1956,30 @@ RS
       return 1
     }
   done
+}
+
+@test "MUT-34f: the gate's DEFAULT bounds are usable inside the job cap" {
+  # MUT-34e pins test.yml's explicit MUTATION_GATE_TIMEOUT. The script's own
+  # defaults were pinned by nothing, so `:-600 -> :-6000` and `:-60 -> :-600`
+  # both survived — and the script's comment claims the default "must also be
+  # below the CI job cap".
+  local root="${BATS_TEST_DIRNAME}/../.."
+  local job_min default_to default_grace
+  job_min="$(awk '/^  rust:/{f=1} f && /timeout-minutes:/{print $2; exit}' \
+    "$root/.github/workflows/test.yml")"
+  default_to="$(grep -oE 'MUTATION_GATE_TIMEOUT:-[0-9]+' "$root/scripts/mutation-gate.sh" |
+    head -1 | sed 's/.*:-//')"
+  default_grace="$(grep -oE 'MUTATION_GATE_KILL_GRACE:-[0-9]+' "$root/scripts/mutation-gate.sh" |
+    head -1 | sed 's/.*:-//')"
+  [ -n "$default_to" ] && [ -n "$default_grace" ] || {
+    echo "could not read the gate's default bounds"
+    return 1
+  }
+  [ "$((default_to + default_grace))" -lt "$((job_min * 60))" ] || {
+    echo "the gate's own defaults (${default_to}s + ${default_grace}s grace) do not"
+    echo "fit inside the ${job_min}m job cap, so the inner timeout cannot fire first"
+    return 1
+  }
 }
 
 @test "MUT-45: the rendered counts are the run's own, and survivors are named" {
@@ -1830,6 +2016,10 @@ RS
   run "$GATE" enforce
   [ "$status" -ne 0 ]
   [[ "$output" == *"unexpected: src/OTHER.rs:9:1: injected"* ]] || {
+    echo "the unexpected mutant was counted but not named: $output"
+    return 1
+  }
+  [[ "$output" == *"unscored: src/x.rs:3"* ]] || {
     echo "the unexpected mutant was counted but not named: $output"
     return 1
   }

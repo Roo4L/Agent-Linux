@@ -120,7 +120,7 @@ this gate is **its own mutation score**:
 scripts/mutation-gate-selftest.sh          # exits non-zero if anything survives
 ```
 
-It currently reports **77/77**.
+It currently reports **89/89**.
 
 That is a script rather than a paragraph of instructions because the loop it
 runs is a whole-machine workload — ~60 full bats runs, each forking a swarm of
