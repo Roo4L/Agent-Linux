@@ -72,6 +72,21 @@ fn real_path_exists(p: &std::path::Path) -> bool {
     p.exists()
 }
 
+/// "Is stdin a terminal?" — the REMEDIATE-04 consent surface, injected.
+///
+/// Read inline it made the verb's verdict depend on whether the suite was run
+/// from a terminal: `the_remediate_arm_…` asserted exit 65 (refused, non-TTY)
+/// and got exit 1 under a pty, because the TTY branch auto-passes. A test whose
+/// result depends on the runner's terminal is the same defect class as one that
+/// depends on the runner's uid — and it fails on a developer's machine while
+/// passing on CI, which is the worse direction.
+pub type IsTty = fn() -> bool;
+
+/// The production check.
+fn real_is_tty() -> bool {
+    std::io::stdin().is_terminal()
+}
+
 /// `agentlinux install <name>` body.
 #[must_use]
 pub fn install(name: &str, opts: &InstallArgs) -> ExitCode {
@@ -88,6 +103,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         opts,
         dispatch,
         real_path_exists,
+        real_is_tty,
         &mut Out {
             out: &mut out,
             err: &mut err,
@@ -102,6 +118,7 @@ pub fn install_into(
     opts: &InstallArgs,
     dispatch: RecipeDispatcher,
     path_exists: PathExists,
+    is_tty: IsTty,
     o: &mut Out<'_>,
 ) -> ExitCode {
     // --dry-run + --yes is contradictory (dry-run never mutates; --yes is a
@@ -287,7 +304,7 @@ pub fn install_into(
 
         // --yes is the sole consent surface (no env-var equivalent). TTY mode
         // auto-passes.
-        let is_tty = std::io::stdin().is_terminal();
+        let is_tty = is_tty();
         if !opts.yes && !is_tty {
             errln!(
                     o,
@@ -809,6 +826,12 @@ mod install_tests {
         false
     }
 
+    /// Not a terminal — the curl-installer shape, and a fixture rather than a
+    /// property of however the suite was launched.
+    fn no_tty() -> bool {
+        false
+    }
+
     fn run_capturing(
         name: &str,
         opts: &InstallArgs,
@@ -830,6 +853,7 @@ mod install_tests {
             opts,
             dispatch,
             path_exists,
+            no_tty,
             &mut Out {
                 out: &mut out,
                 err: &mut err,

@@ -49,26 +49,37 @@ esac
 # logs "Diff file is empty" and exits 0. That is a legitimate outcome (a PR that
 # touches no Rust), but it must be visible rather than indistinguishable from a
 # clean pass, so name it here and skip the run.
+check_diff_file() {
+  local f="$1"
+  [[ -f $f ]] || die "--in-diff file '$f' does not exist (the caller's git diff failed)"
+  if [[ ! -s $f ]]; then
+    echo "mutation gate: diff is empty — no Rust lines changed, nothing to mutate."
+    echo "- \`$mode\`: SKIPPED (empty diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+    exit 0
+  fi
+}
+
 want_diff_file=0
 for arg in "$@"; do
   if [[ $want_diff_file -eq 1 ]]; then
-    [[ -f $arg ]] || die "--in-diff file '$arg' does not exist (the caller's git diff failed)"
-    if [[ ! -s $arg ]]; then
-      echo "mutation gate: diff is empty — no Rust lines changed, nothing to mutate."
-      echo "- \`$mode\`: SKIPPED (empty diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
-      exit 0
-    fi
+    check_diff_file "$arg"
     want_diff_file=0
     continue
   fi
-  [[ $arg == "--in-diff" ]] && want_diff_file=1
+  case "$arg" in
+    # Both spellings: cargo-mutants accepts `--in-diff F` and `--in-diff=F`, and
+    # matching only the first left the equals form skipping this check entirely.
+    --in-diff) want_diff_file=1 ;;
+    --in-diff=*) check_diff_file "${arg#--in-diff=}" ;;
+  esac
 done
 [[ $want_diff_file -eq 0 ]] || die "--in-diff given with no file argument"
 
 # A killed --in-place run leaves mutated source behind. Warn if the tree is
 # already dirty so a developer cannot mistake cargo-mutants' residue for their
 # own edits (CI checkouts are always clean, so this is silent there).
-if command -v git >/dev/null && ! git diff --quiet 2>/dev/null; then
+if command -v git >/dev/null && git rev-parse --git-dir >/dev/null 2>&1 &&
+  ! git diff --quiet; then
   echo "mutation gate: NOTE — working tree is dirty before the run; --in-place" >&2
   echo "  mutates in place, so check 'git diff' for '~ changed by cargo-mutants ~'" >&2
   echo "  residue if this run is interrupted." >&2
@@ -86,6 +97,21 @@ cargo_status=$?
 set -e
 
 outcomes="$OUT_DIR/outcomes.json"
+
+# `exit 0` with no results file uniquely means "No mutants to filter" — the diff
+# was non-empty but touched only lines that yield no mutants (a test-only change,
+# or Cargo.toml/rust-toolchain.toml now that the pathspec is the whole rust/
+# tree). That is a legitimate outcome and must be NAMED, not reported as a broken
+# gate: a gate that hard-fails on a PR the contributor cannot fix is how the
+# previous one earned its bypass. Every other absent-outcomes case exits non-zero
+# (1 = rejected flags, 4 = failing baseline), so this stays fail-closed.
+if [[ ! -f $outcomes && $cargo_status -eq 0 ]]; then
+  echo "mutation gate: the diff produced no mutants — nothing in it is mutable"
+  echo "  (test-only lines, comments, or manifest edits). Nothing to score."
+  echo "- \`$mode\`: SKIPPED (no mutants in diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+  exit 0
+fi
+
 [[ -f $outcomes ]] || die "no $outcomes after cargo-mutants exited $cargo_status.
   cargo-mutants did not complete a run — usually a rejected flag combination or a
   failing baseline. Fix the invocation; do NOT mask this as 'surviving mutants'."
@@ -100,7 +126,7 @@ outcomes="$OUT_DIR/outcomes.json"
 #                 is the number of mutants this run was supposed to test.
 #
 # Verified against cargo-mutants 27.1.0 by SIGKILLing a real run.
-read -r total missed caught timeout unviable finished planned < <(
+if ! read -r total missed caught timeout unviable finished planned < <(
   python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -113,7 +139,11 @@ print(
     0 if d.get("end_time") is None else 1, planned,
 )
 ' "$outcomes" "$OUT_DIR/mutants.json"
-)
+); then
+  die "could not read $outcomes — malformed JSON, a missing key, or no python3.
+  cargo-mutants may have changed its results schema; see tests/bats/80-mutation-gate.bats
+  MUT-14, the contract test that pins it."
+fi
 
 if [[ $finished -eq 0 ]]; then
   die "cargo-mutants exited $cargo_status without writing a final summary

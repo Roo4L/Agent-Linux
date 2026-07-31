@@ -145,6 +145,20 @@ jobs:
       - name: Install cargo-mutants (pinned, cached)
         if: steps.guard.outputs.ready == 'true'
         run: cargo install --locked --version 27.1.0 cargo-mutants
+      # The gate's own suite runs HERE, not in the bats-docker matrix, and that
+      # placement is the point. Thirteen of its cases stub `cargo`, so together
+      # they pin the gate against a schema this repo wrote; MUT-14 is the one
+      # that runs the real pinned cargo-mutants and asserts outcomes.json still
+      # has the fields the gate reads. In the bats container that case always
+      # SKIPPED — `CI` is not in run.sh's env allowlist and no bats image ships
+      # cargo — so the contract test reported green without ever running, which
+      # is precisely the class this gate exists to eliminate. On this runner
+      # `CI=true` and the pinned binary is already installed and cached.
+      - name: mutation-gate self-test (incl. the real-tool contract, MUT-14)
+        if: steps.guard.outputs.ready == 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+          bats tests/bats/80-mutation-gate.bats
       # W1: assert the diff base resolves BEFORE the gate runs, so a shallow
       # clone (or a missing origin/master) fails loudly here instead of letting
       # `--in-diff` silently mutate an empty diff (a false-green gate). fetch-depth: 0

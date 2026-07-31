@@ -157,24 +157,7 @@ pub fn decide_npm_prefix(
     }
 }
 
-/// DECIDE-THEN-ACT core-component step (the I/O shell over the pure deciders):
-/// probe sudoers + npm-prefix host state, overwrite the two seeded `Create` tokens
-/// in `res` with the real resolution, and push any bail. On a TTY the `Prompt`
-/// outcome is resolved here via the interactive confirm (declined → `ReuseWithWarning`,
-/// leaving the drifted state untouched). Makes NO mutation itself.
-pub fn decide_core(
-    user: &str,
-    home: &str,
-    yes: bool,
-    res: &mut Resolutions,
-    bails: &mut Vec<Bail>,
-) {
-    let mut prompter = crate::provision::wizard::Stdio::new();
-    let facts = HostFacts::probe(user, home);
-    decide_core_with(user, facts, yes, res, bails, &mut prompter);
-}
-
-/// [`decide_core`] against an injected [`Prompter`] and sudoers path.
+/// The DECIDE-THEN-ACT core-component step, over stated host facts.
 ///
 /// The consent surface is a parameter because the ORDER of the prompts is
 /// load-bearing and shares one read buffer: the npm-prefix answer's trailing

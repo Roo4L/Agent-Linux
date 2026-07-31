@@ -89,8 +89,17 @@ no answers" test consented to a remediation nobody asked for). The Docker and
 QEMU harnesses run as root.
 
 **Consequence, enforced:** `cargo test` must produce identical results as an
-unprivileged user and as root. A test whose verdict depends on the runner is a
-bug regardless of which way it currently falls.
+unprivileged user, as root, and with a terminal attached. A test whose verdict
+depends on the runner is a bug regardless of which way it currently falls.
+
+The TTY axis is listed because it was missed once, in the change that introduced
+`provision_with`: the orchestrator built its `Prompter` internally from the
+ambient `stdin().is_terminal()`, so the bail-ordering test prompted on a real
+terminal and `cargo test` HUNG indefinitely for anyone running it in a shell —
+while passing on CI's non-TTY runner. That is the worse direction for a
+runner-dependent test, and the same class as reading the host's `/etc`. The
+consent surface is now a `ProvisionDeps` field, and `cmd/install.rs` takes its
+`is_tty` the same way.
 
 ### 3b. The orchestrator's phase ORDER is a property, so it needs a seam too
 

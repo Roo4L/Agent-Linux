@@ -321,6 +321,24 @@ fn adoption_child_env(home: &str) -> Vec<(String, String)> {
 pub struct ProvisionDeps {
     pub is_tty: fn() -> bool,
     pub should_prompt_user: fn(&str, &str) -> bool,
+    /// The install-user wizard (AL-50). A dep because the branch it guards reads
+    /// real stdin, so a test that reached it would block on the operator's
+    /// terminal rather than fail.
+    pub choose_user: fn(&str) -> String,
+    /// The UID<1000 adoption gate. A dep because its POSITION is the contract —
+    /// it runs before `--purge` so `userdel -r` can never reach a system account
+    /// — and because it reads the real passwd DB, which made the ordering tests
+    /// a function of the runner's `/etc/passwd` rather than of the fixture.
+    pub check_adoptable: fn(&str) -> Result<(), ExitCode>,
+    /// The wrong-shell recovery path, which probes the passwd DB and can prompt.
+    pub resolve_wrong_shell: fn(&str) -> Result<String, ExitCode>,
+    /// The consent surface. Built here rather than inside `provision_with`,
+    /// which seeded it from the ambient `stdin().is_terminal()` — so the bail
+    /// ordering test prompted on a developer's real terminal and `cargo test`
+    /// hung forever under a TTY while passing on CI's non-TTY runner. A verdict
+    /// that depends on whether a terminal is attached is the same defect class
+    /// as one that depends on the uid.
+    pub make_prompter: fn() -> Box<dyn provision::wizard::Prompter>,
     pub detect_distro: fn() -> Result<distro::Distro, distro::DistroError>,
     pub probe_facts: fn(&str, &str) -> provision::remediate::HostFacts,
     pub purge: fn(&str, &str, bool) -> ExitCode,
@@ -337,6 +355,10 @@ impl Default for ProvisionDeps {
         Self {
             is_tty: provision::wizard::stdin_is_tty,
             should_prompt_user: provision::wizard::should_prompt_install_user,
+            choose_user: real_choose_user,
+            check_adoptable: check_user_adoptable,
+            resolve_wrong_shell,
+            make_prompter: || Box::new(provision::wizard::Stdio::new()),
             detect_distro: distro::detect_distro_from_env,
             probe_facts: provision::remediate::HostFacts::probe,
             purge: run_purge,
@@ -348,6 +370,11 @@ impl Default for ProvisionDeps {
             adopt: run_agent_adoption,
         }
     }
+}
+
+/// The production install-user wizard, as a plain fn pointer.
+fn real_choose_user(default_user: &str) -> String {
+    provision::wizard::choose_install_user(default_user, &validate_user_name)
 }
 
 pub fn provision(args: &ProvisionArgs) -> ExitCode {
@@ -378,7 +405,7 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
         && (deps.is_tty)()
         && (deps.should_prompt_user)(&default_user, &default_home)
     {
-        provision::wizard::choose_install_user(&default_user, &validate_user_name)
+        (deps.choose_user)(&default_user)
     } else {
         match resolve_provision_user(args.user.as_deref()) {
             Ok(u) => u,
@@ -388,7 +415,7 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
     let install_home = format!("/home/{install_user}");
 
     // 2b. Adoption-safety gate, BEFORE the purge path and the install path alike.
-    if let Err(exit) = check_user_adoptable(&install_user) {
+    if let Err(exit) = (deps.check_adoptable)(&install_user) {
         return exit;
     }
 
@@ -432,7 +459,7 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
     let install_user = if args.dry_run {
         install_user
     } else {
-        match resolve_wrong_shell(&install_user) {
+        match (deps.resolve_wrong_shell)(&install_user) {
             Ok(u) => u,
             Err(code) => return code,
         }
@@ -444,7 +471,7 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
 
     // 5c. Re-gate: the alt-user branch above may have swapped in an operator-TYPED
     //  name that never passed the gate at step 2b.
-    if let Err(exit) = check_user_adoptable(&install_user) {
+    if let Err(exit) = (deps.check_adoptable)(&install_user) {
         return exit;
     }
 
@@ -457,14 +484,14 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
     let mut resolutions = Resolutions::default();
     let mut bails: Vec<provision::remediate::Bail> = Vec::new();
     let facts = (deps.probe_facts)(&install_user, &install_home);
-    let mut prompter = provision::wizard::Stdio::new();
+    let mut prompter = (deps.make_prompter)();
     provision::remediate::decide_core_with(
         &install_user,
         facts,
         args.yes,
         &mut resolutions,
         &mut bails,
-        &mut prompter,
+        prompter.as_mut(),
     );
 
     // 7. --dry-run: print the pre-flight report, exit 0, ZERO mutation. After the
@@ -926,6 +953,13 @@ mod provision_tests {
 
     use std::sync::{Mutex, OnceLock};
 
+    /// The recorded phase sequence.
+    ///
+    /// Process-global because `ProvisionDeps` holds `fn` pointers, which cannot
+    /// capture (ADR-019 §1's accepted cost). That makes the `EnvScope` each of
+    /// these tests binds to `_lock` LOAD-BEARING CONCURRENCY CONTROL, not just
+    /// env hygiene: it is what stops two ordering tests interleaving into this
+    /// one vector. Deleting the seemingly-unused binding makes them race.
     fn phase_log() -> &'static Mutex<Vec<&'static str>> {
         static LOG: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
         LOG.get_or_init(|| Mutex::new(Vec::new()))
@@ -1012,9 +1046,37 @@ mod provision_tests {
         fn adopt(_u: &str, _h: &str) {
             record("adopt");
         }
+        fn choose_user(d: &str) -> String {
+            record("choose_user");
+            d.to_string()
+        }
+        fn adoptable(_u: &str) -> Result<(), ExitCode> {
+            record("check_adoptable");
+            Ok(())
+        }
+        fn wrong_shell(u: &str) -> Result<String, ExitCode> {
+            record("resolve_wrong_shell");
+            Ok(u.to_string())
+        }
+        /// A prompter that is NOT a terminal and would panic if consulted — so a
+        /// test can never block on the operator's stdin, and a phase that starts
+        /// prompting when it should not fails loudly instead of hanging.
+        struct NeverPrompts;
+        impl provision::wizard::Prompter for NeverPrompts {
+            fn is_tty(&self) -> bool {
+                false
+            }
+            fn confirm(&mut self, component: &str, _d: &str) -> bool {
+                panic!("no prompt is owed here, but {component} asked for one");
+            }
+        }
         ProvisionDeps {
             is_tty,
             should_prompt_user: should_prompt,
+            choose_user,
+            check_adoptable: adoptable,
+            resolve_wrong_shell: wrong_shell,
+            make_prompter: || Box::new(NeverPrompts),
             detect_distro: detect,
             probe_facts: probe,
             purge,
@@ -1036,7 +1098,10 @@ mod provision_tests {
         assert_eq!(
             taken(),
             vec![
+                "check_adoptable",
                 "detect_distro",
+                "resolve_wrong_shell",
+                "check_adoptable",
                 "probe_facts",
                 "log_init",
                 "run_steps",
@@ -1049,6 +1114,83 @@ mod provision_tests {
     }
 
     #[test]
+    fn a_failing_step_stops_the_run_and_surfaces_its_exit_code() {
+        // Replacing the Err arm of the step loop with SUCCESS left the whole
+        // suite green: nothing asserted that a failed provisioner step is fatal,
+        // or that the detect re-scan and adoption do NOT run after one.
+        let _lock = crate::test_support::EnvScope::new();
+        let _ = taken();
+        fn failing(_c: &ProvisionCtx) -> Result<(), ExitCode> {
+            record("run_steps");
+            Err(ExitCode::from(70))
+        }
+        let mut deps = recording_deps();
+        deps.run_steps = failing;
+
+        let code = provision_with(&base_args(), &deps);
+
+        assert_eq!(
+            code,
+            ExitCode::from(70),
+            "the step's exit code must survive"
+        );
+        assert_eq!(
+            taken(),
+            vec![
+                "check_adoptable",
+                "detect_distro",
+                "resolve_wrong_shell",
+                "check_adoptable",
+                "probe_facts",
+                "log_init",
+                "run_steps",
+            ],
+            "no re-scan and no adoption may follow a failed step"
+        );
+    }
+
+    #[test]
+    fn the_install_user_wizard_runs_only_when_no_user_was_given_on_a_tty() {
+        // The AL-50 branch: deleting the whole prompt condition left 351 tests
+        // green, because every ordering fixture passed --user. `choose_user` is
+        // a dep precisely so this can be asserted without real stdin.
+        let _lock = crate::test_support::EnvScope::new();
+
+        fn yes_tty() -> bool {
+            record("is_tty");
+            true
+        }
+        fn wants_prompt(_u: &str, _h: &str) -> bool {
+            record("should_prompt");
+            true
+        }
+
+        // --user given: the wizard must NOT run.
+        let _ = taken();
+        assert_eq!(
+            provision_with(&base_args(), &recording_deps()),
+            ExitCode::SUCCESS
+        );
+        assert!(!taken().contains(&"choose_user"));
+
+        // No --user, a TTY, and a host that warrants prompting: it must.
+        let _ = taken();
+        let mut deps = recording_deps();
+        deps.is_tty = yes_tty;
+        deps.should_prompt_user = wants_prompt;
+        let mut args = base_args();
+        args.user = None;
+        assert_eq!(provision_with(&args, &deps), ExitCode::SUCCESS);
+        let seq = taken();
+        assert!(seq.contains(&"choose_user"), "seq={seq:?}");
+        assert!(
+            seq.iter().position(|p| *p == "choose_user")
+                < seq.iter().position(|p| *p == "detect_distro"),
+            "the user must be settled before anything else, seq={seq:?}"
+        );
+    }
+
+    #[test]
     fn purge_returns_before_anything_else_is_touched() {
         // --purge is a teardown: it must not detect the distro, probe, open a
         // transcript or run a step.
@@ -1057,7 +1199,10 @@ mod provision_tests {
         let mut args = base_args();
         args.purge = true;
         assert_eq!(provision_with(&args, &recording_deps()), ExitCode::SUCCESS);
-        assert_eq!(taken(), vec!["purge"]);
+        // The adoption gate MUST precede the teardown: `userdel -r` on a system
+        // account is the loss it exists to prevent, and the denylist alone does
+        // not cover every system user (syslog and dhcpcd pass it).
+        assert_eq!(taken(), vec!["check_adoptable", "purge"]);
     }
 
     #[test]
@@ -1067,7 +1212,10 @@ mod provision_tests {
         let mut args = base_args();
         args.report_only = true;
         assert_eq!(provision_with(&args, &recording_deps()), ExitCode::SUCCESS);
-        assert_eq!(taken(), vec!["detect_distro", "report_only"]);
+        assert_eq!(
+            taken(),
+            vec!["check_adoptable", "detect_distro", "report_only"]
+        );
     }
 
     #[test]
@@ -1080,7 +1228,18 @@ mod provision_tests {
         args.dry_run = true;
         args.yes = false;
         assert_eq!(provision_with(&args, &recording_deps()), ExitCode::SUCCESS);
-        assert_eq!(taken(), vec!["detect_distro", "probe_facts", "dry_run"]);
+        assert_eq!(
+            taken(),
+            vec![
+                "check_adoptable",
+                "detect_distro",
+                // --dry-run skips the wrong-shell RECOVERY (it would prompt) but
+                // still re-gates adoption on the resolved user.
+                "check_adoptable",
+                "probe_facts",
+                "dry_run"
+            ]
+        );
     }
 
     #[test]
@@ -1113,7 +1272,13 @@ mod provision_tests {
         );
         assert_eq!(
             taken(),
-            vec!["detect_distro", "probe_facts"],
+            vec![
+                "check_adoptable",
+                "detect_distro",
+                "resolve_wrong_shell",
+                "check_adoptable",
+                "probe_facts"
+            ],
             "no transcript, no step, no scan may run after a bail"
         );
     }
