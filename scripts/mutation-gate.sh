@@ -272,6 +272,15 @@ fi
 #              filter is tolerated, and only because the mode is a warning.)
 # In BOTH modes, anything scored that is NOT in the expectation fails — that is
 # the mutant-adding case, and it means the run was not measuring this code.
+# Appended to the reported summary when this run covered only part of the scope
+# (an advisory shard). Without it the rendered step summary of a 3%-coverage
+# shard was indistinguishable from a clean full-workspace sweep — the original
+# "nothing survived vs nothing ran" confusion, one level up in the reporting.
+partial=""
+
+[[ -f "$OUT_DIR/mutants.json" ]] || die "cargo-mutants left no $OUT_DIR/mutants.json,
+  so what it planned to test is unknown and the scored set cannot be checked."
+
 mapfile -t verdict < <(
   python3 -c '
 import json, sys
@@ -309,8 +318,7 @@ if [[ $unscored_n -gt 0 ]]; then
   else
     # Advisory: a shard is a legal subset. Say how much of the scope this run
     # covered so a reader is never misled about what the score means.
-    echo "mutation gate ($mode): scored $total of $expected mutant(s) in scope" \
-      "($unscored_n not in this run's slice)."
+    partial=" — $total of $expected in scope ($unscored_n not in this slice)"
   fi
 fi
 
@@ -326,7 +334,7 @@ if [[ $accounted -ne $total ]]; then
   testing them, which is not a mutation score."
 fi
 
-summary="mutants: ${total} tested, ${caught} caught, ${missed} missed, ${timeout} timeout, ${unviable} unviable"
+summary="mutants: ${total} tested, ${caught} caught, ${missed} missed, ${timeout} timeout, ${unviable} unviable${partial}"
 echo "mutation gate ($mode): $summary"
 echo "- \`$mode\`: $summary" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
 
@@ -351,7 +359,11 @@ fi
 
 survivors=$((missed + timeout))
 if [[ $survivors -eq 0 ]]; then
-  echo "mutation gate ($mode): PASS — every mutant was caught."
+  if [[ -n $partial ]]; then
+    echo "mutation gate ($mode): every mutant IN THIS SLICE was caught$partial."
+  else
+    echo "mutation gate ($mode): PASS — every mutant was caught."
+  fi
   exit 0
 fi
 

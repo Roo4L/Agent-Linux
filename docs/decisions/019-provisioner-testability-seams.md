@@ -136,10 +136,9 @@ one-line adapter that performs it — `cmd/install::real_is_tty`,
 (`ProvisionDeps::default` is NOT one of them: cargo-mutants generates no mutants
 for a struct literal of function pointers, so it needs no annotation. An earlier
 revision of this section claimed it carried one — wrong in both directions, in
-the paragraph people read while triaging a red gate.) Those lines are unkillable by
-construction: observing them requires reasserting the very coupling the seam
-removed (attaching a real pty, a real passwd DB). They carry
-`#[cfg_attr(test, mutants::skip)]` with a back-reference here, per ADR-020 §4.
+the paragraph people read while triaging a red gate.) Those lines are unkillable by construction: observing them requires reasserting
+the very coupling the seam removed — attaching a real pty, a real passwd DB, a
+real login shell.
 
 This is a real cost of the design and is stated so it is not rediscovered: every
 seam of this kind trades a testable branch for an untestable adapter. The trade

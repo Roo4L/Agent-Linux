@@ -32,7 +32,7 @@ night reported a mutation score for a run that generated zero mutants.
 | | scope | verdict on a survivor | where |
 |---|---|---|---|
 | per-PR | lines the diff touches (`--in-diff`) | **fails the merge** | `test.yml` |
-| nightly | whole workspace, `--shard i/4` | warns | `nightly-mutation.yml` |
+| nightly | whole workspace, `--shard i/4` for i in 0..3 | warns | `nightly-mutation.yml` |
 
 The per-PR gate is bounded by the diff so its cost is proportional to the
 change. The nightly exists because `--in-diff` only ever scores lines someone
@@ -97,7 +97,10 @@ Two `agentlinux-core` tests read fixtures under `plugin/catalog/`, outside the
 `rust/` workspace, so `cargo-mutants`' default copy-tree isolation fails the
 baseline. `--in-place` fixes that and is safe on a disposable runner, but it
 forbids `--jobs`. `--shard i/N` is compatible, so the nightly parallelises across
-runners instead of threads.
+runners instead of threads. Shards are ZERO-indexed — cargo-mutants rejects
+`k/n` unless `k < n`, and a matrix of `[1,2,3,4]` both red-lined one runner
+nightly and left shard 0's quarter of the workspace unscored. MUT-20 loops the
+workflow's own matrix values through the tool so that cannot recur.
 
 Vendoring those two fixtures inside the workspace would remove the constraint.
 Not done: the fixtures are the live catalog, and a copy would need its own

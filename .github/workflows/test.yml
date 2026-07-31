@@ -212,7 +212,12 @@ jobs:
           # `.` (from working-directory: rust), not 'crates/**': a new or
           # relocated crate outside crates/ would otherwise produce an empty
           # diff and a silent skip. Non-Rust lines simply match no mutants.
-          git diff --relative origin/master...HEAD -- . > "$RUNNER_TEMP/rust.diff"
+          # -c core.quotePath=false: git's DEFAULT octal-escapes non-ASCII paths
+          # ("b/src/caf\303\251.rs"), which the gate refuses because it cannot
+          # verify them. Turning it off at the one place that generates the diff
+          # makes that refusal unreachable in the merge path.
+          git -c core.quotePath=false diff --relative origin/master...HEAD -- . \
+            > "$RUNNER_TEMP/rust.diff"
           echo "diff: $(wc -l < "$RUNNER_TEMP/rust.diff") lines"
           ../scripts/mutation-gate.sh enforce \
             --in-place --minimum-test-timeout 20 --in-diff "$RUNNER_TEMP/rust.diff"

@@ -30,7 +30,14 @@ jobs:
         # Sharding, not --jobs: cargo-mutants refuses `--in-place --jobs N`, and
         # --in-place is required (see the gate step). --shard IS compatible, and
         # one shard per runner gives real parallelism with a private checkout.
-        shard: [1, 2, 3, 4]
+        #
+        # ZERO-INDEXED: cargo-mutants rejects `k/n` unless k < n. This read
+        # `[1, 2, 3, 4]`, so shard 4/4 errored on every nightly run while shard
+        # 0's mutants were never dispatched — 245 of the workspace's 978, a
+        # quarter of it, silently unscored, with the gate unable to notice
+        # because advisory mode tolerates a subset by design. MUT-20 now loops
+        # these exact values through the tool so the matrix cannot drift again.
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v5
       - name: Skip if rust/ absent

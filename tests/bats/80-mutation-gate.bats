@@ -366,6 +366,9 @@ mod t {
 RS
 
   cd "$WORK/probe" || return 1
+  run cargo mutants --no-config --list
+  [ "$status" -eq 0 ]
+  printf '%s\n' "$output" >listed.txt
   run cargo mutants --output . --minimum-test-timeout 20
   # Whatever the verdict, the results file must carry the shape the gate reads.
   [ -f mutants.out/outcomes.json ]
@@ -376,8 +379,17 @@ d = json.load(open('mutants.out/outcomes.json'))
 for k in ('total_mutants', 'missed', 'caught', 'timeout', 'unviable', 'end_time'):
     assert k in d, 'cargo-mutants no longer emits %r at the top level' % k
 assert d['end_time'] is not None, 'a completed run must set end_time'
-assert len(json.load(open('mutants.out/mutants.json'))) == d['total_mutants'], \
+planned = json.load(open('mutants.out/mutants.json'))
+assert len(planned) == d['total_mutants'], \
     'mutants.json length must equal total_mutants for the completeness check'
+# The set comparison rests on mutants.json[].name being byte-identical to a
+# --list line. If either renderer drifts, both gates go red on every PR with
+# the wrong diagnosis ('scored a mutant this scope does not contain').
+names = {m['name'] for m in planned}
+listed = {l.rstrip('\n') for l in open('listed.txt') if l.strip()}
+assert names == listed, (
+    'mutants.json[].name no longer matches --list output; '
+    'symmetric difference: %r' % sorted(names ^ listed)[:5])
 print('contract OK')
 "
   [ "$status" -eq 0 ]
@@ -516,4 +528,50 @@ EOF
   printf 'diff --git crates/c/src/lib.rs crates/c/src/lib.rs\n--- crates/c/src/lib.rs\n+++ crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >npok.diff
   run "$GATE" enforce --in-diff npok.diff
   [ "$status" -eq 0 ]
+}
+
+@test "MUT-20: every shard value the nightly dispatches is one cargo-mutants accepts" {
+  # The failure this exists for: the matrix read [1, 2, 3, 4] while cargo-mutants
+  # shards are ZERO-indexed, so 4/4 was rejected on every nightly run and shard
+  # 0's mutants — 245 of 978, a quarter of the workspace — were never dispatched.
+  # Advisory mode tolerates a subset by design, so the gate could not notice.
+  #
+  # It survived two rounds of "verified" because the verification used --shard 1/4
+  # on a scratch crate — a value the workflow never passes. So this test derives
+  # the values from the WORKFLOW rather than restating them, and runs them
+  # through the real tool. `--list` builds nothing, so it is cheap.
+  command -v cargo >/dev/null && cargo mutants --version >/dev/null 2>&1 || {
+    if [ -n "${CI:-}" ]; then
+      echo "cargo-mutants must be installed in CI to check the shard matrix" >&2
+      return 1
+    fi
+    skip "cargo-mutants not installed (required in CI)"
+  }
+
+  local wf="${BATS_TEST_DIRNAME}/../../.github/workflows/nightly-mutation.yml"
+  [ -f "$wf" ]
+
+  # The matrix line, and the /N the step actually divides by.
+  local values total
+  values=$(sed -n 's/^ *shard: *\[\(.*\)\] *$/\1/p' "$wf" | tr -d ' ' | tr ',' ' ')
+  total=$(sed -n 's|.*--shard .*/\([0-9][0-9]*\).*|\1|p' "$wf" | head -1)
+  [ -n "$values" ]
+  [ -n "$total" ]
+
+  # As many shards as divisions, or part of the workspace is never dispatched.
+  local count=0
+  for _ in $values; do count=$((count + 1)); done
+  [ "$count" -eq "$total" ] || {
+    echo "matrix has $count shard(s) but the step divides by $total"
+    return 1
+  }
+
+  cd "${BATS_TEST_DIRNAME}/../../rust" || return 1
+  for v in $values; do
+    run cargo mutants --no-config --list --shard "$v/$total"
+    [ "$status" -eq 0 ] || {
+      echo "cargo-mutants rejects --shard $v/$total (the nightly dispatches it): $output"
+      return 1
+    }
+  done
 }
