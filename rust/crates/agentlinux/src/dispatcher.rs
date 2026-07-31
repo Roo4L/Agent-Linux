@@ -45,6 +45,12 @@ use std::time::{Duration, Instant};
 /// The grace period between SIGTERM and the SIGKILL escalation.
 const KILL_GRACE: Duration = Duration::from_millis(2000);
 
+/// How long to wait for a SIGKILLed child to actually be reaped before giving up
+/// on it. Only reachable if signal delivery failed or the process is wedged in an
+/// uninterruptible syscall (D state on stuck NFS/disk I/O), which no signal can
+/// clear. Bounded so the timeout path itself cannot become an unbounded wait.
+const REAP_GRACE: Duration = Duration::from_secs(10);
+
 /// How long to wait for a reader thread to hand back its accumulated output
 /// after the child has been reaped.
 ///
@@ -398,8 +404,18 @@ pub(crate) fn wait_with_timeout(
     match poll_until(child, Instant::now() + Duration::from_millis(ms)) {
         Some(code) => (code, false),
         None => {
-            escalate_kill(child);
-            let _ = child.wait();
+            escalate_kill(child, label);
+            // Bounded, not a bare `wait()`. If signal delivery ever fails (the
+            // EPERM case `escalate_kill` now logs), an unbounded wait here would
+            // turn the timeout into an unlogged infinite block — a bound that
+            // cannot fire is worse than no bound, because the log claims one does.
+            if poll_until(child, Instant::now() + REAP_GRACE).is_none() {
+                crate::plog!(
+                    "agentlinux: `{label}` has not exited {}s after SIGKILL; \
+                     abandoning the wait. Check for a stuck process before retrying.",
+                    REAP_GRACE.as_secs()
+                );
+            }
             crate::plog!(
                 "agentlinux: `{label}` timed out after {ms}ms; \
                  sent SIGTERM…SIGKILL to the process group"
@@ -429,17 +445,43 @@ pub(crate) fn own_process_group(cmd: &mut Command) {
 ///
 /// `nix::kill` rather than std's `Child::kill`, which is SIGKILL-only on the
 /// direct child and gives the tree no chance to clean up.
-fn escalate_kill(child: &mut std::process::Child) {
+///
+/// # KNOWN LIMITATION: the sudo hop
+/// This is exact on the direct-exec path (invoker==target, which is the common
+/// case — see the module header). It is NOT exact through `sudo`: sudo ≥ 1.9.14
+/// enables `use_pty` by default, which runs the command in its own session behind
+/// a monitor process, so the command escapes the group we created and a
+/// group-directed SIGKILL reaches sudo rather than the work. sudo's monitor
+/// terminates the command when sudo dies, so the tree does come down in practice,
+/// but not by our signal and not on our schedule. Recorded in ADR-020 rather than
+/// worked around: overriding `use_pty` is a sudoers-side setting, and widening the
+/// kill to catch it would mean signalling processes we did not create.
+fn escalate_kill(child: &mut std::process::Child, label: &str) {
     let group = Pid::from_raw(-(child.id() as i32));
-    let _ = kill(group, Signal::SIGTERM);
+    // A failed signal is the difference between "the work stopped" and "we only
+    // stopped waiting", so it is reported rather than discarded — otherwise the
+    // timeout line below claims a teardown that never happened.
+    if let Err(e) = kill(group, Signal::SIGTERM) {
+        crate::plog!("agentlinux: SIGTERM to `{label}`'s process group failed: {e}");
+    }
     if poll_until(child, Instant::now() + KILL_GRACE).is_none() {
         // Still alive after the grace period — it ignored SIGTERM.
-        let _ = kill(group, Signal::SIGKILL);
+        if let Err(e) = kill(group, Signal::SIGKILL) {
+            crate::plog!("agentlinux: SIGKILL to `{label}`'s process group failed: {e}");
+        }
+        return;
     }
-    // The direct child is reaped by the caller's `wait()`. Sweep the group once
-    // more so a grandchild that outlived its parent — the leak that kept the
-    // pipe open and the prefix contended — does not survive the dispatch.
-    let _ = kill(group, Signal::SIGKILL);
+    // The direct child exited during the grace period but its grandchildren may
+    // not have — that leak is what keeps the pipe open and the npm prefix
+    // contended. Sweep the group ONCE, here, while the child is still un-reaped
+    // so the PGID is guaranteed to be ours. Sweeping after the caller's wait()
+    // would risk signalling a recycled PID. ESRCH just means the group is already
+    // empty, which is the normal case.
+    if let Err(e) = kill(group, Signal::SIGKILL) {
+        if e != nix::errno::Errno::ESRCH {
+            crate::plog!("agentlinux: group sweep after `{label}` failed: {e}");
+        }
+    }
 }
 
 /// Which parent stream a reader tees to, or `None` to capture silently.
@@ -527,7 +569,7 @@ pub type RecipeDispatcher =
 /// An unparseable value falls back to the default rather than failing the
 /// install: a typo in an env var should not be the reason a provision aborts, and
 /// the warning says which value was ignored.
-fn recipe_timeout_ms() -> Option<u64> {
+pub(crate) fn recipe_timeout_ms() -> Option<u64> {
     let configured = match std::env::var(RECIPE_TIMEOUT_ENV) {
         Err(_) => DEFAULT_RECIPE_TIMEOUT_MS,
         Ok(raw) => match raw.trim().parse::<u64>() {

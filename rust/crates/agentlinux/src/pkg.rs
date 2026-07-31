@@ -49,6 +49,11 @@ const PKG_RETRY_BACKOFF: Duration = Duration::from_secs(5);
 /// How much of a failing child's stderr is kept for the error message.
 const STDERR_TAIL: usize = 4096;
 
+/// How long to wait for the stderr reader after the child has been reaped, before
+/// giving up on its output. Mirrors `dispatcher::READER_DRAIN_GRACE` and exists
+/// for the same reason — a leaked background process holding the pipe open.
+const STDERR_DRAIN_GRACE: Duration = Duration::from_secs(5);
+
 /// How long apt waits for the dpkg lock instead of failing outright.
 ///
 /// A fresh cloud image runs `apt-daily`/`unattended-upgrades` from cloud-init, so
@@ -167,10 +172,27 @@ impl PkgCmd {
         // Drain stderr on a thread: a package manager that fills the pipe buffer
         // while we sit in wait() would deadlock against us.
         let stderr_pipe = child.stderr.take();
-        let reader = std::thread::spawn(move || tee_and_keep_tail(stderr_pipe));
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(tee_and_keep_tail(stderr_pipe));
+        });
         let (exit_code, timed_out) =
             crate::dispatcher::wait_with_timeout(&mut child, pkg_timeout_ms(), &label);
-        let stderr = reader.join().unwrap_or_default();
+        // BOUNDED, for the same reason `dispatcher::collect` is: the pipe closes
+        // only when every holder closes it, and an apt/dnf postinst that starts a
+        // daemon leaves that daemon holding our stderr. On the timeout path the
+        // process-group kill closes it; on the exit-0-with-a-leaked-daemon path
+        // nothing does, and a plain `join()` would wait for the daemon's lifetime.
+        // Losing the stderr tail is a worse error message; blocking here is a
+        // hung install.
+        let stderr = rx.recv_timeout(STDERR_DRAIN_GRACE).unwrap_or_else(|_| {
+            crate::plog!(
+                "agentlinux: `{label}` finished but its stderr pipe is still held by \
+                 a background process after {}s; its output is not included below",
+                STDERR_DRAIN_GRACE.as_secs()
+            );
+            String::new()
+        });
         Ok(PkgOutcome {
             exit_code,
             timed_out,
@@ -800,6 +822,25 @@ mod pkg_tests {
         assert!(
             start.elapsed() < Duration::from_secs(10),
             "took {:?}",
+            start.elapsed()
+        );
+    }
+
+    // A package command that exits cleanly while leaking a background process
+    // holding its stderr must not hang the call. An apt/dnf postinst that starts a
+    // daemon is the real instance: the daemon inherits stderr, nothing signals it
+    // (there was no timeout — the command SUCCEEDED), and an unbounded
+    // `reader.join()` would wait for the daemon's lifetime.
+    #[test]
+    fn a_leaked_background_process_cannot_hang_a_package_command() {
+        let start = std::time::Instant::now();
+        let outcome = PkgCmd::new(&[], &["bash", "-c", "( sleep 120 ) & echo ok >&2"])
+            .run_once()
+            .unwrap();
+        assert!(outcome.success(), "the command itself succeeded");
+        assert!(
+            start.elapsed() < STDERR_DRAIN_GRACE + Duration::from_secs(3),
+            "must return on the drain grace, not the orphan's lifetime (took {:?})",
             start.elapsed()
         );
     }

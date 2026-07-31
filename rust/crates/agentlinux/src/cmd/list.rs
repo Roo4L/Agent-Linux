@@ -12,8 +12,14 @@
 //! INCLUDING the em-dash `—` (U+2014) and `▸`-adjacent wording — bats greps them
 //! with `grep -qF`. The `#[cfg(test)]` module pins the exact bytes.
 //!
-//! list ALWAYS exits 0 (a read-only report). The CLI-05 guard already ran in
-//! `main::dispatch` before this body.
+//! list exits 0 whenever it can produce a report, which is the normal case for a
+//! read-only command. It exits 1 in exactly two situations, both "we cannot
+//! answer the question you asked": the catalog will not load, and the install
+//! records cannot be read. The second is deliberate — rendering every agent as
+//! `not installed` because the record store was unreadable is a wrong answer
+//! delivered confidently, and the operator's likely next move (re-installing what
+//! is already there) is worse than being told nothing. The CLI-05 guard already
+//! ran in `main::dispatch` before this body.
 
 use crate::catalog::{self, FullCatalogEntry};
 use crate::probe::probe_installed_version;

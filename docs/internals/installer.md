@@ -150,11 +150,12 @@ from the run that failed.
 
 **One install at a time.** Provisioning and the commands that change state —
 `agentlinux install`, `remove`, `upgrade`, `adopt`, `pin` — take a host-wide lock
-at `/opt/agentlinux/state/agentlinux.lock`. A second one started while the first
-is running is refused immediately, and the error names that file, rather than
-interleaving two runs over the same npm prefix. Pass `--wait-lock` to queue behind
-the running operation instead — the form to use from automation. `agentlinux list`
-takes no lock, so you can always ask what is installed while something else runs.
+at `/run/lock/agentlinux.lock`. A second one started while the first is running is
+refused immediately, and the error names that file, rather than interleaving two
+runs over the same npm prefix. Pass `--wait-lock` to queue behind the running
+operation instead — the form to use from automation. `agentlinux list` takes no
+lock, and neither do `--dry-run` or `--report-only`, so you can always ask what is
+installed or what a run would do while something else is in flight.
 
 **Nothing hangs forever.** A wedged network or a stuck package manager fails with
 a message rather than blocking indefinitely: 30 minutes for a single catalog

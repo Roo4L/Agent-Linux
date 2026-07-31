@@ -229,7 +229,19 @@ pub fn list_sentinels() -> std::io::Result<Vec<Sentinel>> {
     };
     let mut out = Vec::new();
     for entry in entries {
-        let entry = entry?;
+        // A per-entry stat failure skips that entry, for the same reason a corrupt
+        // record does: one unreadable directory entry must not make every other
+        // agent invisible.
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                crate::plog!(
+                    "agentlinux: skipping an unreadable entry in {} ({e})",
+                    dir.display()
+                );
+                continue;
+            }
+        };
         let name = entry.file_name();
         let name = name.to_string_lossy();
         // Only `<id>.json`. A concurrent write's tmpfile is `.<id>.json.<pid>.…`

@@ -48,8 +48,26 @@ The specific resolutions:
    takes an exclusive `flock` for `provision`/`install`/`remove`/`upgrade`/
    `adopt`/`pin` and fails fast with `EX_TEMPFAIL` (75), naming the lock file and
    offering `--wait-lock`. Blocking by default would recreate the exact confusion
-   the timeouts exist to remove. `list` takes no lock — serializing the command
-   people run to find out what is happening would be a regression.
+   the timeouts exist to remove. `list`, `--dry-run` and `--report-only` take no
+   lock: the first is read-only, and the other two promise a byte-identical host,
+   which creating a lock file would break.
+
+   **Contention fails closed; unavailability fails OPEN.** If the lock file cannot
+   be created or opened at all — no `/run/lock`, a read-only filesystem, an
+   unusual container — we warn and proceed unlocked. Serializing concurrent runs
+   guards a rare race; being unable to *set up* that guard must never be why a
+   single uncontended install refuses to run. Treating the two identically would
+   brick the tool on any host whose `/run` does not look like ours, which is a
+   far more likely failure than the race being defended against.
+
+   The lock lives at `/run/lock/agentlinux.lock`, deliberately outside
+   `/opt/agentlinux`: a lock inside the tree it protects stops protecting that
+   tree exactly when it matters, because `--purge` would unlink the file it is
+   holding and the next run would create a fresh one and acquire it cleanly. It is
+   opened read-only where possible (`flock` locks the open file description, not
+   the file's write permission) so an unprivileged verb can lock a file
+   `provision` created as root, and `O_NOFOLLOW` because the directory is
+   world-writable.
 
 4. **Retry package operations, and only package operations.** `PkgCmd::run`
    attempts three times with exponential backoff. This is safe *because* apt and
@@ -78,7 +96,22 @@ forever, logging nothing past the first entry — strictly worse.
 
 **Accepted: the lock is advisory.** `flock(2)` binds only processes that ask for
 it, which here means every writer, because they are all this same binary. It is
-not a defence against a hostile process and nothing treats it as one.
+not a defence against a hostile process and nothing treats it as one. `/run/lock`
+being world-writable also means a local user can hold the lock and stall
+AgentLinux operations — under ADR-012, where the install user already holds
+`NOPASSWD: ALL`, that is not a boundary worth defending.
+
+**Accepted: the group kill is exact on the direct-exec path, not through `sudo`.**
+sudo ≥ 1.9.14 enables `use_pty` by default, which runs the command in its own
+session behind a monitor, so it escapes the process group we created and a
+group-directed signal reaches sudo rather than the work. sudo's monitor does tear
+the command down when sudo dies, so the tree comes down — but by sudo's mechanism
+and on its schedule, not ours. We do not work around it: overriding `use_pty` is a
+sudoers-side setting we do not own, and widening the kill to catch the escaped
+session would mean signalling processes we did not create. The exposure is small
+because the dispatcher's invoker==target short-circuit means the sudo hop is not
+taken on the common path. Recorded here so it reads as a known boundary rather
+than an oversight; `dispatcher::escalate_kill` carries the same note.
 
 **Accepted: three attempts can turn one 20-minute hang into a longer one.** Bounded
 at three attempts plus backoff, and each attempt is itself bounded, so the worst

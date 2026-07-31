@@ -144,15 +144,21 @@ const EX_TEMPFAIL: u8 = 75;
 
 /// Take the host state lock for a mutating verb, or `None` after printing why.
 ///
-/// `list` is deliberately absent: it only reads, so serializing it would block
-/// the one command an operator runs to find out what the busy run is doing.
+/// Three kinds of invocation are deliberately exempt:
+///  - `list` only reads, so serializing it would block the one command an
+///    operator runs to find out what the busy run is doing.
+///  - `--dry-run` / `--report-only` promise to leave the host byte-identical.
+///    Creating the lock file is a write, so taking it would break the very
+///    contract those modes exist to offer — and a preview refused while an
+///    install runs is the same operability problem as a blocked `list`.
+///  - `install --dry-run`, likewise.
 fn hold_state_lock(command: &Command) -> Option<Option<statelock::HostLock>> {
     let (needs_lock, wait) = match command {
         Command::List(_) => (false, false),
-        Command::Provision(a) => (true, a.wait_lock),
+        Command::Provision(a) => (!a.dry_run && !a.report_only, a.wait_lock),
+        Command::Install(a) => (!a.dry_run, a.wait_lock),
         Command::Adopt(a) => (true, a.wait_lock),
         Command::Pin(a) => (true, a.wait_lock),
-        Command::Install(a) => (true, a.wait_lock),
         Command::Remove(a) => (true, a.wait_lock),
         Command::Upgrade(a) => (true, a.wait_lock),
     };

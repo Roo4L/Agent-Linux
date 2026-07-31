@@ -236,15 +236,19 @@ pub fn ensure_line_in_file(line: &str, file: &Path) -> io::Result<()> {
 /// deletes only the end marker loses everything below it on the next converge
 /// run — data loss caused by the helper advertised as safe to re-run. We detect
 /// that state and return an `Err` instead, leaving the file untouched.
-fn strip_marker_block(existing: &str, begin: &str, end: &str) -> io::Result<Vec<String>> {
-    let mut out = Vec::new();
+/// Operates on BYTES, not `&str`. The file being edited is a user's `~/.bashrc`
+/// or `~/CLAUDE.md`, which is theirs to put anything in — a Latin-1 character in
+/// a comment is enough to make it invalid UTF-8. Filtering bytes preserves every
+/// surviving line exactly as it was, including ones we cannot decode.
+fn strip_marker_block(existing: &[u8], begin: &str, end: &str) -> io::Result<Vec<Vec<u8>>> {
+    let mut out: Vec<Vec<u8>> = Vec::new();
     let mut in_block = false;
     // awk reads records split on '\n'; a trailing '\n' does NOT create a final
     // empty record. Emulate by iterating lines and dropping the final empty
-    // segment that `split('\n')` produces for newline-terminated input.
-    let mut segments: Vec<&str> = existing.split('\n').collect();
-    if existing.ends_with('\n') {
-        // The last segment is the empty string after the final '\n' — awk never
+    // segment that `split` produces for newline-terminated input.
+    let mut segments: Vec<&[u8]> = existing.split(|b| *b == b'\n').collect();
+    if existing.ends_with(b"\n") {
+        // The last segment is the empty slice after the final '\n' — awk never
         // sees it as a record.
         segments.pop();
     } else if existing.is_empty() {
@@ -252,16 +256,16 @@ fn strip_marker_block(existing: &str, begin: &str, end: &str) -> io::Result<Vec<
         segments.clear();
     }
     for line in segments {
-        if line == begin {
+        if line == begin.as_bytes() {
             in_block = true;
             continue;
         }
-        if line == end {
+        if line == end.as_bytes() {
             in_block = false;
             continue;
         }
         if !in_block {
-            out.push(line.to_string());
+            out.push(line.to_vec());
         }
     }
     if in_block {
@@ -292,34 +296,50 @@ fn strip_marker_block(existing: &str, begin: &str, end: &str) -> io::Result<Vec<
 /// agentlinux block that must influence `sudo -u agent bash -c …` has to precede
 /// that guard. Every caller needs this, so there is no placement knob to get
 /// wrong.
+///
+/// # An unreadable file is refused, not treated as empty
+/// The read is byte-oriented and a present-but-unreadable file is an error. The
+/// previous `read_to_string(file).unwrap_or_default()` turned ANY read failure —
+/// one non-UTF-8 byte, EACCES, EIO — into an empty "existing", so the filtered
+/// remainder was empty and the atomic write replaced the whole file with just the
+/// agentlinux block. A `~/.bashrc` or `~/CLAUDE.md` carrying a single Latin-1
+/// character lost every line outside the markers. Same class as the unterminated
+/// block above, and on a hotter path: the DOC-02 write runs on the REUSE branch
+/// too, i.e. against files an existing operator already owns.
 pub fn ensure_marker_block(file: &Path, tag: &str, body: &str) -> io::Result<()> {
     let begin = format!("# >>> {tag} begin >>>");
     let end = format!("# <<< {tag} end <<<");
 
-    let existing = fs::read_to_string(file).unwrap_or_default();
-    let filtered = strip_marker_block(&existing, &begin, &end).map_err(|e| {
-        io::Error::new(e.kind(), format!("{}: {e}", file.display()))
-    })?;
+    let existing = match fs::read(file) {
+        Ok(bytes) => bytes,
+        // Absent is the normal first-run case: no records to preserve.
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+        Err(e) => {
+            return Err(io::Error::new(
+                e.kind(),
+                format!(
+                    "cannot read {} to preserve the content outside the \
+                     `{tag}` block (refusing to overwrite it blind): {e}",
+                    file.display()
+                ),
+            ))
+        }
+    };
+    let filtered = strip_marker_block(&existing, &begin, &end)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", file.display())))?;
 
     // The block itself, printf '%s\n' three times → begin\n{body}\n{end}\n.
-    let block = format!("{begin}\n{body}\n{end}\n");
+    let mut out: Vec<u8> = format!("{begin}\n{body}\n{end}\n").into_bytes();
 
     // The filtered remainder: awk prints each surviving record followed by a
     // newline (`print`), so join with '\n' AND add a trailing '\n' when there is
     // any content — reproducing the awk output byte-for-byte.
-    let remainder = if filtered.is_empty() {
-        String::new()
-    } else {
-        let mut s = filtered.join("\n");
-        s.push('\n');
-        s
-    };
+    for line in &filtered {
+        out.extend_from_slice(line);
+        out.push(b'\n');
+    }
 
-    let mut out = String::new();
-    out.push_str(&block);
-    out.push_str(&remainder);
-
-    write_file_atomic(0o644, file, out.as_bytes())
+    write_file_atomic(0o644, file, &out)
 }
 
 /// Build the `useradd` argv the way `idempotency.sh` invokes it:
@@ -367,17 +387,35 @@ const ADMIN_TOOL_TIMEOUT_MS: u64 = 120_000;
 /// Spawn a local admin tool bounded by `ADMIN_TOOL_TIMEOUT_MS`, in its own
 /// process group so the timeout can tear the whole thing down. Returns its exit
 /// code; a timeout surfaces as a non-zero code with the dispatcher's log line.
+///
+/// stdin is `/dev/null`. Under `curl … | sudo bash` the installer's own stdin is
+/// the SCRIPT being executed, so a tool that prompts (`userdel` on a busy user,
+/// `visudo` falling back to interactive) would consume the rest of the installer
+/// and run whatever it read.
 fn run_bounded(argv: &[String]) -> io::Result<i32> {
-    let (program, args) = argv.split_first().ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "run_bounded: empty argv")
-    })?;
+    let (program, args) = argv
+        .split_first()
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "run_bounded: empty argv"))?;
     let mut cmd = Command::new(program);
-    cmd.args(args);
+    // stdout/stderr stay INHERITED so `useradd: user 'x' is currently used by
+    // process 123` reaches the console and the transcript. Capturing it to fold
+    // into the error string would need a second bounded drain for no gain — these
+    // tools are terse and the operator is already reading this output.
+    cmd.args(args).stdin(std::process::Stdio::null());
     crate::dispatcher::own_process_group(&mut cmd);
     let mut child = cmd.spawn()?;
-    let (code, _timed_out) =
-        crate::dispatcher::wait_with_timeout(&mut child, Some(ADMIN_TOOL_TIMEOUT_MS), &argv.join(" "));
+    let (code, _timed_out) = crate::dispatcher::wait_with_timeout(
+        &mut child,
+        Some(ADMIN_TOOL_TIMEOUT_MS),
+        &argv.join(" "),
+    );
     Ok(code)
+}
+
+/// `run_bounded` for a `&str` argv — the form the teardown paths already have.
+pub(crate) fn run_bounded_argv(argv: &[&str]) -> io::Result<i32> {
+    let owned: Vec<String> = argv.iter().map(|s| (*s).to_string()).collect();
+    run_bounded(&owned)
 }
 
 /// Whether a system user with `name` exists. Isolated so the exists-noop path is
@@ -725,6 +763,49 @@ mod sysio_tests {
         assert!(err.to_string().contains("end marker"), "err={err}");
         // And nothing was written.
         assert_eq!(fs::read_to_string(&f).unwrap(), mangled);
+    }
+
+    // A file with a non-UTF-8 byte keeps every line outside the block. The old
+    // `read_to_string(..).unwrap_or_default()` treated an undecodable file as
+    // EMPTY, so the atomic write replaced the whole thing with just the agentlinux
+    // block — one Latin-1 character in a `.bashrc` comment cost the user every
+    // other line in the file.
+    #[test]
+    fn marker_block_preserves_a_non_utf8_file() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("bashrc");
+        // 0xE9 is `é` in Latin-1 and invalid UTF-8.
+        let original: &[u8] = b"# caf\xe9 aliases\nalias ll='ls -la'\nexport EDITOR=vi\n";
+        fs::write(&f, original).unwrap();
+
+        ensure_marker_block(&f, "agentlinux-path", "export PATH=/x").unwrap();
+
+        let after = fs::read(&f).unwrap();
+        assert!(
+            after.windows(4).any(|w| w == b"caf\xe9"),
+            "the undecodable line was lost"
+        );
+        assert!(
+            after.windows(17).any(|w| w == b"alias ll='ls -la'"),
+            "user content outside the block was lost"
+        );
+        assert!(after.windows(15).any(|w| w == b"export EDITOR=vi"[..15].as_ref()));
+        assert!(after.starts_with(b"# >>> agentlinux-path begin >>>\n"));
+    }
+
+    // A present-but-unreadable file is refused rather than treated as empty —
+    // otherwise the atomic write would replace it with only the block.
+    #[test]
+    fn marker_block_refuses_a_file_it_cannot_read() {
+        let d = TempDir::new().unwrap();
+        // A directory where a file is expected: the read fails with EISDIR.
+        let f = d.path().join("as-a-dir");
+        fs::create_dir(&f).unwrap();
+        let err = ensure_marker_block(&f, "tag", "body").unwrap_err();
+        assert!(
+            err.to_string().contains("refusing to overwrite it blind"),
+            "err={err}"
+        );
     }
 
     // The refusal is specific to an UNTERMINATED block: a well-formed one still

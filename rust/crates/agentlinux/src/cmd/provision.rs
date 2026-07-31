@@ -321,9 +321,20 @@ fn adoption_child_env(home: &str) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = vec![
         ("PATH".to_string(), crate::recipe_env::canonical_path(home)),
         ("HOME".to_string(), home.to_string()),
+        // This provision run is HOLDING the host lock for its whole duration, and
+        // the child is another `agentlinux` that would try to take the same lock.
+        // Without the marker the child contends with its own parent, is refused,
+        // and the post-provision adoption of pre-existing agents silently never
+        // runs — visible only as a generic "adopt --all reported a problem".
+        (
+            crate::statelock::LOCK_INHERITED_ENV.to_string(),
+            "1".to_string(),
+        ),
     ];
     for (k, v) in std::env::vars() {
-        if k.starts_with("AGENTLINUX_") {
+        // Don't let an inherited copy of the marker double up on the explicit one
+        // set above — the child would see two values for the same key.
+        if k.starts_with("AGENTLINUX_") && k != crate::statelock::LOCK_INHERITED_ENV {
             env.push((k, v));
         }
     }
@@ -354,6 +365,31 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //  Bash prompt::choose_install_user). The curl-installer path passes --user
     //  (or is non-TTY), so it never prompts. The wizard's result is already
     //  validated; a bare Enter / EOF / 3 invalid tries fall back to the default.
+    // 1b. Open the install transcript (INST-01) — mirrors the Bash entrypoint's
+    //  `install -m 0644 /dev/null "$LOG_FILE"` + tee, with single-slot rotation so
+    //  a re-run does not destroy the failing run's evidence.
+    //
+    //  As early as it can be. It used to sit after the DECIDE phase and after
+    //  `flush_or_exit`, so every outcome worth diagnosing — a wrong-shell host
+    //  refused at the alt-user gate, a brownfield host that bails, an unsupported
+    //  distro, the whole `--purge` teardown — produced NO transcript, and left the
+    //  PREVIOUS run's file in place to be read as this one's. Only the two pure
+    //  usage errors above (contradictory flags, a bad `--report-format`) now
+    //  precede it, and neither touches the host.
+    //
+    //  `--dry-run` and `--report-only` are excluded: both are zero-mutation
+    //  previews and creating the transcript would be a write.
+    let log_path = if args.dry_run || args.report_only {
+        log::log_path()
+    } else {
+        let path = log::init();
+        log::line(&format!(
+            "agentlinux-install v{} starting",
+            crate::provision::registry_cli::agentlinux_version()
+        ));
+        path
+    };
+
     let default_user = resolve_install_user();
     let default_home = format!("/home/{default_user}");
     let install_user = if args.user.is_none()
@@ -405,30 +441,6 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
             args.report_format.as_deref(),
         );
     }
-
-    // 5a. Open the install transcript (INST-01) — mirrors the Bash entrypoint's
-    //  `install -m 0644 /dev/null "$LOG_FILE"` + tee, with single-slot rotation so
-    //  a re-run does not destroy the failing run's evidence.
-    //
-    //  This runs BEFORE the gates below deliberately. It used to sit after the
-    //  DECIDE phase and after `flush_or_exit`, so the two outcomes most in need of
-    //  diagnosis — a wrong-shell host refused at 5b, a brownfield host that bails
-    //  at 7b — produced NO transcript at all (or worse, left the previous run's
-    //  file in place, to be read as this run's). Everything from here on is
-    //  recorded.
-    //
-    //  `--dry-run` is excluded: it is a zero-mutation preview and creating the
-    //  transcript would be a write. `--report-only` already returned above.
-    let log_path = if args.dry_run {
-        log::log_path()
-    } else {
-        let path = log::init();
-        log::line(&format!(
-            "agentlinux-install v{} starting",
-            crate::provision::registry_cli::agentlinux_version()
-        ));
-        path
-    };
 
     // 5b. UX-04 wrong-shell alt-user gate. An EXISTING install user with a non-bash
     //  shell cannot be adopted (no chsh handler). On the real path (not report /
@@ -586,12 +598,16 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
                     // Recipes guard on ${AGENTLINUX_AGENT_HOME:?}; runner.ts is gone
                     // during --purge, so provide it explicitly (run_purge:395).
                     let env = vec![("AGENTLINUX_AGENT_HOME".to_string(), home.to_string())];
+                    // Bounded like every other recipe run. An uninstall recipe that
+                    // wedges must not stop `--purge` — the whole point of the verb
+                    // is to leave the host clean, and a per-recipe failure is
+                    // already non-fatal here (the teardown continues below).
                     let r = crate::dispatcher::as_user(
                         user,
                         &argv,
                         &env,
                         crate::dispatcher::Capture::Buffered,
-                        None,
+                        crate::dispatcher::recipe_timeout_ms(),
                     );
                     if r.exit_code != 0 {
                         crate::plog!(
@@ -655,23 +671,16 @@ fn remove_install_user(user: &str) {
     if !crate::provision::probe::user_exists(user) {
         return;
     }
-    let _ = std::process::Command::new("pkill")
-        .arg("-u")
-        .arg(user)
-        .status();
+    // Bounded, like every other spawn: `userdel` takes the `/etc/passwd` lock, and
+    // a lock held by a stuck process makes it wait forever. `--purge` is the last
+    // thing an operator runs when they want the host clean; hanging there with no
+    // output is the worst place to do it.
+    let _ = crate::sysio::run_bounded_argv(&["pkill", "-u", user]);
     std::thread::sleep(std::time::Duration::from_secs(1));
-    let ok = std::process::Command::new("userdel")
-        .arg("-r")
-        .arg(user)
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    let ok = crate::sysio::run_bounded_argv(&["userdel", "-r", user]).is_ok_and(|c| c == 0);
     if !ok {
         crate::plog!("agentlinux provision: userdel -r {user} failed; trying userdel -rf");
-        let _ = std::process::Command::new("userdel")
-            .arg("-rf")
-            .arg(user)
-            .status();
+        let _ = crate::sysio::run_bounded_argv(&["userdel", "-rf", user]);
     }
 }
 

@@ -233,7 +233,11 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let r = dispatcher::as_user(user, &argv, &[], Capture::Buffered, None);
+    // Bounded: `test -x` is instant, but it goes through the sudo hop, and a wedged
+    // PAM/NSS module (LDAP, SSSD) makes `sudo` itself hang. A 60s cap turns that
+    // into a named failure of the last provisioner step instead of a silent stall
+    // right before the completion banner.
+    let r = dispatcher::as_user(user, &argv, &[], Capture::Buffered, Some(60_000));
     if r.exit_code != 0 {
         return Err(io::Error::other(format!(
             "agentlinux symlink not executable as install user '{user}' (CLI-01 regression)"
