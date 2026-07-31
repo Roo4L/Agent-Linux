@@ -245,8 +245,8 @@ _install_alt_user() {
 
 # ---------------------------------------------------------------------------
 # AC4 — catalog op DISPATCHES recipes as the configured user (closes the
-# runner.ts dispatch-user gap). Install a test-dummy recipe as claude and assert
-# the recipe ran AS claude (marker owned by claude), traversing dispatchRecipe.
+# dispatch-user gap). Install a test-dummy recipe as claude and assert
+# the recipe ran AS claude (marker owned by claude), traversing dispatch_recipe.
 # A regression to dispatcher("agent", …) would run as agent (marker owned by
 # agent) or fail with `sudo: unknown user: agent` on an agent-less host.
 # ---------------------------------------------------------------------------

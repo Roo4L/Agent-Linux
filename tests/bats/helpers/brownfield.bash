@@ -297,7 +297,7 @@ setup_brownfield_for_remediate_03_drift() {
 # Plan 14-03 brownfield fixtures for REMEDIATE-04 (broken catalog agent).
 #
 # Each fixture targets the PATH-MISMATCH or broken-status scenarios the CLI's
-# install.ts tryRemediate branch handles. Tests 51-53 exercise:
+# install remediation branch (cmd/install.rs) handles. Tests 51-53 exercise:
 #   - Happy-path PATH-MISMATCH: claude-code installed via `npm install -g`
 #     (canonical mismatch); REMEDIATE-04 uninstalls and reinstalls at the
 #     native canonical path while preserving ~/.claude/ user data.
@@ -358,10 +358,10 @@ setup_brownfield_broken_claude_code() {
 # the env override (seam used by Plan 13-02 tests too). Restore on cleanup.
 setup_brownfield_remediate04_uninstall_fail() {
   setup_brownfield_broken_claude_code
-  # Stage a tmp catalog copy. The CLI's loader.ts honors
+  # Stage a tmp catalog copy. The CLI's catalog loader honors
   # AGENTLINUX_CATALOG_DIR so we point at the tmp dir for this @test.
   # mktemp -d defaults to 0700 root-owned; agent user (which the CLI runs as)
-  # cannot then readdir or readFile the catalog.json — chmod 0755 + chmod -R
+  # cannot then readdir or read the catalog.json — chmod 0755 + chmod -R
   # go+rX so the agent user can read every file recursively.
   local tmpcat
   tmpcat=$(mktemp -d -t al-cat-fail-XXXXXX)
@@ -455,17 +455,6 @@ setup_brownfield_host_user_wrong_shell() {
   # binary on BOTH families (dash on Debian /bin/sh; tcsh on RHEL), so
   # reuse::user_decision's `readlink -f` shell check bails wrong-shell on both,
   # while still being a real login shell so detection's as_user_login probes run.
-}
-
-# setup_brownfield_host_with_agent2_taken
-# Targets UX-04 numeric-suffix collision handling: agent (wrong-shell) AND a
-# pre-existing agent2 (forces remediate::find_alt_user_name to suggest agent3).
-setup_brownfield_host_with_agent2_taken() {
-  setup_brownfield_host_user_wrong_shell
-  log_brownfield "creating agent2 to force find_alt_user_name to suggest agent3"
-  if ! id -u agent2 >/dev/null 2>&1; then
-    useradd -m -s /bin/bash agent2
-  fi
 }
 
 # -----------------------------------------------------------------------------

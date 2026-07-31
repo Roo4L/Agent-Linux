@@ -28,7 +28,6 @@
 # E2E, RESOLUTIONS dispatch greps. See action steps 1-8 in 14-01-PLAN.md.
 
 load 'helpers/assertions'
-load 'helpers/detection'
 load 'helpers/brownfield'
 load 'helpers/tmpdir'
 

@@ -1,5 +1,11 @@
 #!/usr/bin/env bats
-# Phase 51 hosted-MCP regression coverage.
+# Phase 51 hosted-MCP regression coverage — the ANTIGRAVITY adapter specifically.
+#
+# Scope boundary with 60-catalog-hosted-mcp.bats: that file owns the catalog
+# entry shape and the bare-URL register→deregister lifecycle for all six hosted
+# entries across all five adapters. This file covers what a table-driven
+# lifecycle cannot: Antigravity's native config format, its fan-out across
+# providers, and its preserve/malformed-config edge cases.
 #
 # These tests deliberately inspect the shipped catalog and recipes rather than
 # logging into a vendor account. Authentication belongs to the client that
@@ -10,29 +16,6 @@ load 'helpers/assertions'
 SOURCE_ROOT=${AGENTLINUX_SOURCE_ROOT:-/opt/agentlinux-src}
 CATALOG=${AGENTLINUX_CATALOG:-/opt/agentlinux/catalog/$(jq -r .version "$SOURCE_ROOT/plugin/catalog/catalog.json")/catalog.json}
 LOG=/var/log/agentlinux-install.log
-
-@test "MCP-07: Firecrawl catalog records OAuth-required hosted endpoint with no stored secret" {
-  run jq -r '.agents[] | select(.id=="firecrawl-mcp") | [.source_kind, .endpoint_url, .requires_secret, (.secret_env // "null")] | @tsv' "$CATALOG"
-  assert_exit_zero "MCP-07/catalog"
-  [[ "$output" == $'mcp\thttps://mcp.firecrawl.dev/v2/mcp\ttrue\tnull' ]] || \
-    __fail "MCP-07/catalog" \
-      "hosted Firecrawl URL, requires_secret=true, and no secret_env" \
-      "${output:-<empty>}" "$LOG"
-}
-
-@test "MCP-08: hosted MCP registration remains bare across all five adapter writers" {
-  local register="$SOURCE_ROOT/plugin/catalog/lib/mcp-register.sh"
-  run grep -En '_al_mcp_(claude|codex|antigravity)_register|_al_mcp_(antigravity|qwen|opencode)_obj|_al_mcp_qwen_cfg|_al_mcp_json_set' "$register"
-  assert_exit_zero "MCP-08/adapter-writers"
-  for adapter in _al_mcp_claude_register _al_mcp_codex_register _al_mcp_antigravity_obj _al_mcp_qwen_cfg _al_mcp_opencode_obj _al_mcp_json_set; do
-    printf '%s\n' "$output" | grep -q "$adapter" || \
-      __fail "MCP-08/adapter-writers" "${adapter} exists" "missing from mcp-register.sh" "$register"
-  done
-  run grep -En 'headers[[:space:]]*=|Authorization[[:space:]]*:|Bearer[[:space:]]+' \
-    "$SOURCE_ROOT/plugin/catalog/agents/firecrawl-mcp/install.sh"
-  [[ "$status" -ne 0 ]] || \
-    __fail "MCP-08/no-secret" "Firecrawl recipe contains no credential material" "$output" "$LOG"
-}
 
 @test "MCP-08: Firecrawl and GitHub recipes surface client-owned OAuth/API-key diagnostics" {
   # The diagnostics live in the shipped recipes themselves — a permanent bats

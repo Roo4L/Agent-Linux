@@ -13,9 +13,10 @@
 #     credential-free CI and contributors stay green;
 #   - no-auth tools (ccusage) run unconditionally on seeded local data.
 #
-# Run with credentials via tests/docker/run-smoke.sh (forwards the provider
-# vars to the in-container bats process). Absent a credential, the matching
-# @test skips — the file is safe in credential-free CI.
+# Run with credentials via tests/docker/run.sh — its SECRET_ALLOWLIST forwards
+# the provider vars to the in-container bats process, sourced from .env.local or
+# the ambient environment (see docs/internals/test-secrets.md). Absent a
+# credential, the matching @test skips, so credential-free CI stays green.
 #
 # Provider routing (Appendix C): codex→OpenAI (required; OpenAI-only),
 # antigravity-cli→Google Sign-In/keyring, opencode→Anthropic, qwen-code→Anthropic
