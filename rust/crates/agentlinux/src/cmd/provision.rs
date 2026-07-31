@@ -306,7 +306,57 @@ fn adoption_child_env(home: &str) -> Vec<(String, String)> {
 /// `--report-only` and `--dry-run` are read-only and return before the step
 /// loop. `--purge` is a live teardown: it runs the uninstall recipes, removes
 /// `/opt/agentlinux`, deletes the `/etc` artefacts and `userdel -r`s the user.
+/// The host-touching phases `provision` composes, injected.
+///
+/// Same shape as `cmd/upgrade.rs`'s `UpgradeDeps`, and here for the same reason
+/// one layer up: the properties that matter most in this function are ORDERINGS,
+/// and none of them could fail a test while every dependency was reached
+/// statically. `--purge` must run before distro detection; `--report-only` and
+/// `--dry-run` must return before DECIDE mutates nothing and before the step
+/// loop; the bail flush must precede `log::init` and every step; the detect
+/// re-scan must follow the steps and precede adoption. Reorder any of those and
+/// the suite stayed green — including the NO-MUTATION-SNAPSHOT contract, whose
+/// whole content is "nothing ran before the flush".
+#[derive(Clone, Copy)]
+pub struct ProvisionDeps {
+    pub is_tty: fn() -> bool,
+    pub should_prompt_user: fn(&str, &str) -> bool,
+    pub detect_distro: fn() -> Result<distro::Distro, distro::DistroError>,
+    pub probe_facts: fn(&str, &str) -> provision::remediate::HostFacts,
+    pub purge: fn(&str, &str, bool) -> ExitCode,
+    pub report_only: fn(&str, &str, &distro::Distro, Option<&str>) -> ExitCode,
+    pub dry_run_report: fn(&str, &str, &distro::Distro) -> ExitCode,
+    pub log_init: fn() -> std::path::PathBuf,
+    pub run_steps: fn(&ProvisionCtx) -> Result<(), ExitCode>,
+    pub scan_and_write: fn(&str, &str),
+    pub adopt: fn(&str, &str),
+}
+
+impl Default for ProvisionDeps {
+    fn default() -> Self {
+        Self {
+            is_tty: provision::wizard::stdin_is_tty,
+            should_prompt_user: provision::wizard::should_prompt_install_user,
+            detect_distro: distro::detect_distro_from_env,
+            probe_facts: provision::remediate::HostFacts::probe,
+            purge: run_purge,
+            report_only,
+            dry_run_report,
+            log_init: log::init,
+            run_steps,
+            scan_and_write: crate::detect::scan_and_write,
+            adopt: run_agent_adoption,
+        }
+    }
+}
+
 pub fn provision(args: &ProvisionArgs) -> ExitCode {
+    provision_with(args, &ProvisionDeps::default())
+}
+
+/// [`provision`] over injected phases — see [`ProvisionDeps`].
+#[must_use]
+pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
     // 1. Flag validation (contradictions + report-format) → EX_USAGE on failure.
     if let Err(code) = check_flag_contradictions(args) {
         return code;
@@ -325,8 +375,8 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     let default_home = format!("/home/{default_user}");
     let install_user = if args.user.is_none()
         && !args.dry_run
-        && provision::wizard::stdin_is_tty()
-        && provision::wizard::should_prompt_install_user(&default_user, &default_home)
+        && (deps.is_tty)()
+        && (deps.should_prompt_user)(&default_user, &default_home)
     {
         provision::wizard::choose_install_user(&default_user, &validate_user_name)
     } else {
@@ -348,12 +398,12 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //  caller's contract (main::dispatch); a non-root purge fails on the mutating
     //  syscalls, which is the correct surface.
     if args.purge {
-        return run_purge(&install_user, &install_home, args.remove_nodejs);
+        return (deps.purge)(&install_user, &install_home, args.remove_nodejs);
     }
 
     // 4. Distro detect (the apt↔dnf fork point every later step branches on). Also
     //  needed by --report-only/--dry-run so the report reflects the real family.
-    let distro = match distro::detect_distro_from_env() {
+    let distro = match (deps.detect_distro)() {
         Ok(d) => d,
         Err(e) => {
             eprintln!("agentlinux provision: {e}");
@@ -365,7 +415,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //  Short-circuits before the DECIDE phase's per-agent gate iteration is
     //  even needed for a report — the report is the detected host state.
     if args.report_only {
-        return report_only(
+        return (deps.report_only)(
             &install_user,
             &install_home,
             &distro,
@@ -406,12 +456,15 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //  step loop, so a refused host stays byte-identical.
     let mut resolutions = Resolutions::default();
     let mut bails: Vec<provision::remediate::Bail> = Vec::new();
-    provision::remediate::decide_core(
+    let facts = (deps.probe_facts)(&install_user, &install_home);
+    let mut prompter = provision::wizard::Stdio::new();
+    provision::remediate::decide_core_with(
         &install_user,
-        &install_home,
+        facts,
         args.yes,
         &mut resolutions,
         &mut bails,
+        &mut prompter,
     );
 
     // 7. --dry-run: print the pre-flight report, exit 0, ZERO mutation. After the
@@ -419,7 +472,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     //  make. The per-agent decisions are computed by `emit_report` — the one
     //  place that probe+gate loop runs.
     if args.dry_run {
-        return dry_run_report(&install_user, &install_home, &distro);
+        return (deps.dry_run_report)(&install_user, &install_home, &distro);
     }
 
     // 7b. Flush aggregated bails: if any core component resolved to an
@@ -447,7 +500,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     // 8. Open the install transcript (INST-01) — mirrors the Bash entrypoint's
     //  `install -m 0644 /dev/null "$LOG_FILE"` + tee. Best-effort: a create
     //  failure degrades to stderr-only (like the Bash pre-tee path).
-    let log_path = log::init();
+    let log_path = (deps.log_init)();
     log::line(&format!(
         "agentlinux-install v{} starting",
         crate::provision::registry_cli::agentlinux_version()
@@ -455,7 +508,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
 
     // 9. Run the fixed ordered step vec. On success emit the `agentlinux-install
     //  complete` banner (INST-01) + run best-effort agent adoption.
-    match run_steps(&ctx) {
+    match (deps.run_steps)(&ctx) {
         Ok(()) => {
             // DETECT-phase cache write (detect/agents.sh): scan the host for every
             // catalog agent + persist `/run/agentlinux-detect.json`. Runs AFTER the
@@ -463,8 +516,8 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
             // resolves agent-owned bins) and BEFORE adoption, so a subsequent
             // `agentlinux install <id>` / `adopt --all` reads real host state and
             // REUSE-03 / REMEDIATE-04 can fire. Best-effort (logs on failure).
-            crate::detect::scan_and_write(&ctx.install_user, &ctx.install_home);
-            run_agent_adoption(&ctx.install_user, &ctx.install_home);
+            (deps.scan_and_write)(&ctx.install_user, &ctx.install_home);
+            (deps.adopt)(&ctx.install_user, &ctx.install_home);
             // M-3: only name the transcript path when it was actually persisted;
             // if log::init could not open the file, the banner must not assert a
             // file that does not exist.
@@ -863,5 +916,205 @@ mod provision_tests {
         // provision::probe — it used to be guarded by `if self_uid >= 1000`,
         // which deleted it on the root CI runners this suite mostly runs on.)
         assert_eq!(check_user_adoptable("nonexistent-user-xyz-9042"), Ok(()));
+    }
+
+    // --- phase ordering, via the ProvisionDeps seam ---
+    //
+    // These are the assertions the review found missing: every phase was reached
+    // statically, so `provision` could be reordered freely and 480 tests stayed
+    // green. Each double records its own name; the test asserts the SEQUENCE.
+
+    use std::sync::{Mutex, OnceLock};
+
+    fn phase_log() -> &'static Mutex<Vec<&'static str>> {
+        static LOG: OnceLock<Mutex<Vec<&'static str>>> = OnceLock::new();
+        LOG.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    fn record(phase: &'static str) {
+        phase_log()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(phase);
+    }
+
+    fn taken() -> Vec<&'static str> {
+        let mut g = phase_log().lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut *g)
+    }
+
+    fn base_args() -> ProvisionArgs {
+        ProvisionArgs {
+            user: Some("agent".into()),
+            yes: true,
+            no_yes: false,
+            dry_run: false,
+            report_only: false,
+            purge: false,
+            remove_nodejs: false,
+            report_format: None,
+            verbose: false,
+        }
+    }
+
+    fn fake_distro() -> distro::Distro {
+        distro::Distro {
+            family: crate::distro::Family::Debian,
+            version: "24.04".into(),
+        }
+    }
+
+    /// Deps whose every phase records its name and does nothing else.
+    fn recording_deps() -> ProvisionDeps {
+        fn is_tty() -> bool {
+            record("is_tty");
+            false
+        }
+        fn should_prompt(_u: &str, _h: &str) -> bool {
+            record("should_prompt");
+            false
+        }
+        fn detect() -> Result<distro::Distro, distro::DistroError> {
+            record("detect_distro");
+            Ok(fake_distro())
+        }
+        fn probe(_u: &str, _h: &str) -> provision::remediate::HostFacts {
+            record("probe_facts");
+            provision::remediate::HostFacts {
+                user: provision::probe::UserState::Absent,
+                npm_prefix: provision::probe::NpmPrefixState::Absent,
+                sudoers: provision::probe::SudoersState::Absent,
+            }
+        }
+        fn purge(_u: &str, _h: &str, _n: bool) -> ExitCode {
+            record("purge");
+            ExitCode::SUCCESS
+        }
+        fn report(_u: &str, _h: &str, _d: &distro::Distro, _f: Option<&str>) -> ExitCode {
+            record("report_only");
+            ExitCode::SUCCESS
+        }
+        fn dry(_u: &str, _h: &str, _d: &distro::Distro) -> ExitCode {
+            record("dry_run");
+            ExitCode::SUCCESS
+        }
+        fn log_init() -> std::path::PathBuf {
+            record("log_init");
+            std::path::PathBuf::from("/dev/null")
+        }
+        fn steps(_c: &ProvisionCtx) -> Result<(), ExitCode> {
+            record("run_steps");
+            Ok(())
+        }
+        fn scan(_u: &str, _h: &str) {
+            record("scan_and_write");
+        }
+        fn adopt(_u: &str, _h: &str) {
+            record("adopt");
+        }
+        ProvisionDeps {
+            is_tty,
+            should_prompt_user: should_prompt,
+            detect_distro: detect,
+            probe_facts: probe,
+            purge,
+            report_only: report,
+            dry_run_report: dry,
+            log_init,
+            run_steps: steps,
+            scan_and_write: scan,
+            adopt,
+        }
+    }
+
+    #[test]
+    fn the_install_path_runs_its_phases_in_order() {
+        let _lock = crate::test_support::EnvScope::new();
+        let _ = taken();
+        let code = provision_with(&base_args(), &recording_deps());
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert_eq!(
+            taken(),
+            vec![
+                "detect_distro",
+                "probe_facts",
+                "log_init",
+                "run_steps",
+                "scan_and_write",
+                "adopt",
+            ],
+            "the transcript must open AFTER the bail flush, the re-scan must \
+             follow the steps, and adoption must follow the re-scan"
+        );
+    }
+
+    #[test]
+    fn purge_returns_before_anything_else_is_touched() {
+        // --purge is a teardown: it must not detect the distro, probe, open a
+        // transcript or run a step.
+        let _lock = crate::test_support::EnvScope::new();
+        let _ = taken();
+        let mut args = base_args();
+        args.purge = true;
+        assert_eq!(provision_with(&args, &recording_deps()), ExitCode::SUCCESS);
+        assert_eq!(taken(), vec!["purge"]);
+    }
+
+    #[test]
+    fn report_only_returns_before_deciding_or_mutating() {
+        let _lock = crate::test_support::EnvScope::new();
+        let _ = taken();
+        let mut args = base_args();
+        args.report_only = true;
+        assert_eq!(provision_with(&args, &recording_deps()), ExitCode::SUCCESS);
+        assert_eq!(taken(), vec!["detect_distro", "report_only"]);
+    }
+
+    #[test]
+    fn dry_run_decides_but_never_opens_a_transcript_or_runs_a_step() {
+        // UX-01: --dry-run reports every decision the real run would make, so it
+        // MUST reach the DECIDE phase — and must stop there.
+        let _lock = crate::test_support::EnvScope::new();
+        let _ = taken();
+        let mut args = base_args();
+        args.dry_run = true;
+        args.yes = false;
+        assert_eq!(provision_with(&args, &recording_deps()), ExitCode::SUCCESS);
+        assert_eq!(taken(), vec!["detect_distro", "probe_facts", "dry_run"]);
+    }
+
+    #[test]
+    fn a_bail_stops_before_the_transcript_and_before_any_step() {
+        // The NO-MUTATION-SNAPSHOT contract, asserted as an ordering rather than
+        // in isolation: an unconsented state-overwrite must exit 65 with NOTHING
+        // after the probe having run.
+        let _lock = crate::test_support::EnvScope::new();
+        let _ = taken();
+        fn drifted(_u: &str, _h: &str) -> provision::remediate::HostFacts {
+            record("probe_facts");
+            provision::remediate::HostFacts {
+                user: provision::probe::UserState::Absent,
+                npm_prefix: provision::probe::NpmPrefixState::Absent,
+                // Drifted + no consent + no TTY = bail.
+                sudoers: provision::probe::SudoersState::Drifted,
+            }
+        }
+        let mut deps = recording_deps();
+        deps.probe_facts = drifted;
+        let mut args = base_args();
+        args.yes = false;
+
+        let code = provision_with(&args, &deps);
+
+        assert_eq!(
+            code,
+            ExitCode::from(65),
+            "an unconsented overwrite exits 65"
+        );
+        assert_eq!(
+            taken(),
+            vec!["detect_distro", "probe_facts"],
+            "no transcript, no step, no scan may run after a bail"
+        );
     }
 }

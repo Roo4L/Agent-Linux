@@ -15,9 +15,8 @@
 //! TTY — the interactive prompt, else a bail. The real curl-installer path passes
 //! `--yes` and is greenfield, so it never bails and never prompts.
 
-use crate::provision::probe::{self, sudoers_state_at, NpmPrefixState, SudoersState};
+use crate::provision::probe::{self, NpmPrefixState, SudoersState, UserState as SudoersUserState};
 use crate::provision::{Resolution, Resolutions};
-use std::path::Path;
 use std::process::ExitCode;
 
 /// EX_DATAERR (sysexits.h) — incompatible host state.
@@ -60,6 +59,40 @@ pub fn consent_for_overwrite(yes: bool, is_tty: bool) -> Consent {
         Consent::Prompt
     } else {
         Consent::Bail
+    }
+}
+
+/// The host facts the DECIDE phase decides over — probed ONCE, up front.
+///
+/// The whole point of DECIDE is to reach a verdict BEFORE anything is touched,
+/// which only means something if the verdict is a function of its inputs rather
+/// than of the machine it runs on. Passing the three states in makes every arm —
+/// including the two `Bail`s, which are the mechanism that stops the provisioner
+/// from mauling a brownfield host — reachable from literals.
+///
+/// It also removes a whole class of test that passes for the wrong reason. With
+/// the reads inline, a fixture could only steer the verdict by choosing a
+/// username no host would have, which pinned `UserState::Absent` as the only
+/// arm any test could reach, and made the suite's result depend on the runner:
+/// unprivileged, the 0440 sudoers drop-in is unreadable so a provisioned host
+/// looked clean; as root — how the Docker and QEMU harnesses run — the same
+/// fixture classified `Drifted` and consented to a remediation nobody asked for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HostFacts {
+    pub user: SudoersUserState,
+    pub npm_prefix: NpmPrefixState,
+    pub sudoers: SudoersState,
+}
+
+impl HostFacts {
+    /// Probe the real host — the ONE place the DECIDE phase does I/O.
+    #[must_use]
+    pub fn probe(user: &str, home: &str) -> Self {
+        Self {
+            user: probe::user_state(user),
+            npm_prefix: probe::npm_prefix_state(user, home),
+            sudoers: probe::sudoers_state(user),
+        }
     }
 }
 
@@ -137,15 +170,8 @@ pub fn decide_core(
     bails: &mut Vec<Bail>,
 ) {
     let mut prompter = crate::provision::wizard::Stdio::new();
-    decide_core_with(
-        user,
-        home,
-        Path::new(probe::SUDOERS_FILE),
-        yes,
-        res,
-        bails,
-        &mut prompter,
-    );
+    let facts = HostFacts::probe(user, home);
+    decide_core_with(user, facts, yes, res, bails, &mut prompter);
 }
 
 /// [`decide_core`] against an injected [`Prompter`] and sudoers path.
@@ -157,18 +183,11 @@ pub fn decide_core(
 /// test, because every prompt re-locked global stdin. It is the bug class this
 /// project has shipped twice.
 ///
-/// `sudoers_path` is a parameter for the same reason, and the omission was worse
-/// than it looked: reading the real `/etc/sudoers.d/agentlinux` made the DECIDE
-/// phase — the layer whose whole job is to decide BEFORE anything is touched —
-/// depend on the runner. Unprivileged, the 0440 drop-in is unreadable, so a
-/// provisioned host still looked clean and the tests passed; as root, which is
-/// exactly how the Docker and QEMU harnesses run, the same fixture classified
-/// `Drifted` and a "clean host needs no answers" test started consenting to a
-/// remediation nobody asked for.
+/// The host facts are parameters for the same reason — see [`HostFacts`]. This
+/// function touches neither the filesystem nor stdin.
 pub fn decide_core_with(
     user: &str,
-    home: &str,
-    sudoers_path: &Path,
+    facts: HostFacts,
     yes: bool,
     res: &mut Resolutions,
     bails: &mut Vec<Bail>,
@@ -179,10 +198,10 @@ pub fn decide_core_with(
     // User (REUSE-01): absent → Create; bash-shell existing → Reuse (re-attach
     // path wiring, [REMEDIATE-02]); wrong-shell → irreconcilable BAIL with the
     // dedicated hint (--yes cannot fix a wrong shell).
-    match probe::user_state(user) {
-        probe::UserState::Absent => res.user = Resolution::Create,
-        probe::UserState::Conforming => res.user = Resolution::Reuse,
-        probe::UserState::WrongShell => {
+    match facts.user {
+        SudoersUserState::Absent => res.user = Resolution::Create,
+        SudoersUserState::Conforming => res.user = Resolution::Reuse,
+        SudoersUserState::WrongShell => {
             eprintln!("agentlinux: existing user \"{user}\" is incompatible (wrong-shell).");
             eprintln!(
                 "Re-run with --user=NAME using a compatible user, or fix the shell of the \
@@ -195,7 +214,7 @@ pub fn decide_core_with(
                 hint: "use --user=NAME with a compatible user",
             });
         }
-        probe::UserState::HomeNotWritable => {
+        SudoersUserState::HomeNotWritable => {
             // REUSE-01: adopting a user who cannot write their own home hands
             // every later step the EACCES this project exists to eliminate, so it
             // is irreconcilable — and unlike a chown of `.npm-global`, re-owning
@@ -217,8 +236,7 @@ pub fn decide_core_with(
     // Component prompt order: npm-prefix BEFORE sudoers. This is load-bearing —
     // the tests feed answers positionally (e.g. `n\nY\n` = decline npm-prefix,
     // accept sudoers), and so does an operator answering two prompts in a row.
-    let (npm_outcome, npm_bail) =
-        decide_npm_prefix(probe::npm_prefix_state(user, home), yes, is_tty);
+    let (npm_outcome, npm_bail) = decide_npm_prefix(facts.npm_prefix, yes, is_tty);
     res.npm_prefix = match npm_outcome {
         CoreOutcome::Settled(r) => r,
         CoreOutcome::NeedsPrompt => prompt_component(
@@ -232,8 +250,7 @@ pub fn decide_core_with(
         bails.push(b);
     }
 
-    let (sudoers_outcome, sudoers_bail) =
-        decide_sudoers(sudoers_state_at(sudoers_path, user), yes, is_tty);
+    let (sudoers_outcome, sudoers_bail) = decide_sudoers(facts.sudoers, yes, is_tty);
     res.sudoers = match sudoers_outcome {
         CoreOutcome::Settled(r) => r,
         CoreOutcome::NeedsPrompt => prompt_component(
@@ -424,32 +441,118 @@ mod prompt_order_tests {
         Stdio::with_streams(false, Cursor::new(Vec::new()), Vec::new())
     }
 
-    /// Decide against a fully synthetic host: a tempdir home with no
-    /// `.npm-global` and a sudoers path that does not exist. Both components
-    /// resolve without a prompt, and — because the sudoers path is the fixture's
-    /// own, not `/etc`'s — they resolve the same way on a bare dev box, on a
-    /// provisioned host, and as root inside the Docker/QEMU harnesses.
-    fn decide(prompter: &mut dyn Prompter, yes: bool) -> Resolutions {
-        let d = tempfile::tempdir().unwrap();
-        decide_at(&d.path().join("no-sudoers-here"), prompter, yes)
+    /// A clean host: nothing exists, nothing has drifted.
+    fn clean() -> HostFacts {
+        HostFacts {
+            user: SudoersUserState::Absent,
+            npm_prefix: NpmPrefixState::Absent,
+            sudoers: SudoersState::Absent,
+        }
     }
 
-    /// [`decide`] against a caller-chosen sudoers path, so a test can stage the
-    /// drifted and canonical shapes as literal file contents.
-    fn decide_at(sudoers: &Path, prompter: &mut dyn Prompter, yes: bool) -> Resolutions {
-        let d = tempfile::tempdir().unwrap();
+    /// Decide over stated host facts. No filesystem, no passwd DB, no stdin —
+    /// so the verdict is a function of the fixture and nothing else, and every
+    /// arm is reachable rather than only the one a nonexistent username reaches.
+    fn decide_at(facts: HostFacts, prompter: &mut dyn Prompter, yes: bool) -> Resolutions {
         let mut res = Resolutions::default();
         let mut bails = Vec::new();
-        decide_core_with(
-            "no-such-user-agentlinux-xyzzy",
-            &d.path().to_string_lossy(),
-            sudoers,
-            yes,
-            &mut res,
-            &mut bails,
-            prompter,
-        );
+        decide_core_with("agent", facts, yes, &mut res, &mut bails, prompter);
         res
+    }
+
+    /// As [`decide_at`], returning the aggregated bails instead.
+    fn bails_at(facts: HostFacts, prompter: &mut dyn Prompter, yes: bool) -> Vec<Bail> {
+        let mut res = Resolutions::default();
+        let mut bails = Vec::new();
+        decide_core_with("agent", facts, yes, &mut res, &mut bails, prompter);
+        bails
+    }
+
+    fn decide(prompter: &mut dyn Prompter, yes: bool) -> Resolutions {
+        decide_at(clean(), prompter, yes)
+    }
+
+    // --- the user component (REUSE-01). Three of these four arms were
+    // unreachable while `decide_core_with` probed the real passwd DB: a fixture
+    // could only pick a username no host would have, which pinned `Absent`.
+
+    #[test]
+    fn an_existing_conforming_user_is_reused_not_recreated() {
+        let facts = HostFacts {
+            user: SudoersUserState::Conforming,
+            ..clean()
+        };
+        assert_eq!(
+            decide_at(facts, &mut scripted(""), false).user,
+            Resolution::Reuse
+        );
+    }
+
+    #[test]
+    fn a_wrong_shell_user_bails_and_no_answer_can_override_it() {
+        // Irreconcilable: --yes cannot fix a wrong shell, so this must bail even
+        // with consent granted. That is the whole point of an irreconcilable
+        // state, and nothing asserted it before.
+        let facts = HostFacts {
+            user: SudoersUserState::WrongShell,
+            ..clean()
+        };
+        for yes in [false, true] {
+            assert_eq!(
+                decide_at(facts, &mut scripted("Y"), yes).user,
+                Resolution::Bail,
+                "yes={yes}"
+            );
+            let bails = bails_at(facts, &mut scripted("Y"), yes);
+            assert!(
+                bails
+                    .iter()
+                    .any(|b| b.component == "user" && b.reason == "wrong-shell"),
+                "bails={bails:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_home_the_user_cannot_write_bails_with_its_own_reason() {
+        // Adopting a user who cannot write their own home hands every later step
+        // the EACCES this project exists to eliminate.
+        let facts = HostFacts {
+            user: SudoersUserState::HomeNotWritable,
+            ..clean()
+        };
+        assert_eq!(
+            decide_at(facts, &mut scripted("Y"), true).user,
+            Resolution::Bail
+        );
+        let bails = bails_at(facts, &mut scripted("Y"), true);
+        assert!(
+            bails
+                .iter()
+                .any(|b| b.component == "user" && b.reason == "home-not-writable"),
+            "bails={bails:?}"
+        );
+    }
+
+    #[test]
+    fn a_wrong_owner_npm_prefix_asks_and_honours_the_answer() {
+        let facts = HostFacts {
+            npm_prefix: NpmPrefixState::WrongOwner,
+            ..clean()
+        };
+        assert_eq!(
+            decide_at(facts, &mut scripted("Y"), false).npm_prefix,
+            Resolution::Remediate
+        );
+        assert_eq!(
+            decide_at(facts, &mut scripted("n"), false).npm_prefix,
+            Resolution::ReuseWithWarning
+        );
+        // --yes proceeds without consulting the prompter at all.
+        assert_eq!(
+            decide_at(facts, &mut no_tty(), true).npm_prefix,
+            Resolution::Remediate
+        );
     }
 
     #[test]
@@ -506,30 +609,20 @@ mod prompt_order_tests {
         assert!(p.confirm("npm-prefix", "chown"), "re-prompt reads the Y");
     }
 
-    /// A sudoers drop-in that exists but lacks the canonical ADR-012 line — the
-    /// `Drifted` state, and the ONLY core state that owes a prompt.
-    fn drifted_sudoers(dir: &Path) -> std::path::PathBuf {
-        let p = dir.join("agentlinux");
-        std::fs::write(
-            &p,
-            "no-such-user-agentlinux-xyzzy ALL=(ALL) NOPASSWD: /bin/ls\n",
-        )
-        .unwrap();
-        p
-    }
-
     #[test]
     fn a_drifted_sudoers_on_a_tty_asks_and_honours_the_answer() {
         // The fixture that makes the two tests below mean anything: without a
         // drifted component nothing prompts either way, so asserting "it did not
         // prompt" against a clean host asserts nothing.
-        let d = tempfile::tempdir().unwrap();
-        let sudoers = drifted_sudoers(d.path());
+        let facts = HostFacts {
+            sudoers: SudoersState::Drifted,
+            ..clean()
+        };
 
-        let accepted = decide_at(&sudoers, &mut scripted("Y"), false);
+        let accepted = decide_at(facts, &mut scripted("Y"), false);
         assert_eq!(accepted.sudoers, Resolution::Remediate, "Y → overwrite");
 
-        let declined = decide_at(&sudoers, &mut scripted("n"), false);
+        let declined = decide_at(facts, &mut scripted("n"), false);
         assert_eq!(
             declined.sudoers,
             Resolution::ReuseWithWarning,
@@ -542,33 +635,32 @@ mod prompt_order_tests {
         // The curl-installer path, asserted where a prompt WOULD otherwise be
         // owed. Dropping the `is_tty` guard would block here on a terminal that
         // does not exist — the hang class this project has shipped twice.
-        let d = tempfile::tempdir().unwrap();
-        let sudoers = drifted_sudoers(d.path());
+        let facts = HostFacts {
+            sudoers: SudoersState::Drifted,
+            ..clean()
+        };
 
         // No --yes: a non-TTY cannot consent, so this must BAIL, not prompt and
         // not silently proceed.
-        let res = decide_at(&sudoers, &mut no_tty(), false);
+        let res = decide_at(facts, &mut no_tty(), false);
         assert_eq!(res.sudoers, Resolution::Bail);
 
         // With --yes: consent is already given, so it remediates without ever
         // consulting the prompter (a `no_tty` prompter would panic if asked).
-        let res = decide_at(&sudoers, &mut no_tty(), true);
+        let res = decide_at(facts, &mut no_tty(), true);
         assert_eq!(res.sudoers, Resolution::Remediate);
     }
 
     #[test]
     fn a_canonical_sudoers_is_reused_without_asking() {
-        let d = tempfile::tempdir().unwrap();
-        let p = d.path().join("agentlinux");
-        std::fs::write(
-            &p,
-            "no-such-user-agentlinux-xyzzy ALL=(ALL) NOPASSWD: ALL\n",
-        )
-        .unwrap();
+        let facts = HostFacts {
+            sudoers: SudoersState::Canonical,
+            ..clean()
+        };
         // An empty answer script would decline on any prompt, so Reuse also
         // proves nothing was asked.
         assert_eq!(
-            decide_at(&p, &mut scripted(""), false).sudoers,
+            decide_at(facts, &mut scripted(""), false).sudoers,
             Resolution::Reuse
         );
     }

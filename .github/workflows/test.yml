@@ -195,7 +195,10 @@ jobs:
         working-directory: rust
         run: |
           set -euo pipefail
-          git diff --relative origin/master...HEAD -- 'crates/**' > "$RUNNER_TEMP/rust.diff"
+          # `.` (from working-directory: rust), not 'crates/**': a new or
+          # relocated crate outside crates/ would otherwise produce an empty
+          # diff and a silent skip. Non-Rust lines simply match no mutants.
+          git diff --relative origin/master...HEAD -- . > "$RUNNER_TEMP/rust.diff"
           echo "diff: $(wc -l < "$RUNNER_TEMP/rust.diff") lines"
           ../scripts/mutation-gate.sh enforce \
             --in-place --minimum-test-timeout 20 --in-diff "$RUNNER_TEMP/rust.diff"

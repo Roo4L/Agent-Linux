@@ -27,7 +27,10 @@
 # Neither mode tolerates a run that did not happen.
 set -euo pipefail
 
-readonly OUT_DIR="${MUTANTS_OUT_DIR:-mutants.out}"
+# Fixed, not configurable: the run below always passes `--output .`, so this is
+# where cargo-mutants writes. An override would only ever point the checks at a
+# directory the tool never wrote.
+readonly OUT_DIR="mutants.out"
 
 die() {
   echo "MUTATION GATE FAIL: $*" >&2
@@ -62,6 +65,15 @@ for arg in "$@"; do
 done
 [[ $want_diff_file -eq 0 ]] || die "--in-diff given with no file argument"
 
+# A killed --in-place run leaves mutated source behind. Warn if the tree is
+# already dirty so a developer cannot mistake cargo-mutants' residue for their
+# own edits (CI checkouts are always clean, so this is silent there).
+if command -v git >/dev/null && ! git diff --quiet 2>/dev/null; then
+  echo "mutation gate: NOTE — working tree is dirty before the run; --in-place" >&2
+  echo "  mutates in place, so check 'git diff' for '~ changed by cargo-mutants ~'" >&2
+  echo "  residue if this run is interrupted." >&2
+fi
+
 rm -rf "$OUT_DIR"
 
 # Run it. A non-zero exit is NOT interpreted here: cargo-mutants exits non-zero
@@ -78,13 +90,40 @@ outcomes="$OUT_DIR/outcomes.json"
   cargo-mutants did not complete a run — usually a rejected flag combination or a
   failing baseline. Fix the invocation; do NOT mask this as 'surviving mutants'."
 
-read -r total missed caught timeout unviable < <(
+# cargo-mutants rewrites outcomes.json after EVERY scenario, so a run killed
+# partway leaves a well-formed file describing only the mutants it reached. A
+# SIGKILL after 13 of 78 leaves {"total_mutants":13,"missed":0,"caught":13} —
+# which reads exactly like a clean sweep. Two independent completeness checks:
+#
+#   end_time      set only by the final summary write; null on every incremental one.
+#   mutants.json  written once, AFTER all filtering and sharding, so its length
+#                 is the number of mutants this run was supposed to test.
+#
+# Verified against cargo-mutants 27.1.0 by SIGKILLing a real run.
+read -r total missed caught timeout unviable finished planned < <(
   python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
-print(d["total_mutants"], d["missed"], d["caught"], d["timeout"], d["unviable"])
-' "$outcomes"
+try:
+    planned = len(json.load(open(sys.argv[2])))
+except Exception:
+    planned = -1
+print(
+    d["total_mutants"], d["missed"], d["caught"], d["timeout"], d["unviable"],
+    0 if d.get("end_time") is None else 1, planned,
 )
+' "$outcomes" "$OUT_DIR/mutants.json"
+)
+
+if [[ $finished -eq 0 ]]; then
+  die "cargo-mutants exited $cargo_status without writing a final summary
+  (outcomes.json has no end_time). The run was interrupted — OOM-killed, timed
+  out, or crashed — after testing $total mutant(s). A partial run is not a pass."
+fi
+if [[ $planned -ge 0 && $planned -ne $total ]]; then
+  die "cargo-mutants planned $planned mutant(s) but outcomes.json records only
+  $total. The run did not finish; a partial result is not a pass."
+fi
 
 summary="mutants: ${total} tested, ${caught} caught, ${missed} missed, ${timeout} timeout, ${unviable} unviable"
 echo "mutation gate ($mode): $summary"
@@ -94,6 +133,15 @@ if [[ $total -eq 0 ]]; then
   die "cargo-mutants tested 0 mutants. Either the filter matched nothing (check
   --in-diff --relative path rewriting) or the run aborted. A zero-mutant run is
   never a pass."
+fi
+
+# An unviable mutant is one that did not compile, so no test ran against it.
+# A run where EVERY mutant is unviable exercised nothing — the same hole as
+# total == 0, one step in.
+viable=$((total - unviable))
+if [[ $viable -le 0 ]]; then
+  die "all $total mutant(s) were unviable (none compiled), so no test was
+  exercised. Not a pass. Check that the filtered lines can actually be mutated."
 fi
 
 if [[ $timeout -gt 0 ]]; then
