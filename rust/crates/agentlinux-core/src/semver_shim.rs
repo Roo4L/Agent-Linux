@@ -1,26 +1,25 @@
 //! The ONLY module that touches the dtolnay `semver` crate.
 //!
 //! Isolates the empirically-probed node-semver → dtolnay `semver 1.0.28`
-//! divergences (RESEARCH §"node-semver → Rust semver Parity") behind
+//! divergences behind
 //! typed-error functions so `classify.rs` / `divergence.rs` never see them:
 //!
-//!   1. dtolnay `VersionReq::parse` REQUIRES a comma between compound
-//!      comparators; node-semver accepts spaces. The catalog's
-//!      `compatibility_window` is space-separated (">=2.0.0 <3.0.0").
-//!      `normalize_range` translates space → ", " before parse.
-//!   2. dtolnay `Version::parse` is strict: it rejects a leading `v`
-//!      ("v1.0.0") and partials ("2.1"). node-semver loose-parses both.
-//!      `parse_lenient` strips a leading `v`/whitespace and coerces a
-//!      two-component partial ("2.1" → "2.1.0") before `Version::parse`.
+//!  1. dtolnay `VersionReq::parse` REQUIRES a comma between compound
+//!     comparators; node-semver accepts spaces. The catalog's
+//!     `compatibility_window` is space-separated (">=2.0.0 <3.0.0").
+//!     `normalize_range` translates space → ", " before parse.
+//!  2. dtolnay `Version::parse` is strict: it rejects a leading `v`
+//!     ("v1.0.0") and partials ("2.1"). node-semver loose-parses both.
+//!     `parse_lenient` strips a leading `v`/whitespace and coerces a
+//!     two-component partial ("2.1" → "2.1.0") before `Version::parse`.
 //!
 //! Every entry point returns a typed [`SemverError`] on malformed input —
-//! never `unwrap`/`expect`/`panic` on untrusted version strings (threat
-//! T-53-01).
+//! never `unwrap`/`expect`/`panic` on untrusted version strings.
 
 use semver::{Version, VersionReq};
 use thiserror::Error;
 
-/// Typed error for every parse/range operation in the shim (threat T-53-01).
+/// Typed error for every parse/range operation in the shim.
 #[derive(Debug, Error)]
 pub enum SemverError {
     /// A concrete version string (from `<bin> --version` / `npm ls`) failed to
@@ -115,11 +114,10 @@ pub fn gt(a: &str, b: &str) -> Result<bool, SemverError> {
 /// Validate a concrete version string mirroring node `semver.valid`: returns the
 /// NORMALIZED version string, or `None`.
 ///
-/// STRICT on partials (Assumption A1 / Pitfall 6): node `semver.valid` accepts
+/// STRICT on partials: node `semver.valid` accepts
 /// full versions and prereleases (`"2.1.7-beta.1"`), accepts and normalizes a
 /// leading `v` (`"v1.2.3"` → `"1.2.3"`), but REJECTS partials (`"2.1"` → `null`)
 /// and ranges (`"^2.1"` → `null`). Pins are version points, not ranges
-/// (pin.ts:66-69).
 ///
 /// Unlike [`parse_lenient`], this does NOT route through [`coerce_partial`] — a
 /// bare `"2.1"` must NOT be coerced to `"2.1.0"` and accepted, because the TS
@@ -138,8 +136,8 @@ pub fn valid(raw: &str) -> Option<String> {
 
 /// Does `version` satisfy `node_range`? (node `semver.satisfies`, detect.ts:179,273).
 ///
-/// TOTAL: returns a bool for any input, never `Err`, never panics (threat
-/// T-55-02). The range is normalized via [`normalize_range`] so the node
+/// TOTAL: returns a bool for any input, never `Err`, never panics.
+/// The range is normalized via [`normalize_range`] so the node
 /// space→comma compound-range divergence is handled; a malformed range → `false`.
 /// The version is lenient-parsed via [`parse_lenient`] so a cache version like
 /// `"v1.37.1"` satisfies; an unparseable version → `false`.
@@ -187,7 +185,7 @@ pub fn max_satisfying<'a>(
 mod tests {
     use super::*;
 
-    // --- normalize_range: the compound-range comma divergence (Pitfall 2) ---
+    // --- normalize_range: the compound-range comma divergence ---
 
     #[test]
     fn normalize_range_inserts_commas_for_compound() {
@@ -221,7 +219,7 @@ mod tests {
         assert_eq!(hit, Some("2.5.0"));
     }
 
-    // --- parse_lenient: v-prefix + partial coercion (Pitfall 1) ---
+    // --- parse_lenient: v-prefix + partial coercion ---
 
     #[test]
     fn parse_lenient_strips_v_prefix() {
@@ -263,14 +261,17 @@ mod tests {
 
     #[test]
     fn parse_lenient_leaves_prerelease_and_build_uncoerced() {
-        // Coercion must NOT touch a full/prerelease/build string — the numeric-part
-        // guard rejects any component that isn't all-digit, so these parse as-is.
+        // Coercion counts dot-separated components, so a 3-component string is
+        // already whole and passes through untouched — prerelease and build
+        // metadata ride along inside that third component.
         assert_eq!(
             parse_lenient("1.2.3-rc1").unwrap(),
             Version::parse("1.2.3-rc1").unwrap()
         );
-        // A two-part string whose second component is non-numeric is NOT coerced to
-        // "1.beta.0"; it stays "1.beta" and fails to parse (guards the coercion set).
+        // "1.beta" IS coerced (2 components → "1.beta.0") — coerce_partial counts
+        // components, it does not check that they are numeric. The rejection comes
+        // one step later, from `Version::parse`, which refuses a non-numeric minor.
+        // Same observable answer, different mechanism than a coercion-set guard.
         assert!(parse_lenient("1.beta").is_err());
     }
 
@@ -358,13 +359,13 @@ mod tests {
         assert!(eq("v1.0.0", "1.0.0").unwrap());
     }
 
-    // --- valid: STRICT node semver.valid parity (Pitfall 6 / Assumption A1) ---
+    // --- valid: STRICT node semver.valid parity ---
     //
     // node `semver.valid(x)` returns the NORMALIZED version string or null:
-    //   - accepts full versions + prereleases,
-    //   - accepts a leading `v` (normalizing it away),
-    //   - REJECTS partials ("2.1") and ranges ("^2.1") — pins are version
-    //     points, not ranges (pin.ts:66-69).
+    //  - accepts full versions + prereleases,
+    //  - accepts a leading `v` (normalizing it away),
+    //  - REJECTS partials ("2.1") and ranges ("^2.1") — pins are version
+    //  points, not ranges.
     // The shim's `valid` must therefore NOT reuse parse_lenient's partial
     // coercion, which would wrongly accept "2.1".
 
@@ -383,7 +384,7 @@ mod tests {
     #[test]
     fn valid_strips_and_normalizes_v_prefix() {
         // A1 cross-check row: valid("v1.2.3") → Some("1.2.3") (leading v stripped,
-        // the NORMALIZED form is returned — Pitfall 6).
+        // the NORMALIZED form is returned, not the input).
         assert_eq!(valid("v1.2.3"), Some("1.2.3".to_string()));
     }
 
@@ -405,7 +406,7 @@ mod tests {
         assert_eq!(valid(""), None);
     }
 
-    // --- satisfies: total node semver.satisfies parity (detect.ts:179,273) ---
+    // --- satisfies: total node semver.satisfies parity ---
 
     #[test]
     fn satisfies_compound_range_in_and_out_of_window() {
@@ -438,7 +439,7 @@ mod parity {
     //!
     //! The oracle is the COMMITTED TypeScript corpora (node deps stay
     //! uninstalled by design): the `maxSatisfying` verdicts are recorded verbatim
-    //! from `plugin/cli/test/divergence.test.ts:133-151`. Every comparison routes
+    //! from the pre-cutover TypeScript suite. Every comparison routes
     //! through `semver_shim` (never `semver::` directly) so parity stays isolated.
     use super::*;
 
@@ -455,13 +456,13 @@ mod parity {
     #[test]
     fn parity_corpus_max_satisfying_matches_node_semver() {
         let v = corpus_versions();
-        // node semver.maxSatisfying(v, "^1.0") === "1.2.0"  (caret upper bound)
+        // node semver.maxSatisfying(v, "^1.0") === "1.2.0" (caret upper bound)
         assert_eq!(max_satisfying(&v, "^1.0").unwrap(), Some("1.2.0"));
-        // node semver.maxSatisfying(v, "~1.1") === "1.1.0"  (tilde bound)
+        // node semver.maxSatisfying(v, "~1.1") === "1.1.0" (tilde bound)
         assert_eq!(max_satisfying(&v, "~1.1").unwrap(), Some("1.1.0"));
-        // no-constraint (resolveLatestFor default "*") === "2.1.0"  (newest)
+        // no-constraint (resolveLatestFor default "*") === "2.1.0" (newest)
         assert_eq!(max_satisfying(&v, "*").unwrap(), Some("2.1.0"));
-        // node semver.maxSatisfying(v, "^9.0") === null  (zero-match)
+        // node semver.maxSatisfying(v, "^9.0") === null (zero-match)
         assert_eq!(max_satisfying(&v, "^9.0").unwrap(), None);
     }
 
@@ -471,11 +472,11 @@ mod parity {
     fn parity_valid_strict_rejects_partials_accepts_prerelease() {
         // The A1 cross-check the pin.test.ts corpus does NOT exercise — added
         // here as the parity oracle boundary. node semver.valid semantics:
-        //   semver.valid("2.1.7")        === "2.1.7"
-        //   semver.valid("2.1.7-beta.1") === "2.1.7-beta.1"
-        //   semver.valid("v1.2.3")       === "1.2.3"   (normalized)
-        //   semver.valid("2.1")          === null      (partial REJECTED)
-        //   semver.valid("^2.1")         === null      (range REJECTED)
+        //  semver.valid("2.1.7") === "2.1.7"
+        //  semver.valid("2.1.7-beta.1") === "2.1.7-beta.1"
+        //  semver.valid("v1.2.3") === "1.2.3" (normalized)
+        //  semver.valid("2.1") === null (partial REJECTED)
+        //  semver.valid("^2.1") === null (range REJECTED)
         assert_eq!(valid("2.1.7"), Some("2.1.7".to_string()));
         assert_eq!(valid("2.1.7-beta.1"), Some("2.1.7-beta.1".to_string()));
         assert_eq!(valid("v1.2.3"), Some("1.2.3".to_string()));
@@ -486,9 +487,9 @@ mod parity {
     #[test]
     fn parity_satisfies_matches_node_semver_over_window() {
         // node semver.satisfies(version, compatibility_window) verdicts.
-        //   satisfies("2.5.0", ">=2.0.0 <3.0.0") === true
-        //   satisfies("3.0.0", ">=2.0.0 <3.0.0") === false
-        //   satisfies("v1.37.1", ">=1.37.0 <2.0.0") === true (lenient version)
+        //  satisfies("2.5.0", ">=2.0.0 <3.0.0") === true
+        //  satisfies("3.0.0", ">=2.0.0 <3.0.0") === false
+        //  satisfies("v1.37.1", ">=1.37.0 <2.0.0") === true (lenient version)
         assert!(satisfies("2.5.0", ">=2.0.0 <3.0.0"));
         assert!(!satisfies("3.0.0", ">=2.0.0 <3.0.0"));
         assert!(satisfies("v1.37.1", ">=1.37.0 <2.0.0"));
@@ -575,7 +576,7 @@ mod parity {
 #[cfg(test)]
 mod proptests {
     //! Property test P4 (TEST-01) — `semver_shim` parse/normalize/max_satisfying
-    //! totality + idempotence. The crate's no-panic contract (threat T-53-01)
+    //! totality + idempotence. The crate's no-panic contract
     //! becomes machine-checked over the generated loose-input space, not just the
     //! handful of example rows.
     use super::*;
@@ -603,7 +604,7 @@ mod proptests {
 
         // P4b — parse_lenient never PANICS on loose inputs: Ok or a typed Err.
         // The match arms are the assertion; reaching either without unwinding
-        // proves totality (T-53-01).
+        // proves totality.
         #[test]
         fn p4_parse_lenient_total_on_loose(v in loose_version_str()) {
             match parse_lenient(&v) {
@@ -643,7 +644,7 @@ mod proptests {
         }
 
         // P4e — satisfies is TOTAL: any (version, range) yields a bool, never
-        // panics (malformed range/version → false). Threat T-55-02.
+        // panics (malformed range/version → false). Threat.
         #[test]
         fn p4_satisfies_total_on_loose(
             v in loose_version_str(),

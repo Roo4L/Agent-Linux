@@ -1,14 +1,15 @@
 //! `pin_spec` — the pure `parsePinSpec` port (CORE-03).
 //!
-//! Ports `plugin/cli/src/commands/pin.ts:44-74`: `agentlinux pin <name>=<target>`
+//! Parses `agentlinux pin <name>=<target>`
 //! parses a pin spec into a `PinTarget` discriminated union. This module is the
 //! PURE parser only — the `pinCmd` verb (catalog lookup, sentinel mutation,
-//! `process.exit`) is Phase-56 scope.
+//! `process.exit`) lives in the bin's `cmd::pin`.
 //!
 //! Pure: no `std::env`/`std::fs`/`std::process`. The only version op routes
 //! through [`crate::semver_shim::valid`] — never `semver::` directly.
 //!
-//! Parity oracle: `plugin/cli/test/pin.test.ts:117-159` — every golden row is
+//! The golden corpus below was transcribed from the pre-cutover TypeScript
+//! suite before it was deleted; it is now the authority. Every golden row is
 //! ported verbatim below, INCLUDING which of the two error messages each bad
 //! spec throws.
 //!
@@ -52,7 +53,7 @@ pub struct ParsedPin {
 }
 
 /// Typed parse error with the TWO distinct message shapes the corpus greps for
-/// (Pitfall 2). Message wording is copied from `pin.ts:57-59` / `pin.ts:71-73` so
+/// Message wording is copied from `pin.ts:57-59` / `pin.ts:71-73` so
 /// the rendered `to_string()` stays byte-identical to the TS `throw new Error(...)`.
 #[derive(Debug, Error, PartialEq, Eq)]
 pub enum PinSpecError {
@@ -63,7 +64,7 @@ pub enum PinSpecError {
         "agentlinux pin: expected '<name>=<target>' (got '{spec}');\n  valid targets: curated, latest, or exact semver like 2.1.7"
     )]
     Usage { spec: String },
-    /// The target RHS is not `curated`/`latest`/valid-semver (Pitfall 2). The
+    /// The target RHS is not `curated`/`latest`/valid-semver. The
     /// message contains `invalid target` and lists `curated`, `latest`, `semver`
     /// (what `pin.test.ts` greps for), mirroring `pin.ts:71-73`.
     #[error(
@@ -129,7 +130,7 @@ pub fn parse_pin_spec(spec: &str) -> Result<ParsedPin, PinSpecError> {
 #[cfg(test)]
 mod tests {
     //! Golden corpus — every row ported VERBATIM from
-    //! `plugin/cli/test/pin.test.ts:117-159` (the parity oracle). The Ok rows
+    //! transcribed from the pre-cutover TypeScript suite. The Ok rows
     //! assert the parsed value; the Err rows assert the rendered message CONTAINS
     //! the exact substring the corpus greps for, so a message drift trips.
     use super::*;
@@ -219,7 +220,7 @@ mod tests {
     }
 
     // pin.test.ts:155-158 — "empty target (trailing '='): throws with
-    // invalid-target message" (Pitfall 2) — greps /invalid target/. The subtle
+    // invalid-target message" — greps /invalid target/. The subtle
     // one: "" is not curated/latest/valid-semver, so InvalidTarget NOT Usage.
     #[test]
     fn empty_target_invalid_target_message() {
@@ -234,7 +235,7 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
-    //! Property test (TEST-01) — `parse_pin_spec` totality (threat T-55-03):
+    //! Property test (TEST-01) — `parse_pin_spec` totality:
     //! for any `&str` it returns `Ok` or a `PinSpecError`, never panics. Mirrors
     //! the `reuse.rs` totality proptest.
     use super::*;

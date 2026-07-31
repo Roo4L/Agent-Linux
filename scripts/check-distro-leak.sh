@@ -33,15 +33,6 @@
 # ALLOWLIST — files that LEGITIMATELY and PERMANENTLY reference these tokens:
 #   - tests/bats/helpers/distro.bash      the fork point itself (the debian arm
 #                                         IS the verbatim Debian command).
-#   - tests/bats/18-pkg-dispatch.bats     the product family-dispatch SPEC: it
-#                                         asserts the product emits apt-get /
-#                                         dpkg-query / deb.nodesource on debian
-#                                         and dnf / rpm / rpm.nodesource on rhel.
-#                                         These strings ARE the assertion surface
-#                                         and must never be removed.
-#   - tests/bats/18-detect-el9.bats       the EL9 detection SPEC (asserts the
-#                                         product does NOT probe /usr/bin/apt-get
-#                                         on rhel) — same rationale.
 set -euo pipefail
 
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -51,8 +42,6 @@ cd "$repo_root"
 is_allowlisted() {
   case "$1" in
     tests/bats/helpers/distro.bash) return 0 ;;
-    tests/bats/18-pkg-dispatch.bats) return 0 ;;
-    tests/bats/18-detect-el9.bats) return 0 ;;
     *) return 1 ;;
   esac
 }

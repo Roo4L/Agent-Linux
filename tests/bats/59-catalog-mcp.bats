@@ -32,7 +32,7 @@
 # Refs:
 #   - tests/bats/58-catalog-devtools.bats (lifecycle + jq-pin driver shape)
 #   - plugin/catalog/agents/chrome-devtools-mcp/{install,uninstall}.sh
-#   - plugin/cli/test/schema.test.ts (ENABLE-02 source_kind mcp + secret fields)
+#   - plugin/catalog/schema.json (ENABLE-02 source_kind mcp + secret fields)
 #   - .planning/REQUIREMENTS.md (MCP-01, ENABLE-02)
 
 load 'helpers/invoke_modes'
@@ -138,7 +138,7 @@ _pin() {
 
 @test "ENABLE-02: chrome-devtools-mcp is a keyless mcp entry (source_kind mcp, no requires_secret) — the secret convention lands with its first consumer" {
   # The ENABLE-02 schema contract (source_kind "mcp" + requires_secret/secret_env)
-  # is unit-tested in plugin/cli/test/schema.test.ts. Here we assert the catalog
+  # is declared in plugin/catalog/schema.json. Here we assert the catalog
   # entry's shape: chrome-devtools-mcp is source_kind mcp and declares NO secret
   # (it is keyless), so a bare install prints no token instruction. The
   # requires_secret/secret_env path is exercised by the first secret-carrying MCP
@@ -214,7 +214,7 @@ _pin() {
   # convention. Its key is OPTIONAL (the server works keyless), so requires_secret
   # is false while secret_env names the env var the post-install instruction and a
   # user-supplied registration would carry. The schema itself is unit-tested in
-  # plugin/cli/test/schema.test.ts; here we assert the catalog entry's shape.
+  # declared in plugin/catalog/schema.json; here we assert the catalog entry's shape.
   run bash -c "jq -r '.agents[] | select(.id==\"context7\") | .source_kind' ${CATALOG}"
   assert_exit_zero "ENABLE-02 (context7 read source_kind)"
   if [[ "${output}" != "mcp" ]]; then

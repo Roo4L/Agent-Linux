@@ -1,21 +1,18 @@
-//! provision — the pre-Node provisioner steps (Phase 57), each a byte-faithful
-//! port of a `plugin/provisioner/NN-*.sh` script.
+//! provision — the pre-Node provisioner steps, one module per numbered stage.
 //!
-//! The orchestrator shell lives in `cmd/provision.rs`; this module holds the
-//! per-step ports plus the shared `Resolutions`/`ProvisionCtx` types every step
-//! consumes. Wave 1 lands `agent_user` (10-agent-user.sh) + the scaffold; Waves
-//! 2-5 add `sudoers`/`nodejs`/`path_wiring`/`registry_cli`.
+//! The orchestrator lives in `cmd/provision.rs` and owns the order; this module
+//! holds the five steps (`agent_user`, `sudoers`, `nodejs`, `path_wiring`,
+//! `registry_cli`) plus the shared `Resolutions`/`ProvisionCtx` types they
+//! consume.
 //!
 //! DECIDE-THEN-ACT: the per-component decision tokens (`Resolutions`) are
-//! computed UP FRONT (the already-ported pure gates own that decision) and the
-//! steps only do I/O, dispatching on their token. Wave 1 seeds
-//! `Resolutions::user = create` directly; Wave 5 swaps the seed for the real
-//! detect→decide wiring WITHOUT restructuring the step loop.
+//! computed UP FRONT — the pure gates own that decision — and the steps only do
+//! I/O, dispatching on their token. A step never re-derives a decision.
 //!
-//! `dead_code` allowed at module scope for this wave: the non-`user` resolution
-//! tokens + the not-yet-consumed ctx fields are wired by Waves 2-5; the Wave-1
-//! step + the `#[cfg(test)]` module exercise the live surface now.
-#![allow(dead_code)]
+//! The decision vocabulary narrows between the two phases. DECIDE produces a
+//! [`Resolution`], which includes `Bail`; the orchestrator then exits 65 on every
+//! bail before any step runs, and hands the steps a [`StepResolution`], which has
+//! no `Bail` variant to handle.
 
 pub mod agent_user;
 pub mod log;
@@ -54,99 +51,78 @@ pub enum Resolution {
     Bail,
 }
 
-/// The per-component resolution tokens the DECIDE phase produces. Wave 1 only
-/// consumed `user`; Wave 5 populates the whole map from the real detect→decide
-/// wiring (`cmd/provision.rs` → the pure `agentlinux-core` gates). `agents`
-/// carries the per-agent `RESOLUTIONS[agents.<id>]` tokens, keyed by catalog id,
-/// built by iterating the Rust `canonical_path` map IN-PROCESS (PROV-02: the Rust
-/// map is the single authoritative per-agent enumerator).
+/// A resolution as the STEP layer sees it — the same tokens minus `Bail`.
+///
+/// By the time the step loop runs, `remediate::flush_or_exit` has already exited
+/// 65 on every bail, so no step can encounter one. Saying that in the type rather
+/// than in a comment deletes a `Bail => Err("unreachable…")` arm from each of the
+/// four dispatching steps — arms reachable only by a bug, whose tests asserted
+/// nothing beyond the struct literal they had just written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepResolution {
+    Create,
+    Reuse,
+    Remediate,
+    ReuseWithWarning,
+}
+
+/// The per-component tokens the DECIDE phase produces.
+///
+/// The core components (user/sudoers/node/npm-prefix) start at `Create` — the
+/// steps are idempotent CREATE/REUSE on a clean host — and
+/// `remediate::decide_core` overwrites them with the real host verdict.
 #[derive(Debug, Clone)]
 pub struct Resolutions {
-    /// `RESOLUTIONS[user]` — consumed by `agent_user::run`.
     pub user: Resolution,
-    /// `RESOLUTIONS[sudoers]`.
     pub sudoers: Resolution,
-    /// `RESOLUTIONS[node]`.
     pub node: Resolution,
-    /// `RESOLUTIONS[npm-prefix]`.
     pub npm_prefix: Resolution,
-    /// `RESOLUTIONS[agents.<id>]` — per-agent tokens, keyed by catalog id. Built
-    /// by iterating the Rust `canonical_path` ids (PROV-02 single source).
-    pub agents: std::collections::BTreeMap<String, Resolution>,
+}
+
+impl Default for Resolutions {
+    fn default() -> Self {
+        Self {
+            user: Resolution::Create,
+            sudoers: Resolution::Create,
+            node: Resolution::Create,
+            npm_prefix: Resolution::Create,
+        }
+    }
 }
 
 impl Resolutions {
-    /// A fresh CREATE for every core component with NO per-agent entries. Retained
-    /// for the unit tests + as the clean-host baseline; the orchestrator's real
-    /// path uses [`Resolutions::from_decide`] (the detect→decide computation).
-    pub fn seed_create() -> Self {
-        Self {
-            user: Resolution::Create,
-            sudoers: Resolution::Create,
-            node: Resolution::Create,
-            npm_prefix: Resolution::Create,
-            agents: std::collections::BTreeMap::new(),
-        }
-    }
-
-    /// The real DECIDE phase (PROV-02, 57-06): probe the host + iterate the Rust
-    /// `canonical_path` map IN-PROCESS, calling the ALREADY-PORTED pure gate
-    /// (`agentlinux_core::reuse::agent_decision`) per id to build
-    /// `RESOLUTIONS[agents.<id>]`. NO Bash map read, NO `reuse-decision` shell-out.
+    /// Narrow every token to a [`StepResolution`], or return the component name
+    /// of the first that is still `Bail`.
     ///
-    /// The core-component tokens (user/sudoers/node/npm-prefix) resolve to CREATE
-    /// on a clean host — the provisioner's steps are idempotent CREATE/REUSE, and
-    /// the Bash entrypoint's brownfield remediation gating (npm-prefix chown,
-    /// sudoers overwrite) is the `--yes`-gated path; a `--yes` provision run (the
-    /// harness invocation) never bails. The per-agent tokens are the substantive
-    /// PROV-02 win: they come from the Rust map + the pure gate, not a Bash
-    /// iterator.
-    ///
-    /// `canonical_ids` + `canonical_of` + `gsd_system_path` are injected so this
-    /// stays free of `main.rs`'s map (the pure/adapter split); the orchestrator
-    /// passes `main::CANONICAL_IDS` / `main::canonical_path` / `main::GSD_SYSTEM_PATH`.
-    pub fn from_decide<F>(canonical_ids: &[&str], canonical_of: F, gsd_system_path: &str) -> Self
-    where
-        F: Fn(&str) -> Option<&'static str>,
-    {
-        let mut agents = std::collections::BTreeMap::new();
-        for &id in canonical_ids {
-            let probe = crate::provision::probe::probe_agent(id);
-            // The pure gate — identical decision surface the Bash
-            // `reuse::agent_decision` shim wraps, called DIRECTLY in-process.
-            let decision = agentlinux_core::reuse::agent_decision(
-                id,
-                &probe.status,
-                if probe.path.is_empty() {
-                    None
-                } else {
-                    Some(probe.path.as_str())
-                },
-                canonical_of(id),
-                gsd_system_path,
-            );
-            agents.insert(id.to_string(), Resolution::from_decision(decision));
-        }
-        Self {
-            user: Resolution::Create,
-            sudoers: Resolution::Create,
-            node: Resolution::Create,
-            npm_prefix: Resolution::Create,
-            agents,
-        }
+    /// The `Err` arm is the one place the "flush_or_exit ran first" invariant is
+    /// checked, replacing four per-step defensive arms.
+    pub fn into_step(self) -> Result<StepResolutions, &'static str> {
+        Ok(StepResolutions {
+            user: narrow(self.user).ok_or("user")?,
+            sudoers: narrow(self.sudoers).ok_or("sudoers")?,
+            node: narrow(self.node).ok_or("node")?,
+            npm_prefix: narrow(self.npm_prefix).ok_or("npm-prefix")?,
+        })
     }
 }
 
-impl Resolution {
-    /// Map the pure `agentlinux_core::reuse::Decision` token to the provisioner
-    /// `Resolution` (the two enums are the same 3-way surface plus the
-    /// `ReuseWithWarning`/`Bail` states only the TTY-consent path produces).
-    pub(crate) fn from_decision(d: agentlinux_core::reuse::Decision) -> Self {
-        match d {
-            agentlinux_core::reuse::Decision::Reuse => Resolution::Reuse,
-            agentlinux_core::reuse::Decision::Remediate => Resolution::Remediate,
-            agentlinux_core::reuse::Decision::Create => Resolution::Create,
-        }
+/// `Resolutions` after the bail flush — what every step dispatches on.
+#[derive(Debug, Clone, Copy)]
+pub struct StepResolutions {
+    pub user: StepResolution,
+    pub sudoers: StepResolution,
+    pub node: StepResolution,
+    pub npm_prefix: StepResolution,
+}
+
+/// `Resolution` → `StepResolution`, `None` for `Bail`.
+fn narrow(r: Resolution) -> Option<StepResolution> {
+    match r {
+        Resolution::Create => Some(StepResolution::Create),
+        Resolution::Reuse => Some(StepResolution::Reuse),
+        Resolution::Remediate => Some(StepResolution::Remediate),
+        Resolution::ReuseWithWarning => Some(StepResolution::ReuseWithWarning),
+        Resolution::Bail => None,
     }
 }
 
@@ -216,24 +192,26 @@ pub struct ProvisionCtx {
     pub install_home: String,
     /// The detected package-manager family (apt↔dnf fork point).
     pub family: Family,
-    /// The per-component DECIDE-phase tokens.
-    pub resolutions: Resolutions,
-    /// `--yes` — non-TTY consent for state-overwriting remediations.
-    pub yes: bool,
-    /// `--dry-run` — no host mutation (Wave 5 lands the full report/dry-run
-    /// parity; Wave 1 short-circuits before the step loop).
-    pub dry_run: bool,
+    /// The per-component DECIDE-phase tokens, already narrowed past `Bail`.
+    ///
+    /// `--yes` is deliberately NOT carried here: consent is resolved once, during
+    /// DECIDE, and the answer is already baked into these tokens. A step that
+    /// re-read a `yes` flag could reach a different conclusion than the one the
+    /// operator was shown.
+    pub resolutions: StepResolutions,
 }
 
 impl ProvisionCtx {
     /// Resolve an absolute system path (`/etc/sudoers.d`) under [`Self::root`].
+    ///
+    /// No `root == "/"` fast path: `Path::new("/").join("etc/sudoers.d")` is
+    /// already `/etc/sudoers.d`, so the branch bought nothing and cost the one
+    /// thing that matters here — it was a surface on which a wrong edit (or a
+    /// surviving `==`/`!=` mutant) would silently point every rooted test at the
+    /// live filesystem, as root, inside the Docker and QEMU harnesses.
     #[must_use]
     pub fn sys(&self, absolute: &str) -> PathBuf {
-        if self.root == Path::new("/") {
-            PathBuf::from(absolute)
-        } else {
-            self.root.join(absolute.trim_start_matches('/'))
-        }
+        self.root.join(absolute.trim_start_matches('/'))
     }
 
     /// The production context: the real filesystem root and the real effects.
@@ -242,9 +220,7 @@ impl ProvisionCtx {
         install_user: String,
         install_home: String,
         family: Family,
-        resolutions: Resolutions,
-        yes: bool,
-        dry_run: bool,
+        resolutions: StepResolutions,
     ) -> Self {
         Self {
             root: PathBuf::from("/"),
@@ -253,8 +229,6 @@ impl ProvisionCtx {
             install_home,
             family,
             resolutions,
-            yes,
-            dry_run,
         }
     }
 }
@@ -262,93 +236,57 @@ impl ProvisionCtx {
 #[cfg(test)]
 mod provision_mod_tests {
     use super::*;
-    use agentlinux_core::reuse::Decision;
 
-    // This module carried ZERO tests while owning the two mappings the whole
-    // DECIDE phase rests on. `from_decision` is a pure five-arm mapping needing
-    // no seam at all: a mutant returning `Create` for every decision — which
-    // re-runs `useradd` on an adopted brownfield user — survived.
+    // This module owns the DECIDE→step narrowing the whole provisioner rests on.
 
     #[test]
-    fn from_decision_maps_each_pure_decision_to_its_resolution() {
-        assert_eq!(
-            Resolution::from_decision(Decision::Reuse),
-            Resolution::Reuse
-        );
-        assert_eq!(
-            Resolution::from_decision(Decision::Remediate),
-            Resolution::Remediate
-        );
-        assert_eq!(
-            Resolution::from_decision(Decision::Create),
-            Resolution::Create
-        );
-    }
-
-    #[test]
-    fn seed_create_is_a_clean_host_with_no_agents() {
-        let r = Resolutions::seed_create();
+    fn the_default_resolutions_are_a_clean_host() {
+        let r = Resolutions::default();
         assert_eq!(r.user, Resolution::Create);
         assert_eq!(r.sudoers, Resolution::Create);
         assert_eq!(r.node, Resolution::Create);
         assert_eq!(r.npm_prefix, Resolution::Create);
-        assert!(r.agents.is_empty());
     }
 
     #[test]
-    fn from_decide_creates_every_agent_on_a_host_with_no_detect_cache() {
-        // The clean-host path: no cache → every id probes `absent` → Create.
-        let mut env_scope = crate::test_support::EnvScope::new();
-        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/decide-test.json");
+    fn narrowing_drops_bail_and_names_the_component_that_carried_it() {
+        // The one place the "flush ran first" invariant is checked. Every step
+        // dispatches on the narrowed type, so a `Bail` that survived the flush
+        // must stop the run here rather than reach a step's `_ =>` arm.
+        let clean = Resolutions::default().into_step().unwrap();
+        assert_eq!(clean.user, StepResolution::Create);
 
-        let r = Resolutions::from_decide(&["claude-code", "gsd"], crate::canonical_path, "/none");
-
-        assert_eq!(r.agents.len(), 2);
-        assert_eq!(r.agents["claude-code"], Resolution::Create);
-        assert_eq!(r.agents["gsd"], Resolution::Create);
+        for (component, mut r) in [
+            ("user", Resolutions::default()),
+            ("sudoers", Resolutions::default()),
+            ("node", Resolutions::default()),
+            ("npm-prefix", Resolutions::default()),
+        ] {
+            match component {
+                "user" => r.user = Resolution::Bail,
+                "sudoers" => r.sudoers = Resolution::Bail,
+                "node" => r.node = Resolution::Bail,
+                _ => r.npm_prefix = Resolution::Bail,
+            }
+            assert_eq!(r.into_step().unwrap_err(), component);
+        }
     }
 
     #[test]
-    fn from_decide_reuses_an_agent_healthy_at_its_canonical_path() {
-        // The PROV-02 win: the per-agent token comes from the Rust map + the pure
-        // gate in-process. A healthy binary at the canonical path is a REUSE; the
-        // same binary somewhere else is a REMEDIATE.
-        let mut env_scope = crate::test_support::EnvScope::new();
-        let dir = tempfile::tempdir().unwrap();
-        let cache = dir.path().join("detect.json");
-        std::fs::write(
-            &cache,
-            r#"{"agents":[
-                {"id":"claude-code","status":"healthy","path":"/home/agent/.local/bin/claude","version":"2.1.98"},
-                {"id":"gsd","status":"healthy","path":"/usr/local/bin/gsd-core","version":"1.37.1"}
-            ]}"#,
-        )
-        .unwrap();
-        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
-
-        let r = Resolutions::from_decide(&["claude-code", "gsd"], crate::canonical_path, "/none");
-
-        assert_eq!(r.agents["claude-code"], Resolution::Reuse);
-        assert_eq!(r.agents["gsd"], Resolution::Remediate);
-    }
-
-    #[test]
-    fn from_decide_keys_the_map_by_catalog_id_in_a_stable_order() {
-        // A BTreeMap, so the dry-run report's per-agent lines are deterministic
-        // (the UX-01 "two identical dry-runs match" contract).
-        let mut env_scope = crate::test_support::EnvScope::new();
-        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/decide-order.json");
-
-        let r = Resolutions::from_decide(
-            &["playwright-cli", "claude-code", "gsd"],
-            crate::canonical_path,
-            "/none",
-        );
-
-        assert_eq!(
-            r.agents.keys().collect::<Vec<_>>(),
-            vec!["claude-code", "gsd", "playwright-cli"]
-        );
+    fn every_non_bail_token_narrows_to_its_own_counterpart() {
+        for (wide, narrow_expected) in [
+            (Resolution::Create, StepResolution::Create),
+            (Resolution::Reuse, StepResolution::Reuse),
+            (Resolution::Remediate, StepResolution::Remediate),
+            (
+                Resolution::ReuseWithWarning,
+                StepResolution::ReuseWithWarning,
+            ),
+        ] {
+            let mut r = Resolutions::default();
+            r.sudoers = wide;
+            assert_eq!(r.into_step().unwrap().sudoers, narrow_expected);
+        }
     }
 
     #[test]
@@ -357,9 +295,7 @@ mod provision_mod_tests {
             "agent".into(),
             "/home/agent".into(),
             Family::Debian,
-            Resolutions::seed_create(),
-            false,
-            false,
+            Resolutions::default().into_step().unwrap(),
         );
         // Production: root is `/`, so a system path is itself.
         assert_eq!(ctx.sys("/etc/sudoers.d"), PathBuf::from("/etc/sudoers.d"));
@@ -380,12 +316,9 @@ mod provision_mod_tests {
             "agent".into(),
             "/home/agent".into(),
             Family::Rhel,
-            Resolutions::seed_create(),
-            true,
-            false,
+            Resolutions::default().into_step().unwrap(),
         );
         assert_eq!(ctx.root, PathBuf::from("/"));
-        assert!(ctx.yes);
         // The default effects are the real ones, not a test stub.
         assert!(std::ptr::fn_addr_eq(
             ctx.fx.chown,

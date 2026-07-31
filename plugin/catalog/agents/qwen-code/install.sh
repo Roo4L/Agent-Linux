@@ -7,7 +7,8 @@ set -euo pipefail
 # source_kind: npm — per-user global install via Phase 3's .npm-global prefix.
 # Binary name is `qwen`, NOT `qwen-code` (the catalog id).
 #
-# NPM_CONFIG_PREFIX=/home/agent/.npm-global (runner.ts) keeps the install
+# NPM_CONFIG_PREFIX=/home/agent/.npm-global (injected by the CLI's recipe env,
+# rust/crates/agentlinux/src/recipe_env.rs) keeps the install
 # agent-owned, no root, no /usr/local shim (RT-02, ADR-004).
 # Provider auth (DASHSCOPE_API_KEY / OpenAI-compatible creds) is supplied
 # post-install — never baked into the recipe.

@@ -1,20 +1,18 @@
-//! npm.rs — the shell adapter around `npm ls -g --json` and
+//! npm.rs — the adapter around `npm ls -g --json` and
 //! `npm view <pkg> versions --json`.
 //!
-//! Port of `plugin/cli/src/upgrade/npm_ls.ts` (`queryGlobalNpm` /
-//! `queryNpmViewLatest`). Both run via the BUFFERED dispatcher path
-//! (`dispatcher::as_user(..., stream=false, Some(30_000))`) — the 30-second
-//! timeout (Open Q2) prevents a hung registry query from wedging `upgrade`
-//! forever (T-56-13).
+//! Both run buffered with a 30-second timeout
+//! (`as_user(…, Capture::Buffered, Some(NPM_TIMEOUT_MS))`), so a hung registry
+//! query cannot wedge `upgrade` forever.
 //!
-//! # Pitfall 5 (buffered never-throw / npm ls exit 1 is valid JSON)
+//! # `npm ls` exits 1 with valid JSON
 //! `npm ls -g --json` exits 1 when it has peer-dep warnings but STILL emits valid
 //! JSON on stdout. `query_global_npm` intentionally parses the stdout REGARDLESS
 //! of exit code and only fails when the JSON itself is unparseable (genuine npm
 //! misbehavior, not a warning). The buffered dispatcher already honors the
 //! never-throw contract (a non-zero exit is a valid `DispatchResult`).
 //!
-//! # T-56-12 (untrusted registry metadata)
+//! # Untrusted registry metadata
 //! `npm view`'s output is attacker-controlled registry metadata: it is parsed as
 //! DATA (never eval'd) and version strings route through the pure
 //! `resolve_latest_for` → `semver_shim` (total, no panic). A hostile `latest`
@@ -25,22 +23,16 @@
 //! Both exported functions accept an optional dispatcher matching the buffered
 //! `as_user` signature. Unit tests inject a capturing/stubbing function so no sudo
 //! invocation ever happens under `cargo test` (mirrors the TS `NpmDispatcher`).
-//!
-//! `#![allow(dead_code)]`: the public surface is consumed by Plan 03's `upgrade`
-//! verb (`resolve_latest_for` feed + the INSTALLED column). The `#[cfg(test)]`
-//! module exercises every item now; the allow only defers the "not yet wired into
-//! a non-test caller" lint until the verb layer imports it.
-#![allow(dead_code)]
 
 use crate::catalog::FullCatalogEntry;
-use crate::dispatcher::{self, DispatchResult};
-use crate::recipe_env::resolve_install_user;
+use crate::dispatcher::{self, Capture, DispatchResult};
+use crate::recipe_env::{self, resolve_install_user};
 use agentlinux_core::divergence::resolve_latest_for;
 use agentlinux_core::types::CatalogEntry as CoreCatalogEntry;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
-/// The buffered npm-dispatch timeout (Open Q2) — 30 seconds, byte-identical to
+/// The buffered npm-dispatch timeout — 30 seconds, byte-identical to
 /// npm_ls.ts:78,119 (`timeout: 30_000`).
 const NPM_TIMEOUT_MS: u64 = 30_000;
 
@@ -61,26 +53,15 @@ fn real_dispatch(
     env: &[(String, String)],
     timeout_ms: u64,
 ) -> DispatchResult {
-    dispatcher::as_user(user, argv, env, false, Some(timeout_ms))
+    dispatcher::as_user(user, argv, env, Capture::Buffered, Some(timeout_ms))
 }
 
-/// Build the minimal npm env for `home` (npm_ls.ts `npmEnvFor`). Mirrors runner's
-/// per-user derivation so `npm` resolves to the user's `~/.npm-global/bin`
-/// (Pitfall 3 — `sudo -E` alone drops PATH to secure_path on Ubuntu).
-fn npm_env_for(home: &str) -> Vec<(String, String)> {
-    vec![
-        (
-            "PATH".to_string(),
-            format!("{home}/.npm-global/bin:{home}/.local/bin:/usr/local/bin:/usr/bin:/bin"),
-        ),
-        ("HOME".to_string(), home.to_string()),
-        (
-            "NPM_CONFIG_PREFIX".to_string(),
-            format!("{home}/.npm-global"),
-        ),
-        ("LANG".to_string(), "C.UTF-8".to_string()),
-        ("LC_ALL".to_string(), "C.UTF-8".to_string()),
-    ]
+/// The npm env for install user `user`: `recipe_env::base_child_env` against that
+/// user's home, so `npm` resolves to `~/.npm-global/bin` (`sudo -E` alone drops
+/// PATH to Ubuntu's `secure_path`). The npm probes need exactly the
+/// non-`AGENTLINUX_*` half of a recipe env, so they share its one definition.
+fn npm_env_for_user(user: &str) -> Vec<(String, String)> {
+    recipe_env::base_child_env(&recipe_env::install_home(user))
 }
 
 /// The `npm ls -g --json` shape we read — `{ dependencies: { <pkg>: { version } } }`.
@@ -98,13 +79,13 @@ struct NpmLsDep {
 
 /// Run `npm ls -g --json --depth=0` as the configured install user and return a
 /// `BTreeMap<pkg, version>` of its globally-installed npm packages. Port of
-/// `queryGlobalNpm` (npm_ls.ts:72-95).
+/// `queryGlobalNpm`.
 ///
-/// Defensive parsing per Pitfall 5:
-///   (a) missing `dependencies` key (no globals) → empty map,
-///   (b) missing `version` on a key → skip that entry,
-///   (c) exit 1 with valid JSON (peer-dep warning) → parse anyway,
-///   (d) unparseable stdout → `Err` with stderr context.
+/// Defensive parsing:
+///  (a) missing `dependencies` key (no globals) → empty map,
+///  (b) missing `version` on a key → skip that entry,
+///  (c) exit 1 with valid JSON (peer-dep warning) → parse anyway,
+///  (d) unparseable stdout → `Err` with stderr context.
 pub fn query_global_npm_with(
     dispatcher: NpmDispatcher,
 ) -> Result<BTreeMap<String, String>, String> {
@@ -113,14 +94,9 @@ pub fn query_global_npm_with(
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let result = dispatcher(
-        &user,
-        &argv,
-        &npm_env_for(&format!("/home/{user}")),
-        NPM_TIMEOUT_MS,
-    );
+    let result = dispatcher(&user, &argv, &npm_env_for_user(&user), NPM_TIMEOUT_MS);
 
-    // Parse the stdout REGARDLESS of exit code (Pitfall 5 — npm ls exits 1 on a
+    // Parse the stdout REGARDLESS of exit code (npm ls exits 1 on a
     // peer-dep warning but still emits valid JSON).
     let parsed: NpmLsShape = serde_json::from_str(&result.stdout).map_err(|_| {
         format!(
@@ -146,8 +122,8 @@ pub fn query_global_npm() -> Result<BTreeMap<String, String>, String> {
 /// Resolve the upstream-latest version for a catalog entry via
 /// `npm view <pkg> versions --json`, honoring `entry.version_constraint` through
 /// `resolve_latest_for`. Only called when the user opts in via `--check-upstream`
-/// / `--all-latest` (offline-default per ADR-011 / T-04-12). Port of
-/// `queryNpmViewLatest` (npm_ls.ts:108-139).
+/// / `--all-latest` (offline-default per ADR-011 /). Port of
+/// `queryNpmViewLatest`.
 ///
 /// `None` for non-npm entries (no single canonical "latest"). `Err` on a non-zero
 /// `npm view` exit or unparseable/zero-match JSON — the upgrade caller turns any
@@ -167,12 +143,7 @@ pub fn query_npm_view_latest_with(
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let result = dispatcher(
-        &user,
-        &argv,
-        &npm_env_for(&format!("/home/{user}")),
-        NPM_TIMEOUT_MS,
-    );
+    let result = dispatcher(&user, &argv, &npm_env_for_user(&user), NPM_TIMEOUT_MS);
     if result.exit_code != 0 {
         return Err(format!(
             "npm view {pkg} failed (exit {}): {}",
@@ -181,7 +152,7 @@ pub fn query_npm_view_latest_with(
     }
     // `npm view <pkg> versions --json` returns a JSON array of strings (>1
     // published) OR a single string (only 1 published). Handle both to stay
-    // faithful to the npm CLI contract (npm_ls.ts:126-137).
+    // faithful to the npm CLI contract.
     let raw: serde_json::Value = serde_json::from_str(&result.stdout).map_err(|_| {
         format!(
             "npm view {pkg} returned unparseable JSON:\n{}",
@@ -199,7 +170,7 @@ pub fn query_npm_view_latest_with(
         serde_json::Value::String(s) => vec![s],
         other => vec![other.to_string()],
     };
-    let core: CoreCatalogEntry = to_core_entry(entry);
+    let core: CoreCatalogEntry = CoreCatalogEntry::from(entry);
     resolve_latest_for(&core, &versions)
         .map(Some)
         .map_err(|e| e.to_string())
@@ -208,21 +179,6 @@ pub fn query_npm_view_latest_with(
 /// Production entry point — the real buffered dispatcher.
 pub fn query_npm_view_latest(entry: &FullCatalogEntry) -> Result<Option<String>, String> {
     query_npm_view_latest_with(entry, real_dispatch)
-}
-
-/// Project a `FullCatalogEntry` to the pure core `CatalogEntry` (via serde, so
-/// field semantics stay in lockstep) — shared with the verb adapters.
-fn to_core_entry(e: &FullCatalogEntry) -> CoreCatalogEntry {
-    let v = serde_json::json!({
-        "id": e.id,
-        "pinned_version": e.pinned_version,
-        "version_constraint": e.version_constraint,
-        "npm_package_name": e.npm_package_name,
-        "compatibility_window": e.compatibility_window,
-        "tags": e.tags,
-        "source_kind": e.source_kind,
-    });
-    serde_json::from_value(v).expect("full→core catalog entry projection")
 }
 
 #[cfg(test)]
@@ -255,7 +211,7 @@ mod npm_tests {
         serde_json::from_value(json).unwrap()
     }
 
-    // Pitfall 5: npm ls exits 1 (peer-dep warning) but still emits valid JSON —
+    // npm ls exits 1 (peer-dep warning) but still emits valid JSON —
     // query_global_npm parses it anyway and returns a non-empty map.
     #[test]
     fn query_global_npm_parses_json_on_nonzero_exit() {
@@ -295,7 +251,7 @@ mod npm_tests {
         assert!(err.contains("did not emit parseable JSON"), "got: {err}");
     }
 
-    // The buffered timeout is passed as 30_000 (Open Q2) — assert the call-site
+    // The buffered timeout is passed as 30_000 — assert the call-site
     // timeout via a capturing stub.
     #[test]
     fn query_global_npm_passes_30s_buffered_timeout() {

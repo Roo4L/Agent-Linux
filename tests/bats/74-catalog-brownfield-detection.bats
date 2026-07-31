@@ -2,7 +2,7 @@
 # tests/bats/74-catalog-brownfield-detection.bats — DET-04 generalized beyond the
 # original three agents (v0.3.6 catalog expansion).
 #
-# The detect probe (plugin/lib/detect/agents.sh) derives its tool list from the
+# The detect probe (rust/crates/agentlinux/src/detect.rs) derives its tool list from the
 # catalog, so a manually-installed CLI catalog tool (no AgentLinux sentinel) is
 # reported present instead of invisible. MCP entries (registration-based, no PATH
 # binary) are excluded from the PATH probe. Runs on the post-installer Docker host

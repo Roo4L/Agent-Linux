@@ -1,14 +1,14 @@
-//! Port of `plugin/cli/src/version/classify.ts` — the six-state version
+//! The six-state version
 //! classifier. Pure; no I/O. Every version comparison routes through
 //! `semver_shim` (never `semver::` directly) so the node-semver divergences
 //! stay isolated.
 //!
-//! Branch order is preserved verbatim from the TS source (classify.ts:15-27):
-//!   1. null sentinel OR null installed          → NotInstalled
-//!   2. sentinel.version != installed            → DriftUndeclared
-//!   3. installed == entry.pinned_version        → Synced
-//!   4. sentinel.sticky                          → PinnedOverride
-//!   5. installed > pinned ? OverrideAhead : OverrideBehind
+//! Branch order is preserved verbatim from the TS source:
+//!  1. null sentinel OR null installed → NotInstalled
+//!  2. sentinel.version != installed → DriftUndeclared
+//!  3. installed == entry.pinned_version → Synced
+//!  4. sentinel.sticky → PinnedOverride
+//!  5. installed > pinned ? OverrideAhead : OverrideBehind
 
 use crate::semver_shim;
 use crate::types::{CatalogEntry, Sentinel, Status, VersionDecision};
@@ -19,7 +19,7 @@ use crate::types::{CatalogEntry, Sentinel, Status, VersionDecision};
 ///
 /// A malformed version string that reaches `eq`/`gt` cannot occur for the corpus
 /// (all inputs are concrete versions), but if the shim errors we treat it as
-/// drift — the safe non-Synced verdict — rather than panicking (T-53-01).
+/// drift — the safe non-Synced verdict — rather than panicking.
 #[must_use]
 pub fn classify(
     entry: &CatalogEntry,
@@ -32,7 +32,7 @@ pub fn classify(
     };
 
     // 2. drift-undeclared: sentinel disagrees with what is actually on disk
-    //    (someone ran `claude update` / `npm install -g` outside our CLI).
+    //  (someone ran `claude update` / `npm install -g` outside our CLI).
     if !semver_shim::eq(&sentinel.version, installed).unwrap_or(false) {
         return Status::DriftUndeclared;
     }
@@ -56,16 +56,16 @@ pub fn classify(
 }
 
 /// Decide which version the CLI asks the recipe to install. Mirrors the TS
-/// `decideVersion` (classify.ts:34-50) — pure (no I/O, no semver), a straight
-/// field dispatch over three branches in verbatim order (classify.ts:39-49):
+/// `decideVersion` — pure (no I/O, no semver), a straight
+/// field dispatch over three branches in verbatim order:
 ///
-///   1. `version_override` (the `--version` flag) always wins →
-///      `{ version: override, source: "override", sticky: false }`.
-///   2. else if the sentinel is present AND sticky → preserve it, INHERITING the
-///      sentinel's `source` (NOT hardcoded) → `{ sentinel.version,
-///      sentinel.source, sticky: true }`.
-///   3. else → the curated catalog pin →
-///      `{ entry.pinned_version, source: "curated", sticky: false }`.
+///  1. `version_override` (the `--version` flag) always wins →
+///     `{ version: override, source: "override", sticky: false }`.
+///  2. else if the sentinel is present AND sticky → preserve it, INHERITING the
+///     sentinel's `source` (NOT hardcoded) → `{ sentinel.version,
+///     sentinel.source, sticky: true }`.
+///  3. else → the curated catalog pin →
+///     `{ entry.pinned_version, source: "curated", sticky: false }`.
 ///
 /// This is the pure companion to [`classify`]: `classify` reports the divergence
 /// verdict; `decide_version` reports the install-version decision.
@@ -87,7 +87,7 @@ pub fn decide_version(
             return VersionDecision {
                 version: sentinel.version.clone(),
                 // Inherit the sentinel's source — mirrors TS
-                // `source: existingSentinel.source` (classify.ts:45).
+                // `source: existingSentinel.source`.
                 source: sentinel.source.clone(),
                 sticky: true,
             };
@@ -102,13 +102,13 @@ pub fn decide_version(
 
 #[cfg(test)]
 mod tests {
-    //! Golden corpus ported verbatim from `plugin/cli/test/classify.test.ts:36-93`
+    //! Golden corpus transcribed verbatim from the pre-cutover TypeScript suite
     //! (the seven `classify()` rows across the six states). CORE-01 re-asserted:
     //! every `classify()` assertion in classify.test.ts has a matching `#[test]`
     //! below (not-installed ×2 / synced / drift-undeclared / override-ahead /
     //! override-behind / pinned-override). The `decideVersion` suite
-    //! (classify.test.ts:96-121) is now ported too — see the `decide_version`
-    //! function and its `decide_version_tests` module below (Phase 55, Plan 03).
+    //!  is now ported too — see the `decide_version`
+    //! function and its `decide_version_tests` module below.
     use super::*;
 
     fn base_entry() -> CatalogEntry {
@@ -195,7 +195,7 @@ mod tests {
 
 #[cfg(test)]
 mod decide_version_tests {
-    //! Golden corpus ported verbatim from `plugin/cli/test/classify.test.ts:96-121`
+    //! Golden corpus transcribed verbatim from the pre-cutover TypeScript suite
     //! (the five `decideVersion()` rows across three branches: override wins /
     //! sticky preserved / curated default). Each row `assert_eq!`s the full
     //! `VersionDecision`, closing the classify.test.ts corpus (CORE-01 complete).
@@ -291,7 +291,7 @@ mod proptests {
     //! rows cannot express: totality, determinism, and the sticky invariant.
     //!
     //! Generators are hand-written (dtolnay `semver` ships no proptest/Arbitrary
-    //! support — RESEARCH §proptest Invariants). They are catalog-realistic:
+    //! support — proptest Invariants). They are catalog-realistic:
     //! full-version strings plus the loose shapes (`v`-prefix, two-part partial)
     //! `parse_lenient` is contracted to accept, so P1's totality covers the
     //! malformed inputs a real `<bin> --version` can emit.
@@ -327,7 +327,7 @@ mod proptests {
         // P1a — classify is TOTAL: for any (entry, sentinel?, installed?) — including
         // loose/malformed version strings — classify returns a Status and never
         // panics. The `unwrap_or(false)` fallbacks (classify.rs:36,41,51) guarantee
-        // this; the property proves it across the generated input space (T-53-01).
+        // this; the property proves it across the generated input space.
         #[test]
         fn p1_classify_is_total(
             entry in entry_strategy(),
@@ -354,7 +354,7 @@ mod proptests {
 
         // P2 — sticky ⇒ status ∈ {Synced, PinnedOverride}.
         //
-        // Scoped to the NON-DRIFT subspace (Pitfall 5): sticky is only consulted
+        // Scoped to the NON-DRIFT subspace: sticky is only consulted
         // at branch 4, AFTER the drift check (branch 2, sentinel.version != installed)
         // and the synced check (branch 3). A sticky sentinel whose version disagrees
         // with `installed` correctly classifies as DriftUndeclared — outside the

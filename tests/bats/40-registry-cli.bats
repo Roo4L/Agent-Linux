@@ -293,15 +293,16 @@ JSON
 
 # CLI-03 + CAT-04: install test-dummy writes the marker AND the sentinel;
 # sentinel records the catalog's pinned_version (0.0.1) + source='curated'.
-# Proves the env plumbing from runner.ts → install.sh → sentinel write works.
+# Proves the env plumbing from the dispatcher → install.sh → sentinel write works.
 @test "CLI-03: install test-dummy creates marker + sentinel with pinned version" {
   run sudo -u agent -H bash --login -c 'agentlinux install --include-test test-dummy'
   assert_exit_zero "CLI-03"
   [[ -f /tmp/agentlinux-test-dummy.marker ]] \
     || __fail "CLI-03" "marker file created at /tmp/agentlinux-test-dummy.marker" "absent" "$LOG"
   # test-dummy install.sh writes `version=${AGENTLINUX_PINNED_VERSION}` —
-  # asserts the env wiring from runner.ts reached the recipe and the catalog's
-  # pinned_version (0.0.1) propagated through decideVersion to AGENTLINUX_PINNED_VERSION.
+  # asserts the env wiring from the dispatcher reached the recipe and the catalog's
+  # pinned_version (0.0.1) propagated through the version decision to
+  # AGENTLINUX_PINNED_VERSION.
   grep -q '^version=0.0.1$' /tmp/agentlinux-test-dummy.marker \
     || __fail "CLI-03+CAT-04" \
       "marker contains 'version=0.0.1' (pinned_version honored end-to-end)" \
@@ -545,18 +546,18 @@ JSON
 
 # CAT-03: the classic "submit-JSON-plus-recipe" proof. Build a tmp catalog at
 # bats-setup time with a fresh entry 'fake-42', point the CLI at it via
-# AGENTLINUX_CATALOG_DIR (loader.ts + schema.ts both honor this env seam),
-# and assert the entry shows up in `agentlinux list`. No TypeScript source
-# was changed to make fake-42 visible — the contract is CATALOG-IS-DATA.
-@test "CAT-03: throwaway catalog fixture loads without editing plugin/cli/src/" {
+# AGENTLINUX_CATALOG_DIR (the catalog loader honors this env seam), and assert
+# the entry shows up in `agentlinux list`. No CLI source was changed to make
+# fake-42 visible — the contract is CATALOG-IS-DATA.
+@test "CAT-03: throwaway catalog fixture loads without editing the CLI source" {
   local tmp
   tmp=$(mktemp -d /tmp/agentlinux-cat03.XXXXXX)
   # Tmp dir must be agent-readable (setup: root-owned mode 0700 by default).
   chmod 0755 "$tmp"
   mkdir -p "$tmp/agents/fake-42"
 
-  # Minimal valid catalog.json + matching schema.json (schema is resolved via
-  # the same AGENTLINUX_CATALOG_DIR env var — schema.ts §resolveSchemaPath).
+  # Minimal valid catalog.json + matching schema.json (both resolved via the
+  # same AGENTLINUX_CATALOG_DIR env var — catalog.rs::resolve_catalog_dir).
   # Copy the production schema verbatim so the fixture catalog validates
   # against the SAME rules production does.
   cp "/opt/agentlinux/catalog/${PKG_VERSION}/schema.json" "$tmp/schema.json"

@@ -1,5 +1,5 @@
 //! provision/wizard.rs — interactive TTY prompts ported from the deleted Bash
-//! `plugin/lib/prompt.sh`. The provisioner is flag-driven by default; these
+//! The provisioner is flag-driven by default; these
 //! prompts fire ONLY on an interactive terminal when the corresponding flag is
 //! absent, so the curl-installer path (`provision --user agent --yes`, non-TTY)
 //! stays fully non-interactive.
@@ -126,14 +126,14 @@ pub fn choose_install_user(default_user: &str, validate: &dyn Fn(&str) -> bool) 
     choose_install_user_io(default_user, validate, stdin.lock(), std::io::stderr())
 }
 
-// --- UX-02: per-component REMEDIATE consent prompt (prompt::confirm_remediate) ---
+// --- UX-02: per-component REMEDIATE consent prompt ---
 
 /// Testable core of the remediation consent prompt. Renders
 /// `Proceed with this remediation? [Y/n] (<component> — <description>) ` (the
 /// leading substring is the tty-driver sentinel — keep it verbatim) and reads a
 /// SINGLE byte: Enter(`\n`/`\r`)/`Y`/`y` → accept; `N`/`n` → decline; any other
 /// char → drain the rest of that line and re-prompt (max 3 → decline); EOF →
-/// decline. Single-byte-then-line-drain is the T-15-01-03 injection mitigation:
+/// decline. Single-byte-then-line-drain is the injection mitigation:
 /// only the first char steers the decision, the rest of the line is discarded
 /// unevaluated. NO drain after a valid answer — a trailing `\n` intentionally
 /// falls through to the next component's prompt as its Enter/accept.
@@ -186,20 +186,6 @@ pub fn confirm_remediate_io<R: BufRead, W: Write>(
     false
 }
 
-/// Prompt on stderr / read from stdin for a state-overwriting remediation.
-/// `true` = proceed, `false` = decline. Gate behind TTY + no `--yes`.
-///
-/// INVARIANT: reads directly from the process-global `std::io::Stdin` buffer.
-/// Each component (npm-prefix, then sudoers) calls this fresh, and the read-ahead
-/// held in that shared buffer is what carries a trailing `\n` from one answer over
-/// to the next prompt (the positional-answer contract). Never wrap `stdin.lock()`
-/// in a private `BufReader` here — that read-ahead would land in the throwaway
-/// wrapper and be lost between components, desyncing the consent loop.
-pub fn confirm_remediate(component: &str, description: &str) -> bool {
-    let stdin = std::io::stdin();
-    confirm_remediate_io(component, description, stdin.lock(), std::io::stderr())
-}
-
 /// The consent surface the DECIDE phase talks to: is this a terminal, and does
 /// the operator accept this remediation?
 ///
@@ -239,6 +225,7 @@ impl Stdio<std::io::StdinLock<'static>, std::io::Stderr> {
 impl<R: BufRead, W: Write> Stdio<R, W> {
     /// A prompter over supplied streams — the seam a test drives with an
     /// in-memory cursor holding EVERY answer, in order.
+    #[cfg(test)]
     pub fn with_streams(tty: bool, input: R, err: W) -> Self {
         Self { tty, input, err }
     }

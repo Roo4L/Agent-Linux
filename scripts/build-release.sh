@@ -53,7 +53,7 @@
 # NOT done here (by design):
 #   - No `sudo` anywhere (CLAUDE.md hard rule — this script runs as a normal user).
 #   - No `npm install` / `pnpm` (DIST-01: the shipped path has no Node prerequisite;
-#     the TS bundle stopped shipping — plugin/cli/ stays in-repo only as the parity oracle).
+#     the TS CLI it replaced was deleted at the Phase-59 Rust cutover).
 #   - No GPG signing (ADR-006 defers signed releases; SHA256 + HTTPS is the trust story).
 
 set -euo pipefail
@@ -196,8 +196,7 @@ fi
 #    pnpm TS-bundle build). This bin IS the shipped `plugin/bin/agentlinux`;
 #    the installer execs it and the provisioner stages it (Wave 2). No pnpm/npm
 #    anywhere on the producer path — that is the DIST-01 "no Node prerequisite"
-#    win. plugin/cli/ stays in-repo only as the parity oracle (deleted at the
-#    Phase-59 cutover); its TS bundle no longer ships.
+#    win. The TS CLI this replaced was deleted at the Phase-59 cutover.
 #
 #    Reproducibility (Pitfall 6 / T-58-01): a bare `cargo build --release` embeds
 #    the absolute build-host path (in panic/debug metadata) and an ELF build-id,
@@ -277,10 +276,9 @@ fi
 #    The payload keeps the `plugin/` prefix (Open Q1): the musl bin is staged at
 #    plugin/bin/agentlinux (the path install.sh execs + registry_cli.rs stages),
 #    and the catalog + the ~25 Bash recipes are copied verbatim from plugin/
-#    catalog/. The TS bundle (plugin/cli/dist, node_modules) is NOT staged — it
-#    stops shipping. The staging dir is a clean, reproducible payload root the
-#    tar recipe archives (so no repo build-output — e.g. plugin/cli/dist — can
-#    leak into the tarball).
+#    catalog/. Nothing else is staged. The staging dir is a clean, reproducible
+#    payload root the tar recipe archives, so no repo build-output (e.g.
+#    rust/target/) can leak into the tarball.
 # ---------------------------------------------------------------------------
 mkdir -p dist
 
@@ -361,22 +359,7 @@ CATALOG_SNAPSHOT="dist/catalog-${TAG}.json"
 cp plugin/catalog/catalog.json "$CATALOG_SNAPSHOT"
 
 # ---------------------------------------------------------------------------
-# 10. Self-verify the catalog snapshot is byte-identical to the source.
-#     Belt-and-braces: even though `cp` is byte-copy by contract, verifying
-#     the invariant at build time means a broken cp (e.g. a rogue alias that
-#     smuggled `cp` to do line-ending conversion) fails the build instead of
-#     shipping silently-corrupted bytes.
-# ---------------------------------------------------------------------------
-SRC_SHA=$(sha256sum plugin/catalog/catalog.json | awk '{print $1}')
-SNAPSHOT_SHA=$(sha256sum "$CATALOG_SNAPSHOT" | awk '{print $1}')
-if [[ "$SRC_SHA" != "$SNAPSHOT_SHA" ]]; then
-  printf 'CAT-05 byte-stability FAILED: source=%s snapshot=%s\n' \
-    "$SRC_SHA" "$SNAPSHOT_SHA" >&2
-  exit 1
-fi
-
-# ---------------------------------------------------------------------------
-# 10b. VERSION sentinel asset.
+# 10. VERSION sentinel asset.
 #      packaging/curl-installer/install.sh resolves an unpinned tag by
 #      following https://github.com/.../releases/latest/download/VERSION and
 #      capturing the redirect URL with curl -fsSIL. The asset itself doesn't

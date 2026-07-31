@@ -1,36 +1,36 @@
 //! probe.rs — the runtime "what's actually on disk" installed-version probe.
 //!
-//! Port of `plugin/cli/src/version/probe.ts` (`probeInstalledVersion`). For an
-//! npm-source entry, reads the installed package's `package.json` under the agent
-//! npm prefix and returns its normalized `version` field — a plain file read, no
-//! child process, no network. Non-npm kinds (binary/script/mcp) and any
-//! absent/unreadable/!semver package.json return `None` → callers fall back to the
-//! sentinel version (unchanged behavior).
+//! For an npm-source entry, reads the installed package's `package.json` under
+//! the agent npm prefix and returns its normalized `version` field — a plain file
+//! read, no child process, no network. Non-npm kinds (binary/script/mcp) and any
+//! absent/unreadable/!semver package.json return `None`, and callers fall back to
+//! the sentinel version.
+//!
+//! Consumed by `cmd::list`, which overlays the real on-disk version onto the
+//! recorded sentinel version so a self-updated agent reads as drifted.
 //!
 //! # Env seam
-//! The npm prefix is `$NPM_CONFIG_PREFIX` (byte-identical to runner.ts's
-//! AGENT_PATH prefix, probe.ts:25-27) else `/home/agent/.npm-global`. Resolved
-//! lazily on each call so a test that sets `NPM_CONFIG_PREFIX` after import still
-//! takes effect (mirrors the TS `npmPrefix()` seam).
+//! The npm prefix is `$NPM_CONFIG_PREFIX` when set, else the configured install
+//! user's `~/.npm-global` (via `recipe_env`). Resolved lazily on each call so a
+//! test that sets `NPM_CONFIG_PREFIX` still takes effect.
 //!
 //! # The pure/I-O seam
 //! This adapter READS. The semver normalization routes through the pure
 //! `agentlinux_core::semver_shim::valid` (which drops a leading `v`/whitespace and
-//! rejects a non-semver value), never `semver::` directly — so the crate stays
-//! pure and this file owns only the fs read.
-//!
+//! rejects a non-semver value), never `semver::` directly — so the core crate
+//! stays pure and this file owns only the fs read.
+
 use crate::catalog::FullCatalogEntry;
+use crate::recipe_env;
 use agentlinux_core::semver_shim;
 use serde::Deserialize;
 
-const DEFAULT_NPM_PREFIX: &str = "/home/agent/.npm-global";
-
-/// Resolve the npm prefix lazily: `$NPM_CONFIG_PREFIX` else the default. Port of
-/// `npmPrefix()` (probe.ts:25-27).
+/// Resolve the npm prefix lazily: `$NPM_CONFIG_PREFIX` else the install user's
+/// `~/.npm-global` (the one spelling of that layout lives in `recipe_env`).
 fn npm_prefix() -> String {
     match std::env::var("NPM_CONFIG_PREFIX") {
         Ok(v) if !v.is_empty() => v,
-        _ => DEFAULT_NPM_PREFIX.to_string(),
+        _ => recipe_env::npm_prefix(&recipe_env::agent_home()),
     }
 }
 
@@ -44,8 +44,7 @@ struct PackageJson {
 /// The actual on-disk version of an installed npm entry, or `None` when it can't
 /// be determined cheaply — non-npm kind, no `npm_package_name`, package absent, or
 /// an unreadable/!semver package.json. `None` is the "fall back to the sentinel
-/// version" signal, never an error. Port of `probeInstalledVersion`
-/// (probe.ts:34-46).
+/// version" signal, never an error.
 #[must_use]
 pub fn probe_installed_version(entry: &FullCatalogEntry) -> Option<String> {
     // Only npm-source entries with a package name have a readable package.json.
@@ -61,10 +60,10 @@ pub fn probe_installed_version(entry: &FullCatalogEntry) -> Option<String> {
         .join("node_modules")
         .join(pkg)
         .join("package.json");
-    // Read + parse + normalize; any failure collapses to None (the TS try/catch).
+    // Read + parse + normalize; any failure collapses to None .
     let body = std::fs::read_to_string(&pkg_json).ok()?;
     let parsed: PackageJson = serde_json::from_str(&body).ok()?;
-    // semver.valid returns the CLEAN version or null (probe.ts:42).
+    // semver.valid returns the CLEAN version or null.
     semver_shim::valid(&parsed.version?)
 }
 
@@ -119,7 +118,7 @@ mod probe_tests {
         env_scope.set("NPM_CONFIG_PREFIX", prefix.path());
 
         let e = entry("gsd", "npm", Some("gsd-core"));
-        // semver.valid drops the leading `v` (probe.ts:42).
+        // semver.valid drops the leading `v`.
         assert_eq!(probe_installed_version(&e).as_deref(), Some("1.37.1"));
     }
 
@@ -136,7 +135,7 @@ mod probe_tests {
     #[test]
     fn none_for_non_npm_source_kind() {
         // A script-kind entry has no readable package.json — probe returns None
-        // regardless of the prefix (probe.ts:35).
+        // regardless of the prefix.
         let e = entry("claude-code", "script", None);
         assert_eq!(probe_installed_version(&e), None);
     }

@@ -1,6 +1,6 @@
-//! cache.rs — the detect-cache read adapter (deferred from Phase 55).
+//! cache.rs — the detect-cache read adapter.
 //!
-//! Port of `plugin/cli/src/detect.ts:106-159`. Resolves the detect-cache path
+//! The detect-cache reader. Resolves the cache path
 //! (`$AGENTLINUX_DETECT_CACHE` else `/run/agentlinux-detect.json`), parses it
 //! (accepting BOTH the on-disk top-level `.agents` shape from `detect::run_once`
 //! AND the `--report-only` `.components.agents` wrapped shape), and hands records
@@ -9,25 +9,19 @@
 //!
 //! # The pure/I-O seam
 //! This adapter READS. The DECISION lives in the pure gates. The host `statSync`
-//! re-validation that `tryReuse` does AFTER its pure gate passes (detect.ts:183-188)
+//! re-validation that `tryReuse` does AFTER its pure gate passes
 //! stays in the CALLING VERB's adapter (`cmd/adopt.rs`), NOT here and NOT in the
-//! pure gate — mirroring RESEARCH §Cache-Read Adapter. So `grep metadata|is_file`
+//! pure gate — mirroring Cache-Read Adapter. So `grep metadata|is_file`
 //! over this file finds nothing.
 //!
 //! Records deserialize into `agentlinux_core::types::DetectedAgent` (the 4-field
 //! `DetectCacheAgent`, already ported: id/status/path/version).
 //!
 //! # Env seam
-//! `AGENTLINUX_DETECT_CACHE` (detect.ts:117) is the bats seam
+//! `AGENTLINUX_DETECT_CACHE` is the bats seam
 //! (`40-registry-cli.bats:183`). [`detect_cache_path`] honors it. `None` is
 //! returned on absent/unparseable cache (the callers treat that as "no
 //! candidate"), never an error.
-//!
-//! `#![allow(dead_code)]`: the reader surface is consumed by the Wave-1 verb
-//! adapters (this plan's Tasks 2/3) and Plan 03's mutating verbs. The
-//! `#[cfg(test)]` module exercises every item now; the allow only defers the "not
-//! yet wired into a non-test caller" lint at the Task-1 commit boundary.
-#![allow(dead_code)]
 
 use agentlinux_core::types::DetectedAgent;
 use serde::Deserialize;
@@ -54,7 +48,7 @@ struct Components {
 }
 
 /// Resolve the detect-cache path: `$AGENTLINUX_DETECT_CACHE` (bats seam) else
-/// `/run/agentlinux-detect.json`. Port of `detectCachePath` (detect.ts:116-118).
+/// `/run/agentlinux-detect.json`. Port of `detectCachePath`.
 #[must_use]
 pub fn detect_cache_path() -> PathBuf {
     match std::env::var("AGENTLINUX_DETECT_CACHE") {
@@ -65,7 +59,7 @@ pub fn detect_cache_path() -> PathBuf {
 
 /// Read + parse the detect cache into the agents list, or `None` on
 /// absent/unparseable. Accepts BOTH `.agents` and `.components.agents` shapes.
-/// Port of `readCacheAgents` (detect.ts:129-139).
+/// Port of `readCacheAgents`.
 #[must_use]
 pub fn read_cache_agents() -> Option<Vec<DetectedAgent>> {
     let path = detect_cache_path();
@@ -76,34 +70,13 @@ pub fn read_cache_agents() -> Option<Vec<DetectedAgent>> {
     doc.agents.or_else(|| doc.components.and_then(|c| c.agents))
 }
 
-/// Find a cached agent by id — NO canonical requirement (the list presence
-/// overlay surfaces every detected catalog tool). Port of `readCachedAgentById`
-/// (detect.ts:144-146).
+/// Find a cached agent by id — NO canonical requirement, because the list
+/// presence overlay surfaces every detected catalog tool, not only the three
+/// with a canonical path. Callers that DO need the canonical gate (install's
+/// reuse/remediate decisions) pair this with `canonical_path(id)` themselves.
 #[must_use]
 pub fn read_cached_agent_by_id(id: &str) -> Option<DetectedAgent> {
     read_cache_agents()?.into_iter().find(|a| a.id == id)
-}
-
-/// Canonical-gated reader for REUSE-03 / REMEDIATE-04. Returns the detected agent
-/// paired with its canonical path ONLY when `canonical` is `Some` (the id has a
-/// `CANONICAL_PATHS` entry) AND the agent is in the cache. Port of
-/// `readDetectedAgent` (detect.ts:151-159).
-///
-/// `canonical` is resolved by the CALLER (`canonical_path(id)` lives in main.rs,
-/// keeping the canonical map out of this adapter — mirrors the pure gates'
-/// parameterization).
-///
-/// Wave-1 consumer: none — `adopt`/`list`/`pin` use `read_cached_agent_by_id`
-/// (no canonical requirement). The canonical-gated reader is the REUSE-03 /
-/// REMEDIATE-04 entry point that Plan 03's `install`/`upgrade` verbs consume; the
-/// `#[cfg(test)]` module exercises it now, so the allow only defers the "not yet
-/// wired into a non-test caller" lint until Plan 03.
-#[allow(dead_code)]
-#[must_use]
-pub fn read_detected_agent(id: &str, canonical: Option<&str>) -> Option<(DetectedAgent, String)> {
-    let canonical = canonical?;
-    let detected = read_cached_agent_by_id(id)?;
-    Some((detected, canonical.to_string()))
 }
 
 #[cfg(test)]
@@ -172,21 +145,5 @@ mod cache_tests {
         let mut env_scope = crate::test_support::EnvScope::new();
         let _dir = with_cache(&mut env_scope, "{not valid json");
         assert!(read_cache_agents().is_none());
-    }
-
-    #[test]
-    fn read_detected_agent_is_canonical_gated() {
-        let mut env_scope = crate::test_support::EnvScope::new();
-        let _dir = with_cache(
-            &mut env_scope,
-            r#"{"agents":[{"id":"gsd","status":"healthy","path":"/home/agent/.npm-global/bin/gsd-core","version":"1.7.0"}]}"#,
-        );
-        // No canonical → None even though the agent is in the cache.
-        assert!(read_detected_agent("gsd", None).is_none());
-        // With canonical → Some((detected, canonical)).
-        let (detected, canonical) =
-            read_detected_agent("gsd", Some("/home/agent/.npm-global/bin/gsd-core")).unwrap();
-        assert_eq!(detected.id, "gsd");
-        assert_eq!(canonical, "/home/agent/.npm-global/bin/gsd-core");
     }
 }

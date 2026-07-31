@@ -1,13 +1,13 @@
-//! provision/path_wiring.rs — port of `plugin/provisioner/40-path-wiring.sh`.
+//! provision/path_wiring.rs — the four PATH artefacts.
 //!
 //! Wires `<home>/.npm-global/bin` onto PATH across all SIX invocation modes
 //! (BHV-02 SSH, BHV-03 cron, BHV-04 systemd, BHV-05 sudo -u [-i], BHV-06 login;
 //! RT-02 PATH, RT-04 NPM_CONFIG_PREFIX) via FOUR artefacts, with observable state
 //! byte-identical to the Bash provisioner on both distros:
-//!   1. `/etc/profile.d/agentlinux.sh` (0644 root:root) — login + `sudo -u -i`
-//!   2. `<home>/.bashrc` TOP marker block (0644 user:user) — SSH + `sudo -u bash -c`
-//!   3. `/etc/agentlinux.env` (0644 root:root) — systemd EnvironmentFile
-//!   4. `/etc/cron.d/agentlinux` (0644 root:root) — cron PATH header
+//!  1. `/etc/profile.d/agentlinux.sh` (0644 root:root) — login + `sudo -u -i`
+//!  2. `<home>/.bashrc` TOP marker block (0644 user:user) — SSH + `sudo -u bash -c`
+//!  3. `/etc/agentlinux.env` (0644 root:root) — systemd EnvironmentFile
+//!  4. `/etc/cron.d/agentlinux` (0644 root:root) — cron PATH header
 //!
 //! THE #1 RISK (byte-fidelity, 57-05): the RT-*/BHV-* bats grep these files'
 //! EXACT contents across all six modes, and a cross-grep between artefacts 3 and
@@ -18,21 +18,21 @@
 //! interpolate-user / literal-runtime-var split with `format!` where Bash
 //! interpolates and plain literal bytes everywhere else.
 //!
-//! PATH ORDERING (Pitfall 6, T-57-12 EoP): user-owned prefixes FIRST
+//! PATH ORDERING — an escalation-of-privilege concern: user-owned prefixes FIRST
 //! (`<home>/.npm-global/bin` ends first, then `.local/bin`, then system) in EVERY
 //! artefact — a stray `/usr/local/bin` shim must lose to the user-owned binary
 //! (the canonical self-update bug). Artefacts 3+4 build their PATH line from the
-//! ONE `recipe_env::canonical_path` source (T-57-14) so systemd's EnvironmentFile
+//! ONE `recipe_env::canonical_path` source so systemd's EnvironmentFile
 //! can never drift from cron's header.
 //!
 //! Runs UNCONDITIONALLY for both CREATE and REUSE — the artefacts are additive
 //! (`ensure_marker_block` preserves user content outside its block; the three
 //! root-owned files are installer-owned by contract). No RESOLUTIONS dispatch
-//! (40-path-wiring.sh:33-36). On REUSE it emits the `[REMEDIATE-02]` marker.
+//! On REUSE it emits the `[REMEDIATE-02]` marker.
 
-use crate::provision::{ProvisionCtx, Resolution};
+use crate::provision::{ProvisionCtx, StepResolution};
 use crate::recipe_env;
-use crate::sysio::{self, Placement};
+use crate::sysio;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -43,14 +43,14 @@ use std::path::Path;
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     eprintln!("40-path-wiring: starting");
 
-    // Resolved install user + home (40-path-wiring.sh:41-42) — derived from ctx,
+    // Resolved install user + home — derived from ctx,
     // never re-resolved. AL-59: every per-user path below interpolates these so an
     // accepted alternate install user is fully wired.
     let user = &ctx.install_user;
     let home = &ctx.install_home;
     let owner = format!("{user}:{user}");
 
-    // REUSE → [REMEDIATE-02] marker (40-path-wiring.sh:44-47). The wiring code is
+    // REUSE → [REMEDIATE-02] marker. The wiring code is
     // identical for CREATE and REUSE; the marker only distinguishes re-attaching
     // PATH wiring from creating it in the transcript.
     if is_reused(ctx.resolutions.user) {
@@ -67,8 +67,8 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     (ctx.fx.ensure_dir)(Path::new(&format!("{home}/.local/bin")), 0o755, &owner)?;
 
     // The ONE canonical PATH string — reused for artefacts 3 AND 4 so the two
-    // lines are byte-identical to each other AND to the Phase-56 recipe env
-    // (T-57-14; the cross-module test asserts the three-way equality).
+    // lines are byte-identical to each other AND to the recipe env
+    // (; the cross-module test asserts the three-way equality).
     let canonical_path = recipe_env::canonical_path(home);
 
     // Artefact 1: /etc/profile.d/agentlinux.sh (0644 root:root).
@@ -84,12 +84,12 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let bashrc = format!("{home}/.bashrc");
     let bashrc_path = Path::new(&bashrc);
     // Create an empty user-owned file first if absent (minimal container with no
-    // skel copy) so ensure_marker_block has a target (40-path-wiring.sh:99-101).
-    create_if_absent_0644(ctx, bashrc_path, &owner)?;
-    sysio::ensure_marker_block(bashrc_path, "agentlinux-path", Placement::Top, BASHRC_BODY)?;
+    // skel copy) so ensure_marker_block has a target.
+    sysio::create_if_absent_0644(bashrc_path, &owner, ctx.fx.chown)?;
+    sysio::ensure_marker_block(bashrc_path, "agentlinux-path", BASHRC_BODY)?;
     // ensure_marker_block writes via write_file_atomic(0o644, …) leaving the file
     // root-owned; re-assert <user>:<user> + 0644 so the user can edit outside the
-    // block (40-path-wiring.sh:110-113).
+    // block.
     std::fs::set_permissions(bashrc_path, std::fs::Permissions::from_mode(0o644))?;
     (ctx.fx.chown)(bashrc_path, &owner)?;
     eprintln!("40-path-wiring: wrote agentlinux-path marker block to {bashrc} (--top)");
@@ -115,10 +115,10 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
 /// non-fresh identity, so both `Reuse` and `ReuseWithWarning` count as reused
 /// (a `Remediate` token on the user component likewise means the identity was
 /// pre-existing).
-fn is_reused(user: Resolution) -> bool {
+fn is_reused(user: StepResolution) -> bool {
     matches!(
         user,
-        Resolution::Reuse | Resolution::ReuseWithWarning | Resolution::Remediate
+        StepResolution::Reuse | StepResolution::ReuseWithWarning | StepResolution::Remediate
     )
 }
 
@@ -139,7 +139,7 @@ if [ -f /etc/profile.d/agentlinux.sh ]; then
 fi";
 
 /// Artefact 1: `/etc/profile.d/agentlinux.sh`. Reproduces the UNQUOTED `PROFILE`
-/// heredoc (40-path-wiring.sh:61-89) byte-for-byte: `{user}`/`{home}` interpolate
+/// heredoc byte-for-byte: `{user}`/`{home}` interpolate
 /// where Bash expands `${_AL_USER}`/`${_AL_HOME}`; every `\$`/`` \` `` escape
 /// becomes a LITERAL `$`/`` ` `` (the runtime shell vars + re-source guard stay
 /// literal). Trailing newline preserved (the heredoc's final `\n`).
@@ -148,7 +148,7 @@ fn profile_d_content(user: &str, home: &str) -> String {
     // load-bearing. A Rust `\`-line-continuation ESCAPE strips leading whitespace
     // on the continued line, so we must NOT use `\<newline>` here — the literal
     // carries REAL embedded newlines (flush-left source lines) instead, preserving
-    // the `  *:` / `  *)` indentation byte-for-byte.
+    // the ` *:` / ` *)` indentation byte-for-byte.
     format!(
         "\
 # AgentLinux login environment (generated by agentlinux-install).
@@ -186,7 +186,6 @@ export PATH
 /// expansion (systemd + cron parse this shape literally). The PATH line reuses
 /// `path` (the ONE `recipe_env::canonical_path` source) so it is byte-identical
 /// to artefact 4 and the recipe env. Trailing newline preserved
-/// (40-path-wiring.sh:124-132).
 fn agentlinux_env_content(user: &str, home: &str, path: &str) -> String {
     format!(
         "PATH={path}\n\
@@ -203,7 +202,6 @@ AGY_CLI_DISABLE_AUTO_UPDATE=true\n"
 /// uncomment, naming the install user in the user column) + the SAME `path`
 /// literal as artefact 3 + LANG/LC_ALL/AGY. vixie-cron does NOT expand `$PATH`, so
 /// the PATH is written fully expanded and byte-identical to artefact 3
-/// (40-path-wiring.sh:140-150).
 fn cron_d_content(user: &str, path: &str) -> String {
     format!(
         "# AgentLinux cron environment (generated by agentlinux-install).\n\
@@ -218,25 +216,12 @@ AGY_CLI_DISABLE_AUTO_UPDATE=true\n"
     )
 }
 
-/// Atomic create-if-absent at 0644 <user>:<user>, mirroring the Bash
-/// `install -m 0644 -o <user> -g <user> /dev/null <path>` (40-path-wiring.sh:100).
-/// A present file is left untouched (ensure_marker_block then mutates it). Shared
-/// shape with nodejs.rs.
-fn create_if_absent_0644(ctx: &ProvisionCtx, path: &Path, owner: &str) -> io::Result<()> {
-    if path.exists() {
-        return Ok(());
-    }
-    std::fs::File::create(path)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
-    (ctx.fx.chown)(path, owner)
-}
-
 #[cfg(test)]
 mod path_wiring_tests {
     use super::*;
 
     // --- The #1-risk cross-module invariant: the artefact-3 PATH line ==
-    //     artefact-4 PATH line == recipe_env::canonical_path (byte-for-byte). ---
+    //  artefact-4 PATH line == recipe_env::canonical_path (byte-for-byte). ---
 
     /// Extract the `PATH=` line's value from an artefact's rendered content.
     fn path_line(content: &str) -> &str {
@@ -248,7 +233,7 @@ mod path_wiring_tests {
 
     #[test]
     fn artefact3_artefact4_recipe_env_path_lines_are_byte_identical() {
-        // The cross-module invariant (T-57-14): all three PATH strings derive
+        // The cross-module invariant: all three PATH strings derive
         // from the ONE recipe_env::canonical_path source, so they cannot drift.
         let home = "/home/agent";
         let canonical = recipe_env::canonical_path(home);
@@ -266,7 +251,7 @@ mod path_wiring_tests {
 
     #[test]
     fn path_ordering_is_user_prefixes_first_in_every_artefact() {
-        // Pitfall 6 / T-57-12: .npm-global/bin FIRST, then .local/bin, then system
+        // .npm-global/bin FIRST, then .local/bin, then system
         // — in artefacts 3 and 4 (the literal PATH) AND the profile.d case-prepend.
         let home = "/home/agent";
         let canonical = recipe_env::canonical_path(home);
@@ -424,12 +409,12 @@ fi"
     #[test]
     fn bashrc_marker_block_renders_at_top_over_existing_content() {
         // ensure_marker_block Placement::Top puts our guard-source BEFORE the skel
-        // non-interactive early-return (Pitfall 2 / T-57-13) so SSH + sudo -u bash
+        // non-interactive early-return so SSH + sudo -u bash
         // -c pick up PATH. Exercised against a temp file (no root needed).
         let d = tempfile::TempDir::new().unwrap();
         let f = d.path().join(".bashrc");
         std::fs::write(&f, "case $- in *i*) ;; *) return;; esac\n# user tail\n").unwrap();
-        sysio::ensure_marker_block(&f, "agentlinux-path", Placement::Top, BASHRC_BODY).unwrap();
+        sysio::ensure_marker_block(&f, "agentlinux-path", BASHRC_BODY).unwrap();
         let out = std::fs::read_to_string(&f).unwrap();
         // The begin marker precedes the skel early-return line (top placement).
         let begin = out.find("# >>> agentlinux-path begin >>>").unwrap();
@@ -446,11 +431,10 @@ fi"
 
     #[test]
     fn is_reused_maps_reuse_family_true_create_false() {
-        assert!(is_reused(Resolution::Reuse));
-        assert!(is_reused(Resolution::ReuseWithWarning));
-        assert!(is_reused(Resolution::Remediate));
-        assert!(!is_reused(Resolution::Create));
-        assert!(!is_reused(Resolution::Bail));
+        assert!(is_reused(StepResolution::Reuse));
+        assert!(is_reused(StepResolution::ReuseWithWarning));
+        assert!(is_reused(StepResolution::Remediate));
+        assert!(!is_reused(StepResolution::Create));
     }
 
     // --- `run` itself, under a test root ---
@@ -461,7 +445,7 @@ fi"
     // root-owned (the re-assert this file's own comment calls load-bearing), was
     // invisible to `cargo test`.
 
-    use crate::provision::{Effects, Resolutions};
+    use crate::provision::{Effects, StepResolution, StepResolutions};
     use std::cell::RefCell;
     use std::path::PathBuf;
 
@@ -487,7 +471,7 @@ fi"
     /// A ctx rooted at `root` with `<root>/home/agent` as the install home and
     /// the two system dirs the artefacts land in pre-created (they exist on
     /// every real host).
-    fn ctx_at(root: &Path, user_resolution: Resolution) -> ProvisionCtx {
+    fn ctx_at(root: &Path, user_resolution: StepResolution) -> ProvisionCtx {
         CHOWNS.with(|c| c.borrow_mut().clear());
         for dir in ["etc/profile.d", "etc/cron.d"] {
             std::fs::create_dir_all(root.join(dir)).unwrap();
@@ -504,15 +488,12 @@ fi"
             install_user: "agent".into(),
             install_home: home.to_string_lossy().into_owned(),
             family: crate::distro::Family::Debian,
-            resolutions: Resolutions {
+            resolutions: StepResolutions {
                 user: user_resolution,
-                sudoers: Resolution::Create,
-                node: Resolution::Create,
-                npm_prefix: Resolution::Create,
-                agents: std::collections::BTreeMap::new(),
+                sudoers: StepResolution::Create,
+                node: StepResolution::Create,
+                npm_prefix: StepResolution::Create,
             },
-            yes: false,
-            dry_run: false,
         }
     }
 
@@ -523,7 +504,7 @@ fi"
     #[test]
     fn run_writes_all_four_artefacts_with_the_generated_bytes() {
         let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Create);
+        let ctx = ctx_at(d.path(), StepResolution::Create);
         run(&ctx).unwrap();
 
         let home = &ctx.install_home;
@@ -548,7 +529,7 @@ fi"
     #[test]
     fn every_artefact_lands_at_0644() {
         let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Create);
+        let ctx = ctx_at(d.path(), StepResolution::Create);
         run(&ctx).unwrap();
 
         for p in [
@@ -567,7 +548,7 @@ fi"
         // the file owned by the writer (root). Without the re-assert the user
         // cannot edit their own .bashrc outside our block.
         let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Create);
+        let ctx = ctx_at(d.path(), StepResolution::Create);
         run(&ctx).unwrap();
 
         let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
@@ -581,7 +562,7 @@ fi"
     #[test]
     fn the_local_bin_prefixes_are_created_owned_by_the_user() {
         let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Create);
+        let ctx = ctx_at(d.path(), StepResolution::Create);
         run(&ctx).unwrap();
 
         for suffix in [".local", ".local/bin"] {
@@ -595,7 +576,7 @@ fi"
     #[test]
     fn run_preserves_user_content_outside_the_marker_block() {
         let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Create);
+        let ctx = ctx_at(d.path(), StepResolution::Create);
         let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
         std::fs::write(
             &bashrc,
@@ -617,7 +598,7 @@ fi"
         // The whole step is advertised as safe to re-run; the classic failure is
         // a second marker block (or a second PATH prepend) on the second pass.
         let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Create);
+        let ctx = ctx_at(d.path(), StepResolution::Create);
         run(&ctx).unwrap();
         let after_first: Vec<String> = [
             "etc/profile.d/agentlinux.sh",
@@ -661,7 +642,7 @@ fi"
         // AL-59: every per-user path must interpolate the resolved user, and the
         // three-way PATH equality must hold for that user's home too.
         let d = tempfile::TempDir::new().unwrap();
-        let mut ctx = ctx_at(d.path(), Resolution::Create);
+        let mut ctx = ctx_at(d.path(), StepResolution::Create);
         let home = d.path().join("home/claude");
         std::fs::create_dir_all(&home).unwrap();
         ctx.install_user = "claude".into();

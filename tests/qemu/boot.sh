@@ -545,10 +545,18 @@ cd /opt/agentlinux-src
 tar -xzf "/tmp/agentlinux-${TAG}.tar.gz"
 tar -xzf /tmp/tests.tar.gz
 
-# PROVISIONER-IDENTITY assertion (T-59-04 / Risk #1 — the #1 risk of a false
-# GATE-02 green if the gate silently runs a Bash path): PROVE the artifact being
-# run IS the static-musl bin BEFORE invoking `provision`. A shebang'd script or a
+# PROVISIONER-IDENTITY assertion (T-59-04 / Risk #1 — a false GATE-02 green if
+# the gate silently runs a Bash path): PROVE the artifact being run IS the
+# static-musl bin BEFORE invoking `provision`. A shebang'd script or a
 # dynamically-linked `agentlinux` FAILS the run non-zero here.
+#
+# This overlaps build-release.sh's own static-link assertion, deliberately: that
+# one runs on the BUILD HOST against `target/.../agentlinux` before packaging,
+# this one runs INSIDE THE GUEST against the bin that actually came out of
+# `tar -xzf`. They are the same bytes in the happy path, which is exactly why a
+# packaging or transport fault is invisible without both. Do not drop this one on
+# the grounds that build-release already checked — it checked a different file on
+# a different machine.
 BIN=plugin/bin/agentlinux
 if [[ ! -f $BIN ]]; then
   echo "ERROR: the staged musl bin ($BIN) is absent in the extracted tarball — refusing to run bats against a missing artifact and report false-green" >&2

@@ -2,9 +2,9 @@
 //!
 //! The lean [`crate::types::CatalogEntry`] deliberately mirrors only the five
 //! fields the classify/divergence core reads (`types.rs`); the full ~15-field
-//! catalog schema is Phase-55 scope. Deriving `JsonSchema` on that lean type
+//! catalog schema covers more fields than the core's lean type. Deriving `JsonSchema` on that lean type
 //! would emit a broken 5-field schema the ajv validator rejects the real
-//! catalog against (RESEARCH Pitfall 3). So this module carries a
+//! catalog against. So this module carries a
 //! **codegen-only** [`SchemaCatalogEntry`] that mirrors the FULL catalog schema
 //! — every field, the constraint set, the `source_kind` enum, and the
 //! npm-requires `if/then` conditional — without touching the core types.
@@ -129,20 +129,26 @@ mod tests {
         "/../../../plugin/catalog/schema.json"
     );
 
-    // This drift-check asserts byte-equality of committed vs generated schema.
-    // It does NOT prove the schema still REJECTS a malformed catalog entry —
-    // `constraints_that_reject_a_malformed_entry_survive` below is what pins the
-    // constraints themselves, structurally, without a JSON-Schema validator.
+    // SCOPE: this asserts byte-equality of committed vs generated schema, and
+    // nothing more. It does NOT check that the schema rejects a malformed entry,
+    // and it does NOT check that the shipped catalog.json satisfies it.
     //
-    // The ajv suite that used to own the negative cases
-    // (`plugin/cli/test/schema.test.ts`, run in the `cli-unit` job) was DELETED
-    // at the Rust cutover along with the rest of plugin/cli/, so a schemars bump
-    // that loosened a constraint while staying byte-stable had nothing left
-    // checking it. Full JSON-Schema validation of the live catalog is still
-    // absent repo-wide — `scripts/check-catalog-schema.sh` is a hand-transcribed
-    // jq mirror, not a validator.
+    // The negative-case coverage that used to back this up lived in an ajv suite
+    // (`plugin/cli/test/schema.test.ts`) deleted with the TypeScript CLI. It has
+    // no successor: no JSON-Schema validator runs anywhere in this repo. What
+    // guards the live catalog today is `catalog::load_catalog` in the bin crate —
+    // it deserializes catalog.json into the same field set this schema is
+    // generated from, and `catalog::catalog_tests::shipped_catalog_satisfies_its_schema`
+    // runs it against the real file, plus the field-level invariants this schema
+    // encodes. Restoring true schema validation means adding a
+    // validator dependency; until then, do not read this test as one.
     #[test]
     fn schema_is_not_drifted() {
+        // NOTE: this test reads and (under UPDATE_SCHEMA) WRITES the filesystem
+        // from `agentlinux-core`, whose lib doc forbids `std::fs`/`std::env`. The
+        // purity rule is about the crate's PRODUCTION surface — a drift check has
+        // to compare against the committed file, so it necessarily does I/O. It
+        // stays behind `#[cfg(test)]` and must not grow a non-test caller.
         let generated = schema_json();
         // Emit mode (contributor): write the generated schema to the committed
         // path, then STILL assert. Returning early made a test that mutates the

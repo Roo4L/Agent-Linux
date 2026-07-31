@@ -1,6 +1,6 @@
 //! cmd/upgrade.rs — `agentlinux upgrade [flags]` (CLI-06, ADR-011).
 //!
-//! Byte-for-byte port of `plugin/cli/src/commands/upgrade.ts`. Flow: loadCatalog →
+//! Flow: loadCatalog →
 //! listSentinels → queryGlobalNpm once → build a `DivergenceReport` per entry →
 //! render (7-column table / --json). With no bulk flag it's report-only; otherwise
 //! the reconcile loop runs `shouldReinstall` + dispatches install.sh sequentially.
@@ -10,11 +10,11 @@
 //! entries; `--all-latest` implies upstream resolution and skips sticky entries.
 //! Offline default: upstream is queried only with `--check-upstream` / `--all-latest`.
 //!
-//! # The pure/adapter seam (Open Q3)
+//! # The pure/adapter seam
 //! `shouldReinstall` is a PURE flag-priority helper (ported into the bin here — it
 //! has no core home yet and reads only the report + opts). `compute_divergence` /
 //! `resolve_latest_for` are the pure gates (never re-derived). `validateReusedBinary`'s
-//! `statSync` (upgrade.ts:40) is host I/O → it lives HERE in the adapter.
+//! `statSync` is host I/O → it lives HERE in the adapter.
 //!
 //! # DI seam
 //! `UpgradeDeps` injects the recipe dispatcher + the two npm queries so unit tests
@@ -22,11 +22,10 @@
 
 use crate::catalog::{self, FullCatalogEntry};
 use crate::cli::UpgradeArgs;
-use crate::cmd::install::RecipeDispatcher;
-use crate::dispatcher::{self, DispatchResult};
-use crate::recipe_env::{full_child_env, resolve_install_user, RecipeEnv};
+use crate::dispatcher::{self, Capture, RecipeDispatcher};
+use crate::recipe_env::{recipe_child_env, recipe_path, resolve_install_user};
 use crate::sentinel::{self, Sentinel};
-use crate::{agent_home, canonical_path, GSD_SYSTEM_PATH};
+use crate::{agent_home, canonical_path, host_paths};
 use agentlinux_core::detect_gates::presence_gate;
 use agentlinux_core::divergence::compute_divergence;
 use agentlinux_core::types::{
@@ -49,19 +48,10 @@ pub struct UpgradeDeps {
     pub query_npm_view_latest: fn(&FullCatalogEntry) -> Result<Option<String>, String>,
 }
 
-fn real_dispatch(
-    user: &str,
-    recipe_path: &str,
-    env: &[(String, String)],
-    stream: bool,
-) -> DispatchResult {
-    dispatcher::dispatch_recipe(user, recipe_path, env, stream)
-}
-
 impl Default for UpgradeDeps {
     fn default() -> Self {
         Self {
-            dispatch: real_dispatch,
+            dispatch: dispatcher::dispatch_recipe,
             query_global_npm: crate::npm::query_global_npm,
             query_npm_view_latest: crate::npm::query_npm_view_latest,
         }
@@ -90,7 +80,7 @@ fn will_touch_upstream(opts: &UpgradeArgs) -> bool {
     opts.check_upstream || opts.all_latest
 }
 
-/// `shouldReinstall` — the PURE flag-priority helper (upgrade.ts:76-101). Returns
+/// `shouldReinstall` — the PURE flag-priority helper. Returns
 /// the reinstall source (`"curated"`/`"latest"`) or `None` to skip. `present`
 /// overlay rows are report-only under every flag.
 fn should_reinstall(
@@ -131,14 +121,16 @@ enum StatusOrPresent {
 }
 
 impl StatusOrPresent {
-    /// The kebab string for rendering — the core enum's serde string, or `present`.
-    fn as_str(self) -> String {
+    /// The kebab string for rendering.
+    ///
+    /// A plain match, not a `serde_json` round-trip: the round-trip yielded `""`
+    /// on failure, so a serialization slip would have rendered a blank STATUS
+    /// column rather than failing. `cmd::list::status_str` maps the same enum;
+    /// both are exhaustive matches, so adding a `Status` variant breaks the build.
+    fn as_str(self) -> &'static str {
         match self {
-            StatusOrPresent::Core(s) => serde_json::to_value(s)
-                .ok()
-                .and_then(|v| v.as_str().map(str::to_string))
-                .unwrap_or_default(),
-            StatusOrPresent::Present => "present".to_string(),
+            StatusOrPresent::Core(s) => crate::cmd::list::status_str(s),
+            StatusOrPresent::Present => "present",
         }
     }
 }
@@ -151,7 +143,7 @@ struct Row {
     status: StatusOrPresent,
 }
 
-/// `agentlinux upgrade` body. Port of `upgradeCmd` (upgrade.ts:121-262).
+/// `agentlinux upgrade` body. Port of `upgradeCmd`.
 #[must_use]
 pub fn upgrade(opts: &UpgradeArgs) -> ExitCode {
     upgrade_with(opts, UpgradeDeps::default())
@@ -161,7 +153,7 @@ pub fn upgrade(opts: &UpgradeArgs) -> ExitCode {
 #[must_use]
 pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
     let catalog_dir = catalog::resolve_catalog_dir();
-    let agents = match catalog::load_catalog(&catalog_dir, true) {
+    let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Required) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("{e}");
@@ -189,7 +181,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
             continue; // hidden, matching list default
         }
         let sentinel = by_sentinel.get(&entry.id);
-        let core_entry = to_core_entry(entry);
+        let core_entry = CoreCatalogEntry::from(entry);
 
         // installed-version: npm-kind from the npm ls map, else the sentinel's
         // declared-install record.
@@ -212,7 +204,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
             }
         }
 
-        let core_sentinel = core_sentinel_of(sentinel);
+        let core_sentinel = sentinel.map(CoreSentinel::from);
         let mut report = compute_divergence(
             &core_entry,
             core_sentinel.as_ref(),
@@ -226,13 +218,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         if report.status == Status::NotInstalled {
             let detected = crate::cache::read_cached_agent_by_id(&entry.id);
             let hit = detected.as_ref().and_then(|d| {
-                presence_gate(
-                    &core_entry,
-                    d,
-                    canonical_path(&entry.id),
-                    GSD_SYSTEM_PATH,
-                    &home,
-                )
+                presence_gate(&core_entry, d, host_paths(canonical_path(&entry.id), &home))
             });
             if let Some(hit) = hit {
                 status = StatusOrPresent::Present;
@@ -265,7 +251,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         let id = &row.report.id;
         let sentinel = by_sentinel.get(id);
 
-        // REUSE-03 surfacing (upgrade.ts:187-198).
+        // REUSE-03 surfacing.
         if sentinel.and_then(|s| s.status.as_deref()) == Some("reused") {
             println!(
                 "{id}: upgrading reused install (binary={} -> catalog pin)",
@@ -309,12 +295,12 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
 
         let recipe = recipe_path(&catalog_dir, id, &entry.install_recipe_path);
         println!("{id}: reinstalling at {version} ({source})");
-        let env = build_env(entry, &version, &catalog_dir, &user);
+        let env = recipe_child_env(entry, &version, &catalog_dir, &user);
         // PARITY: the unattended upgrade sweep dispatches recipes UN-timed
         // (matches upgradeCmd in TS). A hung recipe wedges the sweep; a future
         // sweep-scoped timeout (NOT dispatcher-global — interactive install needs
         // TTY prompts) would target these stream=false calls.
-        let result = (deps.dispatch)(&user, &recipe, &env, false);
+        let result = (deps.dispatch)(&user, &recipe, &env, Capture::Buffered);
         if result.exit_code != 0 {
             eprintln!("{id}: recipe failed (exit {})", result.exit_code);
             if !result.stderr.is_empty() {
@@ -336,7 +322,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         };
 
         let mut s = Sentinel::new(id.clone(), version, source.into(), sticky);
-        s.installed_at = Some(now_iso8601());
+        s.installed_at = Some(sentinel::now_iso8601());
         s.status = Some("installed".to_string());
         if let Err(e) = sentinel::write_sentinel(&s) {
             eprintln!("agentlinux: failed to write sentinel for {id}: {e}");
@@ -349,7 +335,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Render the padded 7-column table (upgrade.ts:103-119). Header
+/// Render the padded 7-column table. Header
 /// `["ID","STATUS","SENTINEL","INSTALLED","CURATED","LATEST","SRC"]`; each column
 /// padded to its max width; columns joined with two spaces.
 fn render_table(rows: &[Row]) {
@@ -367,7 +353,7 @@ fn render_table(rows: &[Row]) {
         let r = &row.report;
         all.push([
             r.id.clone(),
-            row.status.as_str(),
+            row.status.as_str().to_string(),
             r.sentinel_version
                 .clone()
                 .unwrap_or_else(|| "-".to_string()),
@@ -417,73 +403,10 @@ fn render_json(rows: &[Row]) {
 // helpers (shared shapes with install/remove)
 // ---------------------------------------------------------------------------
 
-fn to_core_entry(e: &FullCatalogEntry) -> CoreCatalogEntry {
-    let v = serde_json::json!({
-        "id": e.id,
-        "pinned_version": e.pinned_version,
-        "version_constraint": e.version_constraint,
-        "npm_package_name": e.npm_package_name,
-        "compatibility_window": e.compatibility_window,
-        "tags": e.tags,
-        "source_kind": e.source_kind,
-    });
-    serde_json::from_value(v).expect("full→core catalog entry projection")
-}
-
-fn core_sentinel_of(s: Option<&Sentinel>) -> Option<CoreSentinel> {
-    s.map(|s| {
-        serde_json::from_value(serde_json::json!({
-            "id": s.id,
-            "version": s.version,
-            "source": s.source,
-            "sticky": s.sticky,
-        }))
-        .expect("full→core sentinel projection")
-    })
-}
-
-fn build_env(
-    entry: &FullCatalogEntry,
-    version: &str,
-    catalog_dir: &std::path::Path,
-    user: &str,
-) -> Vec<(String, String)> {
-    let recipe = RecipeEnv {
-        pinned_version: version.to_string(),
-        catalog_dir: catalog_dir.to_string_lossy().to_string(),
-        agent_home: format!("/home/{user}"),
-        source_kind: entry.source_kind.clone().unwrap_or_default(),
-        install_log: "/var/log/agentlinux-install.log".to_string(),
-        preserve_paths: entry.preserve_paths.clone().unwrap_or_default().join(":"),
-    };
-    full_child_env(recipe, user, &[])
-}
-
-fn recipe_path(catalog_dir: &std::path::Path, id: &str, recipe: &str) -> String {
-    // TRUST: entry.id + install_recipe_path are catalog-derived; the catalog is
-    // an installer-owned, root-written artifact under /opt/agentlinux/catalog and
-    // its schema constrains recipe paths — so no local traversal guard here
-    // (faithful to install.ts). If the catalog ever becomes caller-influenced,
-    // add a `..`/absolute reject mirroring catalog.rs preserve_paths.
-    catalog_dir
-        .join("agents")
-        .join(id)
-        .join(recipe)
-        .to_string_lossy()
-        .to_string()
-}
-
-fn now_iso8601() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    agentlinux_core::time::format_epoch_utc(secs)
-}
-
 #[cfg(test)]
 mod upgrade_tests {
     use super::*;
+    use crate::dispatcher::DispatchResult;
     use tempfile::tempdir;
 
     fn opts(
@@ -704,7 +627,7 @@ mod upgrade_tests {
             sentinel::write_sentinel(&s).unwrap();
         }
 
-        fn failing(_u: &str, _p: &str, _e: &[(String, String)], _s: bool) -> DispatchResult {
+        fn failing(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
             DispatchResult {
                 exit_code: 9,
                 stdout: String::new(),
@@ -751,7 +674,12 @@ mod upgrade_tests {
         s.status = Some("installed".to_string());
         sentinel::write_sentinel(&s).unwrap();
 
-        fn must_not_run(_u: &str, _p: &str, _e: &[(String, String)], _s: bool) -> DispatchResult {
+        fn must_not_run(
+            _u: &str,
+            _p: &str,
+            _e: &[(String, String)],
+            _s: Capture,
+        ) -> DispatchResult {
             panic!("report-only upgrade must not dispatch");
         }
         let deps = UpgradeDeps {

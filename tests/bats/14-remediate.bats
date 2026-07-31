@@ -28,7 +28,6 @@
 # rust/crates/agentlinux/src/provision/sudoers.rs.
 
 load 'helpers/assertions'
-load 'helpers/detection'
 load 'helpers/brownfield'
 load 'helpers/tmpdir'
 

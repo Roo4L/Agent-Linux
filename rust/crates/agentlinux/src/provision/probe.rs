@@ -3,7 +3,7 @@
 //! The Bash entrypoint runs `detect::run_once` (populating `DETECT_*` exports +
 //! `/run/agentlinux-detect.json`) and `remediate::collect_all_decisions` then
 //! consults `reuse::*_decision` over those exports to build `RESOLUTIONS[…]`
-//! (remediate.sh:234-299). This module is the Rust analogue: thin readers that
+//! This module is the Rust analogue: thin readers that
 //! answer "what is actually on this host" so `cmd/provision.rs` can call the
 //! ALREADY-PORTED pure gates (`agentlinux_core::reuse::agent_decision` +
 //! `detect_gates::*`) and assemble the `Resolutions` map.
@@ -12,11 +12,11 @@
 //! Every reader here does I/O (fs / passwd DB / cache read). The DECISION stays
 //! in the pure `agentlinux-core` gates — this module NEVER re-implements the
 //! reuse/remediate logic, it only gathers inputs. Per-agent detect status comes
-//! from the Phase-56 detect-cache adapter (`crate::cache`); absent cache → every
+//! from the detect-cache adapter (`crate::cache`); absent cache → every
 //! agent reads `absent` (→ Create), which is the fresh-install path the
 //! provisioner runs on a clean host.
 //!
-//! # PROV-02 (57-06)
+//! # PROV-02
 //! `cmd/provision.rs` iterates the Rust `canonical_path` map (main.rs) IN-PROCESS
 //! and calls these readers + the pure gate per id — there is NO
 //! `agentlinux reuse-decision` shell-out. The Rust map is the single authoritative
@@ -65,7 +65,7 @@ pub struct AgentProbe {
     pub path: String,
 }
 
-/// Read the detect status + path for a catalog id from the Phase-56 detect cache.
+/// Read the detect status + path for a catalog id from the detect cache.
 /// Absent cache or absent id → `status="absent"`, `path=""` — which
 /// `agent_decision` maps to `Create` (the clean-host path).
 #[must_use]
@@ -88,7 +88,7 @@ pub fn user_exists(name: &str) -> bool {
     lookup(name).is_some()
 }
 
-/// `remediate::user_adoptable` port (`plugin/lib/remediate.sh:109-126`). The
+/// The adoption-safety predicate. The
 /// runtime adoption-safety gate: if the name does NOT exist, returns `true` (it
 /// will be created fresh / a purge no-op is idempotent). If it DOES exist,
 /// returns `true` only when its UID >= 1000 (a regular login account); an

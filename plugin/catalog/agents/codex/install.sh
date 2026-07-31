@@ -8,7 +8,8 @@ set -euo pipefail
 # The bin/codex.js shim execs a platform-native binary shipped as an
 # optionalDependency (@openai/codex-linux-x64 etc.); npm picks the right one.
 #
-# NPM_CONFIG_PREFIX=/home/agent/.npm-global is set by runner.ts (mirrors
+# NPM_CONFIG_PREFIX=/home/agent/.npm-global is set by the CLI's recipe env
+# (rust/crates/agentlinux/src/recipe_env.rs, mirrors
 # /etc/agentlinux.env) — the global install lands in agent-owned territory
 # without privilege escalation (RT-02 keystone, ADR-004). `codex` resolves at
 # ${prefix}/bin/codex, NOT a /usr/local shim.

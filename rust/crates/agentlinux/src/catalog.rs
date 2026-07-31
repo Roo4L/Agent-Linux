@@ -1,11 +1,11 @@
 //! catalog.rs — the catalog loader adapter (I/O boundary).
 //!
-//! Port of `plugin/cli/src/catalog/loader.ts`. Reads `<catalog_dir>/catalog.json`
+//! Reads `<catalog_dir>/catalog.json`
 //! into a `Vec<FullCatalogEntry>` whose serde field names are byte-identical to
-//! the TS `CatalogEntry` (`plugin/cli/src/types.ts:7-49`) so the SAME catalog.json
+//! the field names catalog.json already uses, so the SAME catalog.json
 //! deserializes with no migration. Hydrates each entry's `preserve_paths_file`
-//! sibling and — the load-bearing security control (T-56-06) — PORTS the
-//! preserve_paths traversal reject (loader.ts:31-65): reject a non-`~/`-prefixed,
+//! sibling and — the load-bearing security control — PORTS the
+//! preserve_paths traversal reject: reject a non-`~/`-prefixed,
 //! absolute, or `..`-containing path so a tampered catalog cannot escape `~` on a
 //! later REMEDIATE-04 uninstall delete.
 //!
@@ -19,24 +19,16 @@
 //! stale/broken snapshot" guarantee pin.ts:90 relies on.
 //!
 //! # Env seam
-//! `AGENTLINUX_CATALOG_DIR` overrides the catalog dir (loader.ts:101) — the bats
+//! `AGENTLINUX_CATALOG_DIR` overrides the catalog dir — the bats
 //! seam (`40-registry-cli.bats:598`). [`resolve_catalog_dir`] honors it; the
 //! default mirrors `defaultCatalogDir` (`/opt/agentlinux/catalog/<version>`).
-//!
-//! `#![allow(dead_code)]`: the loader's public surface is consumed by the Wave-1
-//! verb adapters (`cmd/{list,pin,adopt}.rs`, this plan's Tasks 2/3) and Plan 03's
-//! mutating verbs. The `#[cfg(test)]` module exercises every item now, so nothing
-//! is truly unreachable — the allow only silences the "not yet wired into a
-//! non-test caller" lint at the Task-1 commit boundary (mirrors the Wave-0
-//! recipe_env/dispatcher scaffold pattern).
-#![allow(dead_code)]
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
 /// The USER-FACING catalog version segment of the default catalog dir. Mirrors
-/// `defaultCatalogDir` (loader.ts:17-20): normalized `$AGENTLINUX_VERSION` else
+/// `defaultCatalogDir`: normalized `$AGENTLINUX_VERSION` else
 /// the bin's `CARGO_PKG_VERSION` (the CLI-01 version, 0.4.0). MUST resolve to the
 /// SAME string the provisioner staged at — so it shares the one normalized source
 /// (`registry_cli::agentlinux_version`) rather than duplicating the env logic.
@@ -58,7 +50,7 @@ pub fn resolve_catalog_dir() -> PathBuf {
 }
 
 /// Typed catalog-load error mirroring the TS `throw new Error(...)` messages
-/// (loader.ts) closely enough that a diagnostic printed to stderr is intelligible.
+///  closely enough that a diagnostic printed to stderr is intelligible.
 #[derive(Debug, Error)]
 pub enum CatalogError {
     #[error("agentlinux: catalog.json not found or unreadable at {path}: {source}")]
@@ -81,7 +73,7 @@ pub enum CatalogError {
         id: String,
         source: serde_json::Error,
     },
-    /// The traversal-reject control (T-56-06). Message mirrors the loader.ts:33-63
+    /// The traversal-reject control. Message mirrors the loader.ts:33-63
     /// `throw new Error(...)` wording family (per-entry, indexed).
     #[error("{0}")]
     PreservePathsTraversal(String),
@@ -89,22 +81,13 @@ pub enum CatalogError {
 
 /// The full catalog entry the bin needs — field names byte-identical to the TS
 /// `CatalogEntry` (`types.ts:7-49`) so the SAME catalog.json deserializes. The
-/// pure `agentlinux-core::types::CatalogEntry` is a lean 7-field subset (Phase-55
-/// contract); this is the bin-side FULL shape (RESEARCH §"What is NOT yet in
+/// pure `agentlinux-core::types::CatalogEntry` is a lean 7-field subset (the
+/// contract); this is the bin-side FULL shape ("What is NOT yet in
 /// agentlinux-core", item 1).
 ///
 /// Optional fields carry `#[serde(default)]` so a partial entry (e.g. the
 /// `test-dummy` fixture with no `compatibility_window`) still deserializes.
 ///
-/// `#[allow(dead_code)]`: several fields (`homepage`, `license`,
-/// `install_recipe_path`, `uninstall_recipe_path`, `rewire_recipe_path`,
-/// `preserve_paths`, `requires_secret`, `secret_env`, `endpoint_url`,
-/// `post_install_verify`) are read by the mutating verbs in Plan 03
-/// (install/remove/upgrade build recipe paths + inject preserve_paths), not by
-/// Wave-1's read-only list/adopt/pin. The FULL shape is deserialized now (the
-/// catalog.json field set is fixed); the allow defers the "field not yet read by
-/// a non-test caller" lint until Plan 03 wires the recipe dispatch.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Deserialize)]
 pub struct FullCatalogEntry {
     pub id: String,
@@ -153,8 +136,66 @@ pub struct FullCatalogEntry {
     pub test_only: bool,
 }
 
-/// The top-level catalog document (`{ version, agents }`). `catalogDir` (TS) is
-/// tracked by the caller, not deserialized.
+/// Find the entry `name` names, or print the standard not-found diagnostic and
+/// return `None`.
+///
+/// Every verb that takes an agent name resolves it through here, so the wording
+/// and the `available:` list cannot drift between verbs — `remove` used to omit
+/// the `available:` line purely because it had its own copy of this lookup.
+///
+/// The `test_only` gate is deliberately NOT part of this: `install`/`adopt`
+/// refuse a test-only entry without `--include-test`, while `remove`/`pin` must
+/// accept one (you have to be able to remove what you installed). That is a real
+/// per-verb difference, so it stays at the call sites that have it.
+#[must_use]
+///
+/// The not-found diagnostic goes to `err` rather than straight to stderr: those
+/// two lines are an acceptance contract the bats suite greps, and a verb that
+/// prints them through its own sink can assert them.
+pub fn find_entry<'a>(
+    agents: &'a [FullCatalogEntry],
+    name: &str,
+    err: &mut dyn std::io::Write,
+) -> Option<&'a FullCatalogEntry> {
+    if let Some(entry) = agents.iter().find(|a| a.id == name) {
+        return Some(entry);
+    }
+    let available = agents
+        .iter()
+        .filter(|a| !a.test_only)
+        .map(|a| a.id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(err, "agentlinux: no such agent in catalog: {name}");
+    let _ = writeln!(err, "  available: {available}");
+    None
+}
+
+/// Project a loaded catalog entry down to the lean shape the pure core decides
+/// over (`classify` / `derive_category` / the detect gates read exactly these
+/// seven fields).
+///
+/// A plain struct literal, deliberately: adding a field to the core type makes
+/// THIS impl a compile error, which is the whole point. An earlier version did
+/// the same projection through a `serde_json` round-trip in six separate
+/// modules — that turned a rename into a runtime `.expect()` panic in
+/// production instead of a build failure, and cost a heap allocation per entry
+/// per render.
+impl From<&FullCatalogEntry> for agentlinux_core::types::CatalogEntry {
+    fn from(e: &FullCatalogEntry) -> Self {
+        Self {
+            id: e.id.clone(),
+            pinned_version: e.pinned_version.clone(),
+            version_constraint: e.version_constraint.clone(),
+            npm_package_name: e.npm_package_name.clone(),
+            compatibility_window: e.compatibility_window.clone(),
+            tags: e.tags.clone(),
+            source_kind: e.source_kind.clone(),
+        }
+    }
+}
+
+/// The top-level catalog document (`{ version, agents }`).
 #[derive(Debug, Clone, Deserialize)]
 struct CatalogDoc {
     #[allow(dead_code)]
@@ -162,7 +203,7 @@ struct CatalogDoc {
     agents: Vec<FullCatalogEntry>,
 }
 
-/// The `preserve_paths.json` sibling shape (loader.ts:22-25).
+/// The `preserve_paths.json` sibling shape.
 #[derive(Debug, Deserialize)]
 struct PreservePathsFile {
     preserve_paths: Vec<String>,
@@ -170,12 +211,12 @@ struct PreservePathsFile {
     comment: Option<String>,
 }
 
-/// Normalize + traversal-reject a single preserve path (loader.ts:31-65).
+/// Normalize + traversal-reject a single preserve path.
 ///
 /// Strip a leading `~/`, drop a trailing slash, then reject an absolute or
 /// `..`-containing normalized form. Returns the home-relative normalized string,
 /// or a [`CatalogError::PreservePathsTraversal`] carrying the TS-shaped message.
-/// This is the T-56-06 security control — a silently-dropped bad path would
+/// This is a security control — a silently-dropped bad path would
 /// delete user data on REMEDIATE-04, so it fails fast.
 fn normalize_preserve_path(raw: &str, agent_id: &str, idx: usize) -> Result<String, CatalogError> {
     if raw.is_empty() {
@@ -250,7 +291,7 @@ fn normalize_path(input: &str) -> String {
 
 /// Read the `preserve_paths_file` sibling for `entry` and normalize its paths.
 /// Returns `None` when the entry has no `preserve_paths_file`. Port of
-/// `loadPreservePaths` (loader.ts:67-98).
+/// `loadPreservePaths`.
 fn load_preserve_paths(
     catalog_dir: &Path,
     entry: &FullCatalogEntry,
@@ -292,7 +333,7 @@ fn load_preserve_paths(
 /// Minimal required-field presence check (the ajv `required` core) run on the
 /// mutation paths (`validate:true`). serde already rejects a structurally
 /// malformed entry; this adds the "reject a stale/broken snapshot up front"
-/// guarantee (loader.ts:105-110). Mirrors the schema's required id +
+/// guarantee. Mirrors the schema's required id +
 /// pinned_version + install/uninstall recipe paths.
 fn validate_entries(agents: &[FullCatalogEntry]) -> Result<(), CatalogError> {
     for (i, e) in agents.iter().enumerate() {
@@ -318,15 +359,30 @@ fn validate_entries(agents: &[FullCatalogEntry]) -> Result<(), CatalogError> {
 }
 
 /// Load `<catalog_dir>/catalog.json` into a `Vec<FullCatalogEntry>`, hydrating
-/// each entry's preserve_paths. Port of `loadCatalog` (loader.ts:100-122).
+/// each entry's preserve_paths. Port of `loadCatalog`.
 ///
 /// `validate:true` runs the required-field presence check (mutation paths);
 /// `validate:false` takes the hot path (`list`/`adopt`). preserve_paths
 /// hydration runs on BOTH paths (a traversal-reject is a hard error regardless),
 /// mirroring the TS sequential-await hydration loop.
+/// Whether `load_catalog` runs the required-field presence check.
+///
+/// An enum rather than a `bool` because the two call sites mean different
+/// things by it: a MUTATION path must fail fast on a stale or truncated catalog
+/// snapshot before it starts changing the host, while a REPORT path would rather
+/// render what it can. `load_catalog(dir, true)` said neither.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Validate {
+    /// Mutation path (install/remove/upgrade/pin) — check required fields first.
+    Required,
+    /// Read-only path (list/adopt/detect) — skip the check; serde already
+    /// rejects a structurally malformed entry.
+    Skip,
+}
+
 pub fn load_catalog(
     catalog_dir: &Path,
-    validate: bool,
+    validate: Validate,
 ) -> Result<Vec<FullCatalogEntry>, CatalogError> {
     let catalog_path = catalog_dir.join("catalog.json");
     let raw = std::fs::read_to_string(&catalog_path).map_err(|source| CatalogError::Read {
@@ -336,7 +392,7 @@ pub fn load_catalog(
     let doc: CatalogDoc = serde_json::from_str(&raw).map_err(CatalogError::Parse)?;
     let mut agents = doc.agents;
 
-    if validate {
+    if validate == Validate::Required {
         validate_entries(&agents)?;
     }
 
@@ -372,7 +428,7 @@ mod catalog_tests {
                  "uninstall_recipe_path":"uninstall.sh","test_only":true,"tags":["test-only"]}
             ]}"#,
         );
-        let agents = load_catalog(dir.path(), false).unwrap();
+        let agents = load_catalog(dir.path(), Validate::Skip).unwrap();
         assert_eq!(agents.len(), 1);
         let e = &agents[0];
         assert_eq!(e.id, "test-dummy");
@@ -393,13 +449,13 @@ mod catalog_tests {
                  "install_recipe_path":"","uninstall_recipe_path":"uninstall.sh"}
             ]}"#,
         );
-        let err = load_catalog(dir.path(), true).unwrap_err();
+        let err = load_catalog(dir.path(), Validate::Required).unwrap_err();
         assert!(matches!(err, CatalogError::Validate(_)), "got {err:?}");
         // The same catalog loads on the hot path (validate:false).
-        assert!(load_catalog(dir.path(), false).is_ok());
+        assert!(load_catalog(dir.path(), Validate::Skip).is_ok());
     }
 
-    // T-56-06: preserve_paths traversal reject — the two malicious rows.
+    // preserve_paths traversal reject — the two malicious rows.
 
     #[test]
     fn preserve_paths_reject_absolute() {
@@ -451,7 +507,7 @@ mod catalog_tests {
             r#"{"preserve_paths":["~/.claude/","~/.config/claude"]}"#,
         )
         .unwrap();
-        let agents = load_catalog(dir.path(), false).unwrap();
+        let agents = load_catalog(dir.path(), Validate::Skip).unwrap();
         assert_eq!(
             agents[0].preserve_paths.as_deref(),
             Some(&[".claude".to_string(), ".config/claude".to_string()][..])
@@ -463,7 +519,7 @@ mod catalog_tests {
             r#"{"preserve_paths":["~/../../etc"]}"#,
         )
         .unwrap();
-        let err = load_catalog(dir.path(), false).unwrap_err();
+        let err = load_catalog(dir.path(), Validate::Skip).unwrap_err();
         assert!(
             matches!(err, CatalogError::PreservePathsTraversal(_)),
             "got {err:?}"
@@ -479,5 +535,60 @@ mod catalog_tests {
         let mut env_scope = crate::test_support::EnvScope::new();
         env_scope.set("AGENTLINUX_CATALOG_DIR", "/tmp/fixture-catalog");
         assert_eq!(resolve_catalog_dir(), PathBuf::from("/tmp/fixture-catalog"));
+    }
+
+    /// The SHIPPED catalog must load, and must satisfy the constraints
+    /// `plugin/catalog/schema.json` encodes.
+    ///
+    /// This is the repo's only end-to-end check on the real `catalog.json`. The
+    /// schemars drift-test in `agentlinux-core` compares committed schema bytes
+    /// to generated bytes and never opens the catalog; the `jq` pre-commit hook
+    /// checks required-field presence only. Without this test, a catalog entry
+    /// with an unknown `source_kind`, a non-semver pin, or an `npm` entry missing
+    /// its package name reaches a release unchallenged.
+    #[test]
+    fn shipped_catalog_satisfies_its_schema() {
+        // CARGO_MANIFEST_DIR is rust/crates/agentlinux.
+        let catalog_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../plugin/catalog");
+
+        // Deserialization enforces the required fields and the preserve_paths
+        // traversal reject; `validate: true` is the mutation-path setting.
+        let entries =
+            load_catalog(&catalog_dir, Validate::Required).expect("shipped catalog.json loads");
+        assert!(!entries.is_empty(), "shipped catalog declares no agents");
+
+        // The constraints serde cannot express, mirroring schema.json's enum,
+        // pattern and allOf/if-then clauses.
+        const SOURCE_KINDS: &[&str] = &["npm", "script", "binary", "mcp"];
+        for e in &entries {
+            let kind = e.source_kind.as_deref().unwrap_or_else(|| {
+                panic!("{}: source_kind is required", e.id);
+            });
+            assert!(
+                SOURCE_KINDS.contains(&kind),
+                "{}: source_kind '{kind}' is not one of {SOURCE_KINDS:?}",
+                e.id
+            );
+            assert!(
+                agentlinux_core::semver_shim::valid(&e.pinned_version).is_some(),
+                "{}: pinned_version '{}' is not valid semver",
+                e.id,
+                e.pinned_version
+            );
+            if kind == "npm" {
+                assert!(
+                    e.npm_package_name.is_some(),
+                    "{}: source_kind=npm requires npm_package_name",
+                    e.id
+                );
+            }
+            if let Some(url) = e.endpoint_url.as_deref() {
+                assert!(
+                    url.starts_with("https://"),
+                    "{}: endpoint_url must be https (got {url})",
+                    e.id
+                );
+            }
+        }
     }
 }

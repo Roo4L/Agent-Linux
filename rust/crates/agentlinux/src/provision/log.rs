@@ -1,7 +1,7 @@
 //! provision/log.rs — the installer transcript tee.
 //!
 //! The Bash entrypoint (`plugin/bin/agentlinux-install`) redirects its whole
-//! stdout+stderr through `tee -a "$LOG_FILE"` (agentlinux-install:132) so the
+//! stdout+stderr through `tee -a "$LOG_FILE"` so the
 //! install produces a greppable transcript at `/var/log/agentlinux-install.log`
 //! (overridable via `$AGENTLINUX_LOG`) ending with the
 //! `agentlinux-install complete (transcript: …)` banner (INST-01).

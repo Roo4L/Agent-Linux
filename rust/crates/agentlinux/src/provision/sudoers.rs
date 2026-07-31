@@ -1,5 +1,4 @@
-//! provision/sudoers.rs — port of `plugin/provisioner/20-sudoers.sh` +
-//! `plugin/lib/remediate/sudoers.sh`.
+//! provision/sudoers.rs — step 20: the sudoers drop-in.
 //!
 //! Installs `/etc/sudoers.d/agentlinux` granting passwordless sudo to the
 //! install user (scope: ALL commands, per ADR-012). Satisfies INST-06 (agent has
@@ -10,7 +9,7 @@
 //! (DoS). The write path reproduces the Bash visudo TOCTOU belt exactly —
 //! `visudo -cf` validates the tmpfile BEFORE the atomic 0440 install AND
 //! re-verifies the installed file AFTER — so a syntactically-broken sudoers can
-//! never land (T-57-07). A failed check aborts non-zero; it never installs.
+//! never land. A failed check aborts non-zero; it never installs.
 //!
 //! Both the CREATE (additive missing-file install) and the REMEDIATE
 //! (state-overwriting drift fix) arms route through ONE `install_or_overwrite`
@@ -20,14 +19,14 @@
 //!
 //! Dispatches on the pre-resolved `RESOLUTIONS[sudoers]` token (the DECIDE
 //! phase's output — the step only does I/O, never re-derives the decision):
-//!   - `Reuse` → no-op (`[REUSE]` marker), the file is present + canonical.
-//!   - `Create` → `install_or_overwrite("install")`.
-//!   - `Remediate` → `install_or_overwrite("overwrite")` (the `--yes` gate already
-//!     passed upstream; the label drives the `[REMEDIATE-03]` marker).
-//!   - `ReuseWithWarning` → `[REUSE-WARN]` marker, leave the file as-is.
-//!   - `Bail` → unreachable (a bail exits 65 before the step loop); defensive Err.
+//!  - `Reuse` → no-op (`[REUSE]` marker), the file is present + canonical.
+//!  - `Create` → `install_or_overwrite("install")`.
+//!  - `Remediate` → `install_or_overwrite("overwrite")` (the `--yes` gate already
+//!    passed upstream; the label drives the `[REMEDIATE-03]` marker).
+//!  - `ReuseWithWarning` → `[REUSE-WARN]` marker, leave the file as-is.
+//!  - `Bail` → unreachable (a bail exits 65 before the step loop); defensive Err.
 
-use crate::provision::{ProvisionCtx, Resolution};
+use crate::provision::{ProvisionCtx, StepResolution};
 use crate::sysio;
 use std::io;
 use std::path::Path;
@@ -78,14 +77,14 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     (ctx.fx.ensure_dir)(&ctx.sys("/etc/sudoers.d"), 0o755, "root:root")?;
 
     match ctx.resolutions.sudoers {
-        Resolution::Reuse => {
+        StepResolution::Reuse => {
             eprintln!(
                 "20-sudoers: [REUSE] sudoers: {SUDOERS_FILE} already canonical (ADR-012 line present)"
             );
             eprintln!("20-sudoers: done");
             Ok(())
         }
-        Resolution::Create => {
+        StepResolution::Create => {
             install_or_overwrite(ctx, "install")?;
             eprintln!(
                 "20-sudoers: install user '{}' now has passwordless sudo (scope: ALL commands) — INST-06",
@@ -94,7 +93,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
             eprintln!("20-sudoers: done");
             Ok(())
         }
-        Resolution::Remediate => {
+        StepResolution::Remediate => {
             // The consent gate already passed upstream (a bail would have exited
             // 65 before the step loop if --yes were missing).
             install_or_overwrite(ctx, "overwrite")?;
@@ -105,7 +104,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
             eprintln!("20-sudoers: done");
             Ok(())
         }
-        Resolution::ReuseWithWarning => {
+        StepResolution::ReuseWithWarning => {
             // Operator declined the drift overwrite; leave the file as-is. The
             // operator now owns ensuring the grant works.
             eprintln!(
@@ -114,13 +113,6 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
             );
             eprintln!("20-sudoers: done");
             Ok(())
-        }
-        Resolution::Bail => {
-            // Unreachable — a bail exits 65 before the step loop; enumerate
-            // defensively (mirrors 20-sudoers.sh:67-70).
-            Err(io::Error::other(
-                "20-sudoers: unreachable bail arm — flush_bails_or_continue should have gated this",
-            ))
         }
     }
 }
@@ -144,10 +136,16 @@ fn install_or_overwrite(ctx: &ProvisionCtx, action: &str) -> io::Result<()> {
     // ever renamed into place: visudo -cf catches syntax errors while the real
     // drop-in is still untouched.
     let dir = dest.parent().unwrap_or_else(|| Path::new("/etc/sudoers.d"));
-    let tmp = write_tmp(dir, content.as_bytes())?;
-    // The guard unlinks the validation tmpfile on EVERY exit path from here
-    // (mirrors the Bash `trap "rm -f" RETURN`); it stays alive to end-of-scope.
-    let _guard = TmpCleanup::new(&tmp);
+    let (mut tmp_file, tmp) = sysio::mktemp_in(dir, "agentlinux-sudoers")?;
+    {
+        use std::io::Write;
+        tmp_file.write_all(content.as_bytes())?;
+        tmp_file.flush()?;
+    }
+    drop(tmp_file);
+    // The guard unlinks the validation tmpfile on EVERY exit path from here; it
+    // stays alive to end-of-scope.
+    let _guard = sysio::TmpGuard::new(tmp.clone());
 
     // Pre-install gate (TOCTOU belt, part 1): refuse to install a syntactically
     // invalid sudoers.
@@ -181,39 +179,6 @@ fn install_or_overwrite(ctx: &ProvisionCtx, action: &str) -> io::Result<()> {
         "20-sudoers: [REMEDIATE-03] component=sudoers action={action} path={SUDOERS_FILE} (mode 0440 root:root — ADR-012)"
     );
     Ok(())
-}
-
-/// Write `body` to a fresh tmpfile in `dir`, returning its path. Used for the
-/// pre-install `visudo -cf` candidate (the real install goes through
-/// `write_file_atomic`). Mirrors the Bash `mktemp` + `printf '%s\n' >"$tmpfile"`.
-fn write_tmp(dir: &Path, body: &[u8]) -> io::Result<std::path::PathBuf> {
-    use std::io::Write;
-    // The same O_CREAT|O_EXCL retry `write_file_atomic` uses — one copy, so the
-    // collision-hardening cannot diverge between the two tmpfile users.
-    let (mut f, path) = sysio::mktemp_in(dir, "agentlinux-sudoers")?;
-    f.write_all(body)?;
-    f.flush()?;
-    Ok(path)
-}
-
-/// Unlinks a tmpfile on drop — the Rust twin of the Bash `trap "rm -f" RETURN`,
-/// so the pre-install validation tmpfile is cleaned on every exit path.
-struct TmpCleanup {
-    path: std::path::PathBuf,
-}
-
-impl TmpCleanup {
-    fn new(path: &Path) -> Self {
-        Self {
-            path: path.to_path_buf(),
-        }
-    }
-}
-
-impl Drop for TmpCleanup {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_file(&self.path);
-    }
 }
 
 #[cfg(test)]
@@ -268,7 +233,7 @@ mod sudoers_tests {
     // group/world-writable file, so a mode regression bricks sudo host-wide) all
     // stayed green.
 
-    use crate::provision::{Effects, Resolutions};
+    use crate::provision::{Effects, StepResolution, StepResolutions};
     use std::cell::RefCell;
     use std::path::PathBuf;
 
@@ -338,7 +303,7 @@ mod sudoers_tests {
         panic!("pkg_install must not run when visudo is already present (asked for {pkgs:?})");
     }
 
-    fn ctx_at(root: &Path, sudoers: Resolution) -> ProvisionCtx {
+    fn ctx_at(root: &Path, sudoers: StepResolution) -> ProvisionCtx {
         reset_calls();
         ProvisionCtx {
             root: root.to_path_buf(),
@@ -353,15 +318,12 @@ mod sudoers_tests {
             install_user: "agent".into(),
             install_home: "/home/agent".into(),
             family: crate::distro::Family::Debian,
-            resolutions: Resolutions {
-                user: Resolution::Create,
+            resolutions: StepResolutions {
+                user: StepResolution::Create,
                 sudoers,
-                node: Resolution::Create,
-                npm_prefix: Resolution::Create,
-                agents: std::collections::BTreeMap::new(),
+                node: StepResolution::Create,
+                npm_prefix: StepResolution::Create,
             },
-            yes: false,
-            dry_run: false,
         }
     }
 
@@ -377,7 +339,7 @@ mod sudoers_tests {
     #[test]
     fn create_installs_the_canonical_dropin_at_0440_root_root() {
         let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Create);
+        let ctx = ctx_at(d.path(), StepResolution::Create);
         run(&ctx).unwrap();
 
         let file = dropin(d.path());
@@ -401,7 +363,7 @@ mod sudoers_tests {
         // 14-remediate.bats test left behind a comment reading "visudo-fail gate
         // UPHELD" above no code; this is the code.
         let d = tempfile::TempDir::new().unwrap();
-        let mut ctx = ctx_at(d.path(), Resolution::Create);
+        let mut ctx = ctx_at(d.path(), StepResolution::Create);
         ctx.fx.visudo_validate = visudo_rejects;
 
         let err = run(&ctx).unwrap_err();
@@ -423,7 +385,7 @@ mod sudoers_tests {
         // Validating the destination instead would check the OLD contents and
         // let a malformed candidate through.
         let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Create);
+        let ctx = ctx_at(d.path(), StepResolution::Create);
         run(&ctx).unwrap();
 
         let validated: Vec<String> = calls()
@@ -448,7 +410,7 @@ mod sudoers_tests {
     #[test]
     fn a_failed_post_install_verify_is_a_hard_error() {
         let d = tempfile::TempDir::new().unwrap();
-        let mut ctx = ctx_at(d.path(), Resolution::Create);
+        let mut ctx = ctx_at(d.path(), StepResolution::Create);
         ctx.fx.visudo_validate = visudo_rejects_installed_file;
 
         let err = run(&ctx).unwrap_err();
@@ -462,7 +424,7 @@ mod sudoers_tests {
             ("rejection", visudo_rejects),
         ] {
             let d = tempfile::TempDir::new().unwrap();
-            let mut ctx = ctx_at(d.path(), Resolution::Create);
+            let mut ctx = ctx_at(d.path(), StepResolution::Create);
             ctx.fx.visudo_validate = validate;
             let _ = run(&ctx);
 
@@ -482,7 +444,7 @@ mod sudoers_tests {
         // A deliberately narrowed grant — the drift REMEDIATE-03 overwrites.
         std::fs::write(dropin(d.path()), "agent ALL=(ALL) NOPASSWD: /usr/bin/apt\n").unwrap();
 
-        let ctx = ctx_at(d.path(), Resolution::Remediate);
+        let ctx = ctx_at(d.path(), StepResolution::Remediate);
         run(&ctx).unwrap();
 
         assert_eq!(
@@ -494,7 +456,7 @@ mod sudoers_tests {
 
     #[test]
     fn reuse_and_reuse_with_warning_leave_the_file_untouched() {
-        for resolution in [Resolution::Reuse, Resolution::ReuseWithWarning] {
+        for resolution in [StepResolution::Reuse, StepResolution::ReuseWithWarning] {
             let d = tempfile::TempDir::new().unwrap();
             std::fs::create_dir_all(d.path().join("etc/sudoers.d")).unwrap();
             std::fs::write(dropin(d.path()), "pre-existing\n").unwrap();
@@ -514,7 +476,7 @@ mod sudoers_tests {
         // Minimal cloud/Docker images ship without `sudo`; the install must
         // happen BEFORE the dispatch so even the REUSE arm has a validator.
         let d = tempfile::TempDir::new().unwrap();
-        let mut ctx = ctx_at(d.path(), Resolution::Create);
+        let mut ctx = ctx_at(d.path(), StepResolution::Create);
         ctx.fx.which = visudo_absent;
         ctx.fx.pkg_install = pkg_install_records;
 
@@ -525,15 +487,5 @@ mod sudoers_tests {
         let first_visudo = c.iter().position(|x| x.starts_with("visudo")).unwrap();
         assert_eq!(c[pkg], "pkg_install Debian sudo");
         assert!(pkg < first_visudo, "calls={c:?}");
-    }
-
-    // A `Bail` resolution is a defensive error (the step loop never sees it in
-    // practice; a bail exits 65 upstream) — mirrors agent_user.rs.
-    #[test]
-    fn bail_resolution_is_defensive_error() {
-        let d = tempfile::TempDir::new().unwrap();
-        let ctx = ctx_at(d.path(), Resolution::Bail);
-        assert!(run(&ctx).is_err());
-        assert!(!dropin(d.path()).exists());
     }
 }

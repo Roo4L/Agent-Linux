@@ -1,14 +1,14 @@
 //! cmd/list.rs — `agentlinux list` (CLI-02, ENABLE-06, AL-61/62).
 //!
-//! Byte-for-byte port of `plugin/cli/src/commands/list.ts`. Loads the catalog
+//! Loads the catalog
 //! (hot path — `validate:false`), the sentinels, the installed-version probe, and
 //! the detect-cache presence overlay; builds a `Row` per entry via the PURE
 //! `classify` / `derive_category` / `presence_gate` (never re-derives); and
 //! renders either the padded NAME/STATUS/CURATED/INSTALLED table (+ `--by-category`
 //! `## <label>` groups, + `--descriptions`) or the `--json` `Row` array.
 //!
-//! # Load-bearing literals (Pitfall 4)
-//! The INSTALLED-column suffixes (list.ts:126-140) are copied byte-for-byte,
+//! # Load-bearing literals
+//! The INSTALLED-column suffixes are copied byte-for-byte,
 //! INCLUDING the em-dash `—` (U+2014) and `▸`-adjacent wording — bats greps them
 //! with `grep -qF`. The `#[cfg(test)]` module pins the exact bytes.
 //!
@@ -17,17 +17,18 @@
 
 use crate::catalog::{self, FullCatalogEntry};
 use crate::sentinel::{self, Sentinel};
-use crate::{agent_home, canonical_path, GSD_SYSTEM_PATH};
+use crate::{agent_home, canonical_path, host_paths};
 use agentlinux_core::category::derive_category;
 use agentlinux_core::classify::classify;
 use agentlinux_core::detect_gates::presence_gate;
 use agentlinux_core::types::{CatalogEntry as CoreCatalogEntry, Sentinel as CoreSentinel, Status};
 use serde::Serialize;
+
 use std::process::ExitCode;
 
 use crate::cli::ListArgs;
 
-/// The list Row — serde field names byte-identical to the TS `Row` (list.ts:25-64)
+/// The list Row — serde field names byte-identical to the TS `Row`
 /// so `--json` (`serde_json::to_string_pretty`) serializes field-identically.
 ///
 /// `status` is the kebab `Status` string via the core enum's serde rename;
@@ -60,7 +61,7 @@ struct Row {
 
 /// The kebab string for a `Status` (matches the core enum's serde rename → the TS
 /// `Status` union string the text table + JSON carry).
-fn status_str(s: Status) -> &'static str {
+pub fn status_str(s: Status) -> &'static str {
     match s {
         Status::NotInstalled => "not-installed",
         Status::Synced => "synced",
@@ -71,40 +72,13 @@ fn status_str(s: Status) -> &'static str {
     }
 }
 
-/// Project the bin's `FullCatalogEntry` down to the pure core's lean
-/// `CatalogEntry` (the fields classify/derive_category/presence_gate read). Goes
-/// via serde_json so field names + `#[serde(default)]` semantics stay in lockstep
-/// with the core types — no hand-mapping to drift.
-fn to_core_entry(e: &FullCatalogEntry) -> CoreCatalogEntry {
-    let v = serde_json::json!({
-        "id": e.id,
-        "pinned_version": e.pinned_version,
-        "version_constraint": e.version_constraint,
-        "npm_package_name": e.npm_package_name,
-        "compatibility_window": e.compatibility_window,
-        "tags": e.tags,
-        "source_kind": e.source_kind,
-    });
-    serde_json::from_value(v).expect("full→core catalog entry projection")
-}
-
-/// Project the bin write-path `Sentinel` down to the pure core's read `Sentinel`.
-fn to_core_sentinel(s: &Sentinel) -> CoreSentinel {
-    CoreSentinel {
-        id: s.id.clone(),
-        version: s.version.clone(),
-        source: s.source.clone(),
-        sticky: s.sticky,
-    }
-}
-
-/// Build a `Row` per catalog entry, mirroring `buildRows` (list.ts:66-120).
+/// Build a `Row` per catalog entry.
 fn build_rows(entries: &[FullCatalogEntry], sentinels: &[Sentinel]) -> Vec<Row> {
     let home = agent_home();
     entries
         .iter()
         .map(|entry| {
-            let core_entry = to_core_entry(entry);
+            let core_entry = CoreCatalogEntry::from(entry);
             let sentinel = sentinels.iter().find(|s| s.id == entry.id);
             let sentinel_version = sentinel.map(|s| s.version.clone());
             // #6: probe the REAL on-disk version for npm entries; fall back to the
@@ -114,8 +88,8 @@ fn build_rows(entries: &[FullCatalogEntry], sentinels: &[Sentinel]) -> Vec<Row> 
             } else {
                 None
             };
-            let core_sentinel = sentinel.map(to_core_sentinel);
-            let mut status = classify(&core_entry, core_sentinel.as_ref(), installed.as_deref());
+            let core_sentinel = sentinel.map(CoreSentinel::from);
+            let status = classify(&core_entry, core_sentinel.as_ref(), installed.as_deref());
 
             // AL-61 presence overlay: reconcile a not-installed verdict against the
             // detect cache so a present-but-unadopted agent reads "present".
@@ -128,11 +102,10 @@ fn build_rows(entries: &[FullCatalogEntry], sentinels: &[Sentinel]) -> Vec<Row> 
                     if let Some(hit) = presence_gate(
                         &core_entry,
                         &detected,
-                        canonical_path(&entry.id),
-                        GSD_SYSTEM_PATH,
-                        &home,
+                        host_paths(canonical_path(&entry.id), &home),
                     ) {
-                        status = Status::NotInstalled; // placeholder; text uses `present` flag
+                        // `status` stays NotInstalled: the presence overlay is carried
+                        // by the `present` flag below, which the renderer checks first.
                         present = true;
                         present_canonical = hit.canonical;
                         present_adoptable = hit.adoptable;
@@ -167,10 +140,7 @@ fn build_rows(entries: &[FullCatalogEntry], sentinels: &[Sentinel]) -> Vec<Row> 
                 present_path,
                 sentinel_status: sentinel.and_then(|s| s.status.clone()),
                 decline_reason: sentinel.and_then(|s| s.decline_reason.clone()),
-                category: serde_json::to_value(cat.key)
-                    .ok()
-                    .and_then(|v| v.as_str().map(str::to_string))
-                    .unwrap_or_default(),
+                category: cat.key.as_str().to_string(),
                 category_label: cat.label,
                 category_order: cat.order,
             }
@@ -200,7 +170,7 @@ fn present_migrate_suffix(id: &str, path: &str) -> String {
 }
 
 /// The INSTALLED cell for a row (base version + the status suffix). Mirrors the
-/// `installed` computation in `renderTable` (list.ts:145-162), in the SAME branch
+/// `installed` computation in `renderTable`, in the SAME branch
 /// order (broken → reused-with-warning → reused → drift → present).
 fn installed_cell(r: &Row) -> String {
     match r.sentinel_status.as_deref() {
@@ -239,7 +209,7 @@ fn installed_cell(r: &Row) -> String {
 }
 
 /// Render the padded columns for a set of rows (shared flat + grouped). Mirrors
-/// `renderTable` (list.ts:125-178): width = max(header, rows) per column, `padEnd`,
+/// `renderTable`: width = max(header, rows) per column, `padEnd`,
 /// join with TWO spaces, `trimEnd` each line. Column width uses `chars().count()`
 /// (Unicode scalar count) — the em-dash/▸ live only in the trimmed final column,
 /// so BMP-vs-UTF16 width differences never reach an asserted byte.
@@ -310,11 +280,11 @@ fn pad_end(s: &str, width: usize) -> String {
 }
 
 /// `agentlinux list` body. Loads catalog + sentinels, builds rows, renders. Always
-/// exits 0. Port of `listCmd` (list.ts:180-227).
+/// exits 0. Port of `listCmd`.
 #[must_use]
 pub fn list(opts: &ListArgs) -> ExitCode {
     let catalog_dir = catalog::resolve_catalog_dir();
-    let agents = match catalog::load_catalog(&catalog_dir, false) {
+    let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("{e}");
@@ -418,7 +388,7 @@ mod list_tests {
 
     #[test]
     fn reused_suffix_carries_the_literal_em_dash() {
-        // U+2014 em-dash is a load-bearing byte (Pitfall 4).
+        // U+2014 em-dash is a load-bearing byte.
         assert!(REUSED_SUFFIX.contains('\u{2014}'));
         assert_eq!(
             REUSED_SUFFIX,

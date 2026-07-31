@@ -3,7 +3,7 @@
 //! ships in the compiled crate.
 //!
 //! dtolnay `semver` ships no `proptest`/`Arbitrary` `Strategy`, so these are
-//! hand-written string strategies (RESEARCH §proptest Invariants). They are
+//! hand-written string strategies. They are
 //! deliberately *catalog-realistic*: a full-version generator, a loose-version
 //! generator that adds the `v`-prefix + two-part partial shapes `parse_lenient`
 //! is contracted to accept (so totality properties exercise the exact loose

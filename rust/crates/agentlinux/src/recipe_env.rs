@@ -1,35 +1,29 @@
-//! recipe_env.rs — the ONE typed source of the recipe env contract (VERB-03).
+//! recipe_env.rs — the ONE typed source of the recipe env contract (VERB-03),
+//! and the ONE source of where an install user's files live.
 //!
-//! Port of `plugin/cli/src/runner.ts:30-120`. Three responsibilities, all
-//! I/O-bearing, so they live in the bin (NOT the pure `agentlinux-core`):
+//! Four responsibilities, all I/O-bearing, so they live in the bin (NOT the pure
+//! `agentlinux-core`):
 //!
 //! 1. `RecipeEnv` + `into_env_pairs()` — the SIX `AGENTLINUX_*` key strings in
-//!    exactly one place. A rename is a compile error, so the ~25 unchanged Bash
-//!    recipes that read `${AGENTLINUX_*}` (proven by
-//!    `plugin/catalog/agents/gsd/install.sh:7-8`) can never silently desync.
+//!    exactly one place. A rename is a compile error, so the ~25 Bash recipes
+//!    that read `${AGENTLINUX_*}` (e.g. `plugin/catalog/agents/gsd/install.sh`)
+//!    can never silently desync.
 //! 2. `resolve_install_user()` — precedence `$AGENTLINUX_USER` >
 //!    `/etc/agentlinux.env` `AGENTLINUX_USER=` line > `agent`, POSIX-charset
 //!    re-validated (`^[a-z][a-z0-9_-]*$`) so a malformed/tampered value can never
-//!    reach a `sudo -u` argv (T-56-02) — malformed falls back to `agent`.
-//! 3. `full_child_env()` — the FULL child environment the dispatcher sets: the 6
-//!    pairs PLUS an EXPLICIT canonical PATH (Pitfall 3: `sudo -E` alone drops
-//!    PATH to secure_path), HOME, NPM_CONFIG_PREFIX, LANG/LC_ALL, then extraEnv
-//!    appended so later keys override earlier (mirrors the TS spread order,
-//!    runner.ts:110-119).
-//!
-//! `dead_code` is allowed at module scope for this Wave-0 scaffold: the public
-//! surface here (`RecipeEnv`, `resolve_install_user`, `full_child_env`) is
-//! consumed by `dispatcher::dispatch_recipe` (Task 3) and the Wave-1/2 verb
-//! adapters (Plans 02/03). The `#[cfg(test)]` module exercises every item now,
-//! so nothing is truly unreachable — the allow only silences the "not yet wired
-//! into a non-test caller" lint until those plans land, keeping the per-task
-//! tree warning-clean. Remove once the verb layer imports these.
-#![allow(dead_code)]
+//!    reach a `sudo -u` argv — malformed falls back to `agent`.
+//! 3. `install_home()` / `agent_home()` / `npm_prefix()` / `canonical_path()` —
+//!    the path layout. Every module that needs "where does this user's stuff
+//!    live" routes through these; the literals appear nowhere else.
+//! 4. `base_child_env()` / `full_child_env()` — the child environment the
+//!    dispatcher sets: the 6 pairs PLUS an EXPLICIT canonical PATH (`sudo -E`
+//!    alone drops PATH to Ubuntu's `secure_path`), HOME, NPM_CONFIG_PREFIX and
+//!    LANG/LC_ALL, then any extra pairs appended so later keys override earlier.
 
 use std::fs;
 
 /// POSIX-portable username charset — MUST mirror `remediate::validate_user_name`
-/// (`plugin/lib/remediate.sh`) and `runner.ts:20`. Belt-and-suspenders
+/// Belt-and-suspenders
 /// re-validation of the configured install user before it flows into `sudo -u`.
 const DEFAULT_INSTALL_USER: &str = "agent";
 const AGENTLINUX_ENV_FILE: &str = "/etc/agentlinux.env";
@@ -61,7 +55,7 @@ pub fn env_file_path() -> String {
 /// resolved upstream from trusted sources — `catalog_dir` from the catalog
 /// loader, `install_log` a hard-coded constant (`/var/log/agentlinux-install.log`,
 /// runner.ts:110), `agent_home` from the resolved install user — NOT from the raw
-/// CLI `<name>`/`<spec>`. When the Wave-1/2 verb adapters wire real callers, keep
+/// CLI `<name>`/`<spec>`. When the verb adapters wire real callers, keep
 /// `install_log` a constant and do NOT let any of these become caller-supplied
 /// without the loader's path constraint, or a path-traversal/arbitrary-write
 /// reaches a recipe running under `sudo -u` (root-equivalent per ADR-012).
@@ -105,13 +99,13 @@ fn is_valid_install_user(name: &str) -> bool {
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
 }
 
-/// Resolve the install user catalog ops run as (runner.ts:30-43).
+/// Resolve the install user catalog ops run as.
 ///
 /// Precedence: `$AGENTLINUX_USER` > the `AGENTLINUX_USER=` line in
 /// `/etc/agentlinux.env` (root-owned) > `agent`. A value failing the POSIX
 /// charset (malformed env / tampered read) falls back to `agent` —
 /// defense-in-depth for both the guard check and the `sudo -u` dispatch user
-/// (T-56-02). The env-file read is I/O; it lives HERE in the bin, not the core.
+/// The env-file read is I/O; it lives HERE in the bin, not the core.
 pub fn resolve_install_user() -> String {
     // 1. Env override (bats seam, 23-install-user.bats). Empty/unset → fall through.
     let env_user = match std::env::var("AGENTLINUX_USER") {
@@ -151,50 +145,130 @@ pub fn resolve_install_user_from(env_user: Option<&str>, file_text: Option<&str>
     }
 }
 
-/// The canonical PATH for a user given their home — byte-identical to
-/// `runner.ts:104` / `AGENT_PATH` for `agent`. Set EXPLICITLY (not via
-/// `sudo -E`) because Ubuntu's `secure_path` overrides an inherited PATH
-/// (Pitfall 3), which would let recipes resolve `npm` from `/usr/bin` (EACCES).
+/// The home directory of install user `user`.
 ///
-/// `pub(crate)` (W-1, 57-05): the ONE source of the canonical PATH literal.
-/// `provision::path_wiring` reuses it for the artefact-3 (`/etc/agentlinux.env`)
-/// and artefact-4 (`/etc/cron.d/agentlinux`) PATH lines so the provisioner's
-/// emitted bytes are byte-identical to the Phase-56 recipe env (a cross-module
-/// test asserts the three-way equality). Stays `home`-parameterized — the caller
-/// supplies the resolved install home, never a hardcoded `/home/agent`.
+/// This is the ONE place `/home/{user}` is spelled. Every other module that needs
+/// an install home — the recipe env, the npm probe env, the provisioner's path
+/// wiring — routes through here, so the layout assumption is stated once and can
+/// be changed once.
+///
+/// KNOWN LIMITATION: this is the *conventional* home, not the passwd home. Adopting
+/// a user whose passwd entry says `/var/lib/bob` still yields `/home/bob`. Fixing
+/// that means resolving `nix::unistd::User::from_name(user).dir` here — a single
+/// edit precisely because this function exists.
+pub(crate) fn install_home(user: &str) -> String {
+    format!("/home/{user}")
+}
+
+/// The agent home the presence/managed-dir heuristics run against —
+/// `$AGENTLINUX_AGENT_HOME` when set, else the configured install user's home.
+///
+/// The env override exists so a test (and a non-default install layout) can point
+/// the detection gates at a staged tree. The fallback goes through
+/// `install_home(resolve_install_user())` rather than a literal `/home/agent`, so
+/// a host configured with `AGENTLINUX_USER=bob` gets `/home/bob` and not a
+/// silently wrong `/home/agent`.
+pub(crate) fn agent_home() -> String {
+    match std::env::var("AGENTLINUX_AGENT_HOME") {
+        Ok(v) if !v.is_empty() => v,
+        _ => install_home(&resolve_install_user()),
+    }
+}
+
+/// The npm global prefix for `home` — the ONE spelling of `<home>/.npm-global`.
+pub(crate) fn npm_prefix(home: &str) -> String {
+    format!("{home}/.npm-global")
+}
+
+/// The canonical PATH for a user given their home. Set EXPLICITLY (not via
+/// `sudo -E`) because Ubuntu's `secure_path` overrides an inherited PATH, which
+/// would let recipes resolve `npm` from `/usr/bin` and fail with EACCES.
+///
+/// `pub(crate)`: the ONE source of the canonical PATH literal.
+/// `provision::path_wiring` reuses it for the `/etc/agentlinux.env` and
+/// `/etc/cron.d/agentlinux` PATH lines so the provisioner's emitted bytes are
+/// byte-identical to the recipe env (a cross-module test asserts the three-way
+/// equality). Stays `home`-parameterized — the caller supplies the resolved
+/// install home, never a hardcoded `/home/agent`.
 pub(crate) fn canonical_path(home: &str) -> String {
     format!("{home}/.npm-global/bin:{home}/.local/bin:/usr/local/bin:/usr/bin:/bin")
 }
 
-/// Assemble the FULL child environment the dispatcher sets (runner.ts:105-118).
+/// The non-`AGENTLINUX_*` half of a recipe child env: the explicit canonical
+/// PATH, HOME, npm prefix and locale for `home`.
 ///
-/// The 6 `AGENTLINUX_*` pairs, PLUS the canonical PATH/HOME/NPM_CONFIG_PREFIX/
-/// LANG/LC_ALL for `user`'s home, then `extra` (extraEnv) appended so later keys
-/// override earlier — mirroring the TS spread order so an extraEnv `LANG`
-/// overrides the base `C.UTF-8`. `agent_home` in `recipe` is expected to already
-/// be `/home/{user}` (the caller derives it alongside the resolved user).
+/// Shared by `full_child_env` (recipe dispatch) and `npm::npm_env_for` (the npm
+/// probes), which previously carried byte-identical copies of these five pairs.
+pub(crate) fn base_child_env(home: &str) -> Vec<(String, String)> {
+    vec![
+        ("PATH".to_string(), canonical_path(home)),
+        ("HOME".to_string(), home.to_string()),
+        ("NPM_CONFIG_PREFIX".to_string(), npm_prefix(home)),
+        ("LANG".to_string(), "C.UTF-8".to_string()),
+        ("LC_ALL".to_string(), "C.UTF-8".to_string()),
+    ]
+}
+
+/// The install log every recipe appends to.
+const INSTALL_LOG: &str = "/var/log/agentlinux-install.log";
+
+/// The recipe child env for one catalog entry at `version`.
+///
+/// `install`, `remove` and `upgrade` must agree on this by definition — a recipe
+/// gets the same environment whichever verb invoked it. It is defined once here
+/// so a change to the contract cannot land in two verbs out of three.
+pub fn recipe_child_env(
+    entry: &crate::catalog::FullCatalogEntry,
+    version: &str,
+    catalog_dir: &std::path::Path,
+    user: &str,
+) -> Vec<(String, String)> {
+    let recipe = RecipeEnv {
+        pinned_version: version.to_string(),
+        catalog_dir: catalog_dir.to_string_lossy().to_string(),
+        agent_home: install_home(user),
+        source_kind: entry.source_kind.clone().unwrap_or_default(),
+        install_log: INSTALL_LOG.to_string(),
+        preserve_paths: entry.preserve_paths.clone().unwrap_or_default().join(":"),
+    };
+    full_child_env(recipe, user, &[])
+}
+
+/// `<catalog_dir>/agents/<id>/<recipe>` — the absolute path of a recipe script.
+///
+/// TRUST: `id` and the recipe filename are catalog-derived, and the catalog is an
+/// installer-owned root-written artifact under `/opt/agentlinux/catalog` whose
+/// schema constrains recipe paths — so there is no traversal guard here. If the
+/// catalog ever becomes caller-influenced, add a `..`/absolute reject mirroring
+/// `catalog::load_catalog`'s `preserve_paths` check.
+pub fn recipe_path(catalog_dir: &std::path::Path, id: &str, recipe: &str) -> String {
+    catalog_dir
+        .join("agents")
+        .join(id)
+        .join(recipe)
+        .to_string_lossy()
+        .to_string()
+}
+
+/// Assemble the FULL child environment the dispatcher sets.
+///
+/// The 6 `AGENTLINUX_*` pairs, PLUS `base_child_env` for `user`'s home, then
+/// `extra` appended so later keys override earlier — an `extra` `LANG` overrides
+/// the base `C.UTF-8`. `agent_home` in `recipe` is expected to already be
+/// `install_home(user)` (the caller derives it alongside the resolved user).
 pub fn full_child_env(
     recipe: RecipeEnv,
     user: &str,
     extra: &[(String, String)],
 ) -> Vec<(String, String)> {
-    let home = format!("/home/{user}");
     let mut env: Vec<(String, String)> = recipe
         .into_env_pairs()
         .into_iter()
         .map(|(k, v)| (k.to_string(), v))
         .collect();
-    // Explicit canonical PATH + locale + npm prefix (Pitfall 3).
-    env.push(("PATH".to_string(), canonical_path(&home)));
-    env.push(("HOME".to_string(), home.clone()));
-    env.push((
-        "NPM_CONFIG_PREFIX".to_string(),
-        format!("{home}/.npm-global"),
-    ));
-    env.push(("LANG".to_string(), "C.UTF-8".to_string()));
-    env.push(("LC_ALL".to_string(), "C.UTF-8".to_string()));
-    // extraEnv appended last so it overrides base keys (dispatcher/consumer
-    // dedups by keeping the LAST value for a key — matching the TS spread).
+    env.extend(base_child_env(&install_home(user)));
+    // `extra` last so it overrides base keys (the consumer dedups by keeping the
+    // LAST value for a key).
     env.extend(extra.iter().cloned());
     env
 }
@@ -243,7 +317,7 @@ mod recipe_env_tests {
 
     #[test]
     fn preserve_paths_join_including_empty() {
-        // The colon-join is the CALLER's job (loader.ts) — here we assert the
+        // The colon-join is the CALLER's job — here we assert the
         // typed field carries the joined string verbatim, incl. the empty case.
         let joined = ["a".to_string(), ".config/x".to_string()].join(":");
         let mut e = sample();
