@@ -80,6 +80,26 @@ Corollaries, each of which was a real false-green:
   Finally `caught + missed + timeout + unviable == total`, so a `--check` run —
   which builds mutants without testing any — cannot report a score.
 
+- the run must have established a **baseline**. This closed the last
+  demonstrated way to render "nothing ran" as "nothing survived":
+
+  ```
+  $ mutation-gate.sh enforce --baseline skip     # with a failing test suite
+  mutation gate (enforce): PASS — every mutant was caught.
+  ```
+
+  A test command that always fails marks every mutant killed. `end_time` is set,
+  `planned == total`, the sets match exactly, accounting balances, `unviable` is
+  zero — every other check above passes on a tree where NO test passes. And
+  `--baseline skip` is a plausible edit, not a contrived one: `--in-place` makes
+  the per-PR run serial and re-runs the baseline every time, so skipping it is
+  the obvious way to speed up a gate §5 already admits is close to its cap.
+
+  The discriminator was already in the file being parsed. A normal run records a
+  `"Baseline"` scenario with summary `Success`; `--baseline skip` records no
+  Baseline entry at all. Both are pinned against the tool by MUT-14, not
+  assumed.
+
   Three earlier revisions tried to decide this by inspecting arguments: a
   denylist of filter flags, then an allowlist of benign ones. Both are
   hand-copies of clap's grammar; the denylist leaked eleven spellings, the
@@ -90,6 +110,27 @@ Corollaries, each of which was a real false-green:
 The gate script has its own bats suite (`tests/bats/80-mutation-gate.bats`).
 Testing the thing that judges the tests is not ceremony here: an untested gate
 is precisely what failed.
+
+**And the suite is measured the same way it measures everything else.** A case
+count says nothing — an early revision had 29 cases and, when 21 single-token
+mutations were applied to the gate, killed 6. The whole advisory reporting path,
+one of the two "independent completeness checks", and `--no-config` (the flag the
+entire redesign rests on) were asserted by nothing. The number to report when
+changing this gate is **its own mutation score**, produced by mutating
+`scripts/mutation-gate.sh` and running its suite. It currently stands at 32/32.
+
+Two patterns caused most of those survivors, and both are worth naming because
+they recur:
+
+- **stubs co-blind with the code.** Every stub answered `--list` by matching the
+  flag alone and recorded nothing about the rest of argv, so no case could see
+  `--no-config` disappear — a fixture modelling the gate's assumption instead of
+  the tool's behaviour. Stubs now log every invocation's argv and answer `--list`
+  differently with and without `--no-config`.
+- **one fixture tripping two checks.** `stub_cargo_interrupted` set `end_time` to
+  null AND sized `mutants.json` by the reached count, so the one case covering
+  "the run did not finish" held with either check deleted — the independence the
+  script claims was asserted by nothing. Each now has a case that isolates it.
 
 ### 3. `--in-place` is required, and therefore `--shard`, not `--jobs`
 
@@ -141,6 +182,20 @@ unmergeable; whether the stated reason is any good — and whether it carries th
 ADR-019 §5 back-reference the third case below requires — stays with the
 reviewer. It is scoped to files the diff adds a skip to, so a PR is never
 answerable for an exemption somebody else took.
+
+Recognising the attribute is the one place this gate models Rust, and a plain
+`"mutants::skip" in line` was not enough. Rust tolerates whitespace and comments
+around `::`, cargo-mutants resolves the attribute through `syn` rather than
+textually, and `#[cfg_attr(test, mutants :: skip)]` suppresses every mutant of
+the function — so one extra space bought the whole exemption back, in a spelling
+that looks *more* idiomatic to a reviewer skimming the diff. The line is now
+normalised (block comments dropped, whitespace removed) and must be an
+attribute. §2 rules out hand-copied grammars after the argv denylist leaked
+eleven flag spellings; this one is knowingly small, and the difference is that
+clap's flag grammar is large and grows every release, while "optional whitespace
+or a block comment around `::`" is closed and has not changed since Rust 1.0.
+Requiring `#[` is also what keeps a `//` comment that merely *mentions* the
+attribute — every justification comment does — from being read as a skip.
 
 **Third case, added after the gate went enforcing.** ADR-019 §5 records modules
 that are deliberately unseamed. The enforcing per-PR gate covers the whole

@@ -66,7 +66,13 @@ esac
 # the TOOL, not from inspecting the argument vector — see verify_expectation.
 diff_file=""
 
-check_diff_file() {
+# Everything the gate checks about the diff file, in ONE pass.
+#
+# Both halves — the `.rs` paths that must resolve, and the `#[mutants::skip]`
+# lines the PR adds — parse `+++` headers, and they used to do it twice: once in
+# sed, once in python, with the prefix-stripping rule written out in each. One
+# reader means one grammar to be wrong about.
+check_diff() {
   local f="$1"
   [[ -f $f ]] || die "--in-diff file '$f' does not exist (the caller's git diff failed)"
   if [[ ! -s $f ]]; then
@@ -83,41 +89,123 @@ check_diff_file() {
   a diff — no 'diff --git' or '---/+++' header found. Refusing to treat an
   unparseable file as 'nothing to check'."
 
-  # Every `.rs` path named in a `+++` header must resolve from the directory
-  # this runs in. cargo-mutants matches --in-diff paths against the WORKSPACE
-  # root, so a diff carrying repo-root-relative paths (a missing --relative, or
-  # a step moved out of working-directory: rust) matches NOTHING and exits 0 —
-  # indistinguishable from an honest "nothing here is mutable" unless checked.
-  #
-  # Tolerant of: CRLF; a trailing tab+timestamp (GNU `diff -u` headers); a
-  # one-letter prefix
-  # (`a/`, `i/`, git's diff.srcPrefix/dstPrefix); `diff.noprefix` (no prefix at
-  # all); and spaces in paths. `/dev/null` (a deletion) is skipped.
-  #
-  # The prefix strip is an ALTERNATION, not two independently-optional pieces:
-  # `[a-z]\{0,1\}/\{0,1\}` turned `+++ src/lib.rs` into `rc/lib.rs`, which
-  # would hard-fail every legitimate PR under a runner with diff.noprefix set
-  # while a comment claimed the opposite.
   # A `core.quotePath` header (git's default) octal-escapes non-ASCII bytes:
-  # `+++ "b/src/caf\303\251.rs"`. Decoding that correctly in sed is more
-  # trouble than it is worth, and guessing wrong means hard-failing an honest
-  # PR — so refuse the diff and say what to do instead. An earlier comment
-  # claimed this shape was tolerated; it was not.
+  # `+++ "b/src/caf\303\251.rs"`. Decoding that correctly is more trouble than it
+  # is worth, and guessing wrong means hard-failing an honest PR — so refuse the
+  # diff and say what to do instead.
   if grep -qE '^\+\+\+ ".*\\[0-7]{3}' "$f"; then
     die "--in-diff file '$f' contains a core.quotePath-escaped path, which this
   gate cannot verify. Regenerate the diff with -c core.quotePath=false."
   fi
 
-  local p
-  while read -r p; do
-    [[ -f $p ]] || die "--in-diff names '$p', which does not exist relative to
-  $(pwd). The diff's paths do not resolve against the workspace, so
+  # Reported as two sections so one reader answers both questions:
+  #
+  #   PATHS   every `.rs` file named in a `+++` header. cargo-mutants matches
+  #           --in-diff paths against the WORKSPACE root, so a diff carrying
+  #           repo-root-relative paths (a missing --relative, or a step moved out
+  #           of `working-directory: rust`) matches NOTHING and exits 0 —
+  #           indistinguishable from an honest "nothing here is mutable".
+  #           Tolerant of CRLF, a trailing tab+timestamp (GNU `diff -u`), a
+  #           one-letter prefix (`a/`, `i/`, diff.srcPrefix), `diff.noprefix`,
+  #           and spaces in paths. `/dev/null` (a deletion) is skipped.
+  #
+  #   SKIPS   `#[mutants::skip]` is the ONE narrowing channel the tool-derived
+  #           expectation below cannot see: a skipped function is absent from
+  #           both `cargo mutants --list` and `mutants.json`, so the two sets
+  #           still match and the gate still says PASS. In the enforcing per-PR
+  #           gate that is self-licensing — the author of a red mutant can grant
+  #           themselves the exemption inside the very diff being scored.
+  #
+  #           ADR-020 §4 already requires a written reason at every skip site;
+  #           this is the mechanical half, deliberately narrow. Only files whose
+  #           diff ADDS a skip are in scope (a PR is not answerable for skips
+  #           somebody else left behind), the check is then made against the FILE
+  #           because a unified diff does not say which occurrence a `+` line
+  #           became, and the rule is "a comment line within the three above".
+  #           That is a shape check, not a judgement: it makes an UNANNOTATED
+  #           skip unmergeable and leaves "is the reason any good" — and ADR-020
+  #           §4's back-reference requirement — to the reviewer.
+  #
+  #           Recognising the annotation is the one place this DOES model Rust,
+  #           and a plain substring match was not enough: Rust tolerates
+  #           whitespace and comments around `::`, cargo-mutants resolves the
+  #           attribute through `syn` rather than textually, and
+  #           `#[cfg_attr(test, mutants :: skip)]` really does suppress every
+  #           mutant — one extra space bought the whole exemption back, in a
+  #           spelling that looks MORE idiomatic to a reviewer skimming the diff.
+  #           So the line is normalised (block comments dropped, whitespace
+  #           removed) and must be an ATTRIBUTE. ADR-020 §2 rules out
+  #           hand-copied grammars after the argv denylist leaked eleven flag
+  #           spellings; this one is knowingly small, and the difference is that
+  #           clap's flag grammar is large and grows every release while
+  #           "optional whitespace or a block comment around `::`" is closed and
+  #           has not changed since Rust 1.0. Requiring `#[` also stops a `//`
+  #           comment that merely MENTIONS the attribute — every justification
+  #           comment does — from being read as a skip.
+  local report
+  if ! report=$(python3 -c '
+import re, sys
+
+
+def is_skip_attr(line):
+    """A Rust attribute applying mutants::skip, whitespace-insensitive."""
+    n = re.sub(r"\s+", "", re.sub(r"/\*.*?\*/", "", line))
+    return n.startswith("#[") and "mutants::skip" in n
+
+
+paths, cur, adds_skip = [], None, set()
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    line = line.rstrip("\n").rstrip("\r")
+    if line.startswith("+++ "):
+        p = re.sub(r"^[a-z]/", "", line[4:].split("\t")[0].strip().strip("\""))
+        cur = p if p.endswith(".rs") and p != "dev/null" else None
+        if cur:
+            paths.append(cur)
+    elif cur and line.startswith("+") and is_skip_attr(line[1:]):
+        adds_skip.add(cur)
+
+for p in paths:
+    print("path\t" + p)
+
+for path in sorted(adds_skip):
+    try:
+        lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+    except OSError:
+        continue  # reported by the path check above
+    for i, l in enumerate(lines):
+        if not is_skip_attr(l):
+            continue
+        above = [x.strip() for x in lines[max(0, i - 3):i]]
+        if not any(x.startswith("//") for x in above):
+            print("skip\t%s:%d: %s" % (path, i + 1, l.strip()))
+' "$f"); then
+    die "could not read the --in-diff file '$f'. The gate cannot confirm its
+  paths resolve, nor that the PR did not exempt itself with #[mutants::skip], so
+  it will not pass."
+  fi
+
+  local kind value
+  local -a offenders=()
+  while IFS=$'\t' read -r kind value; do
+    case "$kind" in
+      path)
+        [[ -f $value ]] || die "--in-diff names a path that does not exist relative
+  to $(pwd): '$value'. The diff's paths do not resolve against the workspace, so
   cargo-mutants would match nothing and exit 0 — a green gate that scored
   nothing. Check --relative and the step's working-directory."
-  done < <(sed -n 's/\r$//; s/\t.*$//; s|^+++ ||p' "$f" |
-    sed 's|^"||; s|"$||; s|^[a-z]/||' |
-    grep -E '\.rs$' | grep -v '^dev/null$')
+        ;;
+      skip) offenders+=("$value") ;;
+    esac
+  done <<<"$report"
 
+  if [[ ${#offenders[@]} -gt 0 ]]; then
+    printf '  %s\n' "${offenders[@]}" >&2
+    die "this diff adds a #[mutants::skip] with no comment above it (see above).
+  A skip is invisible to every other check here — the skipped function drops out
+  of the expectation AND the scored set together — so it is the one exemption an
+  author can grant themselves inside the diff being scored. Put the reason on the
+  line above it, per ADR-020 §4."
+  fi
 }
 
 # Find the --in-diff file. That is ALL this loop does now.
@@ -132,24 +220,21 @@ check_diff_file() {
 # no argument rule can see it, by construction.
 #
 # So stop guessing and ask the tool. See verify_expectation below.
+#
+# All four spellings clap accepts for the same option are recognised, and the
+# LAST one wins, as it does in clap — so what `check_diff` inspects is the file
+# the run will actually use.
 want_diff_file=0
 for arg in "$@"; do
   if [[ $want_diff_file -eq 1 ]]; then
-    check_diff_file "$arg"
     diff_file="$arg"
     want_diff_file=0
     continue
   fi
   case "$arg" in
     --in-diff | -D) want_diff_file=1 ;;
-    --in-diff=*)
-      check_diff_file "${arg#*=}"
-      diff_file="${arg#*=}"
-      ;;
-    -D?*)
-      check_diff_file "${arg#-D}"
-      diff_file="${arg#-D}"
-      ;;
+    --in-diff=*) diff_file="${arg#*=}" ;;
+    -D?*) diff_file="${arg#-D}" ;;
     --list | --list-files)
       die "'$arg' produces no mutation score; the gate cannot run against it"
       ;;
@@ -157,68 +242,8 @@ for arg in "$@"; do
 done
 [[ $want_diff_file -eq 0 ]] || die "--in-diff given with no file argument"
 
-# `#[mutants::skip]` is the ONE narrowing channel the tool-derived expectation
-# below cannot see. A skipped function is absent from both `cargo mutants --list`
-# and `mutants.json`, so the two sets still match and the gate still says PASS.
-# In the enforcing per-PR gate that is self-licensing: the author of a red mutant
-# can grant themselves the exemption inside the very diff being scored, and both
-# the expectation and the scored set shrink together.
-#
-# ADR-020 §4 already requires a written reason at every skip site. This is the
-# mechanical half of that rule, and it is deliberately narrow:
-#
-#   scope   only files whose diff ADDS a skip line — a PR is not answerable for
-#           skips somebody else left behind.
-#   check   made against the FILE, not the diff, because a unified diff does not
-#           say which occurrence a `+` line became. So once a file is in scope,
-#           every skip in it must be justified. That over-reaches by exactly the
-#           skips already in a file the PR is adding another one to, which is
-#           the case worth reading anyway.
-#   rule    a comment line within the three lines above. That is a shape check,
-#           not a judgement: it makes an UNANNOTATED skip impossible to merge,
-#           and leaves "is the reason any good" to the reviewer, where it
-#           belongs. ADR-020 §4's back-reference requirement is likewise a
-#           human call.
-check_added_skips() {
-  local offenders
-  if ! offenders=$(python3 -c '
-import re, sys
+[[ -n $diff_file ]] && check_diff "$diff_file"
 
-paths, cur = set(), None
-for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
-    line = line.rstrip("\n").rstrip("\r")
-    if line.startswith("+++ "):
-        p = re.sub(r"^[a-z]/", "", line[4:].split("\t")[0].strip().strip("\""))
-        cur = p if p.endswith(".rs") else None
-    elif cur and line.startswith("+") and "mutants::skip" in line:
-        paths.add(cur)
-
-bad = []
-for path in sorted(paths):
-    lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
-    for i, l in enumerate(lines):
-        if "mutants::skip" not in l:
-            continue
-        above = [x.strip() for x in lines[max(0, i - 3):i]]
-        if not any(x.startswith("//") for x in above):
-            bad.append("  %s:%d: %s" % (path, i + 1, l.strip()))
-print("\n".join(bad))
-' "$1"); then
-    die "could not check the diff for added #[mutants::skip] annotations. The
-  gate cannot confirm the PR did not exempt itself, so it will not pass."
-  fi
-
-  [[ -z $offenders ]] && return 0
-
-  echo "$offenders" >&2
-  die "this diff adds a #[mutants::skip] with no comment above it (see above).
-  A skip is invisible to every other check here — the skipped function drops out
-  of the expectation AND the scored set together — so it is the one exemption an
-  author can grant themselves inside the diff being scored. Put the reason on the
-  line above it, per ADR-020 §4."
-}
-
-[[ -n $diff_file ]] && check_added_skips "$diff_file"
 
 # A killed --in-place run leaves mutated source behind. Warn if the tree is
 # already dirty so a developer cannot mistake cargo-mutants' residue for their
@@ -306,8 +331,21 @@ outcomes="$OUT_DIR/outcomes.json"
 # -1 and skipped the check, which made a schema change (`{"mutants": […]}`) come
 # out as `len == 1` — reported as "the run did not finish", the one diagnosis
 # guaranteed to send a reader looking at the runner instead of at the tool.
+#
+# `baseline` is the THIRD thing read from this file, and it closes the last
+# demonstrated way to render "nothing ran" as "nothing survived":
+#
+#   $ mutation-gate.sh enforce --baseline skip     # with a test suite that fails
+#   mutation gate (enforce): PASS — every mutant was caught.
+#
+# A test command that always fails marks every mutant killed. end_time is set,
+# planned == total, the sets match, accounting balances, unviable is 0 — every
+# other check in this script passes on a tree where NO test passes. The
+# discriminator was already in the file being parsed: a normal run records a
+# `"Baseline"` scenario with summary `Success`, and `--baseline skip` records no
+# Baseline entry at all. Both verified against cargo-mutants 27.1.0.
 readonly NO_FILE=-1 UNPARSEABLE=-2 NOT_A_LIST=-3
-if ! read -r total missed caught timeout unviable finished planned < <(
+if ! read -r total missed caught timeout unviable finished planned baseline < <(
   python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
@@ -319,9 +357,11 @@ except Exception:
     planned = -2
 else:
     planned = len(m) if isinstance(m, list) else -3
+runs = [o for o in d.get("outcomes", []) if o.get("scenario") == "Baseline"]
+baseline = "missing" if not runs else str(runs[0].get("summary"))
 print(
     d["total_mutants"], d["missed"], d["caught"], d["timeout"], d["unviable"],
-    0 if d.get("end_time") is None else 1, planned,
+    0 if d.get("end_time") is None else 1, planned, baseline,
 )
 ' "$outcomes" "$OUT_DIR/mutants.json"
 ); then
@@ -342,6 +382,17 @@ case $planned in
   cargo-mutants has changed its results schema. Update this gate and
   tests/bats/80-mutation-gate.bats MUT-14 (the contract test that pins it)
   together; do NOT read this as an interrupted run." ;;
+esac
+
+case $baseline in
+  Success) ;;
+  missing) die "this run established no baseline (no \"Baseline\" scenario in
+  $outcomes), so 'caught' means nothing: with --baseline skip and a test command
+  that fails for its own reasons, EVERY mutant is recorded as caught and every
+  other check here passes. Drop --baseline skip." ;;
+  *) die "the unmutated baseline did not pass (summary: $baseline). Every verdict
+  after that describes a tree whose tests were already broken. Fix the suite
+  first; a mutation score against a red baseline is not a score." ;;
 esac
 
 if [[ $finished -eq 0 ]]; then
@@ -403,9 +454,12 @@ for m in extra[:10]:
   the question this gate exists to answer."
 fi
 
+# No length guard here: the python above either exits non-zero — caught by the
+# `if !` — or prints both counts, so `${verdict[0]}` cannot be unbound. A guard
+# was added and removed again; it read as defence but was unreachable, and an
+# unreachable check is worse than none, because a case can be written that
+# appears to cover it.
 mapfile -t verdict <<<"$set_diff"
-[[ ${#verdict[@]} -ge 2 ]] || die "the set comparison produced no counts, so the
-  scored set could not be checked against the expectation."
 unscored_n="${verdict[0]}"
 unexpected_n="${verdict[1]}"
 detail=$(printf '%s\n' "${verdict[@]:2}")

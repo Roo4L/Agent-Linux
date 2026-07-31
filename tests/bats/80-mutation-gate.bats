@@ -27,59 +27,134 @@ teardown() {
   rm -rf "$WORK"
 }
 
-# Stub `cargo` so `cargo mutants …` leaves the outcomes file a real run leaves.
-# $1 total, $2 missed, $3 caught, $4 timeout, $5 exit code, [$6 unviable]
-# Writes the shape a COMPLETED run leaves: end_time set, and mutants.json
-# listing exactly total_mutants entries.
-stub_cargo_outcomes() {
-  local unviable="${6:-0}"
+# Every stub records the argv of every `cargo` invocation to $WORK/argv.log, so
+# a case can assert what the gate ASKED FOR and not only what it concluded. The
+# absence of that recording is why "MUT-09: a non-empty diff is actually
+# forwarded" passed with `"$@"` deleted from the run.
+cargo_argv_log() { cat "$WORK/argv.log"; }
+
+# Emit a `cargo` stub. All shape is passed by name so a case says what it means:
+#
+#   list_n        lines `--list` prints (the gate's EXPECTATION)
+#   list_cfg_n    lines `--list` prints when --no-config is ABSENT — i.e. what a
+#                 .cargo/mutants.toml would leave. Defaults to list_n.
+#   total/missed/caught/timeout/unviable   the outcomes.json counters
+#   planned       entries in mutants.json. Defaults to total.
+#   end_time      "null" (an interrupted run) or a timestamp. Defaults to a stamp.
+#   extra         one mutant NAME to add to mutants.json that `--list` never
+#                 offered — the `--error VALUE` shape, which ADDS a mutant per
+#                 Result-returning fn
+#   baseline      present | missing | failed
+#   exit          the stub's exit code
+#
+# `baseline` is not decoration: a real run records a `"Baseline"` scenario with
+# summary `Success`, and `--baseline skip` records none. With a test command that
+# fails for its own reasons, EVERY mutant is then marked caught and every other
+# check in the gate passes — so a stub that omitted the Baseline entry would have
+# modelled the gate's blind spot rather than the tool.
+mk_cargo() {
+  local list_n=0 list_cfg_n="" total=0 missed=0 caught=0 timeout=0 unviable=0
+  local planned="" end_time='"2026-07-31T00:00:00Z"' baseline=present exit_code=0
+  local extra=""
+  local kv
+  for kv in "$@"; do
+    case "$kv" in
+      list_n=*) list_n="${kv#*=}" ;;
+      list_cfg_n=*) list_cfg_n="${kv#*=}" ;;
+      total=*) total="${kv#*=}" ;;
+      missed=*) missed="${kv#*=}" ;;
+      caught=*) caught="${kv#*=}" ;;
+      timeout=*) timeout="${kv#*=}" ;;
+      unviable=*) unviable="${kv#*=}" ;;
+      planned=*) planned="${kv#*=}" ;;
+      end_time=*) end_time="${kv#*=}" ;;
+      baseline=*) baseline="${kv#*=}" ;;
+      extra=*) extra="${kv#*=}" ;;
+      exit=*) exit_code="${kv#*=}" ;;
+      *)
+        echo "mk_cargo: unknown key '$kv'" >&2
+        return 1
+        ;;
+    esac
+  done
+  [ -n "$list_cfg_n" ] || list_cfg_n="$list_n"
+  [ -n "$planned" ] || planned="$total"
+  # The stub writes outcomes.json from a Python literal, so JSON's null is None.
+  [ "$end_time" = null ] && end_time=None
+
   cat >"$BIN/cargo" <<EOF
 #!/usr/bin/env bash
-# The gate first asks the tool what this scope SHOULD contain, via
-# \`--list\`. Answer with total_mutants lines so the expectation matches.
+printf '%s\n' "\$*" >>"$WORK/argv.log"
+
+# The gate asks the tool what this scope SHOULD contain before running anything.
+# --no-config makes that the HONEST expectation: what the scope contains, not
+# what a .cargo/mutants.toml left behind. This stub answers differently for the
+# two so a gate that dropped --no-config is visible.
+listing=0
+noconfig=0
 for a in "\$@"; do
-  if [ "\$a" = "--list" ]; then
-    for i in \$(seq 1 $1); do echo "src/x.rs:\$i:1: replace a with b"; done
-    exit 0
-  fi
+  [ "\$a" = "--list" ] && listing=1
+  [ "\$a" = "--no-config" ] && noconfig=1
 done
+if [ "\$listing" = 1 ]; then
+  n=$list_cfg_n
+  [ "\$noconfig" = 1 ] && n=$list_n
+  for i in \$(seq 1 "\$n"); do echo "src/x.rs:\$i:1: replace a with b"; done
+  exit 0
+fi
+
 mkdir -p mutants.out
-cat >mutants.out/outcomes.json <<JSON
-{"total_mutants": $1, "missed": $2, "caught": $3, "timeout": $4,
- "unviable": $unviable, "end_time": "2026-07-31T00:00:00Z"}
-JSON
-python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, $1 + 1)], open('mutants.out/mutants.json','w'))"
+python3 - <<'PY'
+import json
+scored = [
+    {"name": "src/x.rs:%d:1: replace a with b" % i} for i in range(1, $planned + 1)
+]
+if "$extra":
+    scored.append({"name": "$extra"})
+json.dump(scored, open("mutants.out/mutants.json", "w"))
+outcomes = [{"scenario": {"Mutant": m}, "summary": "CaughtMutant"} for m in scored]
+baseline = "$baseline"
+if baseline != "missing":
+    summary = "Success" if baseline == "present" else "Failure"
+    outcomes.insert(0, {"scenario": "Baseline", "summary": summary})
+json.dump(
+    {
+        "cargo_mutants_version": "27.1.0",
+        "total_mutants": $total,
+        "missed": $missed,
+        "caught": $caught,
+        "timeout": $timeout,
+        "unviable": $unviable,
+        "end_time": $end_time,
+        "outcomes": outcomes,
+    },
+    open("mutants.out/outcomes.json", "w"),
+)
+PY
 printf 'crates/x.rs:1:1: replace a with b\n' >mutants.out/missed.txt
 : >mutants.out/timeout.txt
-exit $5
+exit $exit_code
 EOF
   chmod +x "$BIN/cargo"
 }
 
+# Stub `cargo` so `cargo mutants …` leaves the outcomes file a real run leaves.
+# $1 total, $2 missed, $3 caught, $4 timeout, $5 exit code, [$6 unviable]
+stub_cargo_outcomes() {
+  mk_cargo "list_n=$1" "total=$1" "missed=$2" "caught=$3" "timeout=$4" \
+    "unviable=${6:-0}" "exit=$5"
+}
+
 # A run KILLED partway: cargo-mutants rewrites outcomes.json after every
-# scenario, so the file is well-formed and describes only what it reached —
-# but end_time is null and mutants.json still lists the full planned set.
+# scenario, so the file is well-formed and describes only what it reached — but
+# end_time is null AND mutants.json still lists the full planned set.
 # $1 reached, $2 planned, $3 exit code
+#
+# Both halves matter and the fixture used to write only the first: it sized
+# mutants.json by `reached`, so `planned == total` held and the second of the
+# gate's "two independent completeness checks" was exercised by nothing.
 stub_cargo_interrupted() {
-  cat >"$BIN/cargo" <<EOF
-#!/usr/bin/env bash
-for a in "\$@"; do
-  if [ "\$a" = "--list" ]; then
-    for i in \$(seq 1 $2); do echo "src/x.rs:\$i:1: replace a with b"; done
-    exit 0
-  fi
-done
-mkdir -p mutants.out
-cat >mutants.out/outcomes.json <<JSON
-{"total_mutants": $1, "missed": 0, "caught": $1, "timeout": 0,
- "unviable": 0, "end_time": null}
-JSON
-python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, $1 + 1)], open('mutants.out/mutants.json','w'))"
-: >mutants.out/missed.txt
-: >mutants.out/timeout.txt
-exit $3
-EOF
-  chmod +x "$BIN/cargo"
+  mk_cargo "list_n=$2" "total=$1" "caught=$1" "planned=$2" end_time=null "exit=$3"
 }
 
 # A run that exits 0 writing NO outcomes.json — the shape cargo-mutants really
@@ -87,11 +162,12 @@ EOF
 # --shard, --file matching nothing, --list). MUT-05's stub writes an
 # outcomes.json with total_mutants:0, which the real tool never does.
 stub_cargo_zero_mutants() {
-  cat >"$BIN/cargo" <<'EOF'
+  cat >"$BIN/cargo" <<EOF
 #!/usr/bin/env bash
+printf '%s\n' "\$*" >>"$WORK/argv.log"
 # --list prints nothing: the scope genuinely contains no mutants.
-for a in "$@"; do
-  if [ "$a" = "--list" ]; then exit 0; fi
+for a in "\$@"; do
+  if [ "\$a" = "--list" ]; then exit 0; fi
 done
 echo " INFO No mutants to filter"
 exit 0
@@ -102,10 +178,11 @@ EOF
 # Stub `cargo` so it fails WITHOUT producing outcomes — the real failure mode:
 # a rejected flag combination.
 stub_cargo_rejects_flags() {
-  cat >"$BIN/cargo" <<'EOF'
+  cat >"$BIN/cargo" <<EOF
 #!/usr/bin/env bash
-for a in "$@"; do
-  if [ "$a" = "--list" ]; then
+printf '%s\n' "\$*" >>"$WORK/argv.log"
+for a in "\$@"; do
+  if [ "\$a" = "--list" ]; then
     echo "src/x.rs:1:1: replace a with b"
     exit 0
   fi
@@ -161,25 +238,7 @@ EOF
   # exclude_globs in .cargo/mutants.toml narrowed it — is not a pass even when
   # every mutant it did score was caught. That shape printed
   # "PASS — every mutant was caught" on a diff with survivors.
-  cat >"$BIN/cargo" <<'EOF'
-#!/usr/bin/env bash
-for a in "$@"; do
-  if [ "$a" = "--list" ]; then
-    for i in 1 2 3 4 5 6 7 8 9 10; do echo "src/x.rs:$i:1: replace a with b"; done
-    exit 0
-  fi
-done
-mkdir -p mutants.out
-cat >mutants.out/outcomes.json <<'JSON'
-{"total_mutants": 5, "missed": 0, "caught": 5, "timeout": 0,
- "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
-JSON
-python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, 6)], open('mutants.out/mutants.json','w'))"
-: >mutants.out/missed.txt
-: >mutants.out/timeout.txt
-exit 0
-EOF
-  chmod +x "$BIN/cargo"
+  mk_cargo list_n=10 total=5 caught=5
   run "$GATE" enforce
   [ "$status" -ne 0 ]
   [[ "$output" == *"never scored"* ]]
@@ -194,25 +253,7 @@ EOF
   # `--error VALUE` (and error_values in .cargo/mutants.toml) ADDS a mutant per
   # Result-returning fn. Comparing sizes let one knob hide the survivors and a
   # second refill the count — "PASS — every mutant was caught", no argv evidence.
-  cat >"$BIN/cargo" <<'EOF'
-#!/usr/bin/env bash
-for a in "$@"; do
-  if [ "$a" = "--list" ]; then
-    for i in 1 2 3; do echo "src/x.rs:$i:1: replace a with b"; done
-    exit 0
-  fi
-done
-mkdir -p mutants.out
-cat >mutants.out/outcomes.json <<'JSON'
-{"total_mutants": 3, "missed": 0, "caught": 3, "timeout": 0,
- "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
-JSON
-python3 -c "import json; json.dump([{'name': 'src/x.rs:1:1: replace a with b'}, {'name': 'src/x.rs:2:1: replace a with b'}, {'name': 'src/OTHER.rs:9:1: injected'}], open('mutants.out/mutants.json','w'))"
-: >mutants.out/missed.txt
-: >mutants.out/timeout.txt
-exit 0
-EOF
-  chmod +x "$BIN/cargo"
+  mk_cargo list_n=3 total=3 caught=3 planned=2 "extra=src/OTHER.rs:9:1: injected"
   run "$GATE" enforce
   [ "$status" -ne 0 ]
   [[ "$output" == *"does not contain"* ]]
@@ -223,25 +264,7 @@ EOF
   # `--check` builds each mutant without testing it, leaving all four counters
   # at 0 against a non-zero total — so the gate printed "0 caught" and "every
   # mutant was caught" on consecutive lines.
-  cat >"$BIN/cargo" <<'EOF'
-#!/usr/bin/env bash
-for a in "$@"; do
-  if [ "$a" = "--list" ]; then
-    for i in 1 2 3 4 5; do echo "src/x.rs:$i:1: replace a with b"; done
-    exit 0
-  fi
-done
-mkdir -p mutants.out
-cat >mutants.out/outcomes.json <<'JSON'
-{"total_mutants": 5, "missed": 0, "caught": 0, "timeout": 0,
- "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
-JSON
-python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, 6)], open('mutants.out/mutants.json','w'))"
-: >mutants.out/missed.txt
-: >mutants.out/timeout.txt
-exit 0
-EOF
-  chmod +x "$BIN/cargo"
+  mk_cargo list_n=5 total=5 caught=0
   run "$GATE" enforce
   [ "$status" -ne 0 ]
   [[ "$output" == *"accounted"* ]]
@@ -253,6 +276,9 @@ EOF
   run "$GATE" enforce
   [ "$status" -ne 0 ]
   [[ "$output" == *"1 of 40 mutant(s) survived"* ]]
+  # And it is called out by name: a timeout is a mutant no test killed, but for
+  # a different reason from a missed one, and the fix is usually different too.
+  [[ "$output" == *"timed out"* ]]
 }
 
 @test "MUT-07: an empty --in-diff is an explicit skip, not a silent pass" {
@@ -302,6 +328,45 @@ EOF
   run "$GATE" advisory
   [ "$status" -ne 0 ]
   [[ "$output" != *"::warning::"* ]]
+}
+
+# The gate calls end_time and planned-vs-total "two INDEPENDENT completeness
+# checks". MUT-11's fixture trips both at once, so it holds with either one
+# deleted — the claim of independence was asserted by nothing. The two cases
+# below isolate them, and each is the shape a plausible cargo-mutants revision
+# actually produces.
+
+@test "MUT-11a: end_time alone catches a run that stopped mid-sweep" {
+  # Every mutant it planned was reached, but no final summary was written: the
+  # process died between the last scenario and the summary flush.
+  mk_cargo list_n=13 total=13 caught=13 planned=13 end_time=null exit=137
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"interrupted"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-11b: planned-vs-total alone catches a summarised partial run" {
+  # end_time IS set — the shape a revision that flushes the summary early, or a
+  # --shard run summarised before its last scenario, would leave. Then end_time
+  # is single-point-of-failure and this is the only check that sees a 17% run.
+  mk_cargo list_n=78 total=13 caught=13 planned=78 exit=137
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"did not finish"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-11c: a run that tested ZERO mutants is never a pass" {
+  # The scope is non-empty and the run completed, but it scored nothing. In
+  # ENFORCE the set comparison catches it first; in ADVISORY a subset is legal
+  # (that is what makes sharding work), so this is the check standing between an
+  # empty shard and `0 tested, 0 caught` reported as a clean slice.
+  mk_cargo list_n=5 total=0 caught=0 planned=0
+  run "$GATE" advisory --shard 0/4
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"tested 0 mutants"* ]]
+  [[ "$output" != *"PASS"* ]]
 }
 
 @test "MUT-12: a run where every mutant is unviable is not a pass" {
@@ -396,6 +461,51 @@ print('contract OK')
 "
   [ "$status" -eq 0 ]
   [[ "$output" == *"contract OK"* ]]
+
+  # The BASELINE marker, which is the only thing standing between the gate and a
+  # `--baseline skip` run whose every mutant is "caught" by a suite that catches
+  # nothing. Pinned here because it is a property of the tool, not of this repo.
+  run python3 -c "
+import json
+d = json.load(open('mutants.out/outcomes.json'))
+runs = [o for o in d['outcomes'] if o.get('scenario') == 'Baseline']
+assert len(runs) == 1, 'a normal run must record exactly one Baseline scenario'
+assert runs[0]['summary'] == 'Success', runs[0]['summary']
+print('baseline OK')
+"
+  [ "$status" -eq 0 ]
+
+  # …and that --baseline skip really omits it, so the gate's discriminator is
+  # the tool's behaviour rather than an assumption about it.
+  run cargo mutants --output . --baseline skip --minimum-test-timeout 20
+  run python3 -c "
+import json
+d = json.load(open('mutants.out/outcomes.json'))
+assert not [o for o in d['outcomes'] if o.get('scenario') == 'Baseline'], \
+    '--baseline skip still records a Baseline; the gate would no longer catch it'
+assert d['caught'] == d['total_mutants'], 'every mutant is still reported caught'
+print('baseline-skip OK')
+"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"baseline-skip OK"* ]]
+
+  # --no-config is what makes the expectation the HONEST one. A
+  # .cargo/mutants.toml narrows the mutant set with no argument-vector evidence
+  # at all — the channel the tool-derived expectation exists to close — so the
+  # flag's semantics are pinned against the tool, not just the gate's use of it
+  # against a stub.
+  mkdir -p .cargo
+  cat >.cargo/mutants.toml <<'TOML'
+exclude_re = ["replace \\+ with"]
+TOML
+  narrowed=$(cargo mutants --list | grep -c . || true)
+  honest=$(cargo mutants --no-config --list | grep -c . || true)
+  rm -rf .cargo
+  [ "$honest" -gt "$narrowed" ] || {
+    echo "a config exclusion no longer narrows --list ($honest vs $narrowed);"
+    echo "--no-config may have changed meaning — re-check ADR-020 section 2"
+    return 1
+  }
 }
 
 @test "MUT-15: an empty result is a skip only when the tool says the scope is empty" {
@@ -444,7 +554,7 @@ EOF
   printf 'diff --git a/rust/crates/c/src/lib.rs b/rust/crates/c/src/lib.rs\n--- a/rust/crates/c/src/lib.rs\n+++ b/rust/crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >unresolved.diff
   run "$GATE" enforce --in-diff unresolved.diff
   [ "$status" -ne 0 ]
-  [[ "$output" == *"does not exist relative to"* ]]
+  [[ "$output" == *"path that does not exist relative"* ]]
 }
 
 @test "MUT-18: a narrowing filter cannot license a skip, whatever it is called" {
@@ -518,7 +628,7 @@ EOF
       echo "waved through: $d"
       return 1
     }
-    [[ "$output" == *"does not exist relative to"* ]]
+    [[ "$output" == *"path that does not exist relative"* ]]
   done
 
   # The converse: a diff.noprefix diff naming a path that DOES resolve must
@@ -665,7 +775,8 @@ done
 mkdir -p mutants.out
 cat >mutants.out/outcomes.json <<'JSON'
 {"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0,
- "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z",
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"}]}
 JSON
 printf '{"name": "src/x.rs:1' >mutants.out/mutants.json
 exit 0
@@ -679,10 +790,10 @@ EOF
 
 @test "MUT-22b: an ENTRY shape the set comparison cannot read is diagnosed too" {
   # The array-of-strings case: it is a list, and its length matches
-  # total_mutants, so it walks past both completeness checks and only breaks in
-  # the set comparison. That is the one shape that reaches the second reader's
-  # guard — MUT-22's truncated file dies at the first one, so without this case
-  # the guard is asserted by nothing.
+  # total_mutants, so it walks past both completeness checks and the baseline
+  # check, and only breaks in the SET COMPARISON — the second of the two places
+  # this file is read. MUT-22's truncated file dies at the first one, so without
+  # this case the second reader's failure handling is asserted by nothing.
   cat >"$BIN/cargo" <<'EOF'
 #!/usr/bin/env bash
 for a in "$@"; do
@@ -691,7 +802,8 @@ done
 mkdir -p mutants.out
 cat >mutants.out/outcomes.json <<'JSON'
 {"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0,
- "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z",
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"}]}
 JSON
 echo '["src/x.rs:1:1: replace a with b"]' >mutants.out/mutants.json
 exit 0
@@ -715,7 +827,8 @@ done
 mkdir -p mutants.out
 cat >mutants.out/outcomes.json <<'JSON'
 {"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0,
- "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z",
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"}]}
 JSON
 echo '{"mutants": [{"name": "src/x.rs:1:1: replace a with b"}]}' >mutants.out/mutants.json
 exit 0
@@ -770,11 +883,303 @@ EOF
   run "$GATE" enforce --in-diff empty.diff
   [ "$status" -eq 0 ]
 
+  # A non-empty diff the tool says contains nothing mutable — a test-only PR.
+  # The other exit-0 path, and the one a reader is most likely to misread.
+  stub_cargo_zero_mutants
+  printf 'diff --git a/src/x.rs b/src/x.rs\n--- a/src/x.rs\n+++ b/src/x.rs\n@@ -1 +1 @@\n-a\n+b\n' >solid.diff
+  mkdir -p src && : >src/x.rs
+  run "$GATE" enforce --in-diff solid.diff
+  [ "$status" -eq 0 ]
+
   [ -s "$GITHUB_STEP_SUMMARY" ]
   while IFS= read -r line; do
     [[ "$line" == *PASS* || "$line" == *FAIL* || "$line" == *WARN* || "$line" == *SKIPPED* ]] ||
       { echo "job-summary line has no verdict: $line"; return 1; }
   done <"$GITHUB_STEP_SUMMARY"
   # …and one line per invocation, so none of them silently wrote nothing.
-  [ "$(grep -c . "$GITHUB_STEP_SUMMARY")" -eq 5 ]
+  [ "$(grep -c . "$GITHUB_STEP_SUMMARY")" -eq 6 ]
+}
+
+@test "MUT-25: a run with no BASELINE is never a pass, in either mode" {
+  # The demonstrated false green, and the last way "nothing ran" could render as
+  # "nothing survived": with `--baseline skip` and a test command that fails for
+  # its own reasons, cargo-mutants marks EVERY mutant caught. end_time is set,
+  # planned == total, the sets match, accounting balances, unviable is 0 — every
+  # other check in the gate passes on a tree where no test passes.
+  mk_cargo list_n=5 total=5 caught=5 baseline=missing
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"no baseline"* || "$output" == *"established no baseline"* ]]
+  [[ "$output" != *"PASS"* ]]
+
+  # Advisory is not exempt: a warning mode still must not report a score for a
+  # run that measured nothing.
+  run "$GATE" advisory
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-25b: a FAILING baseline is a different diagnosis from a missing one" {
+  # A red suite before any mutation is applied. The counters look identical to
+  # MUT-25's, so the two must be told apart by the reader, not just both refused.
+  mk_cargo list_n=5 total=5 caught=5 baseline=failed
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"baseline did not pass"* ]]
+  [[ "$output" != *"--baseline skip"* ]]
+}
+
+@test "MUT-26: --no-config is what makes the expectation honest" {
+  # `.cargo/mutants.toml` narrows the mutant set with NO argument-vector evidence
+  # at all — the channel the tool-derived expectation exists to close. Drop
+  # --no-config from the query and the expectation shrinks in lockstep with the
+  # run, the sets match, and the gate passes a scope a config file carved up.
+  # This stub answers --list with 8 mutants only when asked --no-config.
+  mk_cargo list_n=8 list_cfg_n=3 total=3 caught=3
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"never scored"* ]]
+  [[ "$output" != *"PASS"* ]]
+
+  # And the query really did carry both flags.
+  [[ "$(cargo_argv_log)" == *"--no-config --list"* ]]
+}
+
+@test "MUT-27: an advisory shard reports PARTIAL, never an unqualified PASS" {
+  # The nightly's everyday success path: each of four runners scores a slice and
+  # every mutant in that slice is caught. Rendering that as `PASS — every mutant
+  # was caught` is the original nothing-survived-vs-nothing-ran confusion one
+  # level up, in the reporting.
+  export GITHUB_STEP_SUMMARY="$WORK/summary.md"
+  : >"$GITHUB_STEP_SUMMARY"
+  mk_cargo list_n=8 total=2 caught=2 planned=2
+
+  run "$GATE" advisory --shard 0/4
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"2 of 8 in scope"* ]]
+  [[ "$output" == *"IN THIS SLICE"* ]]
+  [[ "$output" != *"PASS — every mutant was caught"* ]]
+  [[ "$(cat "$GITHUB_STEP_SUMMARY")" == *"PARTIAL PASS"* ]]
+
+  # The same subset is NOT tolerable in the merge gate: a shard of the mutant set
+  # is not a scoring of the change.
+  run "$GATE" enforce --shard 0/4
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"never scored"* ]]
+}
+
+@test "MUT-28: the run receives the caller's flags, and the query its own" {
+  # The gate makes two `cargo` calls with different argv and both matter: the
+  # query must be `--no-config --list [--in-diff F]`, and the RUN must carry
+  # everything the caller passed. Asserted from the recorded argv rather than
+  # from the verdict — with `"$@"` deleted from the run, every earlier version of
+  # this case still passed.
+  mk_cargo list_n=12 total=12 caught=12
+  printf 'diff --git a/src/x.rs b/src/x.rs\n--- a/src/x.rs\n+++ b/src/x.rs\n@@ -1 +1 @@\n-a\n+b\n' >real.diff
+  mkdir -p src && : >src/x.rs
+
+  run "$GATE" enforce --in-place --minimum-test-timeout 20 --in-diff real.diff
+  [ "$status" -eq 0 ]
+
+  local log
+  log="$(cargo_argv_log)"
+  [[ "$log" == *"mutants --no-config --list --in-diff real.diff"* ]]
+  [[ "$log" == *"--in-place --minimum-test-timeout 20 --in-diff real.diff"* ]]
+  # …and the run writes where the gate reads.
+  [[ "$log" == *"--output ."* ]]
+}
+
+@test "MUT-29: every --in-diff spelling clap accepts is checked, not just one" {
+  # `--in-diff F`, `--in-diff=F` and `-DF` are one option to clap. A spelling the
+  # gate does not recognise silently skips BOTH the path-resolution check and the
+  # skip policy — fail-open on the two checks that read the diff.
+  mk_cargo list_n=4 total=4 caught=4
+  printf 'diff --git a/rust/nope.rs b/rust/nope.rs\n--- a/rust/nope.rs\n+++ b/rust/nope.rs\n@@ -1 +1 @@\n-a\n+b\n' >bad.diff
+
+  local spelling
+  for spelling in "--in-diff bad.diff" "--in-diff=bad.diff" "-Dbad.diff"; do
+    # shellcheck disable=SC2086
+    run "$GATE" enforce $spelling
+    [ "$status" -ne 0 ] || {
+      echo "spelling '$spelling' bypassed the diff checks"
+      return 1
+    }
+    [[ "$output" == *"path that does not exist relative"* ]] || {
+      echo "spelling '$spelling' gave: $output"
+      return 1
+    }
+  done
+}
+
+@test "MUT-30: a whitespace-spelled mutants::skip is still an added skip" {
+  # Rust tolerates whitespace and comments around `::`, and cargo-mutants
+  # resolves the attribute through syn, so `mutants :: skip` really does suppress
+  # every mutant of the function. A substring match on "mutants::skip" bought the
+  # whole exemption back for one extra space — in a spelling that looks MORE
+  # idiomatic to a reviewer skimming the diff.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  local spelling
+  for spelling in '#[cfg_attr(test, mutants :: skip)]' '#[mutants::  skip]'; do
+    printf 'use std::fmt;\n%s\nfn adapter() {}\n' "$spelling" >src/x.rs
+    printf 'diff --git a/src/x.rs b/src/x.rs\n--- /dev/null\n+++ b/src/x.rs\n@@ -0,0 +1,3 @@\n+use std::fmt;\n+%s\n+fn adapter() {}\n' "$spelling" >skip.diff
+    run "$GATE" enforce --in-diff skip.diff
+    [ "$status" -ne 0 ] || {
+      echo "spelling '$spelling' evaded the skip policy"
+      return 1
+    }
+    [[ "$output" == *"ADR-020"* ]]
+  done
+}
+
+@test "MUT-30b: the comment must be NEAR the skip, not anywhere above it" {
+  # The whole content of the rule is the window. Widen it to the top of the file
+  # and the check is unconditionally vacuous on real source: all seven skips in
+  # this tree sit hundreds of lines below some `//`.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  cat >src/x.rs <<'RS'
+// A comment, but about something else entirely, far above.
+use std::fmt;
+use std::io;
+use std::path::Path;
+use std::process;
+#[cfg_attr(test, mutants::skip)]
+fn adapter() {}
+RS
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,7 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/x.rs:6"* ]]
+}
+
+@test "MUT-30c: a comment that MENTIONS the attribute is not itself a skip" {
+  # Every justification comment in the tree names the attribute it justifies. If
+  # the recogniser matched those, the file would be pulled into scope by its own
+  # documentation — and each comment line judged as an unannotated skip.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  cat >src/x.rs <<'RS'
+/// This function is not annotated with #[mutants::skip] and does not need to be.
+fn ordinary() {}
+RS
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,2 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
+@test "MUT-31: a stale mutants.out from a previous run is never read as this one" {
+  # The gate reads a fixed directory. Left in place, a prior invocation's results
+  # — a clean sweep, say — are what a failed run would be judged by.
+  mkdir -p mutants.out
+  python3 -c "
+import json
+json.dump({'total_mutants': 99, 'missed': 0, 'caught': 99, 'timeout': 0,
+           'unviable': 0, 'end_time': 'stale',
+           'outcomes': [{'scenario': 'Baseline', 'summary': 'Success'}]},
+          open('mutants.out/outcomes.json','w'))
+json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
+"
+  stub_cargo_rejects_flags
+  run "$GATE" enforce --in-place --jobs 4
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"did not complete a run"* ]]
+  [[ "$output" != *"99"* ]]
+}
+
+@test "MUT-32: invoked with no arguments it says so, rather than crashing" {
+  run "$GATE"
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"usage"* ]]
+  [[ "$output" != *"unbound variable"* ]]
+}
+
+@test "MUT-32b: a listing flag is refused — it produces no score to judge" {
+  # `--list` and `--list-files` write no mutants.out at all, so every check here
+  # would read a missing file and report "cargo-mutants did not complete a run".
+  # True, but it names the wrong problem: the caller asked for a listing, not a
+  # run. Refuse it where the argument is read.
+  mk_cargo list_n=4 total=4 caught=4
+  local flag
+  for flag in --list --list-files; do
+    run "$GATE" enforce "$flag"
+    [ "$status" -ne 0 ]
+    [[ "$output" == *"produces no mutation score"* ]] || {
+      echo "'$flag' gave: $output"
+      return 1
+    }
+  done
+}
+
+@test "MUT-33: a core.quotePath-escaped diff is refused with the fix, not a guess" {
+  # git's DEFAULT quoting for non-ASCII paths. Decoding it wrong means
+  # hard-failing an honest PR, so the gate refuses and names the flag that fixes
+  # it. Without this the path check reports "does not exist relative to", sending
+  # the reader to look for a file that is really just mis-encoded.
+  mk_cargo list_n=4 total=4 caught=4
+  printf 'diff --git "a/src/caf\\303\\251.rs" "b/src/caf\\303\\251.rs"\n--- "a/src/caf\\303\\251.rs"\n+++ "b/src/caf\\303\\251.rs"\n@@ -1 +1 @@\n-a\n+b\n' >quoted.diff
+  run "$GATE" enforce --in-diff quoted.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"core.quotePath"* ]]
+}
+
+@test "MUT-34: both workflows still invoke the mode and the flags they need" {
+  # MUT-20 derives the shard matrix from the workflow and runs it through the
+  # real tool. The same reasoning applies to the two things that decide what the
+  # gate MEANS: one word at test.yml — enforce -> advisory — turns the merge gate
+  # into a warning, with the whole suite still green and the change reading in
+  # review as a plausible "reduce PR friction" edit.
+  local root="${BATS_TEST_DIRNAME}/../.."
+  local pr="$root/.github/workflows/test.yml"
+  local nightly="$root/.github/workflows/nightly-mutation.yml"
+  [ -f "$pr" ] && [ -f "$nightly" ]
+
+  # Both invocations wrap over a backslash continuation, so join those first —
+  # grepping the raw line sees the mode and none of the flags.
+  gate_call() {
+    sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$1" | grep -h 'mutation-gate\.sh'
+  }
+  local pr_call nightly_call
+  pr_call="$(gate_call "$pr")"
+  nightly_call="$(gate_call "$nightly")"
+
+  # The per-PR gate FAILS a merge, and is bounded by the diff so its cost is
+  # proportional to the change (ADR-020 §1).
+  [[ "$pr_call" == *"mutation-gate.sh enforce"* ]] || {
+    echo "test.yml no longer calls the gate in enforce mode: $pr_call"
+    return 1
+  }
+  [[ "$pr_call" == *"--in-diff"* ]] || {
+    echo "test.yml no longer bounds the gate by the diff: $pr_call"
+    return 1
+  }
+  # The nightly WARNS, and covers the whole workspace by sharding.
+  [[ "$nightly_call" == *"mutation-gate.sh advisory"* ]] || {
+    echo "nightly no longer calls the gate in advisory mode: $nightly_call"
+    return 1
+  }
+  [[ "$nightly_call" == *"--shard"* ]]
+  # --in-place is required by both (two agentlinux-core tests read fixtures
+  # outside the workspace, so the default copy-tree baseline fails) and it is
+  # what forbids --jobs.
+  [[ "$pr_call" == *"--in-place"* ]]
+  [[ "$nightly_call" == *"--in-place"* ]]
+  [[ "$pr_call" != *"--jobs"* ]]
+  [[ "$nightly_call" != *"--jobs"* ]]
+  # The flag that made the false green reproducible.
+  [[ "$pr_call" != *"--baseline"* ]]
+  [[ "$nightly_call" != *"--baseline"* ]]
 }
