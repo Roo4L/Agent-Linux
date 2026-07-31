@@ -49,35 +49,9 @@ esac
 # logs "Diff file is empty" and exits 0. That is a legitimate outcome (a PR that
 # touches no Rust), but it must be visible rather than indistinguishable from a
 # clean pass, so name it here and skip the run.
-# Set once an --in-diff file has been seen and validated; cleared by anything
-# that could ALSO have narrowed the mutant set.
-#
-# This is an ALLOWLIST, not a denylist, and the distinction is the whole point.
-# Two previous rounds enumerated the filter spellings to reject — `--file`,
-# `--exclude`, `--shard`, `--list` — and a reviewer walked straight through nine
-# more (`-f`, `-e`, `-E`, `-F`, `-fVALUE`, `--iterate`, `--package`,
-# `--skip-calls`, `--list-files`). Denylisting a third-party CLI's grammar drifts
-# by construction: every cargo-mutants release may add another spelling, and the
-# test suite ends up co-blind with the code because it enumerates the same
-# strings. Anything not known-benign now disables the skip, so an unrecognised
-# flag fails CLOSED — a hard failure, never a green.
-saw_diff_file=0
-saw_other_filter=""
-
-# Arguments that cannot narrow which mutants are generated. Everything else is
-# treated as potentially narrowing, whatever it is called.
-is_benign_arg() {
-  case "$1" in
-    --in-place | --no-copy-vcs | --no-shuffle | --shuffle) return 0 ;;
-    --minimum-test-timeout | --minimum-test-timeout=* | --timeout | --timeout=*) return 0 ;;
-    --build-timeout | --build-timeout=* | --output | --output=* | -o | -o*) return 0 ;;
-    --jobs | --jobs=* | -j | -j*) return 0 ;;
-    -v | --verbose | -q | --quiet | --no-times | --colors | --colors=*) return 0 ;;
-    # A bare numeric/path operand belonging to one of the value-taking flags
-    # above; the loop below tracks that explicitly.
-    *) return 1 ;;
-  esac
-}
+# The --in-diff file, if one was given. The gate's expectation is derived from
+# the TOOL, not from inspecting the argument vector — see verify_expectation.
+diff_file=""
 
 check_diff_file() {
   local f="$1"
@@ -121,47 +95,42 @@ check_diff_file() {
     sed 's|^"||; s|"$||; s|^[a-z]/||' |
     grep -E '\.rs$' | grep -v '^dev/null$')
 
-  saw_diff_file=1
 }
 
+# Find the --in-diff file. That is ALL this loop does now.
+#
+# Four rounds of this script tried to decide, by reading argv, whether the
+# caller had narrowed the mutant set — first a denylist of filter flags, then an
+# allowlist of benign ones. Both are hand-copies of clap's grammar and both
+# leaked: eleven flag spellings walked through the denylist, and the allowlist
+# still blessed `--verbose`/`-q` (which do not exist) and `--jobs` (which
+# `--in-place` forbids) while rejecting `-t`, `--baseline` and `-- --test-threads`.
+# Worse, `.cargo/mutants.toml` narrows the set with NO argv evidence at all, so
+# no argument rule can see it, by construction.
+#
+# So stop guessing and ask the tool. See verify_expectation below.
 want_diff_file=0
-expect_value=0
 for arg in "$@"; do
   if [[ $want_diff_file -eq 1 ]]; then
     check_diff_file "$arg"
+    diff_file="$arg"
     want_diff_file=0
     continue
   fi
-  if [[ $expect_value -eq 1 ]]; then
-    expect_value=0
-    continue
-  fi
   case "$arg" in
-    --in-diff | -D)
-      want_diff_file=1
-      continue
+    --in-diff | -D) want_diff_file=1 ;;
+    --in-diff=*)
+      check_diff_file "${arg#*=}"
+      diff_file="${arg#*=}"
       ;;
-    --in-diff=* | -D*)
-      [[ $arg == -D ]] || check_diff_file "${arg#*=}"
-      continue
+    -D?*)
+      check_diff_file "${arg#-D}"
+      diff_file="${arg#-D}"
       ;;
-    # No score is ever produced by a listing run, so a gate cannot be satisfied
-    # by one — under any spelling.
     --list | --list-files)
       die "'$arg' produces no mutation score; the gate cannot run against it"
       ;;
   esac
-  if is_benign_arg "$arg"; then
-    # Value-taking benign flags in their separated form consume the next token.
-    case "$arg" in
-      --minimum-test-timeout | --timeout | --build-timeout | --output | -o | --jobs | -j)
-        expect_value=1
-        ;;
-    esac
-    continue
-  fi
-  # Not recognised as benign → assume it can narrow the set.
-  saw_other_filter="$arg"
 done
 [[ $want_diff_file -eq 0 ]] || die "--in-diff given with no file argument"
 
@@ -188,34 +157,35 @@ set -e
 
 outcomes="$OUT_DIR/outcomes.json"
 
-# A non-empty --in-diff whose lines yield no mutants — a test-only change, or a
-# manifest edit now that the pathspec is the whole rust/ tree — is a legitimate
-# outcome and must be NAMED: a gate that hard-fails on a PR the contributor
-# cannot fix is how the previous one earned its bypass.
+# What SHOULD have been scored, according to cargo-mutants itself.
 #
-# But `exit 0` with no results file is NOT unique to that case. cargo-mutants
-# also exits 0 writing nothing when a --file filter matches nothing, when a
-# --shard is empty, on --list, and — the dangerous one — when --in-diff's paths
-# do not resolve against the workspace. Skipping on the bare status therefore
-# turned the canonical missing---relative bug into a permanent green, on the
-# ENFORCING gate, with a step-summary line that read like a real outcome.
+# `--list` runs the tool's own filtering, so it accounts for every flag spelling,
+# every future flag, and — crucially — `.cargo/mutants.toml`, which narrows the
+# set with no argument-vector evidence at all. `--no-config` is passed so the
+# expectation is the honest one: the mutants this diff SHOULD produce, not the
+# ones a config file left after excluding some.
 #
-# So the skip requires an --in-diff file that was supplied, non-empty, and whose
-# paths resolve (checked in check_diff_file). Every other absent-outcomes case
-# falls through to the hard failure below.
-if [[ ! -f $outcomes && $cargo_status -eq 0 && $saw_diff_file -eq 1 && -z $saw_other_filter ]]; then
-  echo "mutation gate: the diff produced no mutants — nothing in it is mutable"
-  echo "  (test-only lines, comments, or manifest edits). Nothing to score."
-  echo "- \`$mode\`: SKIPPED (no mutants in diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
-  exit 0
-fi
+# The diff is the only narrowing this gate accepts. Everything else — a stray
+# `--file`, an empty `--shard`, an `exclude_globs` in a config — shows up as a
+# disagreement between this expectation and what the run actually scored.
+expected_mutants() {
+  if [[ -n $diff_file ]]; then
+    cargo mutants --no-config --list --in-diff "$diff_file" 2>/dev/null | grep -c . || true
+  else
+    cargo mutants --no-config --list 2>/dev/null | grep -c . || true
+  fi
+}
 
-if [[ ! -f $outcomes && $cargo_status -eq 0 && -n $saw_other_filter ]]; then
-  die "cargo-mutants produced no results, and '$saw_other_filter' was passed
-  alongside --in-diff. A second filter can empty the mutant set for a diff that
-  is full of uncaught mutants, so this cannot be reported as 'nothing in the
-  diff was mutable'. Run the gate with --in-diff as the only filter, or score
-  each shard's own diff."
+expected=$(expected_mutants)
+
+# Zero expected is the ONE legitimate skip: the diff (or the workspace) genuinely
+# contains nothing mutable. Derived from the tool, so it cannot be manufactured
+# by a filter flag or a config file.
+if [[ $expected -eq 0 ]]; then
+  echo "mutation gate: nothing mutable in scope — cargo-mutants lists 0 mutants"
+  echo "  for this diff, so there is nothing to score."
+  echo "- \`$mode\`: SKIPPED (no mutants in scope)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+  exit 0
 fi
 
 [[ -f $outcomes ]] || die "no $outcomes after cargo-mutants exited $cargo_status.
@@ -259,6 +229,30 @@ fi
 if [[ $planned -ge 0 && $planned -ne $total ]]; then
   die "cargo-mutants planned $planned mutant(s) but outcomes.json records only
   $total. The run did not finish; a partial result is not a pass."
+fi
+
+# The run must have scored everything the tool says this scope contains. A
+# narrowing filter or a config exclusion shows up HERE, as a smaller set than
+# expected — including when the subset it scored is entirely clean, which is the
+# case that printed "PASS — every mutant was caught" on a diff with survivors.
+if [[ $total -lt $expected ]]; then
+  die "cargo-mutants scored $total mutant(s) but this scope contains $expected.
+  Something narrowed the set — a filter flag, a --shard, or an exclusion in
+  .cargo/mutants.toml. Scoring a subset is not scoring the change: the $((expected - total))
+  unscored mutant(s) may be exactly the surviving ones. Run the gate over the
+  whole scope, or shard it by splitting the DIFF rather than the mutant set."
+fi
+
+# Every mutant must land in exactly one bucket. `--check` builds each mutant
+# without running any test, leaving total=10 with all four counters at 0 — so
+# the gate printed "0 caught" and "every mutant was caught" on consecutive
+# lines. An accounting identity costs one comparison and closes it.
+accounted=$((caught + missed + timeout + unviable))
+if [[ $accounted -ne $total ]]; then
+  die "cargo-mutants reports $total mutant(s) but only $accounted are accounted
+  for (caught=$caught missed=$missed timeout=$timeout unviable=$unviable). No
+  test was run against the remainder — a --check run builds mutants without
+  testing them, which is not a mutation score."
 fi
 
 summary="mutants: ${total} tested, ${caught} caught, ${missed} missed, ${timeout} timeout, ${unviable} unviable"

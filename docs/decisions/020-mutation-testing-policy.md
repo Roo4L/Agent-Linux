@@ -56,19 +56,23 @@ Corollaries, each of which was a real false-green:
   whose lines yield no mutants — a test-only PR, or a manifest edit — because a
   gate that hard-fails on something the contributor cannot fix is how the
   previous one earned its bypass.
-- that second skip is narrowly conditioned, and the condition is the whole
-  point. cargo-mutants exits 0 writing NO results file in at least four
-  situations: the diff had no mutable lines, a `--file` filter matched nothing,
-  a `--shard` was empty, and — the dangerous one — `--in-diff`'s paths did not
-  resolve against the workspace, which is exactly what a missing `--relative`
-  produces. Keying the skip on the exit status alone therefore turned the
-  canonical `--relative` bug into a permanent green on the ENFORCING gate. The
-  skip now requires an `--in-diff` file that was supplied, non-empty, AND whose
-  `.rs` paths resolve from the run directory; everything else falls through to
-  the hard failure. MUT-15/16/17 pin all three shapes.
-- the diff is written to a file under `set -euo pipefail`, not passed via
-  `<(git diff …)`, because process substitution discards git's exit status and a
-  bad pathspec then yields an empty diff and a green gate.
+- the skip's condition is derived from the TOOL, not from reading the argument
+  vector. cargo-mutants exits 0 writing no results file for several reasons — a
+  diff with nothing mutable, a `--file` matching nothing, an empty `--shard`, a
+  non-resolving `--in-diff` — and, worse, `.cargo/mutants.toml` can narrow the
+  set with no argv evidence at all. So the gate asks
+  `cargo mutants --no-config --list --in-diff <diff>` what the scope SHOULD
+  contain and licenses the skip only when the answer is zero. It then requires
+  the run to have scored at least that many, and requires
+  `caught + missed + timeout + unviable == total` so a `--check` run — which
+  builds mutants without testing any — cannot report a score.
+
+  Three earlier revisions tried to decide this by inspecting arguments: a
+  denylist of filter flags, then an allowlist of benign ones. Both are
+  hand-copies of clap's grammar; the denylist leaked eleven spellings, the
+  allowlist blessed flags that do not exist while rejecting real ones, and
+  neither could ever see the config file. Delegating to the tool needs no model
+  of its grammar and survives flags it has not shipped yet.
 
 The gate script has its own bats suite (`tests/bats/80-mutation-gate.bats`).
 Testing the thing that judges the tests is not ceremony here: an untested gate

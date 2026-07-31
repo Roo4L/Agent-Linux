@@ -35,6 +35,14 @@ stub_cargo_outcomes() {
   local unviable="${6:-0}"
   cat >"$BIN/cargo" <<EOF
 #!/usr/bin/env bash
+# The gate first asks the tool what this scope SHOULD contain, via
+# \`--list\`. Answer with total_mutants lines so the expectation matches.
+for a in "\$@"; do
+  if [ "\$a" = "--list" ]; then
+    for i in \$(seq 1 $1); do echo "src/x.rs:\$i:1: replace a with b"; done
+    exit 0
+  fi
+done
 mkdir -p mutants.out
 cat >mutants.out/outcomes.json <<JSON
 {"total_mutants": $1, "missed": $2, "caught": $3, "timeout": $4,
@@ -55,6 +63,12 @@ EOF
 stub_cargo_interrupted() {
   cat >"$BIN/cargo" <<EOF
 #!/usr/bin/env bash
+for a in "\$@"; do
+  if [ "\$a" = "--list" ]; then
+    for i in \$(seq 1 $2); do echo "src/x.rs:\$i:1: replace a with b"; done
+    exit 0
+  fi
+done
 mkdir -p mutants.out
 cat >mutants.out/outcomes.json <<JSON
 {"total_mutants": $1, "missed": 0, "caught": $1, "timeout": 0,
@@ -75,6 +89,10 @@ EOF
 stub_cargo_zero_mutants() {
   cat >"$BIN/cargo" <<'EOF'
 #!/usr/bin/env bash
+# --list prints nothing: the scope genuinely contains no mutants.
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then exit 0; fi
+done
 echo " INFO No mutants to filter"
 exit 0
 EOF
@@ -86,6 +104,12 @@ EOF
 stub_cargo_rejects_flags() {
   cat >"$BIN/cargo" <<'EOF'
 #!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then
+    echo "src/x.rs:1:1: replace a with b"
+    exit 0
+  fi
+done
 echo "error: the argument '--in-place' cannot be used with '--jobs <JOBS>'" >&2
 exit 1
 EOF
@@ -131,16 +155,65 @@ EOF
   [ "$status" -ne 0 ]
 }
 
-@test "MUT-05: testing zero mutants is never a pass" {
-  # The --in-diff --relative path-rewriting bug: the filter matches nothing,
-  # cargo-mutants exits 0, and every PR sails through.
-  stub_cargo_outcomes 0 0 0 0 0
+@test "MUT-05: scoring fewer mutants than the scope contains is never a pass" {
+  # The gate asks cargo-mutants what this scope SHOULD contain and compares. A
+  # run that scored a SUBSET — because a filter flag, a --shard, or an
+  # exclude_globs in .cargo/mutants.toml narrowed it — is not a pass even when
+  # every mutant it did score was caught. That shape printed
+  # "PASS — every mutant was caught" on a diff with survivors.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then
+    for i in 1 2 3 4 5 6 7 8 9 10; do echo "src/x.rs:$i:1: replace a with b"; done
+    exit 0
+  fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 5, "missed": 0, "caught": 5, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+JSON
+python3 -c "import json; json.dump([{}]*5, open('mutants.out/mutants.json','w'))"
+: >mutants.out/missed.txt
+: >mutants.out/timeout.txt
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
   run "$GATE" enforce
   [ "$status" -ne 0 ]
-  [[ "$output" == *"0 mutants"* ]]
+  [[ "$output" == *"scored 5"* ]]
+  [[ "$output" == *"contains 10"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
 
-  run "$GATE" advisory
+@test "MUT-05b: every mutant must land in a bucket" {
+  # `--check` builds each mutant without testing it, leaving all four counters
+  # at 0 against a non-zero total — so the gate printed "0 caught" and "every
+  # mutant was caught" on consecutive lines.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then
+    for i in 1 2 3 4 5; do echo "src/x.rs:$i:1: replace a with b"; done
+    exit 0
+  fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 5, "missed": 0, "caught": 0, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+JSON
+python3 -c "import json; json.dump([{}]*5, open('mutants.out/mutants.json','w'))"
+: >mutants.out/missed.txt
+: >mutants.out/timeout.txt
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
   [ "$status" -ne 0 ]
+  [[ "$output" == *"accounted"* ]]
+  [[ "$output" != *"PASS"* ]]
 }
 
 @test "MUT-06: a timed-out mutant counts as surviving, not as caught" {
@@ -279,21 +352,31 @@ print('contract OK')
   [[ "$output" == *"contract OK"* ]]
 }
 
-@test "MUT-15: a zero-mutant run only skips when an --in-diff explains it" {
-  # The real tool exits 0 writing nothing whenever a filter matches nothing.
-  # Treating that status alone as "the diff had no mutable lines" turned the
-  # canonical missing---relative bug into a permanent green on the ENFORCING
-  # gate. Without an --in-diff there is no diff to blame, so it must fail.
-  stub_cargo_zero_mutants
+@test "MUT-15: an empty result is a skip only when the tool says the scope is empty" {
+  # The stub answers `--list` honestly — the scope contains 4 mutants — and then
+  # produces no results file. That is the shape a narrowing filter or an empty
+  # --shard leaves, and it must never read as "nothing was mutable".
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then
+    for i in 1 2 3 4; do echo "src/x.rs:$i:1: replace a with b"; done
+    exit 0
+  fi
+done
+echo " INFO No mutants to filter"
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+
   run "$GATE" enforce
   [ "$status" -ne 0 ]
-  [[ "$output" == *"did not complete a run"* ]]
+  [[ "$output" != *"PASS"* ]]
 
-  # The nightly shape: --shard, no --in-diff. An empty shard must not read as
-  # "nothing in the diff" — there is no diff.
+  # Advisory is no more tolerant: a run that scored nothing is not a warning.
   run "$GATE" advisory --shard 99/100
   [ "$status" -ne 0 ]
-  [[ "$output" != *"no mutants in diff"* ]]
+  [[ "$output" != *"::warning::"* ]]
 }
 
 @test "MUT-16: a real test-only diff is still a named skip" {
@@ -305,7 +388,7 @@ print('contract OK')
   printf 'diff --git a/crates/c/src/lib.rs b/crates/c/src/lib.rs\n--- a/crates/c/src/lib.rs\n+++ b/crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >testonly.diff
   run "$GATE" enforce --in-diff testonly.diff
   [ "$status" -eq 0 ]
-  [[ "$output" == *"no mutants"* ]]
+  [[ "$output" == *"nothing mutable in scope"* ]]
 }
 
 @test "MUT-17: an --in-diff whose paths do not resolve is a hard failure" {
@@ -318,26 +401,47 @@ print('contract OK')
   [[ "$output" == *"does not exist relative to"* ]]
 }
 
-@test "MUT-18: only known-benign flags may accompany --in-diff for a skip" {
-  # The property, not a list. Two rounds enumerated the filter spellings to
-  # reject and a reviewer walked through nine more (-f, -e, -E, -F, -fVALUE,
-  # --iterate, --package, --skip-calls, --list-files). The rule is now an
-  # allowlist, so this asserts the SHAPE: anything unrecognised must disable the
-  # skip. The sample below deliberately includes short and attached-value forms
-  # the previous denylist missed, plus a flag that does not exist — because the
-  # point is that the gate does not need to know what it means.
-  stub_cargo_zero_mutants
+@test "MUT-18: a narrowing filter cannot license a skip, whatever it is called" {
+  # Four rounds tried to recognise narrowing by reading argv — a denylist of
+  # filter flags, then an allowlist of benign ones. Both were hand-copies of
+  # clap's grammar and both leaked; and `.cargo/mutants.toml` narrows with NO
+  # argv evidence at all, so no argument rule can see it.
+  #
+  # The gate now asks the tool (`--list --no-config`) what the scope contains
+  # and compares. This asserts THAT property: a run whose scored set is smaller
+  # than the tool's own expectation fails, and the sample below deliberately
+  # includes spellings no allowlist knew plus a flag that does not exist.
   mkdir -p crates/c/src
   printf 'pub fn f() {}\n' >crates/c/src/lib.rs
   printf 'diff --git a/crates/c/src/lib.rs b/crates/c/src/lib.rs\n--- a/crates/c/src/lib.rs\n+++ b/crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >d.diff
 
-  for extra in "--file x" "-f x" "--exclude x" "-e x" "-E x" "-F x" "-fx" \
-    "--shard 9/10" "--iterate" "--package p" "-p p" "--skip-calls f" \
-    "--some-flag-invented-tomorrow"; do
+  # --list (the expectation) always reports 4; the run only ever scores 2.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then
+    for i in 1 2 3 4; do echo "src/x.rs:$i:1: replace a with b"; done
+    exit 0
+  fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 2, "missed": 0, "caught": 2, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+JSON
+python3 -c "import json; json.dump([{}]*2, open('mutants.out/mutants.json','w'))"
+: >mutants.out/missed.txt
+: >mutants.out/timeout.txt
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+
+  for extra in "--file x" "-f x" "-e x" "-E x" "-F x" "-fx" "--shard 9/10" \
+    "--iterate" "--package p" "-p p" "--skip-calls f" "--some-flag-from-2027" ""; do
     # shellcheck disable=SC2086
     run "$GATE" enforce --in-diff d.diff $extra
     [ "$status" -ne 0 ] || {
-      echo "BYPASS via: $extra"
+      echo "BYPASS via: '$extra'"
       return 1
     }
   done
@@ -347,11 +451,6 @@ print('contract OK')
     run "$GATE" enforce --in-diff d.diff "$l"
     [ "$status" -ne 0 ]
   done
-
-  # …and flags that cannot narrow the mutant set must NOT block the skip,
-  # or the gate becomes unusable and gets bypassed for real.
-  run "$GATE" enforce --in-diff d.diff --in-place --minimum-test-timeout 20 --jobs 4
-  [ "$status" -eq 0 ]
 }
 
 @test "MUT-19: an unparseable or unresolvable diff is never treated as verified" {
