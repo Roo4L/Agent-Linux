@@ -206,7 +206,7 @@ al_pb_install() {
   # al_pb_fetch_and_verify) would fire the trap and delete $tmp before
   # al_pb_extract_install reads it. Disable functrace for this function's scope
   # and restore it before returning; the trap is installed after `set +T` so it
-  # captures the disabled state. Mirrors plugin/lib/detect.sh::run_once. In
+  # captures the disabled state. In
   # production recipes run in a fresh `bash` subprocess without inherited -T, so
   # this is defense-in-depth for any future in-process (source + direct call)
   # caller — but cheap and precedented, so we apply it here too.

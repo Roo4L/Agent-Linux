@@ -261,6 +261,49 @@ al_mcp_register_http() {
   [[ -n "$AL_MCP_TARGETS" ]]
 }
 
+# al_mcp_install_http <server> <url> <display>
+# The whole install-side arc for a hosted remote MCP server: announce, fan out,
+# and turn a failure into the right diagnostic. Every hosted-MCP recipe is this
+# call plus its own vendor-specific auth NOTE.
+#
+# The two failure modes al_mcp_register_http conflates behind one non-zero exit
+# are separated here, because they need different advice: NO agent installed
+# (nothing to register into — tell the user to install one) versus a present
+# agent that failed (a real error — name the targets). Each recipe used to carry
+# a byte-identical copy of this branching.
+al_mcp_install_http() {
+  local server=$1 url=$2 display=$3
+
+  echo "${server}: registering the ${display} (${url}) into installed MCP-capable agents"
+
+  if ! al_mcp_register_http "$server" "$url"; then
+    if [[ -z "${AL_MCP_TARGETS:-}" ]]; then
+      echo "${server} install: no MCP-capable coding agent is installed." >&2
+      echo "${server} install: install one first, e.g.  agentlinux install claude-code" >&2
+      return 1
+    fi
+    echo "${server} install: registration failed for one of: ${AL_MCP_TARGETS}" >&2
+    return 1
+  fi
+
+  echo "${server}: registered into: ${AL_MCP_TARGETS}"
+  # ADR-018: auth is completed IN-CLIENT — AgentLinux stores no token.
+  echo "${server}: NOTE — authenticate from within your coding agent on first use"
+}
+
+# al_mcp_uninstall_http <server> <display>
+# The whole uninstall-side arc: deregister from every present agent, then assert
+# no residue. Deregistration IS the uninstall — nothing was installed to a
+# prefix, and AgentLinux never stored a credential (ADR-018), so there is
+# nothing else to remove.
+al_mcp_uninstall_http() {
+  local server=$1 display=$2
+  echo "${server}: deregistering the ${display} from all present agents"
+  al_mcp_deregister "$server"
+  al_mcp_assert_absent "$server"
+  echo "${server}: deregistered (no residue in any agent config)"
+}
+
 # al_mcp_deregister <server>
 # Remove the registration from every present agent's config. Idempotent (a no-op
 # where the entry is absent). Returns non-zero only if a removal write fails;

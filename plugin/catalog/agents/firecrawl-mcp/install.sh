@@ -1,17 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# firecrawl-mcp install.sh — source_kind: mcp, remote-http (Phase 40, MCP-07).
+# firecrawl-mcp install.sh — source_kind: mcp, remote-http.
 #
 # Thin client-config installer (ADR-018): registers Firecrawl's HOSTED remote MCP
-# server (bare URL, NO credential) into EVERY installed MCP-capable coding agent
-# via the shared helper. Reuses the ENABLE-02 remote-http machinery (Phase 36).
+# server (bare URL, NO credential) into every installed MCP-capable agent.
 #
-# The bare endpoint uses Firecrawl's documented MCP OAuth flow (including dynamic
-# client registration). Clients that cannot complete that flow may use a personal
-# API key in the URL path at runtime; AgentLinux never stores or prints that key.
-#
-# pinned_version names the curated upstream firecrawl-mcp release the endpoint is
-# validated against (ADR-011); the registration target is the URL.
+# Auth (ADR-018): AgentLinux bakes NOTHING — the user authenticates from within
+# their coding agent on first use. See the NOTE printed at the end.
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 : "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}"
@@ -20,29 +15,12 @@ set -euo pipefail
 source "${AGENTLINUX_CATALOG_DIR}/lib/mcp-register.sh"
 
 server="firecrawl-mcp"
-# The keyless hosted endpoint (kept in sync with the catalog entry's endpoint_url;
-# bats cross-asserts they match). Self-hosted Firecrawl users point at their own
-# host via the same re-registration path.
+# The hosted endpoint — kept in sync with the catalog entry's endpoint_url (bats
+# cross-asserts they match).
 url="https://mcp.firecrawl.dev/v2/mcp"
 
-echo "${server}: registering the Firecrawl remote MCP server (${url}) into installed MCP-capable agents"
+al_mcp_install_http "$server" "$url" "Firecrawl remote MCP server"
 
-# Fan out. al_mcp_register_http returns non-zero when NO agent is present (nothing
-# to register into) OR when a present agent fails — distinguish the two so the
-# no-agent case gets a friendly pointer instead of a cryptic error.
-if ! al_mcp_register_http "$server" "$url"; then
-  if [[ -z "${AL_MCP_TARGETS:-}" ]]; then
-    echo "${server} install: no MCP-capable coding agent is installed." >&2
-    echo "${server} install: install one first, e.g.  agentlinux install claude-code" >&2
-    exit 1
-  fi
-  echo "${server} install: registration failed for one of: ${AL_MCP_TARGETS}" >&2
-  exit 1
-fi
-
-echo "${server}: registered into: ${AL_MCP_TARGETS}"
-# ADR-018: no token stored by AgentLinux. The client completes OAuth at runtime.
-echo "${server}: NOTE — authenticate through the client's OAuth flow on first use."
 echo "${server}:        If your client cannot complete Firecrawl OAuth, get a personal key at"
 echo "${server}:        https://firecrawl.dev/app/api-keys and re-register it at runtime"
 echo "${server}:        with the key in the URL path — e.g. for Claude Code:"

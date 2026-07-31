@@ -12,7 +12,7 @@
 # that agent's own config. So wiring fans OUT to each supported agent that is
 # PRESENT, and `remove` tears it down. Because the CLI re-runs al_rtk_wire after
 # any LATER agent install (rtk's rewire.sh reverse-trigger, dispatched by
-# plugin/cli/src/rewire.ts), the end state is install-order-independent.
+# rust/crates/agentlinux/src/rewire.rs), the end state is install-order-independent.
 #
 # Supported targets — commands + landing artifacts verified against rtk 0.42.4
 # (`rtk init --help` + real inits):

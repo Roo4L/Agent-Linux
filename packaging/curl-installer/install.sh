@@ -38,8 +38,13 @@ IFS=$'\n\t'
 # AGENTLINUX_RELEASE_BASE is the test-mode seam consumed by 60-curl-installer.bats;
 # when set it REPLACES the github.com base URL entirely, including the path.
 # ------------------------------------------------------------------------------
-: "${ORG:=Roo4L}"
-: "${AGENTLINUX_ORG:=$ORG}" # alias for readability in docs
+# The GitHub org releases are fetched from. `AGENTLINUX_ORG` is the documented
+# knob (matching every other AGENTLINUX_* override); bare `ORG` is still honored
+# so existing invocations keep working. Both resolve into `ORG`, which is what
+# the URL builders read — previously `AGENTLINUX_ORG` was assigned and never
+# read, so the documented override silently installed from the default org.
+: "${AGENTLINUX_ORG:=${ORG:-Roo4L}}"
+ORG="$AGENTLINUX_ORG"
 : "${AGENTLINUX_RELEASE_BASE:=}"
 : "${AGENTLINUX_VERSION:=}"
 # The install user the provisioner sets up (DIST-01). Overridable for test forks;
@@ -156,8 +161,8 @@ main() {
   check_root
   detect_supported_distro
 
-  # Org sanity — even though the default is hardcoded, AGENTLINUX_ORG env may
-  # override it (e.g. for test forks). Refuse arbitrary path injection.
+  # Org sanity — AGENTLINUX_ORG (or bare ORG) may override the default, e.g. for
+  # a test fork. Regex-gated: refuse arbitrary path injection into the URL.
   [[ "$ORG" =~ $ORG_REGEX ]] \
     || die "ORG fails regex ${ORG_REGEX}: '${ORG}'"
 

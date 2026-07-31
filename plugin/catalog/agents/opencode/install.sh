@@ -9,7 +9,8 @@ set -euo pipefail
 # resolves opencode-linux-x64 automatically. Binary name is `opencode`.
 # source_kind: npm — per-user global install via Phase 3's .npm-global prefix.
 #
-# NPM_CONFIG_PREFIX=/home/agent/.npm-global (runner.ts) keeps the install
+# NPM_CONFIG_PREFIX=/home/agent/.npm-global (injected by the CLI's recipe env,
+# rust/crates/agentlinux/src/recipe_env.rs) keeps the install
 # agent-owned, no root, no /usr/local shim (RT-02, ADR-004).
 # Provider auth is supplied post-install (opencode auth login) — never baked.
 #

@@ -2,7 +2,8 @@
 set -euo pipefail
 # rtk rewire.sh — WIRE-02 reverse-trigger (#4 dogfood).
 #
-# Dispatched by the CLI's post-install reconcile (plugin/cli/src/rewire.ts) after
+# Dispatched by the CLI's post-install reconcile
+# (rust/crates/agentlinux/src/rewire.rs) after
 # a coding agent is installed while rtk is already present. Re-fans rtk's `init`
 # wiring into every present agent — including the one just installed — WITHOUT
 # re-downloading the binary, so rtk wiring converges regardless of install order.

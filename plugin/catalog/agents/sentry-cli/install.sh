@@ -8,7 +8,8 @@ set -euo pipefail
 #
 # The @sentry/cli npm package's postinstall downloads the matching prebuilt
 # sentry-cli binary from Sentry's CDN into the package dir; NPM_CONFIG_PREFIX=
-# /home/agent/.npm-global (runner.ts) keeps that agent-owned — no root, no
+# /home/agent/.npm-global (injected by the CLI's recipe env,
+# rust/crates/agentlinux/src/recipe_env.rs) keeps that agent-owned — no root, no
 # /usr/local shim (RT-02, ADR-004).
 #
 # License: FSL-1.1-MIT (Functional Source License) — free to use; it is NOT
