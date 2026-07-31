@@ -32,8 +32,21 @@ set -euo pipefail
 # directory the tool never wrote.
 readonly OUT_DIR="mutants.out"
 
+# Every line this script renders into the job summary carries a VERDICT. An
+# earlier revision appended the `mutants: N tested, …` line before the remaining
+# die-checks, so a job that failed on one of them left a count with no verdict
+# next to it as the only rendered output — a reader had to open the log to learn
+# whether it passed. Now the count is only ever emitted together with PASS,
+# WARN or (via `die`) FAIL.
+step_summary() {
+  echo "- \`${mode:-mutation gate}\`: $*" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+}
+
 die() {
   echo "MUTATION GATE FAIL: $*" >&2
+  # Only the first line: the messages below are multi-line explanations, and a
+  # markdown list item that swallows the rest renders as one run-on paragraph.
+  step_summary "**FAIL** — ${1%%$'\n'*}"
   exit 1
 }
 
@@ -58,7 +71,7 @@ check_diff_file() {
   [[ -f $f ]] || die "--in-diff file '$f' does not exist (the caller's git diff failed)"
   if [[ ! -s $f ]]; then
     echo "mutation gate: diff is empty — no Rust lines changed, nothing to mutate."
-    echo "- \`$mode\`: SKIPPED (empty diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+    step_summary "SKIPPED (empty diff)"
     exit 0
   fi
 
@@ -144,6 +157,69 @@ for arg in "$@"; do
 done
 [[ $want_diff_file -eq 0 ]] || die "--in-diff given with no file argument"
 
+# `#[mutants::skip]` is the ONE narrowing channel the tool-derived expectation
+# below cannot see. A skipped function is absent from both `cargo mutants --list`
+# and `mutants.json`, so the two sets still match and the gate still says PASS.
+# In the enforcing per-PR gate that is self-licensing: the author of a red mutant
+# can grant themselves the exemption inside the very diff being scored, and both
+# the expectation and the scored set shrink together.
+#
+# ADR-020 §4 already requires a written reason at every skip site. This is the
+# mechanical half of that rule, and it is deliberately narrow:
+#
+#   scope   only files whose diff ADDS a skip line — a PR is not answerable for
+#           skips somebody else left behind.
+#   check   made against the FILE, not the diff, because a unified diff does not
+#           say which occurrence a `+` line became. So once a file is in scope,
+#           every skip in it must be justified. That over-reaches by exactly the
+#           skips already in a file the PR is adding another one to, which is
+#           the case worth reading anyway.
+#   rule    a comment line within the three lines above. That is a shape check,
+#           not a judgement: it makes an UNANNOTATED skip impossible to merge,
+#           and leaves "is the reason any good" to the reviewer, where it
+#           belongs. ADR-020 §4's back-reference requirement is likewise a
+#           human call.
+check_added_skips() {
+  local offenders
+  if ! offenders=$(python3 -c '
+import re, sys
+
+paths, cur = set(), None
+for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
+    line = line.rstrip("\n").rstrip("\r")
+    if line.startswith("+++ "):
+        p = re.sub(r"^[a-z]/", "", line[4:].split("\t")[0].strip().strip("\""))
+        cur = p if p.endswith(".rs") else None
+    elif cur and line.startswith("+") and "mutants::skip" in line:
+        paths.add(cur)
+
+bad = []
+for path in sorted(paths):
+    lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+    for i, l in enumerate(lines):
+        if "mutants::skip" not in l:
+            continue
+        above = [x.strip() for x in lines[max(0, i - 3):i]]
+        if not any(x.startswith("//") for x in above):
+            bad.append("  %s:%d: %s" % (path, i + 1, l.strip()))
+print("\n".join(bad))
+' "$1"); then
+    die "could not check the diff for added #[mutants::skip] annotations. The
+  gate cannot confirm the PR did not exempt itself, so it will not pass."
+  fi
+
+  [[ -z $offenders ]] && return 0
+
+  echo "$offenders" >&2
+  die "this diff adds a #[mutants::skip] with no comment above it (see above).
+  A skip is invisible to every other check here — the skipped function drops out
+  of the expectation AND the scored set together — so it is the one exemption an
+  author can grant themselves inside the diff being scored. Put the reason on the
+  line above it, per ADR-020 §4."
+}
+
+[[ -n $diff_file ]] && check_added_skips "$diff_file"
+
 # A killed --in-place run leaves mutated source behind. Warn if the tree is
 # already dirty so a developer cannot mistake cargo-mutants' residue for their
 # own edits (CI checkouts are always clean, so this is silent there).
@@ -194,7 +270,7 @@ expected=$(grep -c . "$expected_file" || true)
 if [[ $expected -eq 0 ]]; then
   echo "mutation gate: nothing mutable in scope — cargo-mutants lists 0 mutants,"
   echo "  so there is nothing to score."
-  echo "- \`$mode\`: SKIPPED (no mutants in scope)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+  step_summary "SKIPPED (no mutants in scope)"
   exit 0
 fi
 
@@ -225,14 +301,24 @@ outcomes="$OUT_DIR/outcomes.json"
 #                 is the number of mutants this run was supposed to test.
 #
 # Verified against cargo-mutants 27.1.0 by SIGKILLing a real run.
+# `planned` is a length when mutants.json reads as a JSON array, and otherwise a
+# sentinel naming HOW it failed. An earlier revision collapsed every failure into
+# -1 and skipped the check, which made a schema change (`{"mutants": […]}`) come
+# out as `len == 1` — reported as "the run did not finish", the one diagnosis
+# guaranteed to send a reader looking at the runner instead of at the tool.
+readonly NO_FILE=-1 UNPARSEABLE=-2 NOT_A_LIST=-3
 if ! read -r total missed caught timeout unviable finished planned < <(
   python3 -c '
 import json, sys
 d = json.load(open(sys.argv[1]))
 try:
-    planned = len(json.load(open(sys.argv[2])))
-except Exception:
+    m = json.load(open(sys.argv[2]))
+except FileNotFoundError:
     planned = -1
+except Exception:
+    planned = -2
+else:
+    planned = len(m) if isinstance(m, list) else -3
 print(
     d["total_mutants"], d["missed"], d["caught"], d["timeout"], d["unviable"],
     0 if d.get("end_time") is None else 1, planned,
@@ -244,12 +330,26 @@ print(
   MUT-14, the contract test that pins it."
 fi
 
+# mutants.json is not optional: the set comparison below is the check that
+# catches a narrowed or padded run, and it has no fallback.
+case $planned in
+  "$NO_FILE") die "cargo-mutants left no $OUT_DIR/mutants.json, so what it planned
+  to test is unknown and the scored set cannot be checked." ;;
+  "$UNPARSEABLE") die "$OUT_DIR/mutants.json is not readable as JSON. The run's
+  planned mutant set is unknown, so neither the completeness check nor the set
+  comparison below can be trusted." ;;
+  "$NOT_A_LIST") die "$OUT_DIR/mutants.json is valid JSON but not an array —
+  cargo-mutants has changed its results schema. Update this gate and
+  tests/bats/80-mutation-gate.bats MUT-14 (the contract test that pins it)
+  together; do NOT read this as an interrupted run." ;;
+esac
+
 if [[ $finished -eq 0 ]]; then
   die "cargo-mutants exited $cargo_status without writing a final summary
   (outcomes.json has no end_time). The run was interrupted — OOM-killed, timed
   out, or crashed — after testing $total mutant(s). A partial run is not a pass."
 fi
-if [[ $planned -ge 0 && $planned -ne $total ]]; then
+if [[ $planned -ne $total ]]; then
   die "cargo-mutants planned $planned mutant(s) but outcomes.json records only
   $total. The run did not finish; a partial result is not a pass."
 fi
@@ -278,10 +378,12 @@ fi
 # "nothing survived vs nothing ran" confusion, one level up in the reporting.
 partial=""
 
-[[ -f "$OUT_DIR/mutants.json" ]] || die "cargo-mutants left no $OUT_DIR/mutants.json,
-  so what it planned to test is unknown and the scored set cannot be checked."
-
-mapfile -t verdict < <(
+# Read through a command substitution, NOT `mapfile < <(…)`: a process
+# substitution discards python's exit status, so a crash here used to surface as
+# `verdict[0]: unbound variable` from `set -u` — a bash diagnostic for a
+# cargo-mutants problem, on the line that decides whether the run measured this
+# code.
+if ! set_diff=$(
   python3 -c '
 import json, sys
 expected = {l.rstrip("\n") for l in open(sys.argv[1]) if l.strip()}
@@ -295,7 +397,15 @@ for m in missing[:10]:
 for m in extra[:10]:
     print("  unexpected: " + m)
 ' "$expected_file" "$OUT_DIR/mutants.json"
-)
+); then
+  die "could not compare the expected mutant set against $OUT_DIR/mutants.json.
+  Whether this run scored the code it claims to have scored is unknown, which is
+  the question this gate exists to answer."
+fi
+
+mapfile -t verdict <<<"$set_diff"
+[[ ${#verdict[@]} -ge 2 ]] || die "the set comparison produced no counts, so the
+  scored set could not be checked against the expectation."
 unscored_n="${verdict[0]}"
 unexpected_n="${verdict[1]}"
 detail=$(printf '%s\n' "${verdict[@]:2}")
@@ -336,8 +446,9 @@ fi
 
 summary="mutants: ${total} tested, ${caught} caught, ${missed} missed, ${timeout} timeout, ${unviable} unviable${partial}"
 echo "mutation gate ($mode): $summary"
-echo "- \`$mode\`: $summary" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
 
+# Nothing is written to the job summary until the checks below have run: see
+# step_summary's comment. A count on its own is not a verdict.
 if [[ $total -eq 0 ]]; then
   die "cargo-mutants tested 0 mutants. Either the filter matched nothing (check
   --in-diff --relative path rewriting) or the run aborted. A zero-mutant run is
@@ -361,8 +472,10 @@ survivors=$((missed + timeout))
 if [[ $survivors -eq 0 ]]; then
   if [[ -n $partial ]]; then
     echo "mutation gate ($mode): every mutant IN THIS SLICE was caught$partial."
+    step_summary "PARTIAL PASS — every mutant in this slice was caught; $summary"
   else
     echo "mutation gate ($mode): PASS — every mutant was caught."
+    step_summary "PASS — $summary"
   fi
   exit 0
 fi
@@ -372,8 +485,10 @@ cat "$OUT_DIR/missed.txt" "$OUT_DIR/timeout.txt" 2>/dev/null >&2 || true
 
 if [[ $mode == advisory ]]; then
   echo "::warning::${survivors} surviving mutant(s) — $summary"
+  step_summary "**WARN** — ${survivors} surviving mutant(s); $summary"
   exit 0
 fi
 
-die "${survivors} mutant(s) survived. Add a test that kills them, or annotate a
-  genuinely unobservable mutant with #[mutants::skip] AND a comment saying why."
+die "${survivors} of ${total} mutant(s) survived (see the list above).
+  Add a test that kills them, or annotate a genuinely unobservable mutant with
+  #[mutants::skip] AND a comment saying why."

@@ -130,7 +130,7 @@ EOF
   stub_cargo_outcomes 40 3 37 0 2
   run "$GATE" enforce
   [ "$status" -ne 0 ]
-  [[ "$output" == *"3 mutant(s) survived"* ]]
+  [[ "$output" == *"3 of 40 mutant(s) survived"* ]]
 }
 
 @test "MUT-03: a surviving mutant only WARNS in advisory mode" {
@@ -252,7 +252,7 @@ EOF
   stub_cargo_outcomes 40 0 39 1 0
   run "$GATE" enforce
   [ "$status" -ne 0 ]
-  [[ "$output" == *"1 mutant(s) survived"* ]]
+  [[ "$output" == *"1 of 40 mutant(s) survived"* ]]
 }
 
 @test "MUT-07: an empty --in-diff is an explicit skip, not a silent pass" {
@@ -366,9 +366,11 @@ mod t {
 RS
 
   cd "$WORK/probe" || return 1
-  run cargo mutants --no-config --list
-  [ "$status" -eq 0 ]
-  printf '%s\n' "$output" >listed.txt
+  # stdout ONLY: bats `run` merges stderr into $output, but the gate captures
+  # stdout alone. If cargo-mutants ever adds an INFO line to --list, reading the
+  # merged stream would fail this contract test while the gate is healthy — a
+  # false red on the check whose job is to report a real contract break.
+  cargo mutants --no-config --list >listed.txt
   run cargo mutants --output . --minimum-test-timeout 20
   # Whatever the verdict, the results file must carry the shape the gate reads.
   [ -f mutants.out/outcomes.json ]
@@ -554,15 +556,29 @@ EOF
   # The matrix line, and the /N the step actually divides by.
   local values total
   values=$(sed -n 's/^ *shard: *\[\(.*\)\] *$/\1/p' "$wf" | tr -d ' ' | tr ',' ' ')
-  total=$(sed -n 's|.*--shard .*/\([0-9][0-9]*\).*|\1|p' "$wf" | head -1)
+  # Every sharded step must divide by the same N — `head -1` would leave a
+  # second one silently unchecked.
+  local totals
+  totals=$(sed -n 's|.*--shard .*/\([0-9][0-9]*\).*|\1|p' "$wf" | sort -u)
+  [ "$(printf '%s\n' "$totals" | grep -c .)" -eq 1 ] || {
+    echo "workflow shards by more than one divisor: $totals"
+    return 1
+  }
+  total="$totals"
   [ -n "$values" ]
   [ -n "$total" ]
 
-  # As many shards as divisions, or part of the workspace is never dispatched.
-  local count=0
-  for _ in $values; do count=$((count + 1)); done
-  [ "$count" -eq "$total" ] || {
-    echo "matrix has $count shard(s) but the step divides by $total"
+  # The matrix must be a PERMUTATION of 0..N-1, not merely N values the tool
+  # accepts. Counting was the same mistake one level up: [0, 1, 2, 2] has four
+  # accepted values and leaves shard 3 undispatched — a quarter of the workspace
+  # unscored, byte-for-byte the outcome of [1, 2, 3, 4], and this time with no
+  # red runner to hint at it.
+  local want got
+  want=$(seq 0 $((total - 1)) | sort | tr '\n' ' ')
+  got=$(printf '%s\n' $values | sort | tr '\n' ' ')
+  [ "$got" = "$want" ] || {
+    echo "shard matrix is [$got] but must be a permutation of [$want];"
+    echo "a missing or duplicated value leaves part of the workspace unscored."
     return 1
   }
 
@@ -574,4 +590,191 @@ EOF
       return 1
     }
   done
+}
+
+# ---------------------------------------------------------------------------
+# #[mutants::skip] — the one narrowing channel the tool-derived expectation
+# cannot see. A skipped fn is absent from BOTH `--list` and `mutants.json`, so
+# the sets match and the gate says PASS. In the enforcing per-PR gate that makes
+# it the one exemption an author can grant themselves inside the scored diff.
+
+# Write src/x.rs plus a diff adding $1 as the line above `#[mutants::skip]`.
+# $1 is the annotation's neighbour: a `//` comment justifies it, anything else
+# does not.
+seed_skip_diff() {
+  mkdir -p src
+  cat >src/x.rs <<RS
+$1
+#[cfg_attr(test, mutants::skip)]
+fn adapter() -> bool { true }
+RS
+  cat >skip.diff <<DIFF
+diff --git a/src/x.rs b/src/x.rs
+--- /dev/null
++++ b/src/x.rs
+@@ -0,0 +1,3 @@
++$1
++#[cfg_attr(test, mutants::skip)]
++fn adapter() -> bool { true }
+DIFF
+}
+
+@test "MUT-21: a diff adding an UNANNOTATED #[mutants::skip] is refused" {
+  stub_cargo_outcomes 40 0 40 0 0
+  seed_skip_diff 'use std::fmt;'
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/x.rs:2"* ]]
+  [[ "$output" == *"ADR-020"* ]]
+}
+
+@test "MUT-21b: the same diff passes once the skip carries a reason" {
+  stub_cargo_outcomes 40 0 40 0 0
+  seed_skip_diff '/// Not mutation-tested: this adapter only reads the ambient tty.'
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
+@test "MUT-21c: a skip the diff did not add is not this PR's to justify" {
+  stub_cargo_outcomes 40 0 40 0 0
+  seed_skip_diff 'use std::fmt;'
+  # Same unannotated file, but the diff touches an unrelated line: the gate must
+  # not hold a contributor answerable for an exemption somebody else took.
+  cat >skip.diff <<'DIFF'
+diff --git a/src/x.rs b/src/x.rs
+--- a/src/x.rs
++++ b/src/x.rs
+@@ -3 +3 @@
+-fn adapter() -> bool { false }
++fn adapter() -> bool { true }
+DIFF
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -eq 0 ]
+}
+
+@test "MUT-22: an unreadable mutants.json is diagnosed, not a bash error" {
+  # `set -u` used to turn this into `verdict[0]: unbound variable` — a bash
+  # diagnostic for a cargo-mutants problem, on the line that decides whether the
+  # run measured this code at all.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+JSON
+printf '{"name": "src/x.rs:1' >mutants.out/mutants.json
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"unbound variable"* ]]
+  [[ "$output" == *"not readable as JSON"* ]]
+}
+
+@test "MUT-22b: an ENTRY shape the set comparison cannot read is diagnosed too" {
+  # The array-of-strings case: it is a list, and its length matches
+  # total_mutants, so it walks past both completeness checks and only breaks in
+  # the set comparison. That is the one shape that reaches the second reader's
+  # guard — MUT-22's truncated file dies at the first one, so without this case
+  # the guard is asserted by nothing.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+JSON
+echo '["src/x.rs:1:1: replace a with b"]' >mutants.out/mutants.json
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"unbound variable"* ]]
+  [[ "$output" == *"could not compare the expected mutant set"* ]]
+}
+
+@test "MUT-23: a mutants.json SHAPE change is named as schema drift" {
+  # A future `{"mutants": [...]}` wrapper has len 1, which the previous revision
+  # compared against total_mutants and reported as "the run did not finish" —
+  # the one diagnosis that sends a reader to the runner instead of to the tool.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+JSON
+echo '{"mutants": [{"name": "src/x.rs:1:1: replace a with b"}]}' >mutants.out/mutants.json
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"changed its results schema"* ]]
+  [[ "$output" != *"did not finish"* ]]
+}
+
+@test "MUT-24: every terminating path renders a VERDICT in the job summary" {
+  # The summary is the only output most readers see. An earlier revision
+  # appended the `mutants: N tested…` count BEFORE the remaining die-checks, so a
+  # failed job rendered a count with no verdict beside it.
+  export GITHUB_STEP_SUMMARY="$WORK/summary.md"
+
+  : >"$GITHUB_STEP_SUMMARY"
+  stub_cargo_outcomes 40 0 40 0 0
+  run "$GATE" enforce
+  [ "$status" -eq 0 ]
+
+  stub_cargo_outcomes 40 3 37 0 2
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+
+  stub_cargo_outcomes 40 3 37 0 2
+  run "$GATE" advisory
+  [ "$status" -eq 0 ]
+
+  # total==0 with a non-empty expectation: fails AFTER the count is computed,
+  # which is exactly where the verdict-less line used to be written.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 0, "missed": 0, "caught": 0, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+JSON
+echo '[]' >mutants.out/mutants.json
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+
+  stub_cargo_outcomes 0 0 0 0 0
+  : >empty.diff
+  run "$GATE" enforce --in-diff empty.diff
+  [ "$status" -eq 0 ]
+
+  [ -s "$GITHUB_STEP_SUMMARY" ]
+  while IFS= read -r line; do
+    [[ "$line" == *PASS* || "$line" == *FAIL* || "$line" == *WARN* || "$line" == *SKIPPED* ]] ||
+      { echo "job-summary line has no verdict: $line"; return 1; }
+  done <"$GITHUB_STEP_SUMMARY"
+  # …and one line per invocation, so none of them silently wrote nothing.
+  [ "$(grep -c . "$GITHUB_STEP_SUMMARY")" -eq 5 ]
 }

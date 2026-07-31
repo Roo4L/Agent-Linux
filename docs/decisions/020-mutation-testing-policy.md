@@ -112,8 +112,10 @@ Two escape hatches, both requiring a written reason at the site:
 
 - **`#[mutants::skip]`** on a function whose mutants are unobservable — e.g.
   `TmpGuard::disarm`, where skipping the disarm makes `Drop` unlink a path the
-  rename already consumed, a no-op no test can distinguish. Four exist, each
-  with a comment.
+  rename already consumed, a no-op no test can distinguish. Four of these exist,
+  all in `sysio.rs`, each with a comment. (The other three skips in the tree —
+  `detect.rs`, `cmd/install.rs`, `cmd/provision.rs` — belong to the third case
+  below, not this one.)
 - **A documented equivalent mutant**, where the mutated code has the same
   observable behavior. `detect_gates::reuse_gate`'s gate 1 (reject an empty
   compatibility window) is the example: `satisfies(v, "")` is already false for
@@ -123,6 +125,22 @@ Two escape hatches, both requiring a written reason at the site:
 
 Neither hatch may be used to silence a mutant that survives because the test is
 weak. That is the finding, not the noise.
+
+**Why the written reason is enforced mechanically.** `#[mutants::skip]` is the
+only narrowing channel §2's tool-derived expectation is blind to. A skipped
+function is absent from `--list` AND from `mutants.json`, so both sets shrink
+together, they still match, and the gate reports PASS. In the enforcing per-PR
+gate that makes it self-licensing: an author facing a red mutant can grant the
+exemption inside the very diff being scored. So when a `--in-diff` is given, the
+gate refuses any file whose diff ADDS a skip line if any skip in that file has no
+comment on the three lines above it (`scripts/mutation-gate.sh:check_added_skips`,
+MUT-21).
+
+Deliberately a shape check, not a judgement. It makes an *unannotated* skip
+unmergeable; whether the stated reason is any good — and whether it carries the
+ADR-019 §5 back-reference the third case below requires — stays with the
+reviewer. It is scoped to files the diff adds a skip to, so a PR is never
+answerable for an exemption somebody else took.
 
 **Third case, added after the gate went enforcing.** ADR-019 §5 records modules
 that are deliberately unseamed. The enforcing per-PR gate covers the whole
