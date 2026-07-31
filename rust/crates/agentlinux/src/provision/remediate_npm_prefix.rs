@@ -60,12 +60,23 @@ enum Strategy {
 /// `chown_or_rebase` — the REMEDIATE-01 entry point dispatched from
 /// `provision::nodejs::run`. Runs the strategy selector, then chowns or rebases so
 /// the prefix is writable by the install user and `npm install -g` never races root
-/// Not mutation-tested: a production wiring adapter (ADR-019 §5) that binds the
-/// two real host reads — the `.npmrc` prefix line and the prefix's on-disk owner
-/// — to the decision. Both arms, the empty-prefix refusal and the
-/// strategy-to-verb wiring are asserted from literals through
-/// [`chown_or_rebase_with`].
-#[cfg_attr(test, mutants::skip)]
+/// The REMEDIATE-01 entry point, and the ONLY one production calls — `nodejs::run`
+/// dispatches here, never to [`chown_or_rebase_with`].
+///
+/// It carried a skip claiming its two host reads made it unobservable. That was
+/// false: `effective_npm_prefix` reads only under `ctx.install_home`, and on the
+/// Chown arm `prefix_owner_user`'s value is never used. Against a TempDir home
+/// the whole function is hermetic, so `-> Ok(())` — REMEDIATE-01 dispatches,
+/// nothing happens, the prefix stays root-owned, provision reports success — is
+/// killable on any host, and the skip was the only thing keeping it out of the
+/// gate. That also means the module's reported score counted it as absent rather
+/// than caught.
+///
+/// The second wrongly-justified skip in as many rounds (after
+/// `cmd::provision::resolve_wrong_shell`), and the same mistake as `apply_chown`
+/// vs this function: killed one frame down, excused one frame up. ADR-020 §4
+/// forbids a skip that hides a killable mutant precisely because it makes the
+/// enforcing gate lie about itself.
 pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
     let user_home = &ctx.install_home;
     // The EFFECTIVE prefix — the `.npmrc` `prefix=` line if the brownfield host
@@ -929,6 +940,30 @@ mod remediate_npm_prefix_tests {
         // Succeeded but silent.
         assert_eq!(manifest_or_empty(0, "   \n "), "{}");
         assert_eq!(manifest_or_empty(1, ""), "{}");
+    }
+
+    #[test]
+    fn the_production_entry_point_actually_remediates() {
+        // `chown_or_rebase` is what `nodejs::run` calls; `chown_or_rebase_with`
+        // has no production caller. Driving only the latter left the observable
+        // that matters — dispatch, do nothing, report success — reachable by a
+        // wrong edit to the four lines that compute `prefix` and `old_owner`.
+        let d = TempDir::new().unwrap();
+        let prefix = d.path().join(".npm-global");
+        std::fs::create_dir_all(&prefix).unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+
+        chown_or_rebase(&ctx).unwrap();
+
+        // It resolved the canonical under-home prefix and took the chown arm.
+        assert_eq!(
+            chowns(),
+            vec![(
+                prefix.display().to_string(),
+                format!("{FIXTURE_USER}:{FIXTURE_USER}")
+            )],
+            "the entry point must reach the prefix, not merely return Ok"
+        );
     }
 
     #[test]

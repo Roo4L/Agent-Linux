@@ -925,6 +925,7 @@ fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&
         format,
         crate::detect::scan_and_write,
         crate::detect::scan_persist_report_json,
+        provision::probe::probe_agent,
     )
 }
 
@@ -955,6 +956,7 @@ fn report_only_to(
     format: Option<&str>,
     rescan: fn(&str, &str),
     rescan_json: fn(&str, &str) -> serde_json::Value,
+    probe: fn(&str) -> provision::probe::AgentProbe,
 ) -> ExitCode {
     if format == Some("json") {
         let report = rescan_json(user, home);
@@ -967,7 +969,7 @@ fn report_only_to(
         );
     } else {
         rescan(user, home);
-        emit_report(o, user, distro);
+        emit_report(o, user, distro, probe);
     }
     ExitCode::SUCCESS
 }
@@ -990,6 +992,7 @@ fn dry_run_report(user: &str, home: &str, distro: &distro::Distro) -> ExitCode {
         home,
         distro,
         crate::detect::scan_and_write,
+        provision::probe::probe_agent,
     )
 }
 
@@ -1003,6 +1006,7 @@ fn dry_run_report_to(
     home: &str,
     distro: &distro::Distro,
     rescan: fn(&str, &str),
+    probe: fn(&str) -> provision::probe::AgentProbe,
 ) -> ExitCode {
     errln!(
         o,
@@ -1011,7 +1015,7 @@ fn dry_run_report_to(
     // Refresh the detect cache (tmpfs, not host state) so the pre-flight report
     // reflects current host state. See report_only for the NO-MUTATION rationale.
     rescan(user, home);
-    emit_report(o, user, distro);
+    emit_report(o, user, distro, probe);
     errln!(
         o,
         "agentlinux provision: [DRY-RUN] on apply, reuse-eligible agents are adopted \
@@ -1028,7 +1032,12 @@ fn dry_run_report_to(
 /// Prints the resolved install user + distro family + the per-agent decisions over
 /// the Rust `canonical_path` map, sourced from the same in-process probe+gate the
 /// install path uses. A report is read-only — NO mutation.
-fn emit_report(o: &mut Out<'_>, user: &str, distro: &distro::Distro) {
+fn emit_report(
+    o: &mut Out<'_>,
+    user: &str,
+    distro: &distro::Distro,
+    probe: fn(&str) -> provision::probe::AgentProbe,
+) {
     errln!(o, "agentlinux provision: detection report");
     errln!(o, "  install-user: {user}");
     errln!(
@@ -1038,7 +1047,7 @@ fn emit_report(o: &mut Out<'_>, user: &str, distro: &distro::Distro) {
         distro.family
     );
     for &id in crate::CANONICAL_IDS {
-        let probe = crate::provision::probe::probe_agent(id);
+        let probe = probe(id);
         let decision = agentlinux_core::reuse::agent_decision(
             id,
             &probe.status,
@@ -1695,6 +1704,23 @@ mod provision_tests {
         // report_only` survived: the human report goes to stdout and breaks every
         // DET-04 test, while --report-format=json prints prose.
         fn no_rescan(_u: &str, _h: &str) {}
+        // A fixed probe. `emit_report` reads the detect cache
+        // (/run/agentlinux-detect.json) once per canonical id, so these tests
+        // read live host state and their verdict moved with it — the very
+        // `!o_text.contains("agents")` assertion added to prove the text arm was
+        // clean would flip on a provisioned runner whose cache named an agent
+        // containing that substring. ADR-019 §3.
+        fn fixed_probe(id: &str) -> provision::probe::AgentProbe {
+            provision::probe::AgentProbe {
+                status: if id == "claude-code" {
+                    "healthy"
+                } else {
+                    "absent"
+                }
+                .to_string(),
+                path: String::new(),
+            }
+        }
         // A report body no real scan would produce, so the assertions below
         // cannot be satisfied by an EMPTY one. `{"components":{"agents":[]}}` is
         // exactly what an unreadable catalog yields, so asserting merely that
@@ -1720,7 +1746,8 @@ mod provision_tests {
                 &d,
                 Some("json"),
                 no_rescan,
-                fake_json
+                fake_json,
+                fixed_probe
             ),
             ExitCode::SUCCESS
         );
@@ -1746,7 +1773,8 @@ mod provision_tests {
                 &d,
                 None,
                 no_rescan,
-                fake_json
+                fake_json,
+                fixed_probe
             ),
             ExitCode::SUCCESS
         );
@@ -1765,6 +1793,17 @@ mod provision_tests {
         assert!(e_text.contains("detection report"), "{e_text}");
         assert!(e_text.contains("install-user: agent"));
         assert!(e_text.contains("family=Debian"));
+        // The per-agent lines — the thing the report exists to produce. They had
+        // no test at any level, because their only input was the ambient detect
+        // cache that nothing controlled.
+        assert!(
+            e_text.contains("agent claude-code: status=healthy decision="),
+            "the per-agent report body is missing: {e_text}"
+        );
+        assert!(
+            e_text.contains("agent gsd: status=absent decision="),
+            "{e_text}"
+        );
     }
 
     #[test]
@@ -1773,13 +1812,37 @@ mod provision_tests {
         // must say that adoption happens on apply — the one thing a reader
         // cannot infer from a report that shows only detection.
         fn no_rescan(_u: &str, _h: &str) {}
+        // A fixed probe. `emit_report` reads the detect cache
+        // (/run/agentlinux-detect.json) once per canonical id, so these tests
+        // read live host state and their verdict moved with it — the very
+        // `!o_text.contains("agents")` assertion added to prove the text arm was
+        // clean would flip on a provisioned runner whose cache named an agent
+        // containing that substring. ADR-019 §3.
+        fn fixed_probe(id: &str) -> provision::probe::AgentProbe {
+            provision::probe::AgentProbe {
+                status: if id == "claude-code" {
+                    "healthy"
+                } else {
+                    "absent"
+                }
+                .to_string(),
+                path: String::new(),
+            }
+        }
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let mut o = Out {
             out: &mut out,
             err: &mut err,
         };
         assert_eq!(
-            dry_run_report_to(&mut o, "agent", "/home/agent", &fake_distro(), no_rescan),
+            dry_run_report_to(
+                &mut o,
+                "agent",
+                "/home/agent",
+                &fake_distro(),
+                no_rescan,
+                fixed_probe
+            ),
             ExitCode::SUCCESS
         );
         let (stdout, stderr) = (
