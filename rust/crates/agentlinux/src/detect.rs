@@ -352,8 +352,26 @@ fn record_value(r: &AgentRecord) -> serde_json::Value {
 /// A catalog-read failure logs a breadcrumb and returns an empty vec (the callers
 /// treat that as "detected nothing" — the same absent-cache fallback).
 fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
-    let catalog_dir = catalog::resolve_catalog_dir();
-    let entries = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
+    scan_with(login_run, &catalog::resolve_catalog_dir(), user, home)
+}
+
+/// [`scan`] over an injected login runner and catalog dir.
+///
+/// The `LoginRun` seam stopped one call short of every public entry point:
+/// `probe_one`/`probe_version` took it, but `scan` wired the real one in, so
+/// `scan`, `scan_and_write` and `scan_persist_report_json` — everything the
+/// `provision` verb actually calls — could only run by spawning a real login
+/// shell against a real catalog. Replacing this function's body with
+/// `Vec::new()` passed the whole suite, and the cache is then written as
+/// `{"agents":[]}`, so every downstream REUSE-03/REMEDIATE-04 verdict sees
+/// "nothing installed" and no test can tell.
+fn scan_with(
+    run: LoginRun,
+    catalog_dir: &std::path::Path,
+    user: &str,
+    home: &str,
+) -> Vec<AgentRecord> {
+    let entries = match catalog::load_catalog(catalog_dir, catalog::Validate::Skip) {
         Ok(e) => e,
         Err(e) => {
             crate::provision::log::line(&format!(
@@ -365,7 +383,7 @@ fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
     };
     agent_rows(&entries)
         .into_iter()
-        .map(|(id, binary)| probe_one(login_run, user, home, &id, &binary))
+        .map(|(id, binary)| probe_one(run, user, home, &id, &binary))
         .collect()
 }
 
@@ -752,5 +770,69 @@ mod probe_chain_tests {
         }
         let rec = probe_one(help_fails, "agent", "/home/agent", "claude-code", "claude");
         assert_eq!(rec.status, "broken", "version={}", rec.version);
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    /// A login runner that reports every probed binary as present at a
+    /// predictable path with a fixed version — no shell, no host.
+    fn found(_user: &str, _home: &str, script: &str) -> (i32, String) {
+        if script.starts_with("command -v ") {
+            (0, "/usr/local/bin/thing".to_string())
+        } else {
+            (0, "1.2.3".to_string())
+        }
+    }
+
+    fn write_catalog(dir: &std::path::Path, body: &str) {
+        std::fs::write(dir.join("catalog.json"), body).unwrap();
+    }
+
+    #[test]
+    fn scan_probes_every_non_mcp_agent_in_the_catalog() {
+        // `scan` used to hardcode the real login runner and the ambient catalog
+        // dir, so replacing its whole body with `Vec::new()` — which makes the
+        // detect cache claim nothing is installed, and every REUSE/REMEDIATE
+        // verdict downstream wrong — passed the entire suite.
+        let cat = tempdir().unwrap();
+        write_catalog(
+            cat.path(),
+            r#"{"version":"0.3.6","agents":[
+                {"id":"alpha","display_name":"A","description":"d","source_kind":"npm",
+                 "pinned_version":"1.0.0","install_recipe_path":"i.sh",
+                 "uninstall_recipe_path":"u.sh","post_install_verify":"command -v alpha",
+                 "tags":["agent"]},
+                {"id":"beta","display_name":"B","description":"d","source_kind":"npm",
+                 "pinned_version":"1.0.0","install_recipe_path":"i.sh",
+                 "uninstall_recipe_path":"u.sh","post_install_verify":"command -v beta",
+                 "tags":["agent"]},
+                {"id":"some-mcp","display_name":"M","description":"d","source_kind":"mcp",
+                 "pinned_version":"1.0.0","install_recipe_path":"i.sh",
+                 "uninstall_recipe_path":"u.sh","post_install_verify":"command -v m",
+                 "tags":["mcp"]}
+            ]}"#,
+        );
+
+        let records = scan_with(found, cat.path(), "agent", "/home/agent");
+
+        let ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).collect();
+        // mcp entries are excluded from the scan; the two agents are probed.
+        assert_eq!(ids, vec!["alpha", "beta"], "records={records:?}");
+        assert!(
+            records.iter().all(|r| r.status == "healthy"),
+            "records={records:?}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_catalog_degrades_to_an_empty_scan() {
+        // The documented fallback, previously reachable only by breaking the
+        // host's real catalog.
+        let empty = tempdir().unwrap();
+        assert!(scan_with(found, empty.path(), "agent", "/home/agent").is_empty());
     }
 }

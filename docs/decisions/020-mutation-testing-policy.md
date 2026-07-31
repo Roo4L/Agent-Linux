@@ -43,7 +43,8 @@ undetected.
 
 Both call `scripts/mutation-gate.sh`, which reads `mutants.out/outcomes.json`.
 A missing outcomes file, or a run that tested **zero** mutants, is a hard
-failure **in both modes**. "Nothing survived" and "nothing ran" must not be
+failure **in both modes** — with one narrowly-conditioned exception for a diff
+that genuinely had nothing mutable in it, spelled out below. "Nothing survived" and "nothing ran" must not be
 representable as the same outcome — that equivalence is the entire bug above.
 
 Corollaries, each of which was a real false-green:
@@ -51,7 +52,20 @@ Corollaries, each of which was a real false-green:
 - advisory means *a surviving mutant warns*. It does not mean a broken gate is
   tolerated, so there is no `continue-on-error`.
 - an empty `--in-diff` is a legitimate skip (a PR touching no Rust) but is
-  named out loud rather than passing silently.
+  named out loud rather than passing silently. So is a non-empty `--in-diff`
+  whose lines yield no mutants — a test-only PR, or a manifest edit — because a
+  gate that hard-fails on something the contributor cannot fix is how the
+  previous one earned its bypass.
+- that second skip is narrowly conditioned, and the condition is the whole
+  point. cargo-mutants exits 0 writing NO results file in at least four
+  situations: the diff had no mutable lines, a `--file` filter matched nothing,
+  a `--shard` was empty, and — the dangerous one — `--in-diff`'s paths did not
+  resolve against the workspace, which is exactly what a missing `--relative`
+  produces. Keying the skip on the exit status alone therefore turned the
+  canonical `--relative` bug into a permanent green on the ENFORCING gate. The
+  skip now requires an `--in-diff` file that was supplied, non-empty, AND whose
+  `.rs` paths resolve from the run directory; everything else falls through to
+  the hard failure. MUT-15/16/17 pin all three shapes.
 - the diff is written to a file under `set -euo pipefail`, not passed via
   `<(git diff …)`, because process substitution discards git's exit status and a
   bad pathspec then yields an empty diff and a green gate.

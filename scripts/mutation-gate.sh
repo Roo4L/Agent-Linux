@@ -49,6 +49,11 @@ esac
 # logs "Diff file is empty" and exits 0. That is a legitimate outcome (a PR that
 # touches no Rust), but it must be visible rather than indistinguishable from a
 # clean pass, so name it here and skip the run.
+# Set once an --in-diff file has been seen and validated. Guards the
+# "no mutants in the diff" skip below: without it, that skip also swallows every
+# OTHER way cargo-mutants exits 0 with no results file.
+saw_diff_file=0
+
 check_diff_file() {
   local f="$1"
   [[ -f $f ]] || die "--in-diff file '$f' does not exist (the caller's git diff failed)"
@@ -57,6 +62,23 @@ check_diff_file() {
     echo "- \`$mode\`: SKIPPED (empty diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
     exit 0
   fi
+
+  # Every `+++ b/<path>.rs` in the diff must resolve from the directory this
+  # runs in. cargo-mutants matches --in-diff paths against the WORKSPACE root,
+  # so a diff carrying repo-root-relative paths (i.e. a missing --relative, or a
+  # step moved out of working-directory: rust) matches NOTHING and exits 0 —
+  # which is indistinguishable from an honest "nothing here is mutable" unless
+  # it is checked here. That failure is the one `test.yml` names as the reason
+  # --relative is load-bearing.
+  local p
+  while read -r p; do
+    [[ -f $p ]] || die "--in-diff names '$p', which does not exist relative to
+  $(pwd). The diff's paths do not resolve against the workspace, so
+  cargo-mutants would match nothing and exit 0 — a green gate that scored
+  nothing. Check --relative and the step's working-directory."
+  done < <(grep -oE '^\+\+\+ b/[^[:space:]]+\.rs$' "$f" | sed 's|^+++ b/||')
+
+  saw_diff_file=1
 }
 
 want_diff_file=0
@@ -98,14 +120,22 @@ set -e
 
 outcomes="$OUT_DIR/outcomes.json"
 
-# `exit 0` with no results file uniquely means "No mutants to filter" — the diff
-# was non-empty but touched only lines that yield no mutants (a test-only change,
-# or Cargo.toml/rust-toolchain.toml now that the pathspec is the whole rust/
-# tree). That is a legitimate outcome and must be NAMED, not reported as a broken
-# gate: a gate that hard-fails on a PR the contributor cannot fix is how the
-# previous one earned its bypass. Every other absent-outcomes case exits non-zero
-# (1 = rejected flags, 4 = failing baseline), so this stays fail-closed.
-if [[ ! -f $outcomes && $cargo_status -eq 0 ]]; then
+# A non-empty --in-diff whose lines yield no mutants — a test-only change, or a
+# manifest edit now that the pathspec is the whole rust/ tree — is a legitimate
+# outcome and must be NAMED: a gate that hard-fails on a PR the contributor
+# cannot fix is how the previous one earned its bypass.
+#
+# But `exit 0` with no results file is NOT unique to that case. cargo-mutants
+# also exits 0 writing nothing when a --file filter matches nothing, when a
+# --shard is empty, on --list, and — the dangerous one — when --in-diff's paths
+# do not resolve against the workspace. Skipping on the bare status therefore
+# turned the canonical missing---relative bug into a permanent green, on the
+# ENFORCING gate, with a step-summary line that read like a real outcome.
+#
+# So the skip requires an --in-diff file that was supplied, non-empty, and whose
+# paths resolve (checked in check_diff_file). Every other absent-outcomes case
+# falls through to the hard failure below.
+if [[ ! -f $outcomes && $cargo_status -eq 0 && $saw_diff_file -eq 1 ]]; then
   echo "mutation gate: the diff produced no mutants — nothing in it is mutable"
   echo "  (test-only lines, comments, or manifest edits). Nothing to score."
   echo "- \`$mode\`: SKIPPED (no mutants in diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"

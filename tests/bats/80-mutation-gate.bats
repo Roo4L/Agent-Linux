@@ -68,6 +68,19 @@ EOF
   chmod +x "$BIN/cargo"
 }
 
+# A run that exits 0 writing NO outcomes.json — the shape cargo-mutants really
+# produces when a filter matches nothing (a non-resolving --in-diff, an empty
+# --shard, --file matching nothing, --list). MUT-05's stub writes an
+# outcomes.json with total_mutants:0, which the real tool never does.
+stub_cargo_zero_mutants() {
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+echo " INFO No mutants to filter"
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+}
+
 # Stub `cargo` so it fails WITHOUT producing outcomes — the real failure mode:
 # a rejected flag combination.
 stub_cargo_rejects_flags() {
@@ -264,4 +277,43 @@ print('contract OK')
 "
   [ "$status" -eq 0 ]
   [[ "$output" == *"contract OK"* ]]
+}
+
+@test "MUT-15: a zero-mutant run only skips when an --in-diff explains it" {
+  # The real tool exits 0 writing nothing whenever a filter matches nothing.
+  # Treating that status alone as "the diff had no mutable lines" turned the
+  # canonical missing---relative bug into a permanent green on the ENFORCING
+  # gate. Without an --in-diff there is no diff to blame, so it must fail.
+  stub_cargo_zero_mutants
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"did not complete a run"* ]]
+
+  # The nightly shape: --shard, no --in-diff. An empty shard must not read as
+  # "nothing in the diff" — there is no diff.
+  run "$GATE" advisory --shard 99/100
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"no mutants in diff"* ]]
+}
+
+@test "MUT-16: a real test-only diff is still a named skip" {
+  # The legitimate case MUT-15 must not break: a non-empty diff whose paths
+  # resolve, but whose lines yield no mutants.
+  stub_cargo_zero_mutants
+  mkdir -p crates/c/src
+  printf 'pub fn add() {}\n' >crates/c/src/lib.rs
+  printf 'diff --git a/crates/c/src/lib.rs b/crates/c/src/lib.rs\n--- a/crates/c/src/lib.rs\n+++ b/crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >testonly.diff
+  run "$GATE" enforce --in-diff testonly.diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no mutants"* ]]
+}
+
+@test "MUT-17: an --in-diff whose paths do not resolve is a hard failure" {
+  # The missing---relative class: cargo-mutants matches --in-diff against the
+  # WORKSPACE root, so repo-root-relative paths match nothing and exit 0.
+  stub_cargo_zero_mutants
+  printf 'diff --git a/rust/crates/c/src/lib.rs b/rust/crates/c/src/lib.rs\n--- a/rust/crates/c/src/lib.rs\n+++ b/rust/crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >unresolved.diff
+  run "$GATE" enforce --in-diff unresolved.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"does not exist relative to"* ]]
 }

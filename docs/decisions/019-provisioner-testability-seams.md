@@ -128,6 +128,13 @@ the NodeSource script and `node --version` with no injection point, and no test
 drives their `run`. `cmd/provision::run_purge` spawns `pkill`/`userdel`
 unconditionally.
 
+`pkg.rs`'s executor half — `pkg_install`, `pkg_remove`, `nodesource_setup` — is
+part of the SAME gap and is named here explicitly, because this list is read by
+people triaging a red mutation gate and that gate matches changed *lines in
+files*, not modules. Those three have no callers outside the modules above, so
+seaming them is the same piece of work; without the name, a contributor whose
+diff lands in `pkg.rs` has no auditable answer.
+
 This is a **gap, not a decision** — it is recorded here so it is not mistaken
 for one. The seam these need is the same `Effects` bag the other steps use; the
 work is threading it through, plus routing `nodejs`'s NodeSource repo paths
