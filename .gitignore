@@ -129,3 +129,4 @@ __pycache__/
 .codex/auth.json
 .codex/*.pem
 .codex/*.key
+.mutation-gate-selftest-pristine

@@ -310,10 +310,28 @@ rm -rf "$OUT_DIR"
 # both for "mutants survived" (a finding) and for "bad flags / baseline failed"
 # (a broken gate), and conflating those is the bug this script exists to prevent.
 # The outcomes file below is what tells them apart.
+#
+# `nice`d, and under a SIGTERM-sending timeout, because `--in-place` MUTATES THE
+# WORKING TREE: a SIGKILL between "write the mutant" and "restore the file"
+# leaves `~ changed by cargo-mutants ~` in the source. cargo-mutants restores on
+# SIGTERM; an agent harness or CI step timeout sends SIGKILL. So the inner
+# timeout must fire FIRST, which is what makes the kill graceful.
+#
+# It is also a whole-machine workload — every mutant is a full rustc build plus
+# the entire test suite — so it yields to anything interactive. On a dedicated
+# CI runner nothing competes and `nice` costs nothing.
+timeout_secs="${MUTATION_GATE_TIMEOUT:-3600}"
 set +e
-cargo mutants --output . "$@"
+nice -n 19 timeout --signal=TERM --kill-after=60s "$timeout_secs" \
+  cargo mutants --output . "$@"
 cargo_status=$?
 set -e
+
+if [[ $cargo_status -eq 124 ]]; then
+  die "cargo-mutants hit the ${timeout_secs}s gate timeout and was terminated.
+  Raise MUTATION_GATE_TIMEOUT if the scope legitimately needs longer, or narrow
+  the scope. A timed-out run is not a pass."
+fi
 
 outcomes="$OUT_DIR/outcomes.json"
 

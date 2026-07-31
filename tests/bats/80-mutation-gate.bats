@@ -193,6 +193,39 @@ EOF
   chmod +x "$BIN/cargo"
 }
 
+# The two cases below invoke the REAL cargo-mutants. That is the point of them —
+# every other case stubs `cargo`, so together they pin the gate against a schema
+# this repo wrote, and these are what notice when the tool drifts.
+#
+# It is also what makes running this suite in a loop expensive. The gate's own
+# mutation score (ADR-020 section 2) is produced by re-running the whole suite once
+# per mutation, ~60 times; at two real tool invocations each that is ~120
+# rustc-driving runs of a contract that cannot change between iterations, because
+# nothing in the loop touches cargo-mutants. Running them once and skipping them
+# for the rest of the loop costs no coverage.
+#
+# The opt-out is REFUSED under $CI. An env var that silently disables the only
+# two cases holding the tool contract would be precisely the bypass this whole
+# gate exists to prevent — the same shape as the `|| echo "::warning::"` it
+# replaced. Locally it is a speed knob; in CI it is an error.
+requires_real_cargo_mutants() {
+  if [ -n "${AGENTLINUX_GATE_SUITE_SKIP_TOOL:-}" ]; then
+    if [ -n "${CI:-}" ]; then
+      echo "AGENTLINUX_GATE_SUITE_SKIP_TOOL is set in CI. It disables the only two" >&2
+      echo "cases that pin the cargo-mutants contract; CI is where that must hold." >&2
+      return 1
+    fi
+    skip "AGENTLINUX_GATE_SUITE_SKIP_TOOL set (real-tool cases run once, not per mutation)"
+  fi
+  if ! command -v cargo >/dev/null || ! cargo mutants --version >/dev/null 2>&1; then
+    if [ -n "${CI:-}" ]; then
+      echo "cargo-mutants must be installed in CI — the gate's contract is untested without it" >&2
+      return 1
+    fi
+    skip "cargo-mutants not installed (required in CI, optional locally)"
+  fi
+}
+
 @test "MUT-01: a clean run passes in both modes" {
   stub_cargo_outcomes 40 0 40 0 0
   run "$GATE" enforce
@@ -397,15 +430,8 @@ EOF
   # This one runs the pinned tool for real, against a throwaway crate, and
   # asserts the five counters plus the end_time completeness marker exist.
   #
-  # Required in CI, where the pin is what it is testing. Skipped locally when
-  # cargo-mutants is not installed — stated rather than silent.
-  if ! command -v cargo >/dev/null || ! cargo mutants --version >/dev/null 2>&1; then
-    if [ -n "${CI:-}" ]; then
-      echo "cargo-mutants must be installed in CI — the gate's contract is untested without it" >&2
-      return 1
-    fi
-    skip "cargo-mutants not installed (required in CI, optional locally)"
-  fi
+  # Required in CI, where the pin is what it is testing.
+  requires_real_cargo_mutants
 
   # A crate with one mutable function and a test that kills the mutant.
   mkdir -p "$WORK/probe/src"
@@ -652,13 +678,7 @@ EOF
   # on a scratch crate — a value the workflow never passes. So this test derives
   # the values from the WORKFLOW rather than restating them, and runs them
   # through the real tool. `--list` builds nothing, so it is cheap.
-  command -v cargo >/dev/null && cargo mutants --version >/dev/null 2>&1 || {
-    if [ -n "${CI:-}" ]; then
-      echo "cargo-mutants must be installed in CI to check the shard matrix" >&2
-      return 1
-    fi
-    skip "cargo-mutants not installed (required in CI)"
-  }
+  requires_real_cargo_mutants
 
   local wf="${BATS_TEST_DIRNAME}/../../.github/workflows/nightly-mutation.yml"
   [ -f "$wf" ]
@@ -1520,6 +1540,72 @@ EOF
   [[ "$output" == *"left no"* && "$output" == *"mutants.json"* ]]
   [[ "$output" != *"did not finish"* ]]
   [[ "$output" != *"-1"* ]]
+}
+
+@test "MUT-42: a run that outlives its timeout is a failure, not a pass" {
+  # `--in-place` mutates the working tree, so an abrupt kill leaves
+  # `~ changed by cargo-mutants ~` in the source. cargo-mutants restores on
+  # SIGTERM but not on SIGKILL, and an agent harness or CI step timeout sends
+  # SIGKILL — so the gate's own timeout must fire FIRST. Without it the outer
+  # kill also takes the gate with it, leaving no verdict at all.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+sleep 30
+EOF
+  chmod +x "$BIN/cargo"
+  MUTATION_GATE_TIMEOUT=1 run "$GATE" enforce --in-place
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"gate timeout"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-43: the run is niced, so it yields to anything interactive" {
+  # Every mutant is a full rustc build plus the entire test suite. Run at normal
+  # priority in a loop this starves the machine it is running on — which is how
+  # a mutation experiment took a host down hard enough to lock out SSH.
+  cat >"$BIN/cargo" <<EOF
+#!/usr/bin/env bash
+for a in "\$@"; do
+  if [ "\$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+ps -o nice= -p \$\$ | tr -d ' ' >"$WORK/niceness"
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z",
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"}]}
+JSON
+echo '[{"name": "src/x.rs:1:1: replace a with b"}]' >mutants.out/mutants.json
+: >mutants.out/missed.txt
+: >mutants.out/timeout.txt
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  # Assert the child is niced strictly BELOW its parent, not merely `> 0`.
+  # `> 0` was satisfied by INHERITED niceness: the self-test driver runs each
+  # iteration under `nice`, so the stub reported 19 whether or not the gate niced
+  # anything, and `run: drop the nice` survived its own test. The test was
+  # co-blind with the harness written to run it.
+  local parent
+  parent="$(ps -o nice= -p $$ | tr -d ' ')"
+  if [ "$parent" -ge 19 ]; then
+    # `nice` caps at 19, so from a parent already there it provably cannot
+    # raise the child and this has nothing to measure. Stated, not silently
+    # passed. The self-test driver deliberately stays below 19 for this reason.
+    skip "already at niceness $parent; nice(1) cannot raise the child further"
+  fi
+
+  run "$GATE" enforce --in-place
+  [ "$status" -eq 0 ]
+  local child
+  child="$(cat "$WORK/niceness")"
+  [ "$child" -gt "$parent" ] || {
+    echo "the mutation run is not niced: child=$child parent=$parent"
+    return 1
+  }
 }
 
 @test "MUT-41: an ADDED file with a quoted path is refused, not reported missing" {

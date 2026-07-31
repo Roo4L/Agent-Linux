@@ -114,8 +114,44 @@ is precisely what failed.
 **And the suite is measured the same way it measures everything else.** A case
 count says nothing — an early revision had 29 cases and, when 21 single-token
 mutations were applied to the gate, killed 6. The number to report when changing
-this gate is **its own mutation score**, produced by mutating
-`scripts/mutation-gate.sh` and running its suite. It currently stands at 58/58.
+this gate is **its own mutation score**:
+
+```bash
+scripts/mutation-gate-selftest.sh          # exits non-zero if anything survives
+```
+
+It currently reports **59/59**.
+
+That is a script rather than a paragraph of instructions because the loop it
+runs is a whole-machine workload — ~60 full bats runs, each forking a swarm of
+subshells — and it was re-invented ad hoc three times. The third one helped
+exhaust a host badly enough that `sshd` could accept TCP but never fork a
+session. So the driver owns the resource discipline: `nice`, a per-run
+`timeout`, a `trap` that restores the gate on every exit path including Ctrl-C,
+and `AGENTLINUX_GATE_SUITE_SKIP_TOOL` so the two cases that invoke the REAL
+cargo-mutants run ONCE in the baseline rather than ~60 times in the loop.
+
+Its other half is arithmetic honesty, and that took a review to get right: the
+first revision had four independent paths that inflated the score toward a false
+perfect. It dropped its own last table record for want of a trailing blank line
+(58 records existed, 57 were read, one vanished with no output at all); it
+counted ANY non-zero suite exit as a kill, so a timeout, an OOM or a missing
+`bats` — the likely failure modes of that very loop — all read as coverage; it
+baselined in a different configuration from the one it scored, which under `$CI`
+turned every run red for an unrelated reason and reported a clean sweep; and it
+excluded drifted patterns from the denominator, so `45/45` and `57/57` printed
+identically while coverage fell. Hence the current shape: a literal
+delimiter-checked record format with no escaping anywhere, drift counted and
+fatal, only `bats` exit 1 accepted as a kill with everything else aborting at
+exit 2, and the baseline run in the scored configuration. A tool that measures
+honesty has to be measured that way itself; a fabricated score is worse than no
+tool, because it gets quoted in a PR and believed.
+
+The same discipline is in the gate itself: `--in-place` mutates the working
+tree, and cargo-mutants restores on SIGTERM but not on SIGKILL — so the gate
+runs the tool under its own `timeout`, which must fire before an outer CI or
+harness timeout does. A SIGKILL mid-run leaves `~ changed by cargo-mutants ~` in
+the source, and it is a working tree, not a scratch copy.
 
 Four patterns produced almost every survivor across the rounds it took to get
 there. They recur, so they are named:
