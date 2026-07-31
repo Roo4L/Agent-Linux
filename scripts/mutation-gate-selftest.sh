@@ -68,7 +68,8 @@ abort() {
   exit 2
 }
 
-[[ ${RUN_TIMEOUT} =~ ^[0-9]+$ ]] || abort "SELFTEST_RUN_TIMEOUT must be an integer, got '$RUN_TIMEOUT'"
+[[ ${RUN_TIMEOUT} =~ ^[1-9][0-9]*$ ]] || abort "SELFTEST_RUN_TIMEOUT must be a POSITIVE integer, got '$RUN_TIMEOUT' —
+  timeout(1) reads 0 as no timeout at all"
 [[ -f $GATE && -f $SUITE ]] || abort "run this from the repo root (or via its own path)"
 command -v bats >/dev/null || abort "bats is not on PATH"
 command -v python3 >/dev/null || abort "python3 is not on PATH"

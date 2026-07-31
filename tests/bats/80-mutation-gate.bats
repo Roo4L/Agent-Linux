@@ -610,7 +610,8 @@ done
 mkdir -p mutants.out
 cat >mutants.out/outcomes.json <<'JSON'
 {"total_mutants": 2, "missed": 0, "caught": 2, "timeout": 0,
- "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z",
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"}]}
 JSON
 python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, 3)], open('mutants.out/mutants.json','w'))"
 : >mutants.out/missed.txt
@@ -634,6 +635,86 @@ EOF
     run "$GATE" enforce --in-diff d.diff "$l"
     [ "$status" -ne 0 ]
   done
+}
+
+@test "MUT-19b: a NON-.rs header resets the file a skip would be charged to" {
+  # `cur = p if p.endswith(".rs") else None`. Without the reset, a skip-shaped
+  # line in a later .md/.toml hunk is charged to whichever Rust file appeared
+  # EARLIER in the diff — a false RED naming a file the author did not annotate.
+  # MUT-38e is named for this guard but puts the docs hunk FIRST, so the reset is
+  # never exercised in either direction.
+  mk_cargo list_n=4 total=4 caught=4
+  # The .rs file must ALREADY hold an unannotated skip: with the reset it is out
+  # of scope (this diff added no skip to it), without the reset the docs line
+  # pulls it in and it is judged. A file with no skip at all cannot tell the two
+  # apart — my first attempt at this fixture could not, and passed either way.
+  mkdir -p src docs
+  printf '#[cfg_attr(test, mutants::skip)]\nfn ordinary() {}\n' >src/x.rs
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- a/src/x.rs'
+    echo '+++ b/src/x.rs'
+    echo '@@ -2 +2 @@'
+    echo '-fn old() {}'
+    echo '+fn ordinary() {}'
+    echo 'diff --git a/docs/notes.md b/docs/notes.md'
+    echo '--- a/docs/notes.md'
+    echo '+++ b/docs/notes.md'
+    echo '@@ -0,0 +1 @@'
+    echo '+#[cfg_attr(test, mutants::skip)]'
+  } >mixed.diff
+  run "$GATE" enforce --in-diff mixed.diff
+  [ "$status" -eq 0 ] || {
+    echo "a skip-shaped line in a docs hunk was charged to the earlier .rs file: $output"
+    return 1
+  }
+}
+
+@test "MUT-19c: a skip in hunk CONTEXT is not one this PR added" {
+  # The `line.startswith("+")` discriminator. Without it a pre-existing skip
+  # appearing as context is treated as added, which is the exact opposite of the
+  # policy MUT-21c states — and MUT-21c's own fixture has no context lines, so
+  # the discriminator implementing its policy was asserted by nothing.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  cat >src/x.rs <<'RS'
+#[cfg_attr(test, mutants::skip)]
+fn adapter() {}
+fn other() {}
+RS
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- a/src/x.rs'
+    echo '+++ b/src/x.rs'
+    echo '@@ -1,3 +1,3 @@'
+    echo ' #[cfg_attr(test, mutants::skip)]'
+    echo ' fn adapter() {}'
+    echo '-fn was() {}'
+    echo '+fn other() {}'
+  } >ctx.diff
+  run "$GATE" enforce --in-diff ctx.diff
+  [ "$status" -eq 0 ] || {
+    echo "an unannotated skip in CONTEXT was charged to this PR: $output"
+    return 1
+  }
+}
+
+@test "MUT-19d: plain diff -u output (no 'diff --git') still parses" {
+  # Every fixture carries a `diff --git` line, so the `---`/`+++` branches of the
+  # header alternation — the ones the comment says make plain `diff -u` output
+  # parseable — were unpinned. Reduced to `diff --git` alone, a GNU diff patch is
+  # refused as "not a diff".
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src && : >src/x.rs
+  printf -- '--- src/x.rs	2026-07-31
++++ src/x.rs	2026-07-31
+@@ -1 +1 @@
+-a
++b
+' >plain.diff
+  run "$GATE" enforce --in-diff plain.diff
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"is not"* ]]
 }
 
 @test "MUT-19: an unparseable or unresolvable diff is never treated as verified" {
