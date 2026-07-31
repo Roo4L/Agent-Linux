@@ -10,15 +10,27 @@ permissions:
 jobs:
   # (The TypeScript `stryker` mutation job was removed at the Rust cutover — the
   # TS CLI it mutated is gone; the Rust mutation score is `rust-mutants` below.)
-  # TEST-02 (v0.4.0 Phase 54): full-crate cargo-mutants score on the pure
-  # agentlinux-core crate, out-of-band and advisory (continue-on-error) so a
-  # nightly regression surfaces as a warning without blocking. The ENFORCING
-  # merge gate is the per-PR --in-diff
-  # step in test.yml's rust job; this job reports the FULL-crate score the
-  # bounded --in-diff run cannot.
+  # TEST-02: full-WORKSPACE cargo-mutants score, sharded across four runners.
+  # Advisory: a surviving mutant warns rather than blocking. The ENFORCING merge
+  # gate is the per-PR --in-diff step in test.yml's rust job; this job reports
+  # the full score that bounded run cannot, so a module nobody edits is still
+  # re-scored.
   rust-mutants:
     runs-on: ubuntu-24.04
-    continue-on-error: true
+    # NOT continue-on-error. Advisory means "a surviving mutant warns"; it does
+    # NOT mean "a broken gate is fine". The previous version combined
+    # continue-on-error with `|| echo "::warning::"`, so an invalid flag pair
+    # (`--in-place` with `--jobs`, which cargo-mutants rejects) reported a
+    # mutation score for a run that generated zero mutants. scripts/mutation-gate.sh
+    # draws its verdict from mutants.out/outcomes.json precisely so "nothing
+    # survived" and "nothing ran" cannot be confused.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Sharding, not --jobs: cargo-mutants refuses `--in-place --jobs N`, and
+        # --in-place is required (see the gate step). --shard IS compatible, and
+        # one shard per runner gives real parallelism with a private checkout.
+        shard: [1, 2, 3, 4]
     steps:
       - uses: actions/checkout@v5
       - name: Skip if rust/ absent
@@ -33,20 +45,27 @@ jobs:
       - name: Install Rust toolchain
         if: steps.guard.outputs.ready == 'true'
         uses: dtolnay/rust-toolchain@stable
-      # Pinned + --locked (T-54-SC): same version as the per-PR gate so the
-      # nightly full-crate score and the merge gate share one mutation set.
+      # Pinned + --locked: same version as the per-PR gate so the nightly
+      # full-workspace score and the merge gate share one mutation set.
       - name: Install cargo-mutants (pinned)
         if: steps.guard.outputs.ready == 'true'
         run: cargo install --locked --version 27.1.0 cargo-mutants
-      # --in-place required: two agentlinux-core tests read sibling files under
-      # plugin/catalog/ (outside the rust/ workspace); cargo-mutants' default
-      # copy-tree isolation would abort the baseline. Same rationale as the
-      # per-PR gate in test.yml.
-      # Both crates. The bin crate is ~1100 mutants against agentlinux-core's ~90,
-      # so this runs with --jobs 4 and is the reason the nightly exists: the per-PR
-      # gate only ever sees diff-touched lines, so a module nobody edits is never
-      # re-scored.
-      - name: Full-workspace mutation score
+      # --in-place is REQUIRED: two agentlinux-core tests read sibling files
+      # under plugin/catalog/, outside the rust/ workspace, so cargo-mutants'
+      # default copy-tree isolation fails the baseline. Safe here — the runner
+      # checkout is disposable and cargo-mutants restores each mutation.
+      - name: Full-workspace mutation score (shard ${{ matrix.shard }}/4)
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
-        run: cargo mutants --minimum-test-timeout 20 --in-place --jobs 4 || echo "::warning::surviving mutants (nightly full-workspace advisory)"
+        run: |
+          ../scripts/mutation-gate.sh advisory \
+            --in-place --shard ${{ matrix.shard }}/4 --minimum-test-timeout 20
+      # The score is worthless if nobody can read it: keep the surviving-mutant
+      # list so a nightly warning can be acted on instead of just observed.
+      - name: Upload mutants.out
+        if: always() && steps.guard.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: rust/mutants.out/
+          if-no-files-found: warn

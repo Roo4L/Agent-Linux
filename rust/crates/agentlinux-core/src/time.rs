@@ -17,7 +17,13 @@ pub fn format_epoch_utc(secs: u64) -> String {
     let rem = secs % 86_400;
     let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
     let z = days as i64 + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    // Hinnant's civil-from-days carries an `if z >= 0 { z } else { z - 146_096 }`
+    // to make the era division floor correctly for pre-0000-03-01 dates. `secs`
+    // is a u64, so `z >= 719_468` for every input this can be called with and
+    // that branch is unreachable — mutation testing caught it: `- 146_096` could
+    // be `+` or `/` with no test able to tell. Dropping it removes the dead arm
+    // rather than pinning it with a test that can never run.
+    let era = z / 146_097;
     let doe = (z - era * 146_097) as u64;
     let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
     let y = yoe as i64 + era * 400;
