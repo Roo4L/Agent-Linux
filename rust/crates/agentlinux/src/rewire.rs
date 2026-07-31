@@ -1,6 +1,6 @@
 //! rewire.rs — post-install cross-agent wiring reconcile (#4 / WIRE-02).
 //!
-//! Port of `plugin/cli/src/rewire.ts` (`reconcileCrossWiring`). A cross-agent
+//! A cross-agent
 //! PROVIDER (rtk, a fan-out MCP server) wires itself into every coding agent
 //! PRESENT AT ITS OWN INSTALL TIME. Without this reconcile, an agent installed
 //! LATER stays un-wired, so the end state would depend on install order. After a
@@ -9,19 +9,13 @@
 //! Best-effort: a wiring hiccup NEVER fails the install that already succeeded.
 //!
 //! # DI seam
-//! The dispatch goes through an injectable `RewireDispatcher` matching the
+//! The dispatch goes through an injectable `RecipeDispatcher` matching the
 //! buffered `dispatch_recipe` shape (a rewire runs buffered — it isn't the long
 //! interactive install path). Tests inject a capturing/stubbing dispatcher so no
 //! sudo invocation happens under `cargo test`.
-//!
-//! `#![allow(dead_code)]`: `reconcile_cross_wiring` is consumed by Plan 03's
-//! `install` verb after a successful recipe. The `#[cfg(test)]` module exercises
-//! it now; the allow only defers the "not yet wired into a non-test caller" lint
-//! until the verb layer imports it.
-#![allow(dead_code)]
 
 use crate::catalog::FullCatalogEntry;
-use crate::dispatcher::{self, DispatchResult};
+use crate::dispatcher::{self, Capture, RecipeDispatcher};
 use crate::recipe_env::{full_child_env, RecipeEnv};
 use crate::sentinel;
 use std::collections::HashSet;
@@ -39,26 +33,9 @@ const WIREABLE_AGENTS: &[&str] = &[
     "qwen-code",
 ];
 
-/// Dispatcher signature for a rewire recipe — mirrors `dispatch_recipe`
-/// (user, recipe_path, env, stream). Typed so tests inject a stub without a real
-/// subprocess. A rewire always dispatches buffered (`stream=false`).
-pub type RewireDispatcher =
-    fn(user: &str, recipe_path: &str, env: &[(String, String)], stream: bool) -> DispatchResult;
-
-/// The production dispatcher — the real buffered `dispatch_recipe`.
-fn real_dispatch(
-    user: &str,
-    recipe_path: &str,
-    env: &[(String, String)],
-    stream: bool,
-) -> DispatchResult {
-    dispatcher::dispatch_recipe(user, recipe_path, env, stream)
-}
-
 /// Re-run each installed provider's rewire recipe so it fans out into the
-/// freshly-installed `installed_id`. Port of `reconcileCrossWiring`
-/// (rewire.ts:30-81). Best-effort — never returns an error; a wiring hiccup is
-/// logged and the install stays OK.
+/// freshly-installed `installed_id`. Best-effort — never returns an error; a
+/// wiring hiccup is logged and the install stays OK.
 ///
 /// `user` is the resolved install user, `catalog_dir` the catalog root; the
 /// providers are the installed entries (per the sentinel list) that declare a
@@ -69,7 +46,13 @@ pub fn reconcile_cross_wiring(
     catalog_dir: &str,
     user: &str,
 ) {
-    reconcile_cross_wiring_with(installed_id, agents, catalog_dir, user, real_dispatch);
+    reconcile_cross_wiring_with(
+        installed_id,
+        agents,
+        catalog_dir,
+        user,
+        dispatcher::dispatch_recipe,
+    );
 }
 
 /// DI-seam variant — the testable core.
@@ -78,7 +61,7 @@ pub fn reconcile_cross_wiring_with(
     agents: &[FullCatalogEntry],
     catalog_dir: &str,
     user: &str,
-    dispatch: RewireDispatcher,
+    dispatch: RecipeDispatcher,
 ) {
     // Only a freshly-installed coding agent can be a NEW wiring target.
     if !WIREABLE_AGENTS.contains(&installed_id) {
@@ -126,7 +109,12 @@ pub fn reconcile_cross_wiring_with(
                 .join(":"),
         };
         let env = full_child_env(recipe_env, user, &[]);
-        let result = dispatch(user, &recipe_path.to_string_lossy(), &env, false);
+        let result = dispatch(
+            user,
+            &recipe_path.to_string_lossy(),
+            &env,
+            Capture::Buffered,
+        );
         if result.exit_code == 0 {
             println!("↻ re-wired {} into {installed_id}", provider.id);
         } else {
@@ -141,6 +129,7 @@ pub fn reconcile_cross_wiring_with(
 #[cfg(test)]
 mod rewire_tests {
     use super::*;
+    use crate::dispatcher::DispatchResult;
     use crate::sentinel::Sentinel;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tempfile::tempdir;
@@ -162,7 +151,7 @@ mod rewire_tests {
     }
 
     static DISPATCH_COUNT: AtomicUsize = AtomicUsize::new(0);
-    fn counting_ok(_u: &str, _p: &str, _e: &[(String, String)], _s: bool) -> DispatchResult {
+    fn counting_ok(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
         DISPATCH_COUNT.fetch_add(1, Ordering::SeqCst);
         DispatchResult {
             exit_code: 0,
@@ -263,7 +252,7 @@ mod rewire_tests {
         .unwrap();
         let agents = vec![provider("rtk", Some("rewire.sh"))];
 
-        fn failing(_u: &str, _p: &str, _e: &[(String, String)], _s: bool) -> DispatchResult {
+        fn failing(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
             DispatchResult {
                 exit_code: 3,
                 stdout: String::new(),

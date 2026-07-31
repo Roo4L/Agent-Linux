@@ -1,24 +1,19 @@
 //! distro.rs — supported-distro gate + family bucket (PROV-03).
 //!
-//! Byte-for-byte port of `plugin/lib/distro_detect.sh::detect_distro`. The
+//! Distro detection: which package-manager family this host is. The
 //! installer accepts Ubuntu 22.04 / 24.04 / 26.04 (`Family::Debian`) and
 //! AlmaLinux 9.x (`Family::Rhel`); everything else is refused. `ID` is matched
 //! EXACTLY (never the looser os-release similarity field) so Rocky/RHEL/CentOS/
 //! Fedora and AlmaLinux 8/10 stay explicitly refused — no silent admission of an
 //! untested family.
 //!
-//! Two bats seams the Bash lib exposes are preserved so the Wave-5 shim-or-
+//! Two bats seams the Bash lib exposes are preserved so the shim-or-
 //! rewrite decision has a green Rust equivalent to point at:
-//!   - `AGENTLINUX_OS_RELEASE_PATH` overrides the os-release path (the caller
-//!     passes the already-resolved path here; `detect_distro_from_env` reads the
-//!     env for the production default `/etc/os-release`).
-//!   - `AGENTLINUX_SKIP_DISTRO_CHECK=1` bypasses validation, seeding the family
-//!     from ID (almalinux→Rhel else Debian) and version `"unchecked"`.
-//!
-//! `dead_code` allowed at module scope: the public surface is consumed by the
-//! Wave-1..4 provisioner steps; the `#[cfg(test)]` module exercises every path
-//! now.
-#![allow(dead_code)]
+//!  - `AGENTLINUX_OS_RELEASE_PATH` overrides the os-release path (the caller
+//!    passes the already-resolved path here; `detect_distro_from_env` reads the
+//!    env for the production default `/etc/os-release`).
+//!  - `AGENTLINUX_SKIP_DISTRO_CHECK=1` bypasses validation, seeding the family
+//!    from ID (almalinux→Rhel else Debian) and version `"unchecked"`.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -56,10 +51,11 @@ pub struct Distro {
 }
 
 /// Parse the `key=value` shape os-release uses: strip surrounding double OR
-/// single quotes from the value (os-release permits both). Returns the FIRST
-/// occurrence of `key` (matching a `. os-release` source where the last
-/// assignment would win — but ID/VERSION_ID appear once in practice; we take the
-/// last to mirror shell sourcing exactly).
+/// single quotes from the value (os-release permits both).
+///
+/// Returns the LAST occurrence of `key`, matching what `. /etc/os-release` in a
+/// shell would leave set. In practice ID and VERSION_ID appear exactly once, so
+/// this only matters for a malformed file.
 fn os_release_value(contents: &str, key: &str) -> Option<String> {
     let mut found = None;
     for line in contents.lines() {
@@ -88,8 +84,6 @@ fn os_release_value(contents: &str, key: &str) -> Option<String> {
 pub struct DetectEnv {
     /// `AGENTLINUX_SKIP_DISTRO_CHECK` == "1".
     pub skip_check: bool,
-    /// An explicit `AGENTLINUX_DISTRO_FAMILY` override ("debian"/"rhel"), if set.
-    pub family_override: Option<String>,
 }
 
 impl DetectEnv {
@@ -97,9 +91,6 @@ impl DetectEnv {
     fn from_process_env() -> Self {
         Self {
             skip_check: std::env::var("AGENTLINUX_SKIP_DISTRO_CHECK").as_deref() == Ok("1"),
-            family_override: std::env::var("AGENTLINUX_DISTRO_FAMILY")
-                .ok()
-                .filter(|s| !s.is_empty()),
         }
     }
 }
@@ -122,24 +113,15 @@ pub fn detect_distro_from_env() -> Result<Distro, DistroError> {
 /// (Debian) and almalinux 9.x (Rhel), refuse everything else.
 ///
 /// Honors the two bats seams via `env`:
-///   - `skip_check`: bypass validation, seed family from the file's ID
-///     (almalinux→Rhel else Debian) or an explicit `family_override`, version
-///     `"unchecked"`.
-///   - `family_override`: only consulted under `skip_check` (matches the Bash
-///     `if [[ -z "${AGENTLINUX_DISTRO_FAMILY:-}" ]]` seed logic).
+///  - `skip_check`: bypass validation, seed the family from the file's ID
+///    (almalinux→Rhel, else Debian) and report version `"unchecked"`.
 pub fn detect_distro(os_release_path: &Path, env: &DetectEnv) -> Result<Distro, DistroError> {
     // Read the file up front (may be absent under the skip seam, which is fine).
     let contents = fs::read_to_string(os_release_path).ok();
 
     if env.skip_check {
-        // Explicit override wins; else read ID from the file if present; else
-        // default debian (mirrors distro_detect.sh:53-63).
-        let family = if let Some(f) = env.family_override.as_deref() {
-            match f {
-                "rhel" => Family::Rhel,
-                _ => Family::Debian,
-            }
-        } else {
+        // Read ID from the file if present; else default debian.
+        let family = {
             let seed_id = contents
                 .as_deref()
                 .and_then(|c| os_release_value(c, "ID"))
@@ -316,10 +298,7 @@ mod distro_tests {
     fn skip_check_seeds_rhel_from_almalinux_id() {
         let d = TempDir::new().unwrap();
         let p = write_os_release(&d, "ID=almalinux\nVERSION_ID=9.4\n");
-        let env = DetectEnv {
-            skip_check: true,
-            family_override: None,
-        };
+        let env = DetectEnv { skip_check: true };
         assert_eq!(
             detect_distro(&p, &env).unwrap(),
             Distro {
@@ -333,10 +312,7 @@ mod distro_tests {
     fn skip_check_defaults_debian_for_non_almalinux_id() {
         let d = TempDir::new().unwrap();
         let p = write_os_release(&d, "ID=ubuntu\nVERSION_ID=24.04\n");
-        let env = DetectEnv {
-            skip_check: true,
-            family_override: None,
-        };
+        let env = DetectEnv { skip_check: true };
         assert_eq!(
             detect_distro(&p, &env).unwrap(),
             Distro {
@@ -347,25 +323,10 @@ mod distro_tests {
     }
 
     #[test]
-    fn skip_check_explicit_family_override_wins() {
-        let d = TempDir::new().unwrap();
-        // ID says ubuntu, but the explicit override says rhel — override wins.
-        let p = write_os_release(&d, "ID=ubuntu\nVERSION_ID=24.04\n");
-        let env = DetectEnv {
-            skip_check: true,
-            family_override: Some("rhel".into()),
-        };
-        assert_eq!(detect_distro(&p, &env).unwrap().family, Family::Rhel);
-    }
-
-    #[test]
     fn skip_check_missing_file_defaults_debian() {
         let d = TempDir::new().unwrap();
         let p = d.path().join("nonexistent");
-        let env = DetectEnv {
-            skip_check: true,
-            family_override: None,
-        };
+        let env = DetectEnv { skip_check: true };
         assert_eq!(
             detect_distro(&p, &env).unwrap(),
             Distro {

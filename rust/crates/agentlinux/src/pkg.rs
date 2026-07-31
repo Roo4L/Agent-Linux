@@ -1,6 +1,6 @@
 //! pkg.rs — package-manager-neutral verbs (apt↔dnf) keyed on `Family` (PROV-03).
 //!
-//! Byte-for-byte port of `plugin/lib/pkg.sh` — the ONE auditable place the
+//! The ONE auditable place the
 //! apt↔dnf branch lives. Every hardcoded apt-get / dpkg / locale-gen /
 //! NodeSource site collapses to a single verb here, each branching EXACTLY ONCE
 //! on `Family` via a `match` (never an inline `if family` scattered across call
@@ -13,16 +13,11 @@
 //! Testability: every shell-out verb factors its ARGV into a pure `*_argv`
 //! builder the unit tests assert WITHOUT running live apt/dnf; the live spawn
 //! wraps the builder. `nodesource_repo_paths` + the argv builders are pure and
-//! fully unit-tested (the shared source of truth with the Wave-3 gate + Wave-5
+//! fully unit-tested (the shared source of truth with the idempotency gate and the
 //! purge). `nodesource_prereqs` rhel installs ONLY ca-certificates (NEVER curl —
-//! Pitfall 5; curl-minimal conflicts and gnupg/apt-transport-https do not exist
+//! curl-minimal conflicts and gnupg/apt-transport-https do not exist
 //! on EL9). `nodesource_module_reset` rhel resets the AppStream nodejs module
-//! (Pitfall 4) so it cannot win over the NodeSource repo.
-//!
-//! `dead_code` allowed at module scope for this Wave-0 foundation: the verb
-//! surface is consumed by the Wave-1..4 provisioner steps; the `#[cfg(test)]`
-//! module exercises every builder now.
-#![allow(dead_code)]
+//!  so it cannot win over the NodeSource repo.
 
 use crate::distro::Family;
 use crate::sysio;
@@ -98,19 +93,6 @@ pub fn pkg_install(family: Family, pkgs: &[&str]) -> io::Result<()> {
     run_all(&install_cmds(family, pkgs))
 }
 
-/// The `pkg_is_installed` probe command for `family` (debian dpkg-query Status
-/// grep vs rhel `rpm -q`). Returned as argv only; the caller interprets the exit
-/// status (rc 0 == installed).
-pub fn is_installed_cmd(family: Family, pkg: &str) -> PkgCmd {
-    match family {
-        // The Bash pipes dpkg-query into `grep -q "install ok installed"`. We
-        // model the query argv; the grep of its stdout is the caller's job in
-        // the live path. For argv-parity we record the dpkg-query form.
-        Family::Debian => PkgCmd::new(&[], &["dpkg-query", "-W", "-f=${Status}", pkg]),
-        Family::Rhel => PkgCmd::new(&[], &["rpm", "-q", pkg]),
-    }
-}
-
 /// The command `pkg_remove` runs (debian apt-get purge, rhel dnf remove).
 pub fn remove_cmd(family: Family, pkgs: &[&str]) -> PkgCmd {
     match family {
@@ -151,7 +133,7 @@ pub fn pkg_autoremove(family: Family) -> io::Result<()> {
 
 /// The command(s) `nodesource_prereqs` runs. Debian: apt-get update THEN install
 /// {curl, gnupg, ca-certificates, apt-transport-https}. Rhel: install ONLY
-/// {ca-certificates} — NEVER curl (Pitfall 5).
+/// {ca-certificates} — NEVER curl.
 pub fn nodesource_prereqs_cmds(family: Family) -> Vec<PkgCmd> {
     match family {
         Family::Debian => vec![
@@ -235,7 +217,7 @@ pub fn nodesource_setup(family: Family) -> io::Result<()> {
 }
 
 /// `nodesource_repo_paths` — the family's NodeSource repo file paths. The single
-/// source of truth shared by the Wave-3 idempotency gate and the Wave-5 purge,
+/// source of truth shared by the idempotency gate and the purge,
 /// byte-identical to `pkg.sh:144-160`.
 pub fn nodesource_repo_paths(family: Family) -> Vec<PathBuf> {
     match family {
@@ -252,7 +234,7 @@ pub fn nodesource_repo_paths(family: Family) -> Vec<PathBuf> {
 }
 
 /// The command `nodesource_module_reset` runs, or `None` for a no-op (debian).
-/// Rhel resets the AppStream nodejs module (Pitfall 4); non-fatal (`|| true`).
+/// Rhel resets the AppStream nodejs module; non-fatal (`|| true`).
 pub fn nodesource_module_reset_cmd(family: Family) -> Option<PkgCmd> {
     match family {
         Family::Rhel => Some(PkgCmd::new(
@@ -308,7 +290,7 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
         Family::Debian => {
             // Install `locales` if locale-gen is absent (best-effort), then
             // locale-gen + update-locale, then the availability gate.
-            if which("locale-gen").is_none() {
+            if sysio::which("locale-gen").is_none() {
                 run_all(&install_cmds(Family::Debian, &["locales"]))?;
             }
             // locale-gen C.UTF-8 (non-fatal, Bash `|| true`).
@@ -348,20 +330,6 @@ fn require_locale_available() -> io::Result<()> {
 // ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
-
-/// `command -v <name>` — resolve a program on PATH, `None` if absent.
-fn which(name: &str) -> Option<PathBuf> {
-    std::env::var_os("PATH").and_then(|paths| {
-        std::env::split_paths(&paths).find_map(|dir| {
-            let cand = dir.join(name);
-            if cand.is_file() {
-                Some(cand)
-            } else {
-                None
-            }
-        })
-    })
-}
 
 /// Run every command in sequence, failing fast on the first non-zero exit
 /// (matches the Bash `set -e` sequencing of the multi-command verbs).
@@ -433,18 +401,6 @@ mod pkg_tests {
     }
 
     #[test]
-    fn is_installed_cmd_per_family() {
-        assert_eq!(
-            is_installed_cmd(Family::Debian, "nodejs").argv,
-            vec!["dpkg-query", "-W", "-f=${Status}", "nodejs"]
-        );
-        assert_eq!(
-            is_installed_cmd(Family::Rhel, "nodejs").argv,
-            vec!["rpm", "-q", "nodejs"]
-        );
-    }
-
-    #[test]
     fn remove_cmd_per_family() {
         assert_eq!(
             remove_cmd(Family::Debian, &["nodejs"]).argv,
@@ -472,11 +428,11 @@ mod pkg_tests {
     fn nodesource_prereqs_rhel_only_ca_certificates_never_curl() {
         let cmds = nodesource_prereqs_cmds(Family::Rhel);
         assert_eq!(cmds.len(), 1);
-        // ONLY ca-certificates (Pitfall 5) — and crucially NEVER curl.
+        // ONLY ca-certificates — and crucially NEVER curl.
         assert!(cmds[0].argv.contains(&"ca-certificates".to_string()));
         assert!(
             !cmds[0].argv.iter().any(|a| a == "curl"),
-            "rhel prereqs must NEVER install curl (Pitfall 5): {:?}",
+            "rhel prereqs must NEVER install curl (curl-minimal conflicts): {:?}",
             cmds[0].argv
         );
         assert!(!cmds[0].argv.iter().any(|a| a == "gnupg"));

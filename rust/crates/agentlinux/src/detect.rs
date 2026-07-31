@@ -1,6 +1,6 @@
 //! detect.rs — the DETECT-phase host scanner that WRITES the detect cache.
 //!
-//! Port of `plugin/lib/detect/agents.sh` (`detect::agents_probe`). The `provision`
+//! Probes the host for already-installed catalog agents. The `provision`
 //! verb runs [`scan_and_write`] AFTER the step loop (so PATH wiring + Node are in
 //! place) and BEFORE agent adoption, populating `/run/agentlinux-detect.json` with
 //! the `.agents` section. A subsequent `agentlinux install <id>` / `adopt --all`
@@ -29,7 +29,7 @@
 //! reports `root` → refused) exactly as the Bash probe did.
 
 use crate::catalog::{self, FullCatalogEntry};
-use crate::dispatcher;
+use crate::dispatcher::{self, Capture};
 
 /// The original three carry bespoke version-probe flags + a strict `--help`-exit-0
 /// health gate their behavior contract asserts; every other tool uses the generic
@@ -205,7 +205,13 @@ fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let r = dispatcher::as_user(user, &argv, &probe_env(home), false, Some(PROBE_TIMEOUT_MS));
+    let r = dispatcher::as_user(
+        user,
+        &argv,
+        &probe_env(home),
+        Capture::Buffered,
+        Some(PROBE_TIMEOUT_MS),
+    );
     (r.exit_code, r.stdout.trim().to_string())
 }
 
@@ -340,7 +346,7 @@ fn record_value(r: &AgentRecord) -> serde_json::Value {
 /// treat that as "detected nothing" — the same absent-cache fallback).
 fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
     let catalog_dir = catalog::resolve_catalog_dir();
-    let entries = match catalog::load_catalog(&catalog_dir, false) {
+    let entries = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
         Ok(e) => e,
         Err(e) => {
             crate::provision::log::line(&format!(
@@ -361,16 +367,13 @@ fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
 /// `/run/agentlinux-detect.json`). Best-effort: returns any I/O error for the
 /// caller to log; never panics.
 ///
-/// Written atomically — a sibling `*.tmp` in the SAME directory, then `rename` into
-/// place. `rename` is atomic within a filesystem, so a concurrent `agentlinux
-/// install` reader sees either the old cache or the fully-written new one, never a
-/// truncated prefix, and a provision killed mid-write cannot leave a torn JSON on
-/// `/run`. An explicit `0o644` mode (root writes it; the unprivileged install user
-/// must read it during `install`/`adopt`) replaces reliance on the ambient umask.
+/// Written through `sysio::write_file_atomic`, so a concurrent `agentlinux
+/// install` reader sees either the old cache or the fully-written new one, never
+/// a truncated prefix, and a provision killed mid-write leaves neither a torn
+/// JSON on `/run` nor a stray tmpfile. The `0o644` mode is explicit — root writes
+/// it, the unprivileged install user must read it during `install`/`adopt`, and
+/// relying on the ambient umask for that would be a coin flip.
 fn write_cache(records: &[AgentRecord]) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::os::unix::fs::OpenOptionsExt;
-
     let agents: Vec<serde_json::Value> = records.iter().map(record_value).collect();
     let doc = serde_json::json!({ "agents": agents });
     // Plain-string values → serialization cannot fail in practice; propagate rather
@@ -379,19 +382,7 @@ fn write_cache(records: &[AgentRecord]) -> std::io::Result<()> {
     let body = serde_json::to_string_pretty(&doc)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
-    let path = crate::cache::detect_cache_path();
-    let tmp = path.with_extension("json.tmp");
-    {
-        let mut f = std::fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o644)
-            .open(&tmp)?;
-        f.write_all(body.as_bytes())?;
-        f.sync_all()?;
-    }
-    std::fs::rename(&tmp, &path)
+    crate::sysio::write_file_atomic(0o644, &crate::cache::detect_cache_path(), body.as_bytes())
 }
 
 /// Persist a set of records to the detect cache, logging (not propagating) an I/O

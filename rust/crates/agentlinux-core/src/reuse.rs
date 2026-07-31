@@ -1,6 +1,6 @@
 //! `reuse` — the pure REUSE-03 catalog-agent compatibility decision.
 //!
-//! Ports predicates 1 + 2 of `plugin/lib/reuse/agents.sh::reuse::agent_decision`
+//! Predicates 1 + 2 of the per-agent reuse decision
 //! (the gnarly provisioner unit the stack-reconsideration decision quotes). The
 //! bash function stops at two of three predicates because semver-range
 //! satisfaction is non-trivial in bash; predicate 3 (version-in-window) is
@@ -12,10 +12,10 @@
 //! only decides.
 //!
 //! Predicate order (byte-for-byte with the bash):
-//! 1. empty id            → Create
-//! 2. status "absent"     → Create
+//! 1. empty id → Create
+//! 2. status "absent" → Create
 //! 3. unknown id (no map) → Create
-//! 4. status "broken"     → Remediate
+//! 4. status "broken" → Remediate
 //! 5. healthy, path != canonical → Remediate
 //!    (EXCEPT id=="gsd" && detected_path == gsd_system_path → Reuse)
 //! 6. healthy, path match → Reuse
@@ -84,7 +84,7 @@ pub fn agent_decision(
         return Decision::Create;
     };
 
-    // broken → remediate (uninstall + reinstall via recipe, Phase 14).
+    // broken → remediate (uninstall + reinstall via the recipe).
     if status == "broken" {
         return Decision::Remediate;
     }

@@ -13,7 +13,6 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
- "wait-timeout",
 ]
 
 [[package]]

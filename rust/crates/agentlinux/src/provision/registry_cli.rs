@@ -1,4 +1,4 @@
-//! provision/registry_cli.rs — port of `plugin/provisioner/50-registry-cli.sh`.
+//! provision/registry_cli.rs — step 50: stage the CLI and the catalog.
 //!
 //! The LAST provisioner step (numeric dispatch 10→20→30→40→50): stage the
 //! `agentlinux` CLI bundle + the catalog snapshot under `/opt/agentlinux/`,
@@ -10,18 +10,18 @@
 //! (`plugin/bin/agentlinux` under the plugin source root) as the default
 //! `agentlinux` command, symlinking THAT bin onto the install user's PATH. The
 //! TS bundle (`dist/index.js` + `node_modules/`) no longer ships and is no
-//! longer staged. Phase 57's `dist/index.js` symlink is replaced; the catalog +
+//! longer staged. `dist/index.js` symlink is replaced; the catalog +
 //! recipe + state staging (CAT-01/02/03/05) is UNCHANGED — only the CLI
 //! artifact's identity moves from a Node script to a compiled binary.
 //!
 //! Requirements satisfied (parity with the swapped 50-registry-cli.sh contract):
-//!   CLI-01 — `agentlinux` on the install user's PATH (symlink → the musl bin)
-//!   CAT-01 / CAT-03 — catalog + recipes staged under /opt/agentlinux/catalog/
-//!   CAT-02 — state/installed.d/ created EMPTY (no agent installed here)
-//!   CAT-05 — staged catalog byte-identical to the source catalog.json
-//!   INST-02 — re-runnable (ensure_dir idempotent; install byte-stable on
-//!             identical src; ln -sfn idempotent when the symlink already points
-//!             at target — the staged bin's sha256 is stable across a re-run)
+//!  CLI-01 — `agentlinux` on the install user's PATH (symlink → the musl bin)
+//!  CAT-01 / CAT-03 — catalog + recipes staged under /opt/agentlinux/catalog/
+//!  CAT-02 — state/installed.d/ created EMPTY (no agent installed here)
+//!  CAT-05 — staged catalog byte-identical to the source catalog.json
+//!  INST-02 — re-runnable (ensure_dir idempotent; install byte-stable on
+//!  identical src; ln -sfn idempotent when the symlink already points
+//!  at target — the staged bin's sha256 is stable across a re-run)
 //!
 //! # Source-tree discovery (the Rust-port seam)
 //! The Bash derives `CLI_BUNDLE_SRC`/`CATALOG_SRC` from `BIN_DIR/../{bin,catalog}`
@@ -32,7 +32,7 @@
 //! `bin/agentlinux` + `catalog.json` sanity checks match the Bash
 //! malformed-tarball guards (return an error, not a panic).
 
-use crate::dispatcher;
+use crate::dispatcher::{self, Capture};
 use crate::provision::ProvisionCtx;
 use crate::sysio;
 use std::fs;
@@ -47,17 +47,17 @@ const DEFAULT_SRC_ROOT: &str = "/opt/agentlinux-src/plugin";
 
 /// Resolve the plugin source root — the Rust analogue of the Bash `BIN_DIR/..`.
 /// Precedence:
-///   1. `$AGENTLINUX_SRC_ROOT` (nonempty) — the explicit override.
-///   2. The running bin's own grandparent, when it looks like a plugin root.
-///      The shipped tarball lays the bin at `<plugin>/bin/agentlinux`, so
-///      `current_exe()/../..` is the `<plugin>` dir holding `bin/` + `catalog/`.
-///      This is what makes the SOLE distribution path work: the curl-installer
-///      extracts to `/opt/agentlinux/install/<ver>/plugin` and execs the bin
-///      WITHOUT setting the env var (OBS-04) — deriving from the bin's location
-///      is the Bash `BIN_DIR/..` behavior the earlier port dropped.
-///   3. `DEFAULT_SRC_ROOT` — the container-test default (`run.sh` stages the
-///      tree there and runs the provisioner bin from an unrelated off-tree path,
-///      so its grandparent is NOT a plugin root and correctly falls through).
+///  1. `$AGENTLINUX_SRC_ROOT` (nonempty) — the explicit override.
+///  2. The running bin's own grandparent, when it looks like a plugin root.
+///     The shipped tarball lays the bin at `<plugin>/bin/agentlinux`, so
+///     `current_exe()/../..` is the `<plugin>` dir holding `bin/` + `catalog/`.
+///     This is what makes the SOLE distribution path work: the curl-installer
+///     extracts to `/opt/agentlinux/install/<ver>/plugin` and execs the bin
+///     WITHOUT setting the env var (OBS-04) — deriving from the bin's location
+///     is the Bash `BIN_DIR/..` behavior the earlier port dropped.
+///  3. `DEFAULT_SRC_ROOT` — the container-test default (`run.sh` stages the
+///     tree there and runs the provisioner bin from an unrelated off-tree path,
+///     so its grandparent is NOT a plugin root and correctly falls through).
 fn src_root() -> PathBuf {
     if let Ok(v) = std::env::var("AGENTLINUX_SRC_ROOT") {
         if !v.is_empty() {
@@ -114,7 +114,7 @@ pub(crate) fn normalize_version(v: &str) -> String {
 }
 
 /// The staging version — normalized `$AGENTLINUX_VERSION` else the bin's
-/// `CARGO_PKG_VERSION` (synced to plugin/cli/package.json → 0.4.0). MUST match
+/// `CARGO_PKG_VERSION`. MUST match
 /// the version `10-installer.bats` reads from package.json AND the runtime
 /// `catalog::default_catalog_dir()` resolver so the staged
 /// `/opt/agentlinux/{cli,catalog}/<ver>/` paths line up on BOTH sides (OBS-05).
@@ -150,7 +150,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
 
     let root = src_root();
     // DIST-01: the shipped CLI is the static musl bin at plugin/bin/agentlinux
-    // (the Wave-1 tarball payload), NOT the TS bundle under plugin/cli/.
+    // (the tarball payload).
     let cli_bin_src = root.join("bin").join("agentlinux");
     let catalog_src = root.join("catalog");
 
@@ -203,19 +203,18 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // run it; no Node/shebang dispatch (it is a static binary).
     install_file(&cli_bin_src, &cli_bin_stage, 0o755, "root:root")?;
 
-    // Stage the catalog snapshot (50-registry-cli.sh:103-107).
+    // Stage the catalog snapshot.
     sysio::ensure_dir(&catalog_stage_dir, 0o755, "root:root")?;
     copy_tree_contents(&catalog_src, &catalog_stage_dir)?;
-    chmod_recursive_ugo(&catalog_stage_dir)?;
-    // install.sh / uninstall.sh must be executable for the CLI dispatcher.
-    chmod_sh_scripts_0755(&catalog_stage_dir.join("agents"))?;
+    // Dirs 0755; files 0755 when executable-or-`.sh`, else 0644 — one descent.
+    chmod_catalog_tree(&catalog_stage_dir)?;
 
     // State dir — owned by the install user (the CLI writes sentinels via atomic
-    // rename). CAT-02: installed.d/ is created EMPTY (50-registry-cli.sh:113-114).
+    // rename). CAT-02: installed.d/ is created EMPTY.
     sysio::ensure_dir(&state_dir, 0o755, &owner)?;
     sysio::ensure_dir(&state_dir.join("installed.d"), 0o755, &owner)?;
 
-    // Symlink `agentlinux` onto the install user's PATH (50-registry-cli.sh:123-126).
+    // Symlink `agentlinux` onto the install user's PATH.
     // ln -sfn (force + no-deref) is idempotent; chown -h retargets the LINK.
     sysio::ensure_dir(Path::new(&format!("{home}/.npm-global/bin")), 0o755, &owner)?;
     let symlink_target = cli_bin_stage.clone();
@@ -228,13 +227,13 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     );
 
     // Verify the symlink resolves + is executable AS THE INSTALL USER
-    // (50-registry-cli.sh:137-140, T-04-15). as_user prepends its own `--`; pass
+    // as_user prepends its own `--`; pass
     // the command + args verbatim without a leading `--`.
     let argv: Vec<String> = ["test", "-x", &symlink.to_string_lossy()]
         .iter()
         .map(|s| s.to_string())
         .collect();
-    let r = dispatcher::as_user(user, &argv, &[], false, None);
+    let r = dispatcher::as_user(user, &argv, &[], Capture::Buffered, None);
     if r.exit_code != 0 {
         return Err(io::Error::other(format!(
             "agentlinux symlink not executable as install user '{user}' (CLI-01 regression)"
@@ -247,7 +246,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
 
 /// `cp -R <src>/. <dst>/` — recursively copy the CONTENTS of `src` into the
 /// (existing) `dst` dir. Files overwrite; dirs are created. Preserves the file
-/// bytes; mode is re-normalized afterward by `chmod_recursive_ugo` (matching the
+/// bytes; mode is re-normalized afterward by `chmod_catalog_tree` (matching the
 /// Bash `cp -R` then `chmod -R`). Symlinks are copied as symlinks (cp -R default
 /// on a link inside a tree is to copy the link), but our source trees (dist,
 /// node_modules, catalog) hold regular files + dirs.
@@ -290,7 +289,7 @@ fn install_file(src: &Path, dst: &Path, mode: u32, owner: &str) -> io::Result<()
 /// (conditional execute) applies `x` only to dirs OR files that already have an
 /// exec bit set. We reproduce that: a dir → 0755, a file with any exec bit → 0755,
 /// else 0644.
-fn chmod_recursive_ugo(root: &Path) -> io::Result<()> {
+fn chmod_catalog_tree(root: &Path) -> io::Result<()> {
     let meta = fs::symlink_metadata(root)?;
     if meta.file_type().is_symlink() {
         // Do not chmod through a symlink.
@@ -299,33 +298,21 @@ fn chmod_recursive_ugo(root: &Path) -> io::Result<()> {
     if meta.is_dir() {
         fs::set_permissions(root, fs::Permissions::from_mode(0o755))?;
         for entry in fs::read_dir(root)? {
-            chmod_recursive_ugo(&entry?.path())?;
+            chmod_catalog_tree(&entry?.path())?;
         }
-    } else {
-        let had_exec = meta.permissions().mode() & 0o111 != 0;
-        let mode = if had_exec { 0o755 } else { 0o644 };
-        fs::set_permissions(root, fs::Permissions::from_mode(mode))?;
-    }
-    Ok(())
-}
-
-/// `find <agents_dir> -name '*.sh' -exec chmod 0755 {} +` — make every recipe
-/// script executable. A missing agents dir is a no-op (a catalog with no agents).
-fn chmod_sh_scripts_0755(agents_dir: &Path) -> io::Result<()> {
-    if !agents_dir.is_dir() {
         return Ok(());
     }
-    for entry in fs::read_dir(agents_dir)? {
-        let entry = entry?;
-        let path = entry.path();
-        let ft = entry.file_type()?;
-        if ft.is_dir() {
-            chmod_sh_scripts_0755(&path)?;
-        } else if ft.is_file() && path.extension().is_some_and(|e| e == "sh") {
-            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))?;
-        }
-    }
-    Ok(())
+    // A file is 0755 when it is meant to be run — either it already carried an
+    // exec bit in the source tree, or it is a `.sh` recipe the CLI dispatcher
+    // invokes. Everything else is 0644.
+    //
+    // One descent, one rule. This used to be two full recursive walks where the
+    // second (`find -name '*.sh' -exec chmod 0755`) existed only to re-raise the
+    // files the first had just demoted to 0644.
+    let is_executable =
+        meta.permissions().mode() & 0o111 != 0 || root.extension().is_some_and(|e| e == "sh");
+    let mode = if is_executable { 0o755 } else { 0o644 };
+    fs::set_permissions(root, fs::Permissions::from_mode(mode))
 }
 
 /// `ln -sfn <target> <link>` — force + no-deref: atomically replace an existing
@@ -351,35 +338,16 @@ fn ln_sfn(target: &Path, link: &Path) -> io::Result<()> {
 /// `chown <owner> <path>` on a regular path (follows nothing special; the file
 /// is a plain file/dir). Resolves `user:group` → uid/gid.
 fn chown_path(path: &Path, owner: &str) -> io::Result<()> {
-    let (uid, gid) = resolve_owner(owner)?;
+    let (uid, gid) = sysio::resolve_owner(owner)?;
     std::os::unix::fs::chown(path, Some(uid), Some(gid))
         .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
 }
 
 /// `chown -h <owner> <link>` — change the SYMLINK itself, not its target.
 fn chown_symlink(link: &Path, owner: &str) -> io::Result<()> {
-    let (uid, gid) = resolve_owner(owner)?;
+    let (uid, gid) = sysio::resolve_owner(owner)?;
     std::os::unix::fs::lchown(link, Some(uid), Some(gid))
         .map_err(|e| io::Error::other(format!("chown -h {} failed: {e}", link.display())))
-}
-
-/// Resolve `"user:group"` → `(uid, gid)` via the passwd/group DBs (mirrors
-/// `sysio::resolve_owner`, which is private to that module).
-fn resolve_owner(owner: &str) -> io::Result<(u32, u32)> {
-    let (user, group) = owner
-        .split_once(':')
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "owner must be user:group"))?;
-    let uid = nix::unistd::User::from_name(user)
-        .map_err(|e| io::Error::other(format!("resolve_owner: user {user}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("resolve_owner: unknown user {user}")))?
-        .uid
-        .as_raw();
-    let gid = nix::unistd::Group::from_name(group)
-        .map_err(|e| io::Error::other(format!("resolve_owner: group {group}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("resolve_owner: unknown group {group}")))?
-        .gid
-        .as_raw();
-    Ok((uid, gid))
 }
 
 #[cfg(test)]
@@ -502,7 +470,7 @@ mod registry_cli_tests {
     }
 
     #[test]
-    fn chmod_recursive_ugo_dirs_755_plain_files_644() {
+    fn chmod_catalog_tree_dirs_755_plain_files_644() {
         let root = tempdir().unwrap();
         fs::create_dir_all(root.path().join("d")).unwrap();
         fs::write(root.path().join("d").join("f.txt"), b"x").unwrap();
@@ -511,7 +479,7 @@ mod registry_cli_tests {
             fs::Permissions::from_mode(0o600),
         )
         .unwrap();
-        chmod_recursive_ugo(root.path()).unwrap();
+        chmod_catalog_tree(root.path()).unwrap();
         let dmode = fs::metadata(root.path().join("d"))
             .unwrap()
             .permissions()
@@ -527,12 +495,12 @@ mod registry_cli_tests {
     }
 
     #[test]
-    fn chmod_recursive_ugo_keeps_exec_bit_on_scripts() {
+    fn chmod_catalog_tree_marks_scripts_executable() {
         let root = tempdir().unwrap();
         let script = root.path().join("run.sh");
         fs::write(&script, b"#!/bin/sh\n").unwrap();
         fs::set_permissions(&script, fs::Permissions::from_mode(0o744)).unwrap();
-        chmod_recursive_ugo(root.path()).unwrap();
+        chmod_catalog_tree(root.path()).unwrap();
         let mode = fs::metadata(&script).unwrap().permissions().mode() & 0o777;
         // Had an exec bit → X applies → 0755.
         assert_eq!(mode, 0o755);
@@ -557,8 +525,11 @@ mod registry_cli_tests {
         assert_eq!(fs::read_link(&link).unwrap(), t2);
     }
 
+    /// A `.sh` recipe arriving non-executable must still end up 0755 — the CLI
+    /// dispatcher runs it. Everything else stays 0644. This is the case the
+    /// second recursive walk used to handle.
     #[test]
-    fn chmod_sh_scripts_recurses_and_sets_0755() {
+    fn chmod_catalog_tree_raises_non_executable_sh_recipes() {
         let agents = tempdir().unwrap();
         let dir = agents.path().join("test-dummy");
         fs::create_dir_all(&dir).unwrap();
@@ -570,7 +541,7 @@ mod registry_cli_tests {
         fs::write(&readme, b"x").unwrap();
         fs::set_permissions(&readme, fs::Permissions::from_mode(0o644)).unwrap();
 
-        chmod_sh_scripts_0755(agents.path()).unwrap();
+        chmod_catalog_tree(agents.path()).unwrap();
 
         assert_eq!(
             fs::metadata(&install).unwrap().permissions().mode() & 0o777,

@@ -1,13 +1,13 @@
-//! Port of `plugin/cli/src/upgrade/divergence.ts` — the pure upgrade classifier.
+//! The pure upgrade classifier.
 //!
 //! Two exports, both pure (no I/O, deterministic):
-//!   - `compute_divergence` reifies the `classify` verdict plus the four version
-//!     columns into a `DivergenceReport` (source "none" when the sentinel is
-//!     absent).
-//!   - `resolve_latest_for` picks the highest published version satisfying
-//!     `entry.version_constraint` (default `*`) via `semver_shim::max_satisfying`,
-//!     returning a typed `DivergenceError` on zero-match or empty input (never a
-//!     panic — mirrors the TS `throw` paths, T-04-13 / T-53-01).
+//!  - `compute_divergence` reifies the `classify` verdict plus the four version
+//!    columns into a `DivergenceReport` (source "none" when the sentinel is
+//!    absent).
+//!  - `resolve_latest_for` picks the highest published version satisfying
+//!    `entry.version_constraint` (default `*`) via `semver_shim::max_satisfying`,
+//!    returning a typed `DivergenceError` on zero-match or empty input (never a
+//!    panic).
 //!
 //! Every semver operation routes through `semver_shim`; this module never calls
 //! `semver::` directly.
@@ -45,7 +45,7 @@ pub enum DivergenceError {
 }
 
 /// Reify the `classify` verdict plus the four version columns into a
-/// `DivergenceReport`. Mirrors `computeDivergence` (divergence.ts:35-48):
+/// `DivergenceReport`. Mirrors `computeDivergence`:
 /// `source` falls back to "none" and `sticky` to `false` when the sentinel is
 /// absent; `latest` threads through untouched.
 #[must_use]
@@ -72,7 +72,7 @@ pub fn compute_divergence(
 ///
 /// Absent constraint → newest via `*`. Zero matches → `NoSatisfyingVersion`.
 /// Empty input list → `NoPublishedVersions`. Mirrors `resolveLatestFor`
-/// (divergence.ts:59-72) including both `throw` paths.
+///  including both `throw` paths.
 pub fn resolve_latest_for(
     entry: &CatalogEntry,
     published_versions: &[String],
@@ -114,17 +114,17 @@ pub fn resolve_latest_for(
 #[cfg(test)]
 mod tests {
     //! Golden corpus ported verbatim from
-    //! `plugin/cli/test/divergence.test.ts:42-157` — the `computeDivergence`
+    //! the pre-cutover TypeScript suite — the `computeDivergence`
     //! six-state + latestVersion-threading suite and the `resolveLatestFor`
     //! table (versions at divergence.test.ts:133). The `queryGlobalNpm` /
     //! `queryNpmViewLatest` suites are NOT ported — they are impure npm-dispatcher
-    //! tests (Phase 56 scope), not pure-core parity.
+    //! tests in the bin, not pure-core parity.
     //!
-    //! CORE-02 re-asserted (Phase 55, Plan 03): every pure `computeDivergence`
+    //! CORE-02 re-asserted: every pure `computeDivergence`
     //! (8 rows) and `resolveLatestFor` (5 rows) assertion in divergence.test.ts
     //! has a matching green `#[test]` below, INCLUDING both throw paths — the
-    //! zero-match `NoSatisfyingVersion` (divergence.test.ts:149-152) and the
-    //! empty-list `NoPublishedVersions` (divergence.test.ts:154-156). All version
+    //! zero-match `NoSatisfyingVersion` and the
+    //! empty-list `NoPublishedVersions`. All version
     //! ops route through `semver_shim::max_satisfying`; the production bodies never
     //! call `semver::` directly. No logic change this plan — coverage re-assertion.
     use super::*;
@@ -320,10 +320,10 @@ mod proptests {
                         published
                     );
                     // (b) re-verify it satisfies the constraint INDEPENDENTLY of
-                    //     resolve_latest_for / max_satisfying — via dtolnay
-                    //     VersionReq::matches directly, so a broken resolution
-                    //     path that returns an out-of-range version cannot pass
-                    //     by re-feeding itself through the same code under test.
+                    //  resolve_latest_for / max_satisfying — via dtolnay
+                    //  VersionReq::matches directly, so a broken resolution
+                    //  path that returns an out-of-range version cannot pass
+                    //  by re-feeding itself through the same code under test.
                     let range = entry.version_constraint.as_deref().unwrap_or("*");
                     let req = semver::VersionReq::parse(&semver_shim::normalize_range(range))
                         .expect("range parsed once already by resolve_latest_for");

@@ -1,15 +1,15 @@
-//! Rust mirrors of the TS `plugin/cli/src/types.ts` shapes the pure core consumes.
+//! The shared data shapes the pure core decides over.
 //!
 //! `CatalogEntry` and `Sentinel` are modelled as plain `#[derive(Deserialize)]`
 //! structs. Only the fields the ported classify/divergence units actually read
-//! are mirrored — the full catalog field set is Phase 55 scope. The catalog
-//! schema (TEST-03) is NOT generated from these lean types: Plan 54-02 uses a
+//! are mirrored; the bin's `catalog::FullCatalogEntry` carries the full set. The
+//! catalog schema (TEST-03) is NOT generated from these lean types —
 //! dedicated codegen-only struct in `schema_gen.rs` that carries the full field
 //! set, so these core types stay minimal and free of schema-derive concerns.
 
 use serde::{Deserialize, Serialize};
 
-/// Mirror of the subset of `CatalogEntry` (`plugin/cli/src/types.ts`) that the
+/// The subset of a catalog entry that the
 /// pure classify/divergence units read. Optional fields default to `None` via
 /// serde so a partial JSON entry still deserializes.
 #[derive(Debug, Clone, Deserialize)]
@@ -41,9 +41,8 @@ pub struct CatalogEntry {
     pub source_kind: Option<String>,
 }
 
-/// Mirror of `DetectCacheAgent` (`plugin/cli/src/detect.ts:106-111`) — the
-/// detect-cache record the pure detect gates decide over. Deserialize-only so the
-/// Phase-56 cache adapter reads it directly. `status`/`version` stay plain
+/// The detect-cache record the pure detect gates decide over. Deserialize-only so the
+/// bin's cache adapter reads it directly. `status`/`version` stay plain
 /// `String`: the deciders compare `status` to `"healthy"`/`"broken"` and pass
 /// `version` to [`crate::semver_shim::valid`], so they are not modelled as enums.
 #[derive(Debug, Clone, Deserialize)]
@@ -54,10 +53,9 @@ pub struct DetectedAgent {
     pub version: String,
 }
 
-/// The canonical category keys (`plugin/cli/src/catalog/category.ts:13-20`).
-/// Serde-renamed to the TS kebab strings (`"coding-agent"`, `"mcp"`, …) so a
-/// serialized `CategoryKey` is byte-identical to the TS `CategoryKey` union —
-/// mirrors the [`Status`] enum convention.
+/// The canonical category keys. Serde-renamed to the kebab strings
+/// (`"coding-agent"`, `"mcp"`, …) the `--json` output carries — mirrors the
+/// [`Status`] enum convention.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CategoryKey {
@@ -70,9 +68,30 @@ pub enum CategoryKey {
     Other,
 }
 
-/// Mirror of `Category` (`plugin/cli/src/catalog/category.ts:22-26`) — a category
+impl CategoryKey {
+    /// The kebab string, as an infallible match rather than a `serde_json`
+    /// round-trip. The round-trip's failure arm collapsed to `""`, which would
+    /// have rendered a blank CATEGORY column instead of failing loudly; a match
+    /// makes adding a variant a compile error. Must stay in step with the
+    /// `rename_all = "kebab-case"` above — the `category_key_serde_strings` test
+    /// pins both against the same literals.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            CategoryKey::CodingAgent => "coding-agent",
+            CategoryKey::Assistant => "assistant",
+            CategoryKey::Mcp => "mcp",
+            CategoryKey::Devops => "devops",
+            CategoryKey::Workflow => "workflow",
+            CategoryKey::Browser => "browser",
+            CategoryKey::Other => "other",
+        }
+    }
+}
+
+/// A category
 /// key with its human label and display order. The `deriveCategory` logic and the
-/// `CATEGORIES` / `TAG_PRECEDENCE` tables land in Plan 02's `category.rs`; this
+/// `CATEGORIES` / `TAG_PRECEDENCE` tables land in `category.rs`; this
 /// struct only defines the shared shape wave-2 compiles against.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Category {
@@ -81,7 +100,7 @@ pub struct Category {
     pub order: u32,
 }
 
-/// Mirror of `Sentinel` (`plugin/cli/src/types.ts`) — the install-record shape at
+/// The install-record shape at
 /// `/opt/agentlinux/state/installed.d/<id>.json`. Only the fields classify/
 /// divergence read are mirrored.
 #[derive(Debug, Clone, Deserialize)]
@@ -92,7 +111,7 @@ pub struct Sentinel {
     pub sticky: bool,
 }
 
-/// Mirror of `VersionDecision` (`plugin/cli/src/types.ts:91-95`) — the pure
+/// The pure
 /// companion to [`crate::classify::classify`]: which version the CLI asks the
 /// recipe to install, plus the sentinel `source` label and whether that choice
 /// is sticky. Derives `PartialEq, Eq, Serialize` to match the
@@ -119,7 +138,7 @@ pub enum Status {
     PinnedOverride,
 }
 
-/// Mirror of `DivergenceReport` (`plugin/cli/src/types.ts`) — the per-agent record
+/// The per-agent record
 /// `agentlinux upgrade` reifies. Field names mirror the TS shape (camelCase in the
 /// TS JSON) via serde renames; `source: "none"` is the sentinel-less fallback.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -142,23 +161,30 @@ pub struct DivergenceReport {
 mod tests {
     use super::*;
 
-    /// `CategoryKey` must serialize to the exact TS kebab strings so a serialized
-    /// key is byte-identical to the TS `CategoryKey` union (category.ts:13-20).
+    /// The two spellings of a `CategoryKey` — the serde `rename_all` and the
+    /// hand-written `as_str` — must agree, and both must be the kebab strings the
+    /// `--json` output and the text renderer carry. Asserting them against ONE
+    /// literal table is what stops the pair from drifting.
     #[test]
-    fn category_key_serializes_to_ts_kebab_strings() {
+    fn category_key_serde_strings() {
         let cases = [
-            (CategoryKey::CodingAgent, "\"coding-agent\""),
-            (CategoryKey::Assistant, "\"assistant\""),
-            (CategoryKey::Mcp, "\"mcp\""),
-            (CategoryKey::Devops, "\"devops\""),
-            (CategoryKey::Workflow, "\"workflow\""),
-            (CategoryKey::Browser, "\"browser\""),
-            (CategoryKey::Other, "\"other\""),
+            (CategoryKey::CodingAgent, "coding-agent"),
+            (CategoryKey::Assistant, "assistant"),
+            (CategoryKey::Mcp, "mcp"),
+            (CategoryKey::Devops, "devops"),
+            (CategoryKey::Workflow, "workflow"),
+            (CategoryKey::Browser, "browser"),
+            (CategoryKey::Other, "other"),
         ];
         for (key, want) in cases {
-            assert_eq!(serde_json::to_string(&key).unwrap(), want);
+            assert_eq!(key.as_str(), want, "as_str for {key:?}");
+            assert_eq!(
+                serde_json::to_string(&key).unwrap(),
+                format!("\"{want}\""),
+                "serde for {key:?}"
+            );
             // round-trips back to the same variant.
-            let back: CategoryKey = serde_json::from_str(want).unwrap();
+            let back: CategoryKey = serde_json::from_str(&format!("\"{want}\"")).unwrap();
             assert_eq!(back, key);
         }
     }
@@ -177,7 +203,7 @@ mod tests {
     }
 
     /// `DetectedAgent` deserializes the 4-field `DetectCacheAgent` record
-    /// (detect.ts:106-111) directly.
+    ///  directly.
     #[test]
     fn detected_agent_deserializes_cache_record() {
         let json = r#"{"id":"rtk","status":"healthy","path":"/home/agent/.local/bin/rtk","version":"v1.37.1"}"#;

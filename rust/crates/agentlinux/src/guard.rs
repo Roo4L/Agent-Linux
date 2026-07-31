@@ -1,12 +1,12 @@
-//! guard.rs — the CLI-05 invoker guard (GATE / T-56-07).
+//! guard.rs — the CLI-05 invoker guard.
 //!
-//! Port of `plugin/cli/src/guard/user.ts` (`guardAgentUser`). The registry CLI
-//! must run as the CONFIGURED install user (`resolve_install_user()` — env /
+//! The registry CLI must run as the CONFIGURED install user
+//! (`resolve_install_user()` — env /
 //! `/etc/agentlinux.env`, default `agent`). When the invoker differs, print the
 //! exact two-line stderr diagnostic and exit 64 (EX_USAGE), matching the
 //! `plugin/bin/agentlinux-install` convention.
 //!
-//! # The invoker is geteuid-backed, NOT an env var (T-56-07)
+//! # The invoker is geteuid-backed, NOT an env var
 //! The TS invoker is `os.userInfo().username`, which resolves the EFFECTIVE uid's
 //! passwd entry — intentionally NOT a caller-controlled `$USER`, so a hostile
 //! caller cannot spoof the guard by exporting `USER=agent`. In Rust that is
@@ -14,7 +14,7 @@
 //! optional param PURELY as a test DI seam (mirroring the TS default-param
 //! signature); production callers pass `None` to resolve the real EUID.
 //!
-//! # Wired before every verb (index.ts:34-36)
+//! # Wired before every verb
 //! The TS `preAction` hook runs `guardAgentUser(actionCommand.name())` before ANY
 //! subcommand — including the read-only `list`. So `main.rs` calls this guard for
 //! every verb (CLI-05: `agentlinux list` as root → exit 64).
@@ -23,10 +23,10 @@ use crate::recipe_env::resolve_install_user;
 use nix::unistd::{geteuid, User};
 use std::process::ExitCode;
 
-/// EX_USAGE (sysexits.h) — the guard's fail-fast exit code (guard/user.ts:23).
+/// EX_USAGE (sysexits.h) — the guard's fail-fast exit code.
 const EX_USAGE: u8 = 64;
 
-/// `require_root` — the PRE-Node provisioner entry guard (Pitfall 7).
+/// `require_root` — the PRE-Node provisioner entry guard.
 ///
 /// Byte-for-behavior port of `plugin/bin/agentlinux-install:305-310`
 /// (`require_root`). The `provision` entrypoint runs BEFORE any Node/agent-user
@@ -34,7 +34,7 @@ const EX_USAGE: u8 = 64;
 /// it must assert EUID==0 — NOT `guard_agent_user`, which resolves the invoker's
 /// passwd entry and REJECTS root (the provisioner's REQUIRED invoker). Routing
 /// `provision` through the wrong guard would make every real `sudo agentlinux
-/// provision` exit 64 (Pitfall 7 / T-57-04).
+/// provision` exit 64.
 ///
 /// Returns `ExitCode::SUCCESS` when EUID==0; else prints the diagnostic to stderr
 /// and returns `ExitCode::from(64)` (mirrors the Bash `exit "$EX_USAGE"`).
@@ -78,7 +78,7 @@ fn guard_decision(invoker: &str, install_user: &str) -> Result<(), (String, Stri
 }
 
 /// CLI-05 guard: fail fast (exit 64) when the invoker is not the configured
-/// install user. Port of `guardAgentUser` (guard/user.ts:13-25).
+/// install user. Port of `guardAgentUser`.
 ///
 /// Returns `ExitCode::SUCCESS` on a match (the caller proceeds to run the verb);
 /// prints the two-line stderr diagnostic and returns `ExitCode::from(64)` on a
@@ -155,7 +155,7 @@ mod guard_tests {
         }
     }
 
-    // --- require_root (Pitfall 7): the provision entry guard is the INVERSE of
+    // --- require_root: the provision entry guard is the INVERSE of
     // guard_agent_user — EUID==0 proceeds, a non-root invoker exits 64.
 
     #[test]
@@ -166,7 +166,7 @@ mod guard_tests {
     #[test]
     fn require_root_exits_64_for_nonroot() {
         // A regular login uid (1000) → EX_USAGE(64), the opposite of the CLI-05
-        // guard (which would ACCEPT a matching non-root invoker). Pitfall 7.
+        // guard (which would ACCEPT a matching non-root invoker).
         assert_eq!(require_root(Some(1000)), ExitCode::from(EX_USAGE));
     }
 }

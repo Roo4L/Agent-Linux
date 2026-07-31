@@ -1,6 +1,6 @@
 //! `category` — the pure `deriveCategory` port (CORE-03).
 //!
-//! Ports `plugin/cli/src/catalog/category.ts`: `agentlinux list --by-category`
+//! Category derivation for `agentlinux list --by-category`
 //! groups entries by a small fixed set of categories DERIVED from the entry's
 //! tags (with `source_kind` as a fallback signal), never hardcoded per entry — so
 //! a contributor adding a catalog entry lands in the right group by choosing a
@@ -9,7 +9,8 @@
 //! Pure: no `std::env`/`std::fs`/`std::process`. `derive_category` is a total
 //! function of `CatalogEntry.tags` + `source_kind` → `Category`.
 //!
-//! Parity oracle: `plugin/cli/test/category.test.ts:27-72` — every golden row is
+//! The golden corpus below was transcribed from the pre-cutover TypeScript
+//! suite before it was deleted; it is now the authority. Every golden row is
 //! ported verbatim below.
 //!
 //! # Pitfall 3 (RESEARCH): precedence is FIRST-MATCH-WINS, ORDER-SENSITIVE.
@@ -22,7 +23,7 @@
 use crate::types::{CatalogEntry, Category, CategoryKey};
 
 /// Tag → category precedence (FIRST matching tag wins). Order matters — this is
-/// an ORDERED slice iterated in order, never a map (Pitfall 3). Byte-identical to
+/// an ORDERED slice iterated in order, never a map. Byte-identical to
 /// the TS `TAG_PRECEDENCE` array (`category.ts:44-54`): a tool tagged both
 /// `workflow` and `devops` (e.g. rtk) is a workflow tool first, so `workflow`/
 /// `token` precede `devops`; `coding-agent` beats a bare `agent` (claude-code);
@@ -65,7 +66,7 @@ pub fn category_for(key: CategoryKey) -> Category {
 /// as a fallback signal and `Other` as the floor so no entry is ever dropped from
 /// the grouped view (`deriveCategory`, `category.ts:58-65`).
 ///
-/// First-match-wins over the ORDERED [`TAG_PRECEDENCE`] (Pitfall 3); then the
+/// First-match-wins over the ORDERED [`TAG_PRECEDENCE`]; then the
 /// `source_kind == "mcp"` fallback (catches an entry whose tags omit `"mcp"`);
 /// then the `Other` floor. `entry.tags` defaults to the empty list via serde, so
 /// this mirrors the TS `entry.tags ?? []`.
@@ -85,7 +86,7 @@ pub fn derive_category(entry: &CatalogEntry) -> Category {
 #[cfg(test)]
 mod tests {
     //! Golden corpus — every row is ported VERBATIM from
-    //! `plugin/cli/test/category.test.ts:27-72` (the parity oracle).
+    //! transcribed from the pre-cutover TypeScript suite.
     use super::*;
 
     /// Build a `CatalogEntry` fixture mirroring the TS `entry(id, tags, source_kind)`

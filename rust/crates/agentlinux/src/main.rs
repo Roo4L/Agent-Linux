@@ -1,14 +1,12 @@
 //! AgentLinux CLI binary — a thin adapter over `agentlinux-core`.
 //!
-//! Phase 56 (Wave 0) grows the binary from the Phase-53 argv spike into the
-//! clap-parsed CLI shell (`cli.rs`), the typed recipe-env source
-//! (`recipe_env.rs`), and the subprocess dispatcher (`dispatcher.rs`). The six
-//! user-facing verbs parse via clap.
+//! Argument parsing lives in `cli.rs` (clap derive), the recipe env contract in
+//! `recipe_env.rs`, and the subprocess dispatcher in `dispatcher.rs`. This file
+//! is the routing layer: parse, guard, dispatch to a `cmd::*` verb.
 //!
-//! The pure/adapter split: the env-var reads and the canonical-path map live
-//! HERE (the I/O boundary); the decision itself lives in
-//! `agentlinux_core::reuse`. `agentlinux-core` stays free of `std::env`,
-//! `std::fs`, and `std::process` — all new I/O in this phase lives in the bin.
+//! The pure/adapter split: env-var reads and the canonical-path map live HERE,
+//! at the I/O boundary; the decisions they feed live in `agentlinux_core`, which
+//! stays free of `std::env`, `std::fs` and `std::process`.
 
 mod cache;
 mod catalog;
@@ -35,20 +33,20 @@ use std::process::ExitCode;
 /// `gsd` (npx form).
 pub(crate) const GSD_SYSTEM_PATH: &str = "/home/agent/.claude/gsd-core/VERSION";
 
-/// The catalog ids WITH a canonical-path entry — the AUTHORITATIVE per-agent
-/// enumerator (PROV-02, 57-06). `cmd/provision.rs` iterates THIS list in-process
-/// to build `RESOLUTIONS[agents.<id>]` in-process. MUST stay in sync with the `canonical_path` match arms and
-/// byte-identical to the KEYS of `REUSE_AGENT_CANONICAL_PATHS` in
-/// `plugin/lib/reuse/agents.sh` — the retained Bash shim's map (kept only as the
-/// 13-reuse spec contract + GATE-05 rollback fallback, NOT a second live source).
+/// The catalog ids that HAVE a canonical-path entry — the authoritative
+/// per-agent enumerator (PROV-02). The provisioner's detection report iterates
+/// this list in-process.
+///
+/// MUST stay in sync with [`canonical_path`]'s match arms: this list answers
+/// "which ids have one", that function answers "what is it". A mismatch means an
+/// agent is either enumerated with no path or has a path nobody probes.
 pub(crate) const CANONICAL_IDS: &[&str] = &["claude-code", "gsd", "playwright-cli"];
 
 /// Canonical binary path for a catalog id, or `None` for an unknown id.
 ///
-/// Mirrors `REUSE_AGENT_CANONICAL_PATHS` in `plugin/lib/reuse/agents.sh` (and
-/// `CANONICAL_PATHS` in `detect.ts`). Post-57-06 the Rust map is the SINGLE
-/// authoritative source the provisioner iterates in-process; the retained Bash
-/// map is only the 13-reuse spec shim + GATE-05 fallback (plan-check B-1).
+/// This map is the single authoritative source: nothing outside this file
+/// defines where a managed agent's binary belongs. Keep the arms in sync with
+/// [`CANONICAL_IDS`].
 pub(crate) fn canonical_path(id: &str) -> Option<&'static str> {
     match id {
         "claude-code" => Some("/home/agent/.local/bin/claude"),
@@ -58,8 +56,23 @@ pub(crate) fn canonical_path(id: &str) -> Option<&'static str> {
     }
 }
 
-/// EX_USAGE (sysexits.h) — the exit code Commander uses for a parse error, and
-/// the code clap-parse failures map to for like-for-like parity.
+/// Bundle the three host paths the pure detect gates decide against.
+///
+/// The one place `GSD_SYSTEM_PATH` is threaded into a gate call, so a verb never
+/// has to name it — and, because `HostPaths` has named fields, a verb cannot
+/// accidentally pass the agent home where the gsd path belongs.
+pub(crate) fn host_paths<'a>(
+    canonical: Option<&'a str>,
+    agent_home: &'a str,
+) -> agentlinux_core::detect_gates::HostPaths<'a> {
+    agentlinux_core::detect_gates::HostPaths {
+        canonical,
+        gsd_system_path: GSD_SYSTEM_PATH,
+        agent_home,
+    }
+}
+
+/// EX_USAGE (sysexits.h) — the exit code a clap parse failure maps to.
 const EX_USAGE: u8 = 64;
 
 fn main() -> ExitCode {
@@ -90,7 +103,7 @@ fn main() -> ExitCode {
 /// else `/home/agent` (mirrors `agentHome()`, detect.ts:42-44). The env read is
 /// the I/O boundary; the pure gates receive the resolved string.
 ///
-/// Consumed by the Wave-1 verb adapters (`cmd/list.rs` here; `cmd/{pin,adopt}.rs`
+/// Consumed by the verb adapters (`cmd/list.rs` here; `cmd/{pin,adopt}.rs`
 /// in Task 3).
 pub(crate) fn agent_home() -> String {
     std::env::var("AGENTLINUX_AGENT_HOME").unwrap_or_else(|_| "/home/agent".to_string())
@@ -107,7 +120,7 @@ fn verb_name(command: &Command) -> &'static str {
         Command::Upgrade(_) => "upgrade",
         Command::Pin(_) => "pin",
         // `provision` never reaches the CLI-05 `guard_agent_user` (it is routed
-        // through `require_root` instead — Pitfall 7); a name is provided for
+        // through `require_root` instead); a name is provided for
         // completeness/exhaustiveness.
         Command::Provision(_) => "provision",
     }
@@ -115,20 +128,20 @@ fn verb_name(command: &Command) -> &'static str {
 
 /// Route a parsed verb to its handler.
 ///
-/// CLI-05 (index.ts:34-36): the guard runs BEFORE any verb — including the
+/// CLI-05: the guard runs BEFORE any verb — including the
 /// read-only `list` — so a non-install-user invoker fails fast (exit 64) before
 /// any command body runs. `guard_agent_user` returns `SUCCESS` on a match; on a
 /// mismatch it prints the diagnostic and returns `ExitCode::from(64)`, which we
 /// propagate immediately.
 ///
-/// Wave-1 (this plan) wires `list`/`adopt`/`pin`; `install`/`remove`/`upgrade`
-/// remain loud EX_SOFTWARE(70) not-implemented stubs until Plan 03.
+/// All seven verbs are wired. `provision` takes the root-guarded arm below;
+/// the other six run behind the CLI-05 invoker guard.
 fn dispatch(command: Command) -> ExitCode {
     // `provision` is the PRE-Node provisioner entrypoint: it runs privileged
     // systems I/O BEFORE any agent user exists, so it dispatches through
     // `require_root` (EUID==0), NOT the CLI-05 `guard_agent_user` (which resolves
     // the invoker's passwd entry and REJECTS root — the provisioner's REQUIRED
-    // invoker). Pitfall 7 / T-57-04: routing it through the wrong guard would make
+    // invoker). Routing it through the wrong guard would make
     // every real `sudo agentlinux provision` exit 64. Handled BEFORE the blanket
     // guard so the six user-facing verbs keep their CLI-05 guard.
     if let Command::Provision(args) = &command {

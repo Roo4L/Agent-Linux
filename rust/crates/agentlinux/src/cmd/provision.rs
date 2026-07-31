@@ -1,25 +1,28 @@
-//! cmd/provision.rs — the Phase-57 provisioner ORCHESTRATOR shell.
+//! cmd/provision.rs — the provisioner ORCHESTRATOR.
 //!
-//! Reproduces the `plugin/bin/agentlinux-install` main() order skeleton
-//! (agentlinux-install:452-613) as a fixed ordered step vec. Wave 1 wires ONLY
-//! `agent_user` (10-agent-user.sh); the later steps
-//! (`sudoers`/`nodejs`/`path_wiring`/`registry_cli`) are LOUD not-yet-wired
-//! markers so a premature full run cannot silently skip a step — each later wave
-//! replaces its marker with the real `run(&ctx)` call.
+//! Owns the order of a provision run and nothing else: validate flags → resolve
+//! and gate the install user → detect the distro → DECIDE → flush bails → run
+//! the ordered steps in `STEPS` → adopt pre-existing agents. Every step's actual
+//! work lives in `crate::provision::<step>`.
 //!
-//! Entry contract (Pitfall 7): this verb is dispatched through
-//! `guard::require_root` (EUID==0) in `main::dispatch`, NOT the CLI-05
-//! `guard_agent_user` (which rejects root). The provisioner runs BEFORE any
-//! agent user / Node exists.
+//! # Entry contract
+//! This verb is dispatched through `guard::require_root` (EUID==0) in
+//! `main::dispatch`, NOT the CLI-05 `guard_agent_user` — which resolves the
+//! invoker's passwd entry and REJECTS root, the provisioner's required invoker.
+//! Routing it through the wrong guard would make every real
+//! `sudo agentlinux provision` exit 64. The provisioner runs BEFORE any agent
+//! user or Node exists.
 //!
-//! DECIDE-THEN-ACT: Wave 1 seeds `Resolutions::seed_create()` directly (the full
-//! detect→decide wiring lands in Wave 5); the step loop dispatches on the tokens
-//! so Wave 5 swaps the seed without restructuring this file.
+//! # DECIDE-THEN-ACT
+//! Every per-component decision is made up front, before any mutation. A host
+//! that refuses a remediation exits 65 while still byte-identical. The steps
+//! receive settled `StepResolution` tokens and only do I/O.
 
 use crate::cli::ProvisionArgs;
 use crate::distro;
 use crate::provision::{self, log, ProvisionCtx, Resolutions};
 use crate::recipe_env::resolve_install_user;
+use std::io;
 use std::process::ExitCode;
 
 /// EX_USAGE (sysexits.h) — the flag-contradiction / bad-name exit code, matching
@@ -32,9 +35,9 @@ const EX_SOFTWARE: u8 = 70;
 const EX_DATAERR: u8 = 65;
 
 /// Reserved / system-account denylist — byte-for-byte with
-/// `AGENTLINUX_RESERVED_USER_NAMES` (`plugin/lib/remediate.sh:78-82`). A name
+/// the reserved-name denylist. A name
 /// matching the POSIX charset but on this list must NEVER become the install
-/// user (granting NOPASSWD sudo to root/a daemon is an elevation hole — T-57-05).
+/// user (granting NOPASSWD sudo to root/a daemon is an elevation hole —).
 const RESERVED_USER_NAMES: &[&str] = &[
     "root",
     "daemon",
@@ -65,7 +68,7 @@ const RESERVED_USER_NAMES: &[&str] = &[
 /// `validate_user_name` port (`remediate.sh:92-107`): POSIX charset
 /// (`^[a-z][a-z0-9_-]*$`) AND not a reserved/system account (case-insensitive,
 /// plus the whole `systemd-*` prefix). PURE — the runtime UID<1000 adoption gate
-/// (`user_adoptable`) is a separate check the full detect wiring lands in Wave 5.
+/// (`user_adoptable`) is a separate check — see `check_user_adoptable`.
 fn validate_user_name(name: &str) -> bool {
     let mut chars = name.chars();
     match chars.next() {
@@ -156,9 +159,29 @@ fn resolve_wrong_shell(user: &str) -> Result<String, ExitCode> {
     }
 }
 
-/// Detect the two flag contradictions the Bash parse_args rejects
-/// (agentlinux-install:244-272): `--yes`×`--no-yes` and `--dry-run`×`--yes`.
-/// Returns the EX_USAGE exit on either, else `Ok(())`.
+/// Adoption-safety gate (H-1): refuse to adopt an EXISTING system account
+/// (UID < 1000).
+///
+/// Called at two points, both load-bearing: once before the purge path, so
+/// `userdel -r` can never remove a system/daemon account; and again after the
+/// alt-user prompt, because that branch can swap in an operator-TYPED name that
+/// never passed the first check. `validate_user_name`'s reserved denylist is not
+/// exhaustive of system accounts, so the passwd-DB gate has to run on the FINAL
+/// name. A non-existent name and a regular login (UID >= 1000) both pass.
+fn check_user_adoptable(install_user: &str) -> Result<(), ExitCode> {
+    if provision::probe::user_adoptable(install_user) {
+        return Ok(());
+    }
+    eprintln!(
+        "agentlinux provision: refusing to adopt existing system account \
+         '{install_user}' (UID < 1000). Choose a name that is free or a regular \
+         login (UID >= 1000)."
+    );
+    Err(ExitCode::from(EX_USAGE))
+}
+
+/// Detect the two flag contradictions parse_args rejects: `--yes`×`--no-yes` and
+/// `--dry-run`×`--yes`. Returns the EX_USAGE exit on either, else `Ok(())`.
 fn check_flag_contradictions(args: &ProvisionArgs) -> Result<(), ExitCode> {
     if args.yes && args.no_yes {
         eprintln!("agentlinux provision: contradictory flags — --yes and --no-yes");
@@ -187,82 +210,55 @@ fn check_report_format(args: &ProvisionArgs) -> Result<(), ExitCode> {
     }
 }
 
-/// The fixed ordered step vec — the Rust equivalent of `run_provisioners`'
-/// numeric-ordered source (agentlinux-install:313-330), as an EXPLICIT vec (no
-/// filesystem glob): `[agent_user, sudoers, nodejs, path_wiring, registry_cli]`.
-/// Wave 1 wires `agent_user`; the rest are loud not-yet-wired markers each later
-/// wave replaces with a real `run(&ctx)`.
+/// The provisioner steps, in the order they must run. An explicit table rather
+/// than a filesystem glob, so the order is reviewable here and cannot change
+/// because a file was renamed.
+///
+/// The ordering constraints, which is why this is a sequence and not a set:
+///  10 → 20 the user must exist before it can be granted sudo
+///  20 → 30 the NodeSource bootstrap installs packages
+///  30 → 40 the PATH artefacts reference the `.npm-global` prefix Node created
+///  40 → 50 the symlink target dir and `/etc/agentlinux.env` must exist first
+type Step = (&'static str, fn(&ProvisionCtx) -> io::Result<()>);
+
+const STEPS: &[Step] = &[
+    ("10-agent-user", provision::agent_user::run),
+    ("20-sudoers", provision::sudoers::run),
+    ("30-nodejs", provision::nodejs::run),
+    ("40-path-wiring", provision::path_wiring::run),
+    ("50-registry-cli", provision::registry_cli::run),
+];
+
+/// Run every step in `STEPS` in order, stopping at the first failure.
 fn run_steps(ctx: &ProvisionCtx) -> Result<(), ExitCode> {
-    // Step 10 — agent user.
-    log::line("agentlinux provision: 10-agent-user");
-    provision::agent_user::run(ctx).map_err(|e| {
-        log::line(&format!(
-            "agentlinux provision: 10-agent-user step failed: {e}"
-        ));
-        ExitCode::from(EX_SOFTWARE)
-    })?;
-
-    // Step 20 — sudoers. The user must exist before granting it sudo, so this
-    // runs AFTER agent_user in the ordered vec.
-    log::line("agentlinux provision: 20-sudoers");
-    provision::sudoers::run(ctx).map_err(|e| {
-        log::line(&format!(
-            "agentlinux provision: 20-sudoers step failed: {e}"
-        ));
-        ExitCode::from(EX_SOFTWARE)
-    })?;
-
-    // Step 30 — nodejs. The NodeSource pre-Node bootstrap + RT-01 verify + RT-04
-    // npm-prefix + REMEDIATE-01. Runs AFTER sudoers in numeric order.
-    log::line("agentlinux provision: 30-nodejs");
-    provision::nodejs::run(ctx).map_err(|e| {
-        log::line(&format!("agentlinux provision: 30-nodejs step failed: {e}"));
-        ExitCode::from(EX_SOFTWARE)
-    })?;
-
-    // Step 40 — path wiring. The four six-mode PATH artefacts (profile.d +
-    // <home>/.bashrc --top + /etc/agentlinux.env + /etc/cron.d). Runs AFTER nodejs
-    // (references the .npm-global prefix). Additive/unconditional.
-    log::line("agentlinux provision: 40-path-wiring");
-    provision::path_wiring::run(ctx).map_err(|e| {
-        log::line(&format!(
-            "agentlinux provision: 40-path-wiring step failed: {e}"
-        ));
-        ExitCode::from(EX_SOFTWARE)
-    })?;
-
-    // Step 50 — registry CLI. Stage the TS bundle + catalog snapshot + empty
-    // state dir, symlink `agentlinux` onto the install user's PATH, verify as the
-    // install user. Runs LAST (50 follows 40): the .npm-global/bin dir +
-    // /etc/agentlinux.env must exist first.
-    log::line("agentlinux provision: 50-registry-cli");
-    provision::registry_cli::run(ctx).map_err(|e| {
-        log::line(&format!(
-            "agentlinux provision: 50-registry-cli step failed: {e}"
-        ));
-        ExitCode::from(EX_SOFTWARE)
-    })?;
+    for (label, step) in STEPS {
+        log::line(&format!("agentlinux provision: {label}"));
+        step(ctx).map_err(|e| {
+            log::line(&format!("agentlinux provision: {label} step failed: {e}"));
+            ExitCode::from(EX_SOFTWARE)
+        })?;
+    }
     Ok(())
 }
 
-/// `run_agent_adoption` port (agentlinux-install:341-346). After provisioning,
+/// `run_agent_adoption` port. After provisioning,
 /// record any pre-existing reuse-eligible catalog agents into managed sentinels
 /// via `agentlinux adopt --all` AS the install user. Best-effort: a failure must
 /// NOT fail an otherwise-successful install (the Bash `|| log_warn`). The command
-/// is dispatched through the Phase-56 dispatcher as the install user.
+/// is dispatched through the dispatcher as the install user.
 ///
 /// Two departures from a bare `["agentlinux","adopt","--all"]` dispatch — both
 /// required because the dispatcher runs `sudo -u <user>` NON-login (the Bash used
 /// `as_user_login`, which sourced the agent profile + `/etc/agentlinux.env`):
-///   1. Invoke the ABSOLUTE staged symlink (`<home>/.npm-global/bin/agentlinux`),
-///      not the bare name. `sudo`'s `secure_path` governs command lookup and does
-///      NOT include the agent's `~/.npm-global/bin`, so a bare name is ENOENT →
-///      exit 1 → a spurious "reported a problem" on EVERY greenfield provision
-///      (OBS-01). An absolute path bypasses PATH lookup entirely.
-///   2. Supply an explicit child env — the canonical PATH/HOME plus any inherited
-///      `AGENTLINUX_*` seams — so the child resolves the state/catalog dirs the
-///      same way the login shell would (real runs fall through to the `/opt`
-///      defaults; the bats harness's seam vars are forwarded).
+///  1. Invoke the ABSOLUTE staged symlink (`<home>/.npm-global/bin/agentlinux`),
+///     not the bare name. `sudo`'s `secure_path` governs command lookup and does
+///     NOT include the agent's `~/.npm-global/bin`, so a bare name is ENOENT →
+///     exit 1 → a spurious "reported a problem" on EVERY greenfield provision
+///     (OBS-01). An absolute path bypasses PATH lookup entirely.
+///  2. Supply an explicit child env — the canonical PATH/HOME plus any inherited
+///     `AGENTLINUX_*` seams — so the child resolves the state/catalog dirs the
+///     same way the login shell would (real runs fall through to the `/opt`
+///     defaults; the bats harness's seam vars are forwarded).
 fn run_agent_adoption(user: &str, home: &str) {
     log::line(&format!(
         "agentlinux provision: adopting pre-existing reuse-eligible agents as {user} (agentlinux adopt --all)"
@@ -277,7 +273,13 @@ fn run_agent_adoption(user: &str, home: &str) {
     // so an adopt that ever hangs (a probe that shells out, an NFS-backed home)
     // must not hang the whole installer after the real work is already done. A
     // buffered timeout collapses to exit 1 → the best-effort warning below.
-    let r = crate::dispatcher::as_user(user, &argv, &env, false, Some(ADOPTION_TIMEOUT_MS));
+    let r = crate::dispatcher::as_user(
+        user,
+        &argv,
+        &env,
+        crate::dispatcher::Capture::Buffered,
+        Some(ADOPTION_TIMEOUT_MS),
+    );
     if r.exit_code != 0 {
         // Now that the ENOENT false-positive is gone (absolute path + resolvable
         // env), a non-zero here is a REAL adopt failure — surface the exit code +
@@ -328,12 +330,15 @@ fn adoption_child_env(home: &str) -> Vec<(String, String)> {
     env
 }
 
-/// `agentlinux provision` — the orchestrator entrypoint. Reproduces the Bash
-/// main() order: validate flags → resolve+validate user → distro detect → seed
-/// resolutions → build ctx → run the ordered step vec. `--report-only` /
-/// `--dry-run` / `--purge` are structural stubs here (Wave 5 lands the report /
-/// dry-run parity + purge); they return 0 with a loud "Wave 5" marker so the seam
-/// exists.
+/// `agentlinux provision` — the orchestrator entrypoint.
+///
+/// Order: validate flags → resolve + gate the install user → `--purge` (if
+/// asked) → detect the distro → DECIDE → `--dry-run`/`--report-only` (if asked)
+/// → flush bails → open the transcript → run `STEPS` → adopt.
+///
+/// `--report-only` and `--dry-run` are read-only and return before the step
+/// loop. `--purge` is a live teardown: it runs the uninstall recipes, removes
+/// `/opt/agentlinux`, deletes the `/etc` artefacts and `userdel -r`s the user.
 pub fn provision(args: &ProvisionArgs) -> ExitCode {
     // 1. Flag validation (contradictions + report-format) → EX_USAGE on failure.
     if let Err(code) = check_flag_contradictions(args) {
@@ -344,11 +349,11 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     }
 
     // 2. Resolve + validate the install user (--user > $AGENTLINUX_USER > agent).
-    //    AL-50 AC3: when no --user is given AND we are on an interactive terminal
-    //    AND the host is greenfield, prompt for the install user (ported from the
-    //    Bash prompt::choose_install_user). The curl-installer path passes --user
-    //    (or is non-TTY), so it never prompts. The wizard's result is already
-    //    validated; a bare Enter / EOF / 3 invalid tries fall back to the default.
+    //  AL-50 AC3: when no --user is given AND we are on an interactive terminal
+    //  AND the host is greenfield, prompt for the install user (ported from the
+    //  Bash prompt::choose_install_user). The curl-installer path passes --user
+    //  (or is non-TTY), so it never prompts. The wizard's result is already
+    //  validated; a bare Enter / EOF / 3 invalid tries fall back to the default.
     let default_user = resolve_install_user();
     let default_home = format!("/home/{default_user}");
     let install_user = if args.user.is_none()
@@ -365,33 +370,22 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     };
     let install_home = format!("/home/{install_user}");
 
-    // 2b. Adoption-safety gate (H-1, remediate.sh:109-126 / agentlinux-install:481-484):
-    //     refuse to adopt an EXISTING system account (UID < 1000). This runs BEFORE
-    //     both the purge path (so `userdel -r` can never remove a system/daemon
-    //     account) AND the install path (so a system home is never overwritten +
-    //     granted NOPASSWD sudo), for the explicit --user AND the default/env-
-    //     resolved user alike. A non-existent name (created fresh / idempotent
-    //     purge) and a regular login (UID >= 1000, adopted) both pass.
-    if !provision::probe::user_adoptable(&install_user) {
-        eprintln!(
-            "agentlinux provision: refusing to adopt existing system account \
-             '{install_user}' (UID < 1000). Choose a name that is free or a regular \
-             login (UID >= 1000)."
-        );
-        return ExitCode::from(EX_USAGE);
+    // 2b. Adoption-safety gate, BEFORE the purge path and the install path alike.
+    if let Err(exit) = check_user_adoptable(&install_user) {
+        return exit;
     }
 
     // 3. --purge (Q3). Ordered 7-step teardown — runs BEFORE the log-file tee (the
-    //    Bash purge removes the log LAST) and before distro detect (it seeds the
-    //    family itself, like run_purge:375). Always exits 0. require_root is the
-    //    caller's contract (main::dispatch); a non-root purge fails on the mutating
-    //    syscalls, which is the correct surface.
+    //  Bash purge removes the log LAST) and before distro detect (it seeds the
+    //  family itself, like run_purge:375). Always exits 0. require_root is the
+    //  caller's contract (main::dispatch); a non-root purge fails on the mutating
+    //  syscalls, which is the correct surface.
     if args.purge {
         return run_purge(&install_user, &install_home, args.remove_nodejs);
     }
 
     // 4. Distro detect (the apt↔dnf fork point every later step branches on). Also
-    //    needed by --report-only/--dry-run so the report reflects the real family.
+    //  needed by --report-only/--dry-run so the report reflects the real family.
     let distro = match distro::detect_distro_from_env() {
         Ok(d) => d,
         Err(e) => {
@@ -401,8 +395,8 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     };
 
     // 5. --report-only (Q3): emit the detection report + exit 0, ZERO mutation.
-    //    Short-circuits before the DECIDE phase's per-agent gate iteration is
-    //    even needed for a report — the report is the detected host state.
+    //  Short-circuits before the DECIDE phase's per-agent gate iteration is
+    //  even needed for a report — the report is the detected host state.
     if args.report_only {
         return report_only(
             &install_user,
@@ -413,10 +407,10 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     }
 
     // 5b. UX-04 wrong-shell alt-user gate. An EXISTING install user with a non-bash
-    //     shell cannot be adopted (no chsh handler). On the real path (not report /
-    //     dry-run — those preview the bail): a TTY prompts for an alternate name,
-    //     a non-TTY prints the `--user=<suggested>` hint + exits 65. An accepted
-    //     alternate is a FRESH user, so the normal Create path fully provisions it.
+    //  shell cannot be adopted (no chsh handler). On the real path (not report /
+    //  dry-run — those preview the bail): a TTY prompts for an alternate name,
+    //  a non-TTY prints the `--user=<suggested>` hint + exits 65. An accepted
+    //  alternate is a FRESH user, so the normal Create path fully provisions it.
     let pre_alt_user = install_user.clone();
     let install_user = if args.dry_run {
         install_user
@@ -431,37 +425,19 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     // drives the partial-provision recovery hint on a step failure below.
     let alt_user_chosen = install_user != pre_alt_user;
 
-    // 5c. Re-gate adoption safety (H-1): the alt-user branch may have swapped in an
-    //     operator-TYPED name that never passed the UID<1000 gate at step 2b. A
-    //     typed EXISTING bash account with UID < 1000 would otherwise be granted
-    //     NOPASSWD sudo + a re-owned home (the elevation user_adoptable blocks).
-    //     `validate_user_name`'s reserved denylist is not exhaustive of system
-    //     accounts, so re-run the passwd-DB gate on the final name.
-    if !provision::probe::user_adoptable(&install_user) {
-        eprintln!(
-            "agentlinux provision: refusing to adopt existing system account \
-             '{install_user}' (UID < 1000). Choose a name that is free or a regular \
-             login (UID >= 1000)."
-        );
-        return ExitCode::from(EX_USAGE);
+    // 5c. Re-gate: the alt-user branch above may have swapped in an operator-TYPED
+    //  name that never passed the gate at step 2b.
+    if let Err(exit) = check_user_adoptable(&install_user) {
+        return exit;
     }
 
-    // 6. DECIDE phase (PROV-02): probe the host + iterate the Rust `canonical_path`
-    //    map IN-PROCESS, calling the pure `reuse::agent_decision` gate per id. NO
-    //    Bash map read, NO `reuse-decision` shell-out — the Rust map is the single
-    //    authoritative per-agent enumerator.
-    let mut resolutions = Resolutions::from_decide(
-        crate::CANONICAL_IDS,
-        crate::canonical_path,
-        crate::GSD_SYSTEM_PATH,
-    );
-
-    // 6b. CORE-COMPONENT brownfield DECIDE (REMEDIATE-01 npm-prefix chown/rebase +
-    //     REMEDIATE-03 sudoers drift). Overwrites the seeded `Create` tokens with
-    //     the real resolution from the host probe, aggregating a bail when a
-    //     state-overwriting remediation is refused (non-TTY, no --yes). ZERO
-    //     mutation here — `flush_or_exit` below short-circuits (exit 65) BEFORE the
-    //     step loop so a refused host stays byte-identical (NO-MUTATION-SNAPSHOT).
+    // 6. DECIDE phase: probe the host for the core components (REMEDIATE-01
+    //  npm-prefix chown/rebase + REMEDIATE-03 sudoers drift), overwriting the
+    //  default `Create` tokens with the real verdict and aggregating a bail when
+    //  a state-overwriting remediation is refused (non-TTY, no --yes). ZERO
+    //  mutation here — `flush_or_exit` below short-circuits (exit 65) BEFORE the
+    //  step loop, so a refused host stays byte-identical.
+    let mut resolutions = Resolutions::default();
     let mut bails: Vec<provision::remediate::Bail> = Vec::new();
     provision::remediate::decide_core(
         &install_user,
@@ -471,30 +447,42 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
         &mut bails,
     );
 
+    // 7. --dry-run: print the pre-flight report, exit 0, ZERO mutation. After the
+    //  DECIDE phase so the report reflects every decision the real install would
+    //  make. The per-agent decisions are computed by `emit_report` — the one
+    //  place that probe+gate loop runs.
+    if args.dry_run {
+        return dry_run_report(&install_user, &install_home, &distro);
+    }
+
+    // 7b. Flush aggregated bails: if any core component resolved to an
+    //  unconsented state-overwrite, print the [BAIL] lines + exit 65 (EX_DATAERR)
+    //  NOW — before log-init / the step loop mutates anything.
+    provision::remediate::flush_or_exit(&bails);
+
+    // Past the flush, no token can still be `Bail`; narrowing here is what lets
+    // every step dispatch over four cases instead of five.
+    let resolutions = match resolutions.into_step() {
+        Ok(r) => r,
+        Err(component) => {
+            eprintln!(
+                "agentlinux provision: internal error — RESOLUTIONS[{component}] is still \
+                 'bail' after the bail flush; refusing to mutate the host"
+            );
+            return ExitCode::from(EX_SOFTWARE);
+        }
+    };
+
     let ctx = ProvisionCtx {
         install_user,
         install_home,
         family: distro.family,
         resolutions,
-        yes: args.yes,
-        dry_run: args.dry_run,
     };
 
-    // 7. --dry-run (Q3): print the pre-flight report + the per-agent decisions,
-    //    exit 0, ZERO mutation. After the DECIDE phase so the report reflects every
-    //    decision the real install would make.
-    if ctx.dry_run {
-        return dry_run_report(&ctx, &distro);
-    }
-
-    // 7b. Flush aggregated bails: if any core component resolved to an
-    //     unconsented state-overwrite, print the [BAIL] lines + exit 65 (EX_DATAERR)
-    //     NOW — before log-init / the step loop mutates anything.
-    provision::remediate::flush_or_exit(&bails);
-
     // 8. Open the install transcript (INST-01) — mirrors the Bash entrypoint's
-    //    `install -m 0644 /dev/null "$LOG_FILE"` + tee. Best-effort: a create
-    //    failure degrades to stderr-only (like the Bash pre-tee path).
+    //  `install -m 0644 /dev/null "$LOG_FILE"` + tee. Best-effort: a create
+    //  failure degrades to stderr-only (like the Bash pre-tee path).
     let log_path = log::init();
     log::line(&format!(
         "agentlinux-install v{} starting",
@@ -502,7 +490,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     ));
 
     // 9. Run the fixed ordered step vec. On success emit the `agentlinux-install
-    //    complete` banner (INST-01) + run best-effort agent adoption.
+    //  complete` banner (INST-01) + run best-effort agent adoption.
     match run_steps(&ctx) {
         Ok(()) => {
             // DETECT-phase cache write (detect/agents.sh): scan the host for every
@@ -544,11 +532,11 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     }
 }
 
-/// `run_purge` port (agentlinux-install:363-450) — the ordered 7-step teardown.
+/// `run_purge` port — the ordered 7-step teardown.
 /// Every rm target is a LITERAL absolute path; the ONLY `$VAR`'d target is the
 /// charset-validated install-user home, fed to `userdel -r` (NEVER `rm -rf $VAR`).
 /// Recipe paths derive from the catalog snapshot keyed by the sentinel BASENAME
-/// (T-57-15: a tampered sentinel cannot pick scripts to run as agent). Always
+/// (a tampered sentinel cannot pick scripts to run as agent). Always
 /// exits 0.
 fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
     eprintln!("agentlinux provision: running --purge (destructive) — install user '{user}'");
@@ -583,7 +571,13 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
                     // Recipes guard on ${AGENTLINUX_AGENT_HOME:?}; runner.ts is gone
                     // during --purge, so provide it explicitly (run_purge:395).
                     let env = vec![("AGENTLINUX_AGENT_HOME".to_string(), home.to_string())];
-                    let r = crate::dispatcher::as_user(user, &argv, &env, false, None);
+                    let r = crate::dispatcher::as_user(
+                        user,
+                        &argv,
+                        &env,
+                        crate::dispatcher::Capture::Buffered,
+                        None,
+                    );
                     if r.exit_code != 0 {
                         eprintln!(
                             "agentlinux provision: uninstall.sh for {id} failed (continuing)"
@@ -666,9 +660,9 @@ fn remove_install_user(user: &str) {
     }
 }
 
-/// `--report-only` (agentlinux-install:545-548): emit the detection report + exit
+/// `--report-only`: emit the detection report + exit
 /// 0. ZERO host mutation. The report is the detected host state — the per-agent
-/// decisions + the resolved distro family.
+///    decisions + the resolved distro family.
 ///
 /// Like the Bash `detect::run_once`, this REFRESHES the detect cache
 /// (`/run/agentlinux-detect.json`) as its first act: `--report-only` is the
@@ -697,19 +691,15 @@ fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&
     ExitCode::SUCCESS
 }
 
-/// `--dry-run` (agentlinux-install:590-596): print the pre-flight report + exit 0.
+/// `--dry-run`: print the pre-flight report + exit 0.
 /// ZERO mutation. After the DECIDE phase so the report reflects every decision the
 /// real install would make.
-fn dry_run_report(ctx: &ProvisionCtx, distro: &distro::Distro) -> ExitCode {
+fn dry_run_report(user: &str, home: &str, distro: &distro::Distro) -> ExitCode {
     eprintln!("agentlinux provision: [DRY-RUN] pre-flight report (no host mutation):");
     // Refresh the detect cache (tmpfs, not host state) so the pre-flight report
-    // reflects current host state — the Bash `detect::run_once` ran on the dry-run
-    // path too. See report_only for the NO-MUTATION rationale.
-    crate::detect::scan_and_write(&ctx.install_user, &ctx.install_home);
-    emit_report(&ctx.install_user, distro);
-    for (id, res) in &ctx.resolutions.agents {
-        eprintln!("agentlinux provision: [DRY-RUN] agents.{id} = {res:?}");
-    }
+    // reflects current host state. See report_only for the NO-MUTATION rationale.
+    crate::detect::scan_and_write(user, home);
+    emit_report(user, distro);
     eprintln!(
         "agentlinux provision: [DRY-RUN] on apply, reuse-eligible agents are adopted \
          into managed sentinels (agentlinux adopt --all)"

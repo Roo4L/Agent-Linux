@@ -1,58 +1,45 @@
-//! dispatcher.rs — the subprocess dispatcher (VERB-02). #1 risk, gated first.
+//! dispatcher.rs — the subprocess dispatcher (VERB-02): run an argv as another
+//! user, buffered or streamed, with an optional timeout.
 //!
-//! Byte-for-byte port of `plugin/cli/src/state/dispatcher.ts` (`asUser`) plus the
-//! `dispatchRecipe` wrapper (`runner.ts:96-120`). The load-bearing invariants:
+//! The load-bearing invariants:
 //!
-//! - **invoker==target short-circuit** (dispatcher.ts:65-72): when the invoker
-//!   already IS the target user, run argv directly — agent→agent sudo is broken
-//!   on a default Ubuntu host (no sudoers drop-in) and unnecessary. Otherwise
-//!   prepend `["sudo","-u",user,"-H","-E","--"]`; the `--` terminator ends sudo
-//!   option parsing so user-controlled args can never be reparsed (T-56-01).
-//! - **never throw on a non-zero child exit** (Pitfall 5): a non-zero exit is a
-//!   valid `DispatchResult` — callers (npm ls exits 1 on a missing dep) decide
-//!   fatality. Only a spawn failure (ENOENT) maps to exit_code 1.
-//! - **streaming tee via thread-per-pipe** (Pitfall 2): two blocking pipe reads
-//!   in one thread deadlock; one reader thread per pipe forwards each chunk live
-//!   AND accumulates it, so the returned strings match the buffered contract.
-//! - **timeout escalation SIGTERM→(2000ms)→SIGKILL** (Pitfall 1): `Child::kill()`
-//!   is SIGKILL-only; we use `nix::sys::signal::kill` to send SIGTERM first, wait
-//!   a 2000ms grace, then SIGKILL if still alive. Both paths honor a timeout
-//!   (Open Q2: npm probes run buffered with timeout 30_000), but their exit codes
-//!   differ FOR PARITY: the STREAMING path maps a timeout to 124 (GNU `timeout`
-//!   convention, dispatcher.ts:167), while the BUFFERED path maps it to 1 — the TS
-//!   buffered `execFile` timeout reports `code: null` which collapses to 1
-//!   (dispatcher.ts:100). No consumer branches on 124 vs 1 today; the split keeps
-//!   strict like-for-like.
+//! - **invoker==target short-circuit**: when the invoker already IS the target
+//!   user, run argv directly — agent→agent sudo is broken on a default Ubuntu
+//!   host (no sudoers drop-in) and unnecessary. Otherwise prepend
+//!   `["sudo","-u",user,"-H","-E","--"]`; the `--` terminator ends sudo option
+//!   parsing so user-controlled args can never be reparsed as options.
+//! - **never throw on a non-zero child exit**: a non-zero exit is a valid
+//!   `DispatchResult` — callers decide fatality (`npm ls` exits 1 on a missing
+//!   peer dep but still emits usable JSON). Only a spawn failure (ENOENT) maps
+//!   to exit_code 1.
+//! - **streaming tee via thread-per-pipe**: two blocking pipe reads in one thread
+//!   deadlock; one reader thread per pipe forwards each chunk live AND
+//!   accumulates it, so the returned strings match the buffered contract.
+//! - **timeout escalation SIGTERM→(2000ms)→SIGKILL**: `Child::kill()` is
+//!   SIGKILL-only, so we send SIGTERM via `nix::sys::signal::kill`, wait a 2000ms
+//!   grace, then SIGKILL if still alive. Both paths honor a timeout, but their
+//!   exit codes differ: the STREAMING path maps a timeout to 124 (the GNU
+//!   `timeout` convention) and the BUFFERED path maps it to 1. The split is
+//!   deliberate — see `Capture::timeout_exit`.
 //!
-//! NOTE (security, M2): the CLI-05 EUID guard (`guardAgentUser`, `guard/user.ts`)
-//! — which refuses to run unless the invoker IS the configured install user, and
-//! is *why* `as_user` almost always hits the invoker==target short-circuit — has
-//! no Rust home yet. The Wave-1/2 verb layer (Plans 02/03) MUST port it before
-//! wiring these dispatch entry points into a real `main`, or the CLI silently
-//! loses the invoker check that bounds who can trigger a `sudo -u` recipe run.
-//!
-//! `dead_code` is allowed at module scope for this Wave-0 scaffold: the
-//! verb-layer entry points (`dispatch_recipe`, `dispatch_recipe_with_env`) are
-//! consumed by the Wave-1/2 adapters (Plans 02/03), and `as_user`/the readers
-//! are fully exercised by the `#[cfg(test)]` parity module now. The allow only
-//! silences the "not yet wired into a non-test caller" lint until those plans
-//! land, keeping the per-task tree warning-clean. Remove once verbs import it.
-#![allow(dead_code)]
+//! # Where the invoker check lives
+//! `as_user` almost always hits the invoker==target short-circuit *because* the
+//! CLI-05 EUID guard ran first: `guard::guard_agent_user` refuses to run unless
+//! the invoker is the configured install user, and `main::dispatch` calls it
+//! before every verb. This module does not re-check that — it assumes the guard
+//! already bounded who can reach a `sudo -u` recipe run.
 
-use crate::recipe_env::{full_child_env, RecipeEnv};
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{getuid, Pid, User};
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
-use wait_timeout::ChildExt;
 
-/// The grace period between SIGTERM and the SIGKILL escalation (dispatcher.ts:139).
+/// The grace period between SIGTERM and the SIGKILL escalation.
 const KILL_GRACE: Duration = Duration::from_millis(2000);
 
-/// Cap on captured child output, mirroring the TS `maxBuffer: 10 * 1024 * 1024`
-/// (dispatcher.ts:86). Without it a runaway recipe (a looping installer, npm
+/// Cap on captured child output. Without it a runaway recipe (a looping installer, npm
 /// debug spew, a recipe catting a large file) grows the parent heap until the
 /// OOM killer reaps the CLI — the buffered `npm ls -g --json` probe on the
 /// unattended `upgrade` path is the most exposed. Past the cap we stop growing
@@ -61,8 +48,49 @@ const KILL_GRACE: Duration = Duration::from_millis(2000);
 /// deadlock the child.
 const MAX_CAPTURE: usize = 10 * 1024 * 1024;
 
-/// The result shape mirroring `AsUserResult` — never an `Err`/panic on a
-/// non-zero child exit (Pitfall 5).
+/// How a dispatched child's output is handled — and, as a direct consequence,
+/// what a timeout reports as its exit code.
+///
+/// This is an enum rather than a `stream: bool` because the two arms are not
+/// merely cosmetic: they disagree about the timeout exit code (see
+/// `timeout_exit`), and a bare `false` at a call site said nothing about which
+/// contract that call site was signing up for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Capture {
+    /// Capture stdout/stderr and return them; nothing reaches the console.
+    /// Used by the probes (`npm ls`, `npm view`, detection) whose output is
+    /// parsed, not shown.
+    Buffered,
+    /// Tee each chunk to this process's stdout/stderr as it arrives AND
+    /// accumulate it into the returned strings. Used for recipe runs, where the
+    /// operator watches the install happen.
+    Streamed,
+}
+
+impl Capture {
+    /// The exit code a timeout reports on this path.
+    ///
+    /// The two differ deliberately. A streamed recipe run is something an
+    /// operator is watching, so it reports 124 — the GNU `timeout` convention
+    /// they can recognise and script against. The buffered probes report 1,
+    /// which is what their callers were built against; they treat any non-zero
+    /// as "probe failed, fall back". No caller branches on 124 vs 1 today, but
+    /// the codes are part of each path's observable contract.
+    const fn timeout_exit(self) -> i32 {
+        match self {
+            Capture::Streamed => 124,
+            Capture::Buffered => 1,
+        }
+    }
+
+    /// True on the streaming path — the value `DispatchResult::streamed` carries
+    /// so callers know output already reached the console.
+    const fn is_streamed(self) -> bool {
+        matches!(self, Capture::Streamed)
+    }
+}
+
+/// The result of one dispatch — never an `Err`/panic on a non-zero child exit.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DispatchResult {
     pub exit_code: i32,
@@ -83,7 +111,7 @@ fn invoker_username() -> String {
 }
 
 /// Build the concrete argv: direct when invoker==target, else the sudo hop.
-/// The `--` terminator is load-bearing (T-56-01).
+/// The `--` terminator is load-bearing.
 fn resolve_argv(user: &str, argv: &[String]) -> Vec<String> {
     if invoker_username() == user {
         argv.to_vec()
@@ -107,13 +135,13 @@ fn resolve_argv(user: &str, argv: &[String]) -> Vec<String> {
     }
 }
 
-/// Run `argv` as `user`, teeing+capturing when `stream`, honoring an optional
-/// `timeout_ms` that escalates SIGTERM→(2000ms)→SIGKILL. Mirrors `asUser`.
+/// Run `argv` as `user` under `capture`, honoring an optional `timeout_ms` that
+/// escalates SIGTERM→(2000ms)→SIGKILL.
 pub fn as_user(
     user: &str,
     argv: &[String],
     env: &[(String, String)],
-    stream: bool,
+    capture: Capture,
     timeout_ms: Option<u64>,
 ) -> DispatchResult {
     let full = resolve_argv(user, argv);
@@ -126,15 +154,14 @@ pub fn as_user(
                 exit_code: 1,
                 stdout: String::new(),
                 stderr: "empty argv".to_string(),
-                streamed: stream,
+                streamed: capture.is_streamed(),
             }
         }
     };
 
-    if stream {
-        stream_tee(&cmd, &rest, env, timeout_ms)
-    } else {
-        buffered(&cmd, &rest, env, timeout_ms)
+    match capture {
+        Capture::Streamed => stream_tee(&cmd, &rest, env, timeout_ms),
+        Capture::Buffered => buffered(&cmd, &rest, env, timeout_ms),
     }
 }
 
@@ -155,8 +182,8 @@ fn status_to_code(status: std::process::ExitStatus) -> i32 {
     status.code().unwrap_or(1)
 }
 
-/// Buffered path (stream=false): capture stdout/stderr, honor an optional
-/// timeout (Open Q2), never throw on a non-zero exit (Pitfall 5).
+/// `Capture::Buffered`: capture stdout/stderr, honor an optional timeout, never
+/// throw on a non-zero exit.
 fn buffered(
     cmd: &str,
     rest: &[String],
@@ -181,40 +208,26 @@ fn buffered(
     };
 
     // Drain the pipes on reader threads so a chatty child can't fill a pipe
-    // buffer and deadlock while we wait (Pitfall 2 applies to the buffered
-    // capture too, not only the tee).
-    let out_rx = spawn_reader(child.stdout.take());
-    let err_rx = spawn_reader(child.stderr.take());
+    // buffer and deadlock while we wait — that applies to the buffered capture
+    // too, not only the tee.
+    let out_rx = spawn_reader(child.stdout.take(), None);
+    let err_rx = spawn_reader(child.stderr.take(), None);
 
-    let (exit_code, timed_out) = match timeout_ms {
-        Some(ms) => match child.wait_timeout(Duration::from_millis(ms)) {
-            Ok(Some(status)) => (status_to_code(status), false),
-            Ok(None) => {
-                // Expired → escalate SIGTERM→grace→SIGKILL. The BUFFERED path maps
-                // a timeout to exit_code 1 for strict parity: the TS buffered
-                // `execFile` timeout kills with SIGTERM and reports `code: null`,
-                // which `dispatcher.ts:100` collapses to 1 (only the STREAMING path
-                // returns 124). Log the timed-out command for the unattended path.
-                eprintln!(
-                    "agentlinux: recipe `{}` timed out after {}ms; sent SIGTERM…SIGKILL",
-                    cmd, ms
-                );
-                escalate_kill(&mut child);
-                let _ = child.wait();
-                (1, true)
-            }
-            Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                (1, false)
-            }
-        },
-        None => match child.wait() {
-            Ok(status) => (status_to_code(status), false),
-            Err(_) => (1, false),
-        },
+    let (exit_code, timed_out) = wait_with_timeout(&mut child, timeout_ms);
+    if timed_out {
+        // Log the timed-out command; on the unattended `upgrade` path this line
+        // is the only evidence the probe was killed rather than failing on its own.
+        eprintln!(
+            "agentlinux: recipe `{}` timed out after {}ms; sent SIGTERM…SIGKILL",
+            cmd,
+            timeout_ms.unwrap_or(0)
+        );
+    }
+    let exit_code = if timed_out {
+        Capture::Buffered.timeout_exit()
+    } else {
+        exit_code
     };
-    let _ = timed_out; // buffered timeout already collapses to exit_code 1.
 
     let stdout = out_rx.recv().unwrap_or_default();
     let stderr = err_rx.recv().unwrap_or_default();
@@ -226,9 +239,9 @@ fn buffered(
     }
 }
 
-/// Streaming path (stream=true): tee each chunk live to this process's
-/// stdout/stderr AS it arrives, accumulate into the returned strings, and run a
-/// timeout watchdog. Always `streamed: true`.
+/// `Capture::Streamed`: tee each chunk live to this process's stdout/stderr AS
+/// it arrives, accumulate into the returned strings, and run a timeout watchdog.
+/// Always `streamed: true`.
 fn stream_tee(
     cmd: &str,
     rest: &[String],
@@ -240,7 +253,7 @@ fn stream_tee(
 
     let mut child = match command.spawn() {
         Ok(c) => c,
-        // ENOENT → exit_code 1, streamed true (dispatcher.ts:157-162).
+        // Spawn failure (ENOENT) → exit_code 1, not an Err.
         Err(e) => {
             return DispatchResult {
                 exit_code: 1,
@@ -251,12 +264,13 @@ fn stream_tee(
         }
     };
 
-    // One reader thread per pipe (Pitfall 2), each teeing live + accumulating.
-    let out_rx = spawn_tee_reader(child.stdout.take(), TeeSink::Stdout);
-    let err_rx = spawn_tee_reader(child.stderr.take(), TeeSink::Stderr);
+    // One reader thread per pipe, each teeing live + accumulating. Two blocking
+    // pipe reads in a single thread would deadlock.
+    let out_rx = spawn_reader(child.stdout.take(), Some(TeeSink::Stdout));
+    let err_rx = spawn_reader(child.stderr.take(), Some(TeeSink::Stderr));
 
     // Timeout watchdog by polling try_wait so we can escalate SIGTERM→SIGKILL
-    // even against a child that ignores SIGTERM (VALIDATION escalation case).
+    // even against a child that ignores SIGTERM.
     let (exit_code, timed_out) = wait_with_timeout(&mut child, timeout_ms);
     if timed_out {
         eprintln!(
@@ -269,85 +283,125 @@ fn stream_tee(
     let stdout = out_rx.recv().unwrap_or_default();
     let stderr = err_rx.recv().unwrap_or_default();
 
-    let final_code = if timed_out { 124 } else { exit_code };
     DispatchResult {
-        exit_code: final_code,
+        exit_code: if timed_out {
+            Capture::Streamed.timeout_exit()
+        } else {
+            exit_code
+        },
         stdout,
         stderr,
         streamed: true,
     }
 }
 
-/// Poll `try_wait` until the child exits or `timeout_ms` elapses; on expiry
-/// escalate SIGTERM→(2000ms)→SIGKILL. Returns `(exit_code, timed_out)`.
-fn wait_with_timeout(child: &mut std::process::Child, timeout_ms: Option<u64>) -> (i32, bool) {
-    match timeout_ms {
-        None => match child.wait() {
-            Ok(status) => (status_to_code(status), false),
-            Err(_) => (1, false),
-        },
-        Some(ms) => {
-            let deadline = Instant::now() + Duration::from_millis(ms);
-            let poll = Duration::from_millis(10);
-            loop {
-                match child.try_wait() {
-                    Ok(Some(status)) => return (status_to_code(status), false),
-                    Ok(None) => {
-                        if Instant::now() >= deadline {
-                            escalate_kill(child);
-                            let _ = child.wait();
-                            return (124, true);
-                        }
-                        std::thread::sleep(poll);
-                    }
-                    Err(_) => return (1, false),
+/// How often `poll_until` re-checks a child's exit status.
+const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Poll `try_wait` until the child exits or `deadline` passes.
+///
+/// `Some(code)` when it exited in time, `None` on expiry. The one waiting
+/// primitive in this module: both the timeout wait and the SIGTERM grace period
+/// are "watch this child until a deadline", and they used to be two hand-rolled
+/// copies of this loop plus a third mechanism (the `wait-timeout` crate) on the
+/// buffered path.
+fn poll_until(child: &mut std::process::Child, deadline: Instant) -> Option<i32> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(status_to_code(status)),
+            Ok(None) => {
+                if Instant::now() >= deadline {
+                    return None;
                 }
+                std::thread::sleep(POLL_INTERVAL);
             }
+            // The wait itself failed — treat as exited-with-1 rather than
+            // spinning forever on a child we can no longer observe.
+            Err(_) => return Some(1),
         }
     }
 }
 
-/// SIGTERM, wait up to KILL_GRACE for the child to die, then SIGKILL if it
-/// hasn't (Pitfall 1 — `nix::kill`, not std `Child::kill` which is SIGKILL-only).
+/// Wait for `child`, honoring an optional `timeout_ms`; on expiry escalate
+/// SIGTERM→(2000ms)→SIGKILL. Returns `(exit_code, timed_out)`; on a timeout the
+/// caller substitutes its own `Capture::timeout_exit()`.
+fn wait_with_timeout(child: &mut std::process::Child, timeout_ms: Option<u64>) -> (i32, bool) {
+    let Some(ms) = timeout_ms else {
+        return match child.wait() {
+            Ok(status) => (status_to_code(status), false),
+            Err(_) => (1, false),
+        };
+    };
+    match poll_until(child, Instant::now() + Duration::from_millis(ms)) {
+        Some(code) => (code, false),
+        None => {
+            escalate_kill(child);
+            let _ = child.wait();
+            (1, true)
+        }
+    }
+}
+
+/// SIGTERM, wait up to `KILL_GRACE` for the child to die, then SIGKILL if it
+/// hasn't. Uses `nix::kill` rather than std's `Child::kill`, which is
+/// SIGKILL-only and gives the child no chance to clean up.
 ///
-/// Known parity behavior (matches dispatcher.ts `child.kill`): this signals only
-/// the DIRECT child PID (`bash <recipe>` or `sudo`), not its process group. A
-/// recipe's own grandchildren (npm/apt/git) are NOT torn down and reparent to
-/// init on timeout — a faithful port of the TS weakness, not a regression. A
-/// deliberate improvement (spawn in a new process group + signal the negated
-/// PGID to reap the whole subtree) is deferred to keep this like-for-like; if a
-/// future release wants a timeout to fully "stop the work," that's the change.
+/// KNOWN LIMITATION: this signals only the DIRECT child PID (`bash <recipe>` or
+/// `sudo`), not its process group. A recipe's own grandchildren (npm/apt/git)
+/// are NOT torn down and reparent to init. Two consequences worth knowing:
+/// a timeout stops the *wait*, not the *work*, so a retry can race the orphan
+/// over the same npm prefix; and the reader threads stay blocked in `recv()`
+/// until every holder of the pipe closes it, so the advertised bound is
+/// "timeout + however long the orphan lives". Fixing it means spawning in a new
+/// process group and signalling the negated PGID.
 fn escalate_kill(child: &mut std::process::Child) {
     let pid = Pid::from_raw(child.id() as i32);
     let _ = kill(pid, Signal::SIGTERM);
-    let grace_deadline = Instant::now() + KILL_GRACE;
-    let poll = Duration::from_millis(10);
-    loop {
-        match child.try_wait() {
-            Ok(Some(_)) => return, // exited within grace after SIGTERM
-            Ok(None) => {
-                if Instant::now() >= grace_deadline {
-                    let _ = kill(pid, Signal::SIGKILL);
-                    return;
-                }
-                std::thread::sleep(poll);
-            }
-            Err(_) => return,
-        }
+    if poll_until(child, Instant::now() + KILL_GRACE).is_none() {
+        // Still alive after the grace period — it ignored SIGTERM.
+        let _ = kill(pid, Signal::SIGKILL);
     }
 }
 
-/// Which parent stream a tee reader forwards to.
+/// Which parent stream a reader tees to, or `None` to capture silently.
+#[derive(Debug, Clone, Copy)]
 enum TeeSink {
     Stdout,
     Stderr,
 }
 
-/// Spawn a thread that reads a child pipe to EOF, teeing each chunk live to the
-/// parent's stdout/stderr and accumulating it; sends the full string back.
-fn spawn_tee_reader<R: Read + Send + 'static>(
+impl TeeSink {
+    /// Forward one chunk to the parent stream.
+    fn write(self, bytes: &[u8]) {
+        use std::io::Write;
+        match self {
+            TeeSink::Stdout => {
+                let _ = std::io::stdout().write_all(bytes);
+                let _ = std::io::stdout().flush();
+            }
+            TeeSink::Stderr => {
+                let _ = std::io::stderr().write_all(bytes);
+                let _ = std::io::stderr().flush();
+            }
+        }
+    }
+}
+
+/// Spawn a thread that reads a child pipe to EOF, optionally teeing each chunk
+/// live to a parent stream, and sends the accumulated string back.
+///
+/// Reading to EOF is not optional on either path: it drains the pipe so a chatty
+/// child cannot fill the buffer and deadlock waiting for us. What IS bounded is
+/// how much we KEEP — past `MAX_CAPTURE` we stop growing the `String` while
+/// still draining, so a runaway recipe cannot OOM the parent. The cap is checked
+/// per chunk rather than mid-string, so growth is bounded to at most one extra
+/// chunk (a mid-char `truncate` would panic).
+///
+/// `sink` is `None` on the buffered path and `Some` on the streaming path — the
+/// only difference between them, which is why there is one reader and not two.
+fn spawn_reader<R: Read + Send + 'static>(
     pipe: Option<R>,
-    sink: TeeSink,
+    sink: Option<TeeSink>,
 ) -> mpsc::Receiver<String> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
@@ -358,53 +412,12 @@ fn spawn_tee_reader<R: Read + Send + 'static>(
                 match r.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        // Cap the captured string (MAX_CAPTURE) so a runaway child
-                        // can't OOM the parent; keep teeing + draining regardless.
-                        // The guard bounds growth to ≤ one extra chunk past the cap
-                        // (no mid-char `truncate`, which would panic).
-                        if acc.len() < MAX_CAPTURE {
-                            let chunk = String::from_utf8_lossy(&buf[..n]);
-                            acc.push_str(&chunk);
-                        }
-                        // Live tee to the parent stream.
-                        use std::io::Write;
-                        match sink {
-                            TeeSink::Stdout => {
-                                let _ = std::io::stdout().write_all(&buf[..n]);
-                                let _ = std::io::stdout().flush();
-                            }
-                            TeeSink::Stderr => {
-                                let _ = std::io::stderr().write_all(&buf[..n]);
-                                let _ = std::io::stderr().flush();
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        let _ = tx.send(acc);
-    });
-    rx
-}
-
-/// Spawn a thread that reads a child pipe to EOF and accumulates it (no tee) —
-/// the buffered-path drain that prevents a full-pipe deadlock.
-fn spawn_reader<R: Read + Send + 'static>(pipe: Option<R>) -> mpsc::Receiver<String> {
-    let (tx, rx) = mpsc::channel();
-    std::thread::spawn(move || {
-        let mut acc = String::new();
-        if let Some(mut r) = pipe {
-            // Read to EOF (drain the pipe so the child can't deadlock) but stop
-            // GROWING the capture past MAX_CAPTURE — `read_to_string` is unbounded
-            // and would let a chatty child OOM the parent (npm ls JSON probe).
-            let mut buf = [0u8; 8192];
-            loop {
-                match r.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
                         if acc.len() < MAX_CAPTURE {
                             acc.push_str(&String::from_utf8_lossy(&buf[..n]));
                         }
+                        if let Some(sink) = sink {
+                            sink.write(&buf[..n]);
+                        }
                     }
                 }
             }
@@ -414,31 +427,28 @@ fn spawn_reader<R: Read + Send + 'static>(pipe: Option<R>) -> mpsc::Receiver<Str
     rx
 }
 
-/// `dispatch_recipe` — the verb-layer entry (runner.ts:96-120). Builds the argv
-/// `["bash", recipe_path]` and delegates to `as_user`. The verb layer (Plans
-/// 02/03) builds `env` via `recipe_env::full_child_env` and calls this.
+/// Signature of a recipe dispatch — exactly `dispatch_recipe`'s.
+///
+/// The DI seam every verb takes: production passes `dispatch_recipe` itself,
+/// unit tests pass a stub, so branch selection is exercised without spawning a
+/// subprocess. Lives here rather than in a verb module because it is this
+/// module's function signature.
+pub type RecipeDispatcher =
+    fn(user: &str, recipe_path: &str, env: &[(String, String)], capture: Capture) -> DispatchResult;
+
+/// The verb-layer entry: build the argv `["bash", recipe_path]` and delegate to
+/// `as_user`. Callers build `env` via `recipe_env::full_child_env`.
+///
+/// NOTE: `timeout_ms` is `None` — a recipe run is unbounded. An install that
+/// wedges (a dnf lock, a black-holed npm socket) hangs here indefinitely.
 pub fn dispatch_recipe(
     user: &str,
     recipe_path: &str,
     env: &[(String, String)],
-    stream: bool,
+    capture: Capture,
 ) -> DispatchResult {
     let argv = vec!["bash".to_string(), recipe_path.to_string()];
-    as_user(user, &argv, env, stream, None)
-}
-
-/// Convenience: assemble the full child env from a `RecipeEnv` and dispatch a
-/// recipe in one call — the shape the Wave-1/2 verb adapters will lean on. Kept
-/// here so `full_child_env` (recipe_env.rs) has a non-test consumer.
-pub fn dispatch_recipe_with_env(
-    recipe: RecipeEnv,
-    user: &str,
-    recipe_path: &str,
-    extra: &[(String, String)],
-    stream: bool,
-) -> DispatchResult {
-    let env = full_child_env(recipe, user, extra);
-    dispatch_recipe(user, recipe_path, &env, stream)
+    as_user(user, &argv, env, capture, None)
 }
 
 #[cfg(test)]
@@ -460,7 +470,7 @@ mod dispatcher_tests {
         parts.iter().map(|s| s.to_string()).collect()
     }
 
-    // Case 1 (dispatcher-stream.test.ts:44): stream tees stdout+stderr live AND
+    // Case 1: stream tees stdout+stderr live AND
     // captures them; streamed=true, exit 0.
     #[test]
     fn stream_tees_and_captures() {
@@ -468,7 +478,7 @@ mod dispatcher_tests {
             &self_user(),
             &argv(&["bash", "-c", "echo out-line; echo err-line >&2"]),
             &[],
-            true,
+            Capture::Streamed,
             None,
         );
         assert_eq!(r.exit_code, 0);
@@ -484,7 +494,7 @@ mod dispatcher_tests {
             &self_user(),
             &argv(&["bash", "-c", "echo hi; exit 7"]),
             &[],
-            true,
+            Capture::Streamed,
             None,
         );
         assert_eq!(r.exit_code, 7);
@@ -499,7 +509,7 @@ mod dispatcher_tests {
             &self_user(),
             &argv(&["bash", "-c", "echo buffered"]),
             &[],
-            false,
+            Capture::Buffered,
             None,
         );
         assert_eq!(r.exit_code, 0);
@@ -516,7 +526,7 @@ mod dispatcher_tests {
             "no-such-user-agentlinux-xyzzy",
             &argv(&["bash", "-c", "echo x"]),
             &[],
-            true,
+            Capture::Streamed,
             None,
         );
         assert_ne!(r.exit_code, 0, "unknown sudo target must fail non-zero");
@@ -530,7 +540,7 @@ mod dispatcher_tests {
             &self_user(),
             &argv(&["/no/such/binary/agentlinux-xyzzy"]),
             &[],
-            true,
+            Capture::Streamed,
             None,
         );
         assert_eq!(r.exit_code, 1, "ENOENT maps to 1");
@@ -544,7 +554,7 @@ mod dispatcher_tests {
             &self_user(),
             &argv(&["bash", "-c", "sleep 5"]),
             &[],
-            true,
+            Capture::Streamed,
             Some(300),
         );
         assert_eq!(r.exit_code, 124, "timed-out child maps to 124");
@@ -561,7 +571,7 @@ mod dispatcher_tests {
             &self_user(),
             &argv(&["bash", "-c", "trap '' TERM; sleep 30"]),
             &[],
-            true,
+            Capture::Streamed,
             Some(200),
         );
         assert_eq!(r.exit_code, 124, "escalation still maps to 124");
@@ -574,17 +584,17 @@ mod dispatcher_tests {
         );
     }
 
-    // Buffered path ALSO honors a timeout (Open Q2: npm probes run buffered
+    // Buffered path ALSO honors a timeout (npm probes run buffered
     // with timeout 30_000), but maps it to exit_code 1 — strict parity with the
     // TS buffered `execFile`, whose SIGTERM-kill reports `code: null` → 1
-    // (dispatcher.ts:100). Only the STREAMING path returns 124.
+    // Only the STREAMING path returns 124.
     #[test]
     fn buffered_timeout_maps_to_1() {
         let r = as_user(
             &self_user(),
             &argv(&["bash", "-c", "sleep 5"]),
             &[],
-            false,
+            Capture::Buffered,
             Some(300),
         );
         assert_eq!(
@@ -594,7 +604,7 @@ mod dispatcher_tests {
         assert!(!r.streamed);
     }
 
-    // dispatch_recipe builds ["bash", <recipe>] and runs it (runner.ts:96-120).
+    // dispatch_recipe builds ["bash", <recipe>] and runs it.
     #[test]
     fn dispatch_recipe_runs_bash_recipe() {
         // A recipe that just echoes proves the argv shape + env passthrough.
@@ -609,7 +619,7 @@ mod dispatcher_tests {
             &self_user(),
             path.to_str().unwrap(),
             &[("AGENTLINUX_SOURCE_KIND".to_string(), "npm".to_string())],
-            false,
+            Capture::Buffered,
         );
         let _ = std::fs::remove_file(&path);
         assert_eq!(r.exit_code, 0);

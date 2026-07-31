@@ -1,6 +1,6 @@
 //! cli.rs — the clap derive tree mirroring the Commander surface (VERB-01).
 //!
-//! Byte-for-byte port of `plugin/cli/src/index.ts:20-108`: the six subcommands
+//! The command-line surface: the subcommands
 //! (`list`, `install`, `adopt`, `remove`, `upgrade`, `pin`), their flags and
 //! positionals, the program-level `-V, --version`, and the `install --version
 //! <semver>` shadow (CLI-03) that Commander achieves via
@@ -12,7 +12,7 @@
 //! `reset_all_curated` → `--reset-all-curated`; the `cli_parse` test corpus
 //! below asserts every row so a drift is a test failure, not a silent skew.
 //!
-//! Open Q1 (RESOLVED at plan time): no bats asserts an exact `--help` body —
+//! No bats test asserts an exact `--help` body —
 //! only `--version` prints the version number (CLI-01) — so clap's default help
 //! rendering is safe and we do NOT hand-roll the help text.
 
@@ -24,7 +24,7 @@ use clap::{Parser, Subcommand};
 /// `CARGO_PKG_VERSION` (now `0.4.0`, synced to package.json → CLI-01). The
 /// hidden `reuse-decision` provisioner subcommand is dispatched BEFORE this
 /// parser runs (a pre-clap short-circuit in `main.rs`) so it is intentionally
-/// absent from this enum — keeping the Phase-53 reuse path (13-reuse.bats)
+/// absent from this enum — keeping the reuse path (13-reuse.bats)
 /// byte-stable while clap owns the six user-facing verbs.
 #[derive(Debug, Parser)]
 #[command(
@@ -55,9 +55,9 @@ pub enum Command {
     Pin(PinArgs),
     /// Provision the agent user + environment (PRE-Node; runs as root).
     ///
-    /// The Phase-57 Rust provisioner entrypoint (`plugin/bin/agentlinux-install`).
+    /// The provisioner entrypoint.
     /// Dispatched through `require_root` (EUID==0), NOT the CLI-05
-    /// `guard_agent_user` (Pitfall 7) — see `main::dispatch`.
+    /// `guard_agent_user` — see `main::dispatch`.
     Provision(ProvisionArgs),
 }
 
@@ -158,9 +158,9 @@ pub struct PinArgs {
     pub spec: String,
 }
 
-/// `provision [flags]` — the Phase-57 provisioner entrypoint, mirroring
+/// `provision [flags]` — the provisioner entrypoint, mirroring
 /// `plugin/bin/agentlinux-install`'s `parse_args` flag set
-/// (agentlinux-install:196-290). No positional; `--user` takes a value, the rest
+/// No positional; `--user` takes a value, the rest
 /// are bools. The `--yes`×`--no-yes` and `--dry-run`×`--yes` contradictions are
 /// enforced in `cmd::provision::provision` (mapped to EX_USAGE=64), matching the
 /// Bash parse_args which exits 64 on either contradiction.
@@ -340,7 +340,7 @@ mod cli_parse {
 
     #[test]
     fn provision_all_flags() {
-        // The Phase-57 provision verb: --user takes a value, the rest are bools.
+        // The provision verb: --user takes a value, the rest are bools.
         // The two contradiction pairs (--yes/--no-yes, --dry-run/--yes) PARSE
         // here — the contradiction is enforced downstream in cmd::provision and
         // asserted by `provision_contradictions_*` there, matching the Bash

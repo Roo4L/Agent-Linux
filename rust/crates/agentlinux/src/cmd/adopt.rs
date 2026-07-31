@@ -1,12 +1,12 @@
 //! cmd/adopt.rs — `agentlinux adopt [name] [--all]` (AL-61, AL-62).
 //!
-//! Byte-for-byte port of `plugin/cli/src/commands/adopt.ts`. Records pre-existing,
+//! Records pre-existing,
 //! reuse-eligible agents into `status:"reused"` sentinels WITHOUT installing
 //! anything — it dispatches NO recipe, downloads nothing, remediates nothing. It
 //! only records reality the host already holds so `list` stops reporting present
 //! tools as not-installed.
 //!
-//! # The pure gate + adapter `statSync` seam (RESEARCH §Cache-Read Adapter)
+//! # The pure gate + adapter `statSync` seam
 //! `tryReuse` = the PURE `reuse_gate` (detect_gates.rs) PLUS the host
 //! `statSync(path).isFile()` re-validation that stays HERE in the adapter (the
 //! cache may be stale — the binary could have been removed since detect ran).
@@ -20,7 +20,7 @@
 
 use crate::catalog::{self, FullCatalogEntry};
 use crate::sentinel::{self, Sentinel};
-use crate::{agent_home, canonical_path, GSD_SYSTEM_PATH};
+use crate::{agent_home, canonical_path, host_paths};
 use agentlinux_core::detect_gates::{remediate_gate, reuse_gate, RemediateReason};
 use agentlinux_core::types::CatalogEntry as CoreCatalogEntry;
 use serde::Serialize;
@@ -31,7 +31,7 @@ use crate::cli::AdoptArgs;
 const EX_USAGE: u8 = 64;
 
 /// The adopt verdict per entry — mirrors the TS `AdoptAction` union
-/// (adopt.ts:25) + `AdoptResult` (adopt.ts:27-32). Serialized for `--json`.
+///  + `AdoptResult`. Serialized for `--json`.
 #[derive(Debug, Clone, Serialize)]
 struct AdoptResult {
     id: String,
@@ -42,20 +42,7 @@ struct AdoptResult {
     reason: Option<String>,
 }
 
-fn to_core_entry(e: &FullCatalogEntry) -> CoreCatalogEntry {
-    let v = serde_json::json!({
-        "id": e.id,
-        "pinned_version": e.pinned_version,
-        "version_constraint": e.version_constraint,
-        "npm_package_name": e.npm_package_name,
-        "compatibility_window": e.compatibility_window,
-        "tags": e.tags,
-        "source_kind": e.source_kind,
-    });
-    serde_json::from_value(v).expect("full→core catalog entry projection")
-}
-
-/// Adopt one entry — port of `adoptOne` (adopt.ts:34-76).
+/// Adopt one entry — port of `adoptOne`.
 fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
     // Never adopt over an existing record — a real install/remediate owns it.
     if let Ok(Some(existing)) = sentinel::read_sentinel(&entry.id) {
@@ -67,7 +54,7 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
         };
     }
 
-    let core_entry = to_core_entry(entry);
+    let core_entry = CoreCatalogEntry::from(entry);
     let home = agent_home();
     let canonical = canonical_path(&entry.id);
 
@@ -75,9 +62,9 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
     let detected = crate::cache::read_cached_agent_by_id(&entry.id);
     let reuse_hit = detected
         .as_ref()
-        .and_then(|d| reuse_gate(&core_entry, d, canonical, GSD_SYSTEM_PATH, &home));
+        .and_then(|d| reuse_gate(&core_entry, d, host_paths(canonical, &home)));
     let reuse_hit = reuse_hit.filter(|c| {
-        // ADAPTER statSync re-validation (detect.ts:183-188): confirm the binary
+        // ADAPTER statSync re-validation: confirm the binary
         // still exists at install time. Stale-cache safety.
         std::fs::metadata(&c.path)
             .map(|m| m.is_file())
@@ -89,7 +76,7 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
         // a non-canonical path) from a plain skip via the PURE remediate_gate.
         let rem = detected
             .as_ref()
-            .and_then(|d| remediate_gate(&core_entry, d, canonical, GSD_SYSTEM_PATH));
+            .and_then(|d| remediate_gate(&core_entry, d, host_paths(canonical, &home)));
         if let Some(rem) = rem {
             if rem.reason == RemediateReason::PathMismatch {
                 return AdoptResult {
@@ -113,9 +100,9 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
         };
     };
 
-    // Write a status:"reused" sentinel (adopt.ts:62-74). Never dispatches a
+    // Write a status:"reused" sentinel. Never dispatches a
     // recipe. `binary_path`/`detected_source` mirror the TS ReuseHit.
-    let now = now_iso8601();
+    let now = sentinel::now_iso8601();
     let mut s = Sentinel::new(
         entry.id.clone(),
         hit.version.clone(),
@@ -147,13 +134,13 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
     }
 }
 
-/// `agentlinux adopt [name]` body. Port of `adoptCmd` (adopt.ts:78-130).
+/// `agentlinux adopt [name]` body. Port of `adoptCmd`.
 #[must_use]
 pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
     // Hot path (validate:false) — a partially-invalid catalog shouldn't block
     // adopting the valid entries.
     let catalog_dir = catalog::resolve_catalog_dir();
-    let agents = match catalog::load_catalog(&catalog_dir, false) {
+    let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("{e}");
@@ -162,15 +149,7 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
     };
 
     let targets: Vec<FullCatalogEntry> = if let Some(name) = name {
-        let Some(entry) = agents.iter().find(|a| a.id == name) else {
-            let available = agents
-                .iter()
-                .filter(|a| !a.test_only)
-                .map(|a| a.id.as_str())
-                .collect::<Vec<_>>()
-                .join(", ");
-            eprintln!("agentlinux: no such agent in catalog: {name}");
-            eprintln!("  available: {available}");
+        let Some(entry) = catalog::find_entry(&agents, name) else {
             return ExitCode::from(EX_USAGE);
         };
         if entry.test_only && !opts.include_test {
@@ -226,36 +205,6 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
         }
     }
     ExitCode::SUCCESS
-}
-
-/// A UTC ISO-8601 second-resolution timestamp (`YYYY-MM-DDTHH:MM:SSZ`) matching
-/// the TS `new Date().toISOString()` shape the sentinel records. Computed from the
-/// unix epoch without a chrono dep (the bin stays dependency-light).
-fn now_iso8601() -> String {
-    let secs = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    format_epoch_utc(secs)
-}
-
-/// Format unix seconds as `YYYY-MM-DDTHH:MM:SSZ` (proleptic Gregorian, UTC).
-fn format_epoch_utc(secs: u64) -> String {
-    let days = secs / 86_400;
-    let rem = secs % 86_400;
-    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    // Civil-from-days (Howard Hinnant's algorithm), epoch 1970-01-01.
-    let z = days as i64 + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if m <= 2 { y + 1 } else { y };
-    format!("{year:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
 }
 
 #[cfg(test)]
@@ -405,7 +354,10 @@ mod adopt_tests {
     #[test]
     fn epoch_formatting_matches_known_timestamp() {
         // 2026-07-28T00:00:00Z = 1785196800 (sanity of the civil-from-days path).
-        assert_eq!(format_epoch_utc(1_785_196_800), "2026-07-28T00:00:00Z");
-        assert_eq!(format_epoch_utc(0), "1970-01-01T00:00:00Z");
+        assert_eq!(
+            sentinel::format_epoch_utc(1_785_196_800),
+            "2026-07-28T00:00:00Z"
+        );
+        assert_eq!(sentinel::format_epoch_utc(0), "1970-01-01T00:00:00Z");
     }
 }

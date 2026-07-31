@@ -1,19 +1,19 @@
-//! provision/agent_user.rs — port of `plugin/provisioner/10-agent-user.sh`.
+//! provision/agent_user.rs — step 10: the install user and its home.
 //!
 //! Reproduces the agent-user step's observable system state byte-faithfully:
-//!   1. `ensure_user` (useradd: /bin/bash shell, real home, own group)
-//!   2. `ensure_dir /home/<user> 0755 <user>:<user>`
-//!   3. `locale_ensure C.UTF-8` (debian /etc/default/locale, rhel /etc/locale.conf)
-//!   4. the DOC-02 `CLAUDE.md` marker block (tag `agentlinux-doc-02`, `--top`),
-//!      then re-chown/chmod 0644 `<user>:<user>`.
+//!  1. `ensure_user` (useradd: /bin/bash shell, real home, own group)
+//!  2. `ensure_dir /home/<user> 0755 <user>:<user>`
+//!  3. `locale_ensure C.UTF-8` (debian /etc/default/locale, rhel /etc/locale.conf)
+//!  4. the DOC-02 `CLAUDE.md` marker block (tag `agentlinux-doc-02`, `--top`),
+//!     then re-chown/chmod 0644 `<user>:<user>`.
 //!
 //! Dispatches on the pre-resolved `RESOLUTIONS[user]` token (the DECIDE phase's
 //! output — the step only does I/O, never re-derives the decision):
-//!   - `Reuse` | `Remediate` → skip Steps 1-3 (identity/locale unchanged), still
-//!     write the DOC-02 block (additive/unconditional).
-//!   - `Create` → run Steps 1-3.
-//!   - `ReuseWithWarning` → log `[REUSE-WARN]`, skip 1-3, still write DOC-02.
-//!   - `Bail` → unreachable (a bail exits 65 before the step loop); defensive Err.
+//!  - `Reuse` | `Remediate` → skip Steps 1-3 (identity/locale unchanged), still
+//!    write the DOC-02 block (additive/unconditional).
+//!  - `Create` → run Steps 1-3.
+//!  - `ReuseWithWarning` → log `[REUSE-WARN]`, skip 1-3, still write DOC-02.
+//!  - `Bail` → unreachable (a bail exits 65 before the step loop); defensive Err.
 //!
 //! The DOC-02 body is the EXACT heredoc from 10-agent-user.sh:88-134, stored as a
 //! single `&str` const so it round-trips byte-exact. The three anti-pattern
@@ -21,8 +21,8 @@
 //! be PRESENT — `10-installer.bats`'s DOC-02 tests positively grep them.
 
 use crate::pkg;
-use crate::provision::{ProvisionCtx, Resolution};
-use crate::sysio::{self, Placement};
+use crate::provision::{ProvisionCtx, StepResolution};
+use crate::sysio;
 use std::io;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -89,30 +89,23 @@ precisely the bug class AgentLinux exists to prevent.";
 /// (except `Bail`, which is a defensive error).
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let reused = match ctx.resolutions.user {
-        Resolution::Create => false,
-        Resolution::Reuse | Resolution::Remediate => {
+        StepResolution::Create => false,
+        StepResolution::Reuse | StepResolution::Remediate => {
             // `remediate` acts identically to `reuse` on the user's own identity;
-            // the sudoers fix is Wave 2's job (RESOLUTIONS[sudoers]).
+            // the sudoers fix is step 20's job (RESOLUTIONS[sudoers]).
             eprintln!(
                 "10-agent-user: REUSE branch — skipping useradd + locale for existing user '{}'",
                 ctx.install_user
             );
             true
         }
-        Resolution::ReuseWithWarning => {
+        StepResolution::ReuseWithWarning => {
             eprintln!(
                 "[REUSE-WARN] component=user — skipped (user declined remediation; manual fix \
                  needed). Existing user '{}' unchanged.",
                 ctx.install_user
             );
             true
-        }
-        Resolution::Bail => {
-            // Unreachable — a bail exits 65 before the step loop; enumerate
-            // defensively (mirrors 10-agent-user.sh:50-54).
-            return Err(io::Error::other(
-                "10-agent-user: unreachable bail arm — flush_bails_or_continue should have gated this",
-            ));
         }
     };
 
@@ -134,44 +127,18 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // the stable `agentlinux-doc-02` tag + Top placement — re-runs are
     // idempotent, user content outside the block survives.
     let claude_md = Path::new(&ctx.install_home).join("CLAUDE.md");
-    sysio::ensure_marker_block(&claude_md, "agentlinux-doc-02", Placement::Top, DOC02_BODY)?;
+    sysio::ensure_marker_block(&claude_md, "agentlinux-doc-02", DOC02_BODY)?;
 
     // ensure_marker_block leaves the file root-owned at 0644 — re-assert 0644 and
     // chown <user>:<user> so the user can read + edit it outside the block
-    // (10-agent-user.sh:139-140).
     std::fs::set_permissions(&claude_md, std::fs::Permissions::from_mode(0o644))?;
     let owner = format!("{u}:{u}", u = ctx.install_user);
-    chown_user_group(&claude_md, &owner)?;
+    sysio::chown_by_name(&claude_md, &owner)?;
     eprintln!(
         "10-agent-user: wrote DOC-02 CLAUDE.md to {}",
         claude_md.display()
     );
     Ok(())
-}
-
-/// `chown <user>:<group> <path>` by name — resolve the passwd/group entries (the
-/// `user` nix feature) and apply via `std::os::unix::fs::chown` (the sanctioned
-/// syscall; nix's `fs` feature is not enabled). Mirrors `ensure_dir`'s owner
-/// resolution in `sysio.rs`.
-fn chown_user_group(path: &Path, owner: &str) -> io::Result<()> {
-    let (user, group) = owner.split_once(':').ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "chown: owner must be user:group",
-        )
-    })?;
-    let uid = nix::unistd::User::from_name(user)
-        .map_err(|e| io::Error::other(format!("chown: user {user}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("chown: unknown user {user}")))?
-        .uid
-        .as_raw();
-    let gid = nix::unistd::Group::from_name(group)
-        .map_err(|e| io::Error::other(format!("chown: group {group}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("chown: unknown group {group}")))?
-        .gid
-        .as_raw();
-    std::os::unix::fs::chown(path, Some(uid), Some(gid))
-        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
 }
 
 #[cfg(test)]
@@ -205,7 +172,7 @@ mod agent_user_tests {
     fn ensure_marker_block_frames_doc02_body_byte_exact() {
         let d = tempfile::TempDir::new().unwrap();
         let f = d.path().join("CLAUDE.md");
-        sysio::ensure_marker_block(&f, "agentlinux-doc-02", Placement::Top, DOC02_BODY).unwrap();
+        sysio::ensure_marker_block(&f, "agentlinux-doc-02", DOC02_BODY).unwrap();
         let content = std::fs::read_to_string(&f).unwrap();
         assert!(content.starts_with("# >>> agentlinux-doc-02 begin >>>\n"));
         assert!(content.ends_with("# <<< agentlinux-doc-02 end <<<\n"));
@@ -221,22 +188,4 @@ mod agent_user_tests {
 
     // A `Bail` resolution is a defensive error (the step loop never sees it in
     // practice; a bail exits 65 upstream).
-    #[test]
-    fn bail_resolution_is_defensive_error() {
-        let ctx = ProvisionCtx {
-            install_user: "agent".into(),
-            install_home: "/home/agent".into(),
-            family: crate::distro::Family::Debian,
-            resolutions: crate::provision::Resolutions {
-                user: Resolution::Bail,
-                sudoers: Resolution::Create,
-                node: Resolution::Create,
-                npm_prefix: Resolution::Create,
-                agents: std::collections::BTreeMap::new(),
-            },
-            yes: false,
-            dry_run: false,
-        };
-        assert!(run(&ctx).is_err());
-    }
 }

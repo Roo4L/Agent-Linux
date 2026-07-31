@@ -1,9 +1,9 @@
 //! sentinel.rs — per-agent install-record read/write (I/O boundary).
 //!
-//! Port of `plugin/cli/src/state/sentinel.ts`. Per-agent files under
+//! The install-record store. Per-agent files under
 //! `<state_dir>/installed.d/<id>.json`. The write is ATOMIC (tmp + `rename(2)`)
-//! per POSIX (T-56-08) so a timeout-killed op can never leave a torn sentinel the
-//! next op trusts (sentinel.ts:47-49).
+//! per POSIX so a timeout-killed op can never leave a torn sentinel the
+//! next op trusts.
 //!
 //! # Full write-path shape
 //! The pure `agentlinux_core::types::Sentinel` is a lean 4-field READ subset
@@ -11,12 +11,12 @@
 //! (`installed_at`, `status`, `binary_path`, `detected_source`, `reused_at`,
 //! `remediated_at`, `decline_reason`, …) to WRITE sentinels — field names
 //! byte-identical to `types.ts:57-89` so the SAME `installed.d/<id>.json`
-//! round-trips with no migration (RESEARCH §"What is NOT yet in agentlinux-core",
+//! round-trips with no migration ("What is NOT yet in agentlinux-core",
 //! item 2).
 //!
 //! # Env seam
 //! `AGENTLINUX_STATE_DIR` overrides the default `/opt/agentlinux/state/installed.d`
-//! (sentinel.ts:24-26) — the bats seam. Resolved lazily on each call so a test
+//!  — the bats seam. Resolved lazily on each call so a test
 //! that mutates the env after import still takes effect.
 //!
 //! # `#[serde(skip_serializing_if)]` parity
@@ -24,12 +24,6 @@
 //! optional fields carry `skip_serializing_if = "Option::is_none"` so a sentinel
 //! with no `status`/`binary_path`/… serializes to the SAME bytes the TS writes
 //! (no `"status": null` noise) — the round-trip is byte-stable.
-//!
-//! `#![allow(dead_code)]`: the read/write/delete/list surface is consumed by the
-//! Wave-1 verb adapters (this plan's Tasks 2/3) and Plan 03's mutating verbs. The
-//! `#[cfg(test)]` module exercises every item now; the allow only defers the "not
-//! yet wired into a non-test caller" lint at the Task-1 commit boundary.
-#![allow(dead_code)]
 
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -37,7 +31,7 @@ use std::path::PathBuf;
 const DEFAULT_INSTALLED_DIR: &str = "/opt/agentlinux/state/installed.d";
 
 /// Resolve the installed.d dir lazily: `$AGENTLINUX_STATE_DIR` (bats seam) else
-/// the default. Port of `installedDir()` (sentinel.ts:24-26).
+/// the default. Port of `installedDir()`.
 fn installed_dir() -> PathBuf {
     match std::env::var("AGENTLINUX_STATE_DIR") {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
@@ -78,6 +72,55 @@ pub struct Sentinel {
     pub remediate_failure_reason: Option<String>,
 }
 
+/// The current time as `YYYY-MM-DDTHH:MM:SSZ` — the format every sentinel
+/// timestamp field (`installed_at`, `reused_at`, `remediated_at`) carries.
+#[must_use]
+pub fn now_iso8601() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format_epoch_utc(secs)
+}
+
+/// Format unix seconds as `YYYY-MM-DDTHH:MM:SSZ` (proleptic Gregorian, UTC).
+///
+/// Hand-rolled rather than pulling in `chrono` for one format string. Lives here
+/// once — install/remove/upgrade/adopt all stamp sentinels, and three of them
+/// used to carry their own copy of this algorithm with only one under test.
+#[must_use]
+pub fn format_epoch_utc(secs: u64) -> String {
+    let days = secs / 86_400;
+    let rem = secs % 86_400;
+    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
+    // Civil-from-days (Howard Hinnant's algorithm), epoch 1970-01-01.
+    let z = days as i64 + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = (z - era * 146_097) as u64;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = if m <= 2 { y + 1 } else { y };
+    format!("{year:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
+}
+
+/// Project the write-path sentinel down to the four fields the pure core reads.
+/// A struct literal for the same reason as the catalog-entry projection: a field
+/// added to the core type should break the build here, not panic at runtime.
+impl From<&Sentinel> for agentlinux_core::types::Sentinel {
+    fn from(s: &Sentinel) -> Self {
+        Self {
+            id: s.id.clone(),
+            version: s.version.clone(),
+            source: s.source.clone(),
+            sticky: s.sticky,
+        }
+    }
+}
+
 impl Sentinel {
     /// Convenience constructor for the four required fields; all optional fields
     /// default to `None`. Callers set the optional fields fluently (the verb
@@ -103,7 +146,7 @@ impl Sentinel {
 }
 
 /// Read `<installed.d>/<id>.json`, or `None` when absent (ENOENT). Port of
-/// `readSentinel` (sentinel.ts:28-36).
+/// `readSentinel`.
 pub fn read_sentinel(id: &str) -> std::io::Result<Option<Sentinel>> {
     let path = installed_dir().join(format!("{id}.json"));
     match std::fs::read_to_string(&path) {
@@ -117,34 +160,28 @@ pub fn read_sentinel(id: &str) -> std::io::Result<Option<Sentinel>> {
     }
 }
 
-/// Write a sentinel ATOMICALLY (tmp + `rename`) — T-56-08. Port of `writeSentinel`
-/// (sentinel.ts:38-49): mkdir -p the installed.d dir, write `<id>.json.tmp.<pid>`
-/// with a trailing newline, then `rename` into place (atomic on the same
-/// filesystem per POSIX). Modes 0755 (dir) / 0644 (file) mirror the provisioner.
+/// Write a sentinel atomically. Modes 0755 (dir) / 0644 (file) mirror the
+/// provisioner.
+///
+/// Goes through `sysio::write_file_atomic`, which is the careful implementation:
+/// same-directory tmpfile, `sync_all` before the rename, mode set before
+/// publication, and an RAII guard that unlinks the tmpfile on every error path.
+/// This function used to hand-roll the sequence and skipped the fsync and the
+/// cleanup, so a killed process left a stray `.json.tmp.<pid>` behind forever.
 pub fn write_sentinel(entry: &Sentinel) -> std::io::Result<()> {
     let dir = installed_dir();
     std::fs::create_dir_all(&dir)?;
     set_mode(&dir, 0o755);
     let target = dir.join(format!("{}.json", entry.id));
-    let tmp = dir.join(format!("{}.json.tmp.{}", entry.id, std::process::id()));
-    // `JSON.stringify(entry, null, 2)\n` — 2-space pretty + a trailing newline.
+    // 2-space pretty + a trailing newline.
     let body = format!("{}\n", serde_json::to_string_pretty(entry)?);
-    std::fs::write(&tmp, body)?;
-    set_mode(&tmp, 0o644);
-    // Atomic on the same filesystem (POSIX rename(2)); overwrites any existing
-    // target in one step so a reader never sees a torn file.
-    std::fs::rename(&tmp, &target)?;
-    Ok(())
+    crate::sysio::write_file_atomic(0o644, &target, body.as_bytes())
 }
 
 /// Delete `<installed.d>/<id>.json`, tolerating ENOENT (idempotent). Port of
-/// `deleteSentinel` (sentinel.ts:51-58).
+/// `deleteSentinel`.
 ///
-/// Wave-1 consumer: none (Plan 03's `remove` verb is the first non-test caller).
-/// The `#[cfg(test)]` module exercises it, so it is not truly unreachable — the
-/// allow only silences the "not yet wired into a non-test caller" lint until
-/// Plan 03 imports it (mirrors the recipe_env/dispatcher Wave-0 pattern).
-#[allow(dead_code)]
+/// Consumed by the `remove` verb.
 pub fn delete_sentinel(id: &str) -> std::io::Result<()> {
     let path = installed_dir().join(format!("{id}.json"));
     match std::fs::remove_file(&path) {
@@ -155,7 +192,7 @@ pub fn delete_sentinel(id: &str) -> std::io::Result<()> {
 }
 
 /// List every sentinel under installed.d. Missing dir → empty (ENOENT-tolerant).
-/// Port of `listSentinels` (sentinel.ts:60-72).
+/// Port of `listSentinels`.
 pub fn list_sentinels() -> std::io::Result<Vec<Sentinel>> {
     let dir = installed_dir();
     let entries = match std::fs::read_dir(&dir) {
@@ -168,10 +205,11 @@ pub fn list_sentinels() -> std::io::Result<Vec<Sentinel>> {
         let entry = entry?;
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        // Only `<id>.json` (skip the transient `.json.tmp.<pid>` during a
-        // concurrent write, and any non-json file).
+        // Only `<id>.json`. A concurrent write's tmpfile is `.<id>.json.<pid>.…`
+        // (see `sysio::mktemp_in`), which does not end in `.json`, so this
+        // suffix test already excludes it — no separate tmp guard needed.
         if let Some(id) = name.strip_suffix(".json") {
-            if id.is_empty() || id.contains(".json.tmp.") {
+            if id.is_empty() {
                 continue;
             }
             if let Some(s) = read_sentinel(id)? {
@@ -182,16 +220,12 @@ pub fn list_sentinels() -> std::io::Result<Vec<Sentinel>> {
     Ok(out)
 }
 
-/// Set the unix mode on `path`, best-effort (a mode-set failure on a tmp dir a
-/// test owns is non-fatal — the atomic rename is the load-bearing guarantee).
-#[cfg(unix)]
+/// Set the unix mode on `path`, best-effort — a mode-set failure on a tmp dir a
+/// test owns is non-fatal, and the atomic rename is the load-bearing guarantee.
 fn set_mode(path: &std::path::Path, mode: u32) {
     use std::os::unix::fs::PermissionsExt;
     let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode));
 }
-
-#[cfg(not(unix))]
-fn set_mode(_path: &std::path::Path, _mode: u32) {}
 
 #[cfg(test)]
 mod sentinel_tests {

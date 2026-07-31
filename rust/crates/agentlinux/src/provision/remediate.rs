@@ -1,11 +1,9 @@
 //! provision/remediate.rs — the CORE-COMPONENT brownfield DECIDE + consent/bail
-//! gate. Port of `plugin/lib/remediate.sh`'s `collect_all_decisions` /
-//! `gate_or_bail` / `flush_bails_or_continue` for the two core components the Rust
-//! provisioner remediates: the npm-global prefix (REMEDIATE-01) and the sudoers
+//! gate for the two core components the provisioner remediates: the npm-global prefix (REMEDIATE-01) and the sudoers
 //! drop-in (REMEDIATE-03). Per-agent (REMEDIATE-04) + user (REUSE-01) decisions
 //! live in the `from_decide` agent loop / `agent_user` step.
 //!
-//! DECIDE-THEN-ACT (remediate.sh:6-13): `decide_core` probes host state and writes
+//! DECIDE-THEN-ACT: `decide_core` probes host state and writes
 //! `Resolution` tokens with ZERO mutation; a state-overwriting Remediate WITHOUT
 //! consent registers a `Bail`. `flush_or_exit` then prints every `[BAIL]` line and
 //! `exit 65` (EX_DATAERR) BEFORE the step loop — so a refused host is left
@@ -22,7 +20,7 @@ use crate::provision::{Resolution, Resolutions};
 use std::io::IsTerminal;
 
 /// An aggregated incompatible-host-state record. `flush_or_exit` renders each as
-/// `[BAIL] component=<component> reason=<reason> hint=<hint>` (remediate.sh:162).
+/// `[BAIL] component=<component> reason=<reason> hint=<hint>`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Bail {
     pub component: &'static str,
@@ -42,45 +40,51 @@ pub enum Consent {
     Bail,
 }
 
-/// `remediate_action_overwrites_state` (remediate.sh:174-189): the two core
-/// state-overwriting actions require consent; anything else is additive.
+/// Consent for a remediation that OVERWRITES existing host state. PURE.
+///
+/// `--yes` proceeds, a TTY asks the operator, and a non-interactive run with no
+/// `--yes` refuses. Additive remediations never call this — they simply proceed,
+/// which is why there is no action parameter: the caller already knows which kind
+/// it is holding. (This used to take an action string checked against a
+/// three-entry allowlist; both call sites passed a literal that always matched,
+/// and the third entry was never passed by anything.)
 #[must_use]
-pub fn action_overwrites_state(action: &str) -> bool {
-    matches!(
-        action,
-        "npm-prefix-chown" | "npm-prefix-rebase" | "sudoers-drift-overwrite"
-    )
-}
-
-/// `remediate::gate_or_bail` policy (remediate.sh:194-227), PURE. Additive → Proceed;
-/// state-overwriting → Proceed on `--yes`, Prompt on a TTY, else Bail.
-#[must_use]
-pub fn gate(action: &str, yes: bool, is_tty: bool) -> Consent {
-    if !action_overwrites_state(action) {
-        return Consent::Proceed;
-    }
+pub fn consent_for_overwrite(yes: bool, is_tty: bool) -> Consent {
     if yes {
-        return Consent::Proceed;
+        Consent::Proceed
+    } else if is_tty {
+        Consent::Prompt
+    } else {
+        Consent::Bail
     }
-    if is_tty {
-        return Consent::Prompt;
-    }
-    Consent::Bail
 }
 
-/// The `sudoers` token from its probed state + consent. Returns the resolution and,
-/// when a drift overwrite is refused non-interactively, the bail to aggregate.
-/// PURE (state + flags in, decision out).
+/// What a pure core-component decider concluded.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CoreOutcome {
+    /// Settled without asking anyone.
+    Settled(Resolution),
+    /// A state-overwriting remediation on a TTY — the CALLER must prompt.
+    ///
+    /// This variant is why `decide_core` no longer re-derives `!yes && is_tty`
+    /// after calling these deciders: the decider says whether a prompt is owed,
+    /// and the answer cannot disagree with the decision it came from.
+    NeedsPrompt,
+}
+
+/// The `sudoers` outcome from its probed state + consent. Returns the outcome
+/// and, when a drift overwrite is refused non-interactively, the bail to
+/// aggregate. PURE (state + flags in, decision out).
 #[must_use]
-pub fn decide_sudoers(state: SudoersState, yes: bool, is_tty: bool) -> (Resolution, Option<Bail>) {
+pub fn decide_sudoers(state: SudoersState, yes: bool, is_tty: bool) -> (CoreOutcome, Option<Bail>) {
     match state {
-        SudoersState::Absent => (Resolution::Create, None),
-        SudoersState::Canonical => (Resolution::Reuse, None),
-        SudoersState::Drifted => match gate("sudoers-drift-overwrite", yes, is_tty) {
-            Consent::Proceed => (Resolution::Remediate, None),
-            Consent::Prompt => (Resolution::Remediate, None), // caller prompts; default proceed
+        SudoersState::Absent => (CoreOutcome::Settled(Resolution::Create), None),
+        SudoersState::Canonical => (CoreOutcome::Settled(Resolution::Reuse), None),
+        SudoersState::Drifted => match consent_for_overwrite(yes, is_tty) {
+            Consent::Proceed => (CoreOutcome::Settled(Resolution::Remediate), None),
+            Consent::Prompt => (CoreOutcome::NeedsPrompt, None),
             Consent::Bail => (
-                Resolution::Bail,
+                CoreOutcome::Settled(Resolution::Bail),
                 Some(Bail {
                     component: "sudoers",
                     reason: "drift",
@@ -91,21 +95,21 @@ pub fn decide_sudoers(state: SudoersState, yes: bool, is_tty: bool) -> (Resoluti
     }
 }
 
-/// The `npm-prefix` token from its probed state + consent. PURE.
+/// The `npm-prefix` outcome from its probed state + consent. PURE.
 #[must_use]
 pub fn decide_npm_prefix(
     state: NpmPrefixState,
     yes: bool,
     is_tty: bool,
-) -> (Resolution, Option<Bail>) {
+) -> (CoreOutcome, Option<Bail>) {
     match state {
-        NpmPrefixState::Absent => (Resolution::Create, None),
-        NpmPrefixState::OwnedByUser => (Resolution::Reuse, None),
-        NpmPrefixState::WrongOwner => match gate("npm-prefix-chown", yes, is_tty) {
-            Consent::Proceed => (Resolution::Remediate, None),
-            Consent::Prompt => (Resolution::Remediate, None),
+        NpmPrefixState::Absent => (CoreOutcome::Settled(Resolution::Create), None),
+        NpmPrefixState::OwnedByUser => (CoreOutcome::Settled(Resolution::Reuse), None),
+        NpmPrefixState::WrongOwner => match consent_for_overwrite(yes, is_tty) {
+            Consent::Proceed => (CoreOutcome::Settled(Resolution::Remediate), None),
+            Consent::Prompt => (CoreOutcome::NeedsPrompt, None),
             Consent::Bail => (
-                Resolution::Bail,
+                CoreOutcome::Settled(Resolution::Bail),
                 Some(Bail {
                     component: "npm-prefix",
                     reason: "wrong-owner",
@@ -151,33 +155,32 @@ pub fn decide_core(
         }
     }
 
-    // Component prompt order (prompt::run_all): npm-prefix BEFORE sudoers. This is
-    // load-bearing — the tests feed answers positionally (e.g. `n\nY\n` = decline
-    // npm-prefix, accept sudoers).
-    let npm_state = probe::npm_prefix_state(user, home);
-    let (mut npm_res, npm_bail) = decide_npm_prefix(npm_state, yes, is_tty);
-    if npm_state == NpmPrefixState::WrongOwner && !yes && is_tty {
-        npm_res = prompt_component(
+    // Component prompt order: npm-prefix BEFORE sudoers. This is load-bearing —
+    // the tests feed answers positionally (e.g. `n\nY\n` = decline npm-prefix,
+    // accept sudoers), and so does an operator answering two prompts in a row.
+    let (npm_outcome, npm_bail) =
+        decide_npm_prefix(probe::npm_prefix_state(user, home), yes, is_tty);
+    res.npm_prefix = match npm_outcome {
+        CoreOutcome::Settled(r) => r,
+        CoreOutcome::NeedsPrompt => prompt_component(
             "npm-prefix",
             "REMEDIATE-01",
             &format!("chown ~{user}/.npm-global to {user}:{user}"),
-        );
-    }
-    res.npm_prefix = npm_res;
+        ),
+    };
     if let Some(b) = npm_bail {
         bails.push(b);
     }
 
-    let sudoers_state = probe::sudoers_state(user);
-    let (mut sudoers_res, sudoers_bail) = decide_sudoers(sudoers_state, yes, is_tty);
-    if sudoers_state == SudoersState::Drifted && !yes && is_tty {
-        sudoers_res = prompt_component(
+    let (sudoers_outcome, sudoers_bail) = decide_sudoers(probe::sudoers_state(user), yes, is_tty);
+    res.sudoers = match sudoers_outcome {
+        CoreOutcome::Settled(r) => r,
+        CoreOutcome::NeedsPrompt => prompt_component(
             "sudoers",
             "REMEDIATE-03",
             "overwrite /etc/sudoers.d/agentlinux with canonical ADR-012 line",
-        );
-    }
-    res.sudoers = sudoers_res;
+        ),
+    };
     if let Some(b) = sudoers_bail {
         bails.push(b);
     }
@@ -200,7 +203,7 @@ fn prompt_component(component: &str, marker: &str, description: &str) -> Resolut
     }
 }
 
-/// `flush_bails_or_continue` (remediate.sh:150-166): if any bail was aggregated,
+/// `flush_bails_or_continue`: if any bail was aggregated,
 /// print every `[BAIL]` line + the exit-code footer and `exit 65` (EX_DATAERR)
 /// — SHORT-CIRCUITING before the step loop so a refused host is never mutated.
 /// Returns normally (continue) when there are no bails.
@@ -225,48 +228,42 @@ pub fn flush_or_exit(bails: &[Bail]) {
 mod remediate_tests {
     use super::*;
 
+    /// The full consent matrix for a state-overwriting remediation.
     #[test]
-    fn additive_action_never_needs_consent() {
-        assert!(!action_overwrites_state("sudoers-missing-install"));
-        assert!(!action_overwrites_state("path-wiring"));
-        assert_eq!(
-            gate("sudoers-missing-install", false, false),
-            Consent::Proceed
-        );
-    }
-
-    #[test]
-    fn overwriting_action_gate_matrix() {
-        // --yes always proceeds; TTY prompts; non-TTY-no-yes bails.
-        assert_eq!(
-            gate("sudoers-drift-overwrite", true, false),
-            Consent::Proceed
-        );
-        assert_eq!(
-            gate("sudoers-drift-overwrite", true, true),
-            Consent::Proceed
-        );
-        assert_eq!(gate("npm-prefix-chown", false, true), Consent::Prompt);
-        assert_eq!(gate("npm-prefix-chown", false, false), Consent::Bail);
+    fn overwrite_consent_matrix() {
+        // --yes always proceeds, TTY or not.
+        assert_eq!(consent_for_overwrite(true, false), Consent::Proceed);
+        assert_eq!(consent_for_overwrite(true, true), Consent::Proceed);
+        // No --yes: a TTY asks, a non-TTY refuses.
+        assert_eq!(consent_for_overwrite(false, true), Consent::Prompt);
+        assert_eq!(consent_for_overwrite(false, false), Consent::Bail);
     }
 
     #[test]
     fn sudoers_decide_matrix() {
+        let settled = |o| match o {
+            CoreOutcome::Settled(r) => r,
+            CoreOutcome::NeedsPrompt => panic!("expected a settled outcome"),
+        };
         assert_eq!(
-            decide_sudoers(SudoersState::Absent, false, false).0,
+            settled(decide_sudoers(SudoersState::Absent, false, false).0),
             Resolution::Create
         );
         assert_eq!(
-            decide_sudoers(SudoersState::Canonical, false, false).0,
+            settled(decide_sudoers(SudoersState::Canonical, false, false).0),
             Resolution::Reuse
         );
         // drifted + --yes → overwrite; no bail.
-        let (r, b) = decide_sudoers(SudoersState::Drifted, true, false);
-        assert_eq!(r, Resolution::Remediate);
+        let (o, b) = decide_sudoers(SudoersState::Drifted, true, false);
+        assert_eq!(settled(o), Resolution::Remediate);
+        assert!(b.is_none());
+        // drifted + TTY, no --yes → the caller owes a prompt; no bail.
+        let (o, b) = decide_sudoers(SudoersState::Drifted, false, true);
+        assert_eq!(o, CoreOutcome::NeedsPrompt);
         assert!(b.is_none());
         // drifted + non-TTY no --yes → Bail with the exact component/reason.
-        let (r, b) = decide_sudoers(SudoersState::Drifted, false, false);
-        assert_eq!(r, Resolution::Bail);
+        let (o, b) = decide_sudoers(SudoersState::Drifted, false, false);
+        assert_eq!(settled(o), Resolution::Bail);
         let b = b.unwrap();
         assert_eq!(b.component, "sudoers");
         assert_eq!(b.reason, "drift");
@@ -274,19 +271,26 @@ mod remediate_tests {
 
     #[test]
     fn npm_prefix_decide_matrix() {
+        let settled = |o| match o {
+            CoreOutcome::Settled(r) => r,
+            CoreOutcome::NeedsPrompt => panic!("expected a settled outcome"),
+        };
         assert_eq!(
-            decide_npm_prefix(NpmPrefixState::Absent, false, false).0,
+            settled(decide_npm_prefix(NpmPrefixState::Absent, false, false).0),
             Resolution::Create
         );
         assert_eq!(
-            decide_npm_prefix(NpmPrefixState::OwnedByUser, false, false).0,
+            settled(decide_npm_prefix(NpmPrefixState::OwnedByUser, false, false).0),
             Resolution::Reuse
         );
-        let (r, b) = decide_npm_prefix(NpmPrefixState::WrongOwner, true, false);
-        assert_eq!(r, Resolution::Remediate);
+        let (o, b) = decide_npm_prefix(NpmPrefixState::WrongOwner, true, false);
+        assert_eq!(settled(o), Resolution::Remediate);
         assert!(b.is_none());
-        let (r, b) = decide_npm_prefix(NpmPrefixState::WrongOwner, false, false);
-        assert_eq!(r, Resolution::Bail);
+        let (o, b) = decide_npm_prefix(NpmPrefixState::WrongOwner, false, true);
+        assert_eq!(o, CoreOutcome::NeedsPrompt);
+        assert!(b.is_none());
+        let (o, b) = decide_npm_prefix(NpmPrefixState::WrongOwner, false, false);
+        assert_eq!(settled(o), Resolution::Bail);
         assert_eq!(b.unwrap().component, "npm-prefix");
     }
 }

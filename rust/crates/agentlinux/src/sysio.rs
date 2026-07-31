@@ -1,16 +1,14 @@
-//! sysio.rs — the six `idempotency.sh` grep-before-mutate primitives, ported
-//! byte-faithfully into the Rust bin (PROV-01).
+//! sysio.rs — the grep-before-mutate filesystem primitives (PROV-01).
 //!
-//! Byte-for-byte port of `plugin/lib/idempotency.sh`. Every state change the
-//! provisioner makes goes through one of these helpers; a blind append or a
-//! non-atomic write is forbidden because it breaks INST-02 (converge across
-//! re-runs) and produces drift INST-05 (no EACCES on a second run) later flags.
+//! Every state change the provisioner makes goes through one of these helpers.
+//! A blind append or a non-atomic write is forbidden: it breaks INST-02 (the run
+//! must converge across re-runs) and produces the drift INST-05 later flags.
 //!
-//! The load-bearing byte-fidelity invariants this module reproduces:
+//! The load-bearing invariants:
 //!
 //! - **`write_file_atomic`** — the tmpfile is created in the DEST's PARENT dir
 //!   (same filesystem) so the final `fs::rename` is atomic; a cross-fs temp dir
-//!   would fall back to copy+unlink and lose atomicity (57-RESEARCH Pitfall 1).
+//!   would fall back to copy+unlink and lose atomicity.
 //!   The tmpfile is unlinked on EVERY error path (an RAII guard mirroring the
 //!   Bash `trap "rm -f" RETURN`). Mode is set on the tmpfile BEFORE the rename so
 //!   the destination is never briefly world-readable.
@@ -29,13 +27,6 @@
 //! - **`ensure_dir`** — absent → create with mode+owner; present → RE-ASSERT
 //!   mode+owner unconditionally so a re-run corrects out-of-band drift.
 //! - **`visudo_validate`** — `visudo -cf <file>`; a non-zero check is an `Err`.
-//!
-//! `dead_code` is allowed at module scope for this Wave-0 foundation: the public
-//! surface here is consumed by the Wave-1/2/3/4 provisioner steps (Plans 02-05).
-//! The `#[cfg(test)]` module exercises every item now, so nothing is truly
-//! unreachable — the allow only silences the "not yet wired into a non-test
-//! caller" lint until those plans land, keeping the per-task tree warning-clean.
-#![allow(dead_code)]
 
 use std::fs;
 use std::io::{self, Write};
@@ -43,28 +34,16 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Placement of a marker block relative to the existing file content.
-///
-/// `Top` mirrors the Bash `--top` (required for `/home/agent/.bashrc`: the skel
-/// `.bashrc` early-returns for non-interactive shells, so an agentlinux block
-/// that must influence `sudo -u agent bash -c …` has to precede that guard).
-/// `Bottom` is the Bash default `--bottom`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Placement {
-    Top,
-    Bottom,
-}
-
 /// RAII guard that unlinks a tmpfile on drop unless explicitly disarmed after a
 /// successful rename — the Rust twin of the Bash `trap "rm -f -- '$tmp'" RETURN`.
 /// Guarantees cleanup on every error path (a mid-write abort, a failed rename, a
 /// failed `set_permissions`), so no residual `.dest.XXXXXX` is ever left behind.
-struct TmpGuard {
+pub(crate) struct TmpGuard {
     path: Option<PathBuf>,
 }
 
 impl TmpGuard {
-    fn new(path: PathBuf) -> Self {
+    pub(crate) fn new(path: PathBuf) -> Self {
         Self { path: Some(path) }
     }
 
@@ -83,12 +62,13 @@ impl Drop for TmpGuard {
     }
 }
 
-/// Create a hidden, unique tmpfile in `dir` mirroring `mktemp -p "$dir"
-/// ".${base}.XXXXXX"`. Same-directory placement is what keeps the later
-/// `fs::rename` atomic on one filesystem (57-RESEARCH Pitfall 1). The name is a
-/// leading-dot `.{base}.{pid}.{nanos}` — collision-hardened by the monotonic
-/// nanos + O_CREAT|O_EXCL retry so two concurrent provisioner runs never clobber.
-fn mktemp_in(dir: &Path, base: &str) -> io::Result<(fs::File, PathBuf)> {
+/// Create a hidden, unique tmpfile in `dir`, mirroring `mktemp -p "$dir"
+/// ".${base}.XXXXXX"`. Same-directory placement is what keeps a later
+/// `fs::rename` atomic on one filesystem. The name is a leading-dot
+/// `.{base}.{pid}.{nanos}.{attempt}` — collision-hardened by the monotonic nanos
+/// plus an O_CREAT|O_EXCL retry, so two concurrent provisioner runs never clobber
+/// each other.
+pub(crate) fn mktemp_in(dir: &Path, base: &str) -> io::Result<(fs::File, PathBuf)> {
     use std::time::{SystemTime, UNIX_EPOCH};
     let pid = std::process::id();
     for attempt in 0..1000u32 {
@@ -228,12 +208,12 @@ fn strip_marker_block(existing: &str, begin: &str, end: &str) -> Vec<String> {
 /// `begin\n{body}\n{end}\n` then the filtered remainder; `Bottom` emits the
 /// filtered remainder then `begin\n{body}\n{end}\n`. Re-running replaces the
 /// block in place, leaving exactly ONE block.
-pub fn ensure_marker_block(
-    file: &Path,
-    tag: &str,
-    placement: Placement,
-    body: &str,
-) -> io::Result<()> {
+/// The block is always written at the TOP of the file. That is required, not
+/// incidental: the skel `.bashrc` early-returns for non-interactive shells, so an
+/// agentlinux block that must influence `sudo -u agent bash -c …` has to precede
+/// that guard. Every caller needs this, so there is no placement knob to get
+/// wrong.
+pub fn ensure_marker_block(file: &Path, tag: &str, body: &str) -> io::Result<()> {
     let begin = format!("# >>> {tag} begin >>>");
     let end = format!("# <<< {tag} end <<<");
 
@@ -255,18 +235,8 @@ pub fn ensure_marker_block(
     };
 
     let mut out = String::new();
-    match placement {
-        Placement::Top => {
-            // { begin; body; end; awk-filtered-existing } > tmp
-            out.push_str(&block);
-            out.push_str(&remainder);
-        }
-        Placement::Bottom => {
-            // awk-filtered-existing > tmp ; { begin; body; end } >> tmp
-            out.push_str(&remainder);
-            out.push_str(&block);
-        }
-    }
+    out.push_str(&block);
+    out.push_str(&remainder);
 
     write_file_atomic(0o644, file, out.as_bytes())
 }
@@ -343,11 +313,11 @@ pub fn ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
 /// DBs (`nix::unistd::{User,Group}::from_name`, the `user` feature), matching the
 /// Bash `chown user:group` name resolution. `${owner%:*}` / `${owner#*:}` split
 /// on the FIRST colon.
-fn resolve_owner(owner: &str) -> io::Result<(u32, u32)> {
+pub fn resolve_owner(owner: &str) -> io::Result<(u32, u32)> {
     let (user, group) = owner.split_once(':').ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
-            "ensure_dir: owner must be user:group",
+            "resolve_owner: owner must be user:group",
         )
     })?;
     let uid = nix::unistd::User::from_name(user)
@@ -361,6 +331,51 @@ fn resolve_owner(owner: &str) -> io::Result<(u32, u32)> {
         .gid
         .as_raw();
     Ok((uid, gid))
+}
+
+/// `chown <owner> <path>` where `owner` is `"user:group"` — the ONE chown helper.
+///
+/// Five provisioner modules previously carried byte-identical private copies of
+/// this, each re-resolving the same passwd/group lookups with its own error
+/// wording. Callers that need to chown a whole tree use
+/// `provision::registry_cli::chown_recursive`, which builds on this.
+pub fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
+    let (uid, gid) = resolve_owner(owner)?;
+    std::os::unix::fs::chown(path, Some(uid), Some(gid))
+        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
+}
+
+/// Create `path` empty at 0644 owned by `owner` if it does not exist; leave a
+/// present file completely untouched (the caller's `ensure_line_in_file` mutates
+/// it). Mirrors `install -m 0644 -o <u> -g <g> /dev/null <path>`.
+///
+/// KNOWN LIMITATION: `path.exists()` FOLLOWS symlinks, and so do `File::create`
+/// and the chown. A dangling symlink at `path` therefore causes the target to be
+/// created and chowned to `owner` — no race required. Callers run this as root
+/// against paths inside the agent's own home, so an agent that plants
+/// `~/.npmrc -> /etc/ld.so.preload` gets that file created and handed to it. The
+/// fix is `O_NOFOLLOW` plus `fchmod`/`fchown` on the open handle.
+pub fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
+    if path.exists() {
+        return Ok(());
+    }
+    fs::File::create(path)?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o644))?;
+    chown_by_name(path, owner)
+}
+
+/// `command -v <name>` — resolve a program on PATH, `None` if absent.
+pub fn which(name: &str) -> Option<PathBuf> {
+    std::env::var_os("PATH").and_then(|paths| {
+        std::env::split_paths(&paths).find_map(|dir| {
+            let cand = dir.join(name);
+            if cand.is_file() {
+                Some(cand)
+            } else {
+                None
+            }
+        })
+    })
 }
 
 /// `visudo_validate <file>` — `visudo -cf <file>` safety check before installing
@@ -419,7 +434,7 @@ mod sysio_tests {
         // The rename target is correct...
         assert_eq!(fs::read(&dest).unwrap(), b"x\n");
         // ...and no residual `.target.txt.*` tmpfile remains in the parent dir
-        // (Pitfall 1 — same-dir tmpfile, cleaned on the successful rename).
+        // (same-dir tmpfile, cleaned on the successful rename).
         let residuals: Vec<_> = fs::read_dir(d.path())
             .unwrap()
             .filter_map(|e| e.ok())
@@ -492,12 +507,13 @@ mod sysio_tests {
     // --- ensure_marker_block ---
 
     #[test]
-    fn marker_block_top_emit_order() {
+    fn marker_block_emits_before_existing_content() {
         let d = TempDir::new().unwrap();
         let f = d.path().join("bashrc");
         fs::write(&f, b"# user line 1\n# user line 2\n").unwrap();
-        ensure_marker_block(&f, "agentlinux-path", Placement::Top, "export PATH=/x").unwrap();
-        // Top: begin\n{body}\n{end}\n THEN the filtered (unchanged) existing.
+        ensure_marker_block(&f, "agentlinux-path", "export PATH=/x").unwrap();
+        // begin\n{body}\n{end}\n THEN the filtered (unchanged) existing — the
+        // block must precede the skel .bashrc non-interactive early-return.
         let expected = "# >>> agentlinux-path begin >>>\n\
                         export PATH=/x\n\
                         # <<< agentlinux-path end <<<\n\
@@ -505,21 +521,6 @@ mod sysio_tests {
                         # user line 2\n";
         assert_eq!(fs::read_to_string(&f).unwrap(), expected);
         assert_eq!(mode_of(&f), 0o644);
-    }
-
-    #[test]
-    fn marker_block_bottom_emit_order() {
-        let d = TempDir::new().unwrap();
-        let f = d.path().join("profile");
-        fs::write(&f, b"# user line 1\n# user line 2\n").unwrap();
-        ensure_marker_block(&f, "agentlinux-path", Placement::Bottom, "export PATH=/x").unwrap();
-        // Bottom: filtered-existing THEN begin\n{body}\n{end}\n.
-        let expected = "# user line 1\n\
-                        # user line 2\n\
-                        # >>> agentlinux-path begin >>>\n\
-                        export PATH=/x\n\
-                        # <<< agentlinux-path end <<<\n";
-        assert_eq!(fs::read_to_string(&f).unwrap(), expected);
     }
 
     #[test]
@@ -534,14 +535,14 @@ mod sysio_tests {
                     # <<< agentlinux-path end <<<\n\
                     # trailing user content\n";
         fs::write(&f, seed).unwrap();
-        // Re-run at Bottom replaces the block; outside content survives, and
-        // exactly ONE block remains (now at the bottom).
-        ensure_marker_block(&f, "agentlinux-path", Placement::Bottom, "NEW BODY").unwrap();
-        let expected = "# top user content\n\
-                        # trailing user content\n\
-                        # >>> agentlinux-path begin >>>\n\
+        // A re-run replaces the block; outside content survives, and exactly ONE
+        // block remains (hoisted to the top).
+        ensure_marker_block(&f, "agentlinux-path", "NEW BODY").unwrap();
+        let expected = "# >>> agentlinux-path begin >>>\n\
                         NEW BODY\n\
-                        # <<< agentlinux-path end <<<\n";
+                        # <<< agentlinux-path end <<<\n\
+                        # top user content\n\
+                        # trailing user content\n";
         assert_eq!(fs::read_to_string(&f).unwrap(), expected);
         // Precisely one begin marker.
         assert_eq!(
@@ -558,10 +559,10 @@ mod sysio_tests {
         let d = TempDir::new().unwrap();
         let f = d.path().join("bashrc");
         fs::write(&f, b"user\n").unwrap();
-        ensure_marker_block(&f, "t", Placement::Top, "B").unwrap();
+        ensure_marker_block(&f, "t", "B").unwrap();
         let after_first = fs::read_to_string(&f).unwrap();
         // Second identical run is byte-stable (BHV-07-style byte stability).
-        ensure_marker_block(&f, "t", Placement::Top, "B").unwrap();
+        ensure_marker_block(&f, "t", "B").unwrap();
         assert_eq!(fs::read_to_string(&f).unwrap(), after_first);
         assert_eq!(after_first, "# >>> t begin >>>\nB\n# <<< t end <<<\nuser\n");
     }
@@ -570,7 +571,7 @@ mod sysio_tests {
     fn marker_block_on_absent_file_emits_only_the_block() {
         let d = TempDir::new().unwrap();
         let f = d.path().join("does-not-exist-yet");
-        ensure_marker_block(&f, "t", Placement::Top, "B").unwrap();
+        ensure_marker_block(&f, "t", "B").unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "# >>> t begin >>>\nB\n# <<< t end <<<\n"

@@ -1,38 +1,39 @@
 //! provision/remediate_npm_prefix.rs — REMEDIATE-01 npm-prefix handler, a port of
-//! `plugin/lib/remediate/nodejs.sh`'s `chown_or_rebase`.
+//! the npm-prefix `chown_or_rebase` remediation (REMEDIATE-01).
 //!
 //! The state-overwriting action the `RESOLUTIONS[npm-prefix]=remediate` token
 //! selects (dispatched from `provision::nodejs::run`). The consent gate has already
 //! enforced `--yes` (or registered a bail) upstream before this runs.
 //!
-//! Strategy selector (remediate/nodejs.sh:64-81):
-//!   - `chown`  — the prefix is UNDER the install user's home AND trivially
-//!     salvageable (only allowlisted entries: `lib/`, `bin/`, `share/`, `etc/`,
-//!     `package.json`, `package-lock.json`, and `lib/node_modules` empty/absent).
-//!     One `chown -R <user>:<user> <prefix>`.
-//!   - `rebase` — otherwise (incl. system paths, or a prefix holding third-party
-//!     global modules). Create `~user/.npm-global` (bin/ + lib/), point
-//!     `~user/.npmrc` at it, migrate global modules best-effort; the OLD prefix is
-//!     NEVER deleted.
+//! Strategy selector:
+//!  - `chown` — the prefix is UNDER the install user's home AND trivially
+//!    salvageable (only allowlisted entries: `lib/`, `bin/`, `share/`, `etc/`,
+//!    `package.json`, `package-lock.json`, and `lib/node_modules` empty/absent).
+//!    One `chown -R <user>:<user> <prefix>`.
+//!  - `rebase` — otherwise (incl. system paths, or a prefix holding third-party
+//!    global modules). Create `~user/.npm-global` (bin/ + lib/), point
+//!    `~user/.npmrc` at it, migrate global modules best-effort; the OLD prefix is
+//!    NEVER deleted.
 //!
-//! Security (remediate/nodejs.sh:16-18): `chown -R` fires ONLY when all three of
+//! Security: `chown -R` fires ONLY when all three of
 //! {prefix-under-home, trivially-salvageable} hold — so system paths (`/usr`,
 //! `/usr/local`) and prefixes containing third-party module trees are never chowned;
 //! they rebase instead.
 //!
-//! Port fidelity note (DEVIATION, documented for the plan): the Bash entry point
-//! reads `DETECT_NPM_PREFIX_PATH` / `DETECT_USER_HOME` / `DETECT_NPM_PREFIX_EFFECTIVE_OWNER`
-//! from the detect cache exports. Those detect READERS have no Rust home yet (they
-//! land with the full detect→decide wiring in Wave 5). Until then this port derives
-//! the prefix from the canonical `<install_home>/.npm-global` and the OLD owner from
-//! the prefix's on-disk owner — the observable mutation (chown the tree, or rebase
-//! npm's configured prefix + migrate modules) is identical; only the source of the
-//! "old prefix path" changes. Wave 5 swaps the derivation for the detect-cache read
-//! without touching the mutation body. The token is `Create` in the Wave-3 seed, so
-//! this path is not exercised by the live provisioner run yet; the unit tests pin the
-//! observable outcome (chown vs rebase strategy + the .npmrc prefix line).
+//! # Where the prefix and old owner come from
+//! The prefix is derived from the canonical `<install_home>/.npm-global`, and
+//! the OLD owner from that prefix's on-disk owner — not from a detect-cache
+//! record. The observable mutation (chown the tree, or rebase npm's configured
+//! prefix and migrate modules) does not depend on which source is used; only the
+//! provenance of the "old prefix path" would change.
+//!
+//! REACHABILITY: this path IS live. `cmd::provision` calls
+//! `remediate::decide_core`, which resolves `npm_prefix` to `Remediate` on a
+//! brownfield host with a wrongly-owned prefix, and `nodejs::run` then calls
+//! `chown_or_rebase` below. It runs as root against a directory the agent user
+//! controls — read the Security paragraph before changing anything here.
 
-use crate::dispatcher;
+use crate::dispatcher::{self, Capture};
 use crate::provision::ProvisionCtx;
 use crate::sysio;
 use std::io;
@@ -41,7 +42,6 @@ use std::path::Path;
 
 /// The catalog agents excluded from module migration (they own their own install),
 /// plus `npm` itself — byte-for-byte with the Bash `excluded_json`
-/// (remediate/nodejs.sh:101-107).
 const MIGRATION_EXCLUDED: &[&str] = &[
     "npm",
     "@anthropic-ai/claude-code",
@@ -60,7 +60,6 @@ enum Strategy {
 /// `chown_or_rebase` — the REMEDIATE-01 entry point dispatched from
 /// `provision::nodejs::run`. Runs the strategy selector, then chowns or rebases so
 /// the prefix is writable by the install user and `npm install -g` never races root
-/// (remediate/nodejs.sh:198-228).
 pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
     let user = &ctx.install_user;
     let user_home = &ctx.install_home;
@@ -78,7 +77,7 @@ pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
 
     // The OLD owner (the sudo target for `npm ls -g` — its npm view of the OLD
     // prefix is canonical). Fall back to root when unknown/absent (rebase still
-    // works against an empty manifest) (remediate/nodejs.sh:204-216).
+    // works against an empty manifest).
     let old_owner = prefix_owner_user(Path::new(&prefix)).unwrap_or_else(|| "root".to_string());
 
     match strategy_for(Path::new(&prefix), user_home) {
@@ -87,7 +86,7 @@ pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
     }
 }
 
-/// `remediate::nodejs::_strategy_for` port (remediate/nodejs.sh:64-81). `chown`
+/// `remediate::nodejs::_strategy_for` port. `chown`
 /// only when the prefix is under `user_home` AND trivially salvageable; `rebase`
 /// otherwise. Under-home is a literal prefix-match (no readlink) — rebase is the
 /// safe default when symlinks would confuse containment.
@@ -104,7 +103,7 @@ fn strategy_for(prefix: &Path, user_home: &str) -> Strategy {
     }
 }
 
-/// `remediate::nodejs::_is_trivially_salvageable` port (remediate/nodejs.sh:36-62).
+/// `remediate::nodejs::_is_trivially_salvageable` port.
 /// True iff `prefix` contains ONLY allowlisted entries (`lib/`, `bin/`, `share/`,
 /// `etc/`, `package.json`, `package-lock.json`) AND `lib/node_modules` is
 /// empty/absent. Any non-allowlist entry (e.g. a user-installed module) forces a
@@ -146,7 +145,7 @@ fn is_trivially_salvageable(prefix: &Path) -> bool {
     true
 }
 
-/// `remediate::nodejs::_apply_chown` port (remediate/nodejs.sh:116-128).
+/// `remediate::nodejs::_apply_chown` port.
 /// `chown -R <user>:<user> <prefix>`. Emits the `[REMEDIATE-01] strategy=chown`
 /// marker; a chown failure is a hard error with `[REMEDIATE-01:fail]`.
 fn apply_chown(prefix: &str, user: &str) -> io::Result<()> {
@@ -160,7 +159,7 @@ fn apply_chown(prefix: &str, user: &str) -> io::Result<()> {
     Ok(())
 }
 
-/// `remediate::nodejs::_apply_rebase` port (remediate/nodejs.sh:136-192). Create
+/// `remediate::nodejs::_apply_rebase` port. Create
 /// `~user/.npm-global` (bin/ + lib/), point `~user/.npmrc` at it, then migrate
 /// global modules from the OLD prefix best-effort (per-module failures logged
 /// `[REMEDIATE-01:partial]`, no abort). The OLD prefix is NEVER deleted.
@@ -186,14 +185,14 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
     let npmrc = format!("{user_home}/.npmrc");
     let npmrc_path = Path::new(&npmrc);
     if !npmrc_path.exists() {
-        if let Err(e) = create_if_absent_0644(npmrc_path, &owner) {
+        if let Err(e) = sysio::create_if_absent_0644(npmrc_path, &owner) {
             eprintln!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
             return Err(e);
         }
     }
     sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), npmrc_path)?;
     std::fs::set_permissions(npmrc_path, std::fs::Permissions::from_mode(0o644))?;
-    chown_by_name(npmrc_path, &owner)?;
+    sysio::chown_by_name(npmrc_path, &owner)?;
     eprintln!("[REMEDIATE-01] wrote ~{user}/.npmrc with prefix={new_prefix}");
 
     // Enumerate + migrate modules from the OLD prefix, best-effort.
@@ -211,14 +210,14 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
         );
         for pkg_at_ver in &modules {
             // The npm-level `--` stops a `-flag@1` package name being reparsed as an
-            // npm flag (remediate/nodejs.sh:178).
+            // npm flag.
             let argv: Vec<String> = ["npm", "install", "-g", "--", pkg_at_ver]
                 .iter()
                 .map(|s| s.to_string())
                 .collect();
             // M-2: bound the npm install (300s, the dispatcher's buffered-npm
             // convention) so a wedged/slow registry can't hang provisioning.
-            let r = dispatcher::as_user(user, &argv, &[], false, Some(300_000));
+            let r = dispatcher::as_user(user, &argv, &[], Capture::Buffered, Some(300_000));
             if r.exit_code == 0 {
                 eprintln!("[REMEDIATE-01:migrated] module={pkg_at_ver}");
                 migrated += 1;
@@ -236,7 +235,7 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
     Ok(())
 }
 
-/// `remediate::nodejs::_enumerate_modules` port (remediate/nodejs.sh:83-114).
+/// `remediate::nodejs::_enumerate_modules` port.
 /// `npm ls -g --json --depth=0` as the OLD owner with `NPM_CONFIG_PREFIX=<old_prefix>`,
 /// parse the top-level dependency ids to `pkg@version`, minus npm + the catalog
 /// agents. A failure yields an empty manifest (the Bash `|| printf '{}'`).
@@ -247,7 +246,7 @@ fn enumerate_modules(old_owner: &str, old_prefix: &str) -> Vec<String> {
         .collect();
     let env = vec![("NPM_CONFIG_PREFIX".to_string(), old_prefix.to_string())];
     // M-2: bound the npm enumeration (300s) so a wedged registry can't hang.
-    let r = dispatcher::as_user(old_owner, &argv, &env, false, Some(300_000));
+    let r = dispatcher::as_user(old_owner, &argv, &env, Capture::Buffered, Some(300_000));
     let raw = if r.exit_code == 0 && !r.stdout.trim().is_empty() {
         r.stdout
     } else {
@@ -278,17 +277,6 @@ fn parse_module_manifest(raw: &str) -> Vec<String> {
             format!("{k}@{ver}")
         })
         .collect()
-}
-
-/// Atomic create-if-absent at 0644 <user>:<user> (mirrors the Bash
-/// `install -m 0644 -o <user> -g <user> /dev/null <path>`).
-fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
-    if path.exists() {
-        return Ok(());
-    }
-    std::fs::File::create(path)?;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o644))?;
-    chown_by_name(path, owner)
 }
 
 /// The on-disk owner USER of `path` (the LHS of the Bash `user:group`), resolved
@@ -327,29 +315,6 @@ fn resolve_user_group(user: &str) -> io::Result<(u32, u32)> {
         .map_err(|e| io::Error::other(format!("resolve_user_group: user {user}: {e}")))?
         .ok_or_else(|| io::Error::other(format!("resolve_user_group: unknown user {user}")))?;
     Ok((u.uid.as_raw(), u.gid.as_raw()))
-}
-
-/// `chown <user>:<group> <path>` by name — resolve the passwd/group entries and
-/// apply via `std::os::unix::fs::chown`. Shared shape with nodejs.rs / agent_user.rs.
-fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
-    let (user, group) = owner.split_once(':').ok_or_else(|| {
-        io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "chown: owner must be user:group",
-        )
-    })?;
-    let uid = nix::unistd::User::from_name(user)
-        .map_err(|e| io::Error::other(format!("chown: user {user}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("chown: unknown user {user}")))?
-        .uid
-        .as_raw();
-    let gid = nix::unistd::Group::from_name(group)
-        .map_err(|e| io::Error::other(format!("chown: group {group}: {e}")))?
-        .ok_or_else(|| io::Error::other(format!("chown: unknown group {group}")))?
-        .gid
-        .as_raw();
-    std::os::unix::fs::chown(path, Some(uid), Some(gid))
-        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
 }
 
 #[cfg(test)]
@@ -407,7 +372,6 @@ mod remediate_npm_prefix_tests {
     }
 
     // is_trivially_salvageable: a non-existent prefix is vacuously salvageable
-    // (remediate/nodejs.sh:40).
     #[test]
     fn salvageable_missing_prefix_is_vacuously_true() {
         assert!(is_trivially_salvageable(Path::new(
@@ -427,7 +391,7 @@ mod remediate_npm_prefix_tests {
     }
 
     // parse_module_manifest: parses top-level deps to pkg@version, excluding the
-    // catalog agents + npm (remediate/nodejs.sh:108-113).
+    // catalog agents + npm.
     #[test]
     fn parse_manifest_emits_pkg_at_version_excluding_catalog() {
         let raw = r#"{
@@ -509,13 +473,13 @@ mod remediate_npm_prefix_tests {
         let new_prefix = format!("{home}/.npm-global");
         let npmrc = Path::new(d.path()).join(".npmrc");
         sysio::ensure_dir(Path::new(&new_prefix), 0o755, &owner).unwrap();
-        create_if_absent_0644(&npmrc, &owner).unwrap();
+        sysio::create_if_absent_0644(&npmrc, &owner).unwrap();
         sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), &npmrc).unwrap();
         let after_first = std::fs::read_to_string(&npmrc).unwrap();
         assert_eq!(after_first, format!("prefix={new_prefix}\n"));
 
         // Re-run → byte-identical (no duplicate prefix line).
-        create_if_absent_0644(&npmrc, &owner).unwrap();
+        sysio::create_if_absent_0644(&npmrc, &owner).unwrap();
         sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), &npmrc).unwrap();
         assert_eq!(std::fs::read_to_string(&npmrc).unwrap(), after_first);
     }

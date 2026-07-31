@@ -1,6 +1,6 @@
 //! cmd/remove.rs — `agentlinux remove <name>` (CLI-04, VERB-01/02/03).
 //!
-//! Byte-for-byte port of `plugin/cli/src/commands/remove.ts`. Flow: loadCatalog →
+//! Flow: loadCatalog →
 //! resolve entry (64 on miss) → readSentinel (1 unless --force) →
 //! dispatchRecipe(uninstall.sh, streaming) → deleteSentinel. Requiring a sentinel
 //! (unless --force) prevents a drive-by remove on a never-installed agent.
@@ -9,37 +9,26 @@
 //! The recipe dispatch goes through the shared `RecipeDispatcher` (install.rs) so
 //! unit tests exercise the exit map + literals without a real recipe.
 
-use crate::catalog::{self, FullCatalogEntry};
+use crate::catalog;
 use crate::cli::RemoveArgs;
-use crate::cmd::install::RecipeDispatcher;
-use crate::dispatcher::{self, DispatchResult};
-use crate::recipe_env::{full_child_env, resolve_install_user, RecipeEnv};
+use crate::dispatcher::{self, Capture, RecipeDispatcher};
+use crate::recipe_env::{recipe_child_env, recipe_path, resolve_install_user};
 use crate::sentinel;
 use std::process::ExitCode;
 
 const EX_USAGE: u8 = 64;
 
-/// The production dispatcher — the real streaming `dispatch_recipe`.
-fn real_dispatch(
-    user: &str,
-    recipe_path: &str,
-    env: &[(String, String)],
-    stream: bool,
-) -> DispatchResult {
-    dispatcher::dispatch_recipe(user, recipe_path, env, stream)
-}
-
-/// `agentlinux remove <name>` body. Port of `removeCmd` (remove.ts:18-75).
+/// `agentlinux remove <name>` body.
 #[must_use]
 pub fn remove(name: &str, opts: &RemoveArgs) -> ExitCode {
-    remove_with(name, opts, real_dispatch)
+    remove_with(name, opts, dispatcher::dispatch_recipe)
 }
 
 /// DI-seam variant — the testable core.
 #[must_use]
 pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) -> ExitCode {
     let catalog_dir = catalog::resolve_catalog_dir();
-    let agents = match catalog::load_catalog(&catalog_dir, true) {
+    let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Required) {
         Ok(a) => a,
         Err(e) => {
             eprintln!("{e}");
@@ -47,8 +36,7 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
         }
     };
 
-    let Some(entry) = agents.iter().find(|a| a.id == name) else {
-        eprintln!("agentlinux: no such agent in catalog: {name}");
+    let Some(entry) = catalog::find_entry(&agents, name) else {
         return ExitCode::from(EX_USAGE);
     };
 
@@ -74,7 +62,7 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
 
     // For a "reused" (adopted) sentinel whose binary has since vanished, running
     // uninstall.sh against a missing binary is wasteful — just delete the sentinel
-    // (remove.ts:43-49). The existsSync host check lives HERE in the adapter.
+    // The existsSync host check lives HERE in the adapter.
     if sentinel.status.as_deref() == Some("reused") {
         if let Some(bin) = sentinel.binary_path.as_deref() {
             if !std::path::Path::new(bin).exists() {
@@ -97,8 +85,8 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     let user = resolve_install_user();
     let recipe = recipe_path(&catalog_dir, &entry.id, &entry.uninstall_recipe_path);
     println!("▸ removing {}…", entry.id);
-    let env = build_env(entry, &sentinel.version, &catalog_dir, &user);
-    let result = dispatch(&user, &recipe, &env, true);
+    let env = recipe_child_env(entry, &sentinel.version, &catalog_dir, &user);
+    let result = dispatch(&user, &recipe, &env, Capture::Streamed);
     if result.exit_code != 0 {
         eprintln!(
             "{}: uninstall.sh failed (exit {})",
@@ -107,7 +95,7 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
         if !result.stderr.is_empty() {
             eprintln!("{}", result.stderr);
         }
-        // Propagate the recipe exit code (remove.ts:69).
+        // Propagate the recipe exit code.
         return ExitCode::from(u8::try_from(result.exit_code).unwrap_or(1));
     }
 
@@ -122,41 +110,10 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     ExitCode::SUCCESS
 }
 
-/// Build the recipe child env (mirrors install's helper).
-fn build_env(
-    entry: &FullCatalogEntry,
-    version: &str,
-    catalog_dir: &std::path::Path,
-    user: &str,
-) -> Vec<(String, String)> {
-    let recipe = RecipeEnv {
-        pinned_version: version.to_string(),
-        catalog_dir: catalog_dir.to_string_lossy().to_string(),
-        agent_home: format!("/home/{user}"),
-        source_kind: entry.source_kind.clone().unwrap_or_default(),
-        install_log: "/var/log/agentlinux-install.log".to_string(),
-        preserve_paths: entry.preserve_paths.clone().unwrap_or_default().join(":"),
-    };
-    full_child_env(recipe, user, &[])
-}
-
-fn recipe_path(catalog_dir: &std::path::Path, id: &str, recipe: &str) -> String {
-    // TRUST: entry.id + install_recipe_path are catalog-derived; the catalog is
-    // an installer-owned, root-written artifact under /opt/agentlinux/catalog and
-    // its schema constrains recipe paths — so no local traversal guard here
-    // (faithful to install.ts). If the catalog ever becomes caller-influenced,
-    // add a `..`/absolute reject mirroring catalog.rs preserve_paths.
-    catalog_dir
-        .join("agents")
-        .join(id)
-        .join(recipe)
-        .to_string_lossy()
-        .to_string()
-}
-
 #[cfg(test)]
 mod remove_tests {
     use super::*;
+    use crate::dispatcher::DispatchResult;
     use crate::sentinel::Sentinel;
     use tempfile::tempdir;
 
@@ -172,20 +129,20 @@ mod remove_tests {
         .unwrap();
     }
 
-    fn ok_dispatch(_u: &str, _p: &str, _e: &[(String, String)], _s: bool) -> DispatchResult {
+    fn ok_dispatch(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
         DispatchResult {
             exit_code: 0,
             stdout: String::new(),
             stderr: String::new(),
-            streamed: _s,
+            streamed: matches!(_s, Capture::Streamed),
         }
     }
-    fn fail_dispatch(_u: &str, _p: &str, _e: &[(String, String)], _s: bool) -> DispatchResult {
+    fn fail_dispatch(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
         DispatchResult {
             exit_code: 5,
             stdout: String::new(),
             stderr: "boom".to_string(),
-            streamed: _s,
+            streamed: matches!(_s, Capture::Streamed),
         }
     }
 

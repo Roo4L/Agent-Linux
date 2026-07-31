@@ -1,5 +1,5 @@
 //! provision/wizard.rs — interactive TTY prompts ported from the deleted Bash
-//! `plugin/lib/prompt.sh`. The provisioner is flag-driven by default; these
+//! The provisioner is flag-driven by default; these
 //! prompts fire ONLY on an interactive terminal when the corresponding flag is
 //! absent, so the curl-installer path (`provision --user agent --yes`, non-TTY)
 //! stays fully non-interactive.
@@ -112,7 +112,7 @@ pub fn choose_install_user(default_user: &str, validate: &dyn Fn(&str) -> bool) 
 /// leading substring is the tty-driver sentinel — keep it verbatim) and reads a
 /// SINGLE byte: Enter(`\n`/`\r`)/`Y`/`y` → accept; `N`/`n` → decline; any other
 /// char → drain the rest of that line and re-prompt (max 3 → decline); EOF →
-/// decline. Single-byte-then-line-drain is the T-15-01-03 injection mitigation:
+/// decline. Single-byte-then-line-drain is the injection mitigation:
 /// only the first char steers the decision, the rest of the line is discarded
 /// unevaluated. NO drain after a valid answer — a trailing `\n` intentionally
 /// falls through to the next component's prompt as its Enter/accept.

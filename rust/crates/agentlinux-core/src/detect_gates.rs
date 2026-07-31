@@ -1,33 +1,33 @@
-//! `detect_gates` — the PURE detect-gate decision cores (CORE-03).
+//! `detect_gates` — the PURE detect-gate decisions (CORE-03).
 //!
-//! Ports the PURE decision logic of `plugin/cli/src/detect.ts:32-275`:
-//! `isCanonicalAgentPath`, the `managedBinDir`/`isManagedPath`/`isAtManagedPath`
-//! source_kind heuristics, and the pre-`statSync` gate sets of `tryReuse` /
-//! `tryRemediate` / `detectPresence`.
+//! Three questions about an agent already on the host, each answered without
+//! touching the host:
+//!   - is this path the agent's canonical/managed location?
+//!   - is this detected install REUSABLE as-is (`reuse_gate`)?
+//!   - does it need REMEDIATING, and why (`remediate_gate`)?
+//!   - should `list` surface it as merely PRESENT (`presence_gate`)?
 //!
-//! # The pure/I-O seam (Phase-56)
-//! The detect-cache read (`readCachedAgentById`/`readDetectedAgent`/
-//! `detectCachePath`/`readCacheAgents`) and `tryReuse`'s host `statSync`
-//! re-validation are OUT of scope — they are the Phase-56 adapter. This module
-//! ports only the DECISION over a `DetectedAgent` value + `CatalogEntry` +
-//! canonical-path map → a slim verdict. NO `std::fs`, NO `std::env`, NO
-//! `statSync`, NO cache read. The crate stays PURE.
+//! # The pure/I-O seam
+//! Reading the detect cache, and the host `stat` that re-validates a reuse
+//! candidate, are OUT of scope — those live in the bin's adapters. This module
+//! decides over already-read values: a `DetectedAgent`, a `CatalogEntry`, and
+//! the canonical paths passed in as parameters. NO `std::fs`, NO `std::env`, no
+//! cache read. The crate stays PURE.
 //!
 //! # Distinct from `reuse.rs`
 //! [`crate::reuse::agent_decision`] is the PROVISIONER's 3-way Reuse/Remediate/
 //! Create dispatch that deliberately does NOT evaluate semver. These gates
-//! evaluate the `compatibility_window` via [`crate::semver_shim::satisfies`]
-//! (RESEARCH §"Reuse Overlap Clarity"). The two are separate decision surfaces —
-//! do not conflate.
+//! evaluate the `compatibility_window` via [`crate::semver_shim::satisfies`].
+//! The two are separate decision surfaces — do not conflate.
 //!
-//! # Canonical map is a parameter (Phase-57)
-//! `CANONICAL_PATHS` / `GSD_SYSTEM_PATH` stay DUPLICATED (detect.ts + bin + bash)
-//! until Phase 57. The deciders receive `canonical` / `gsd_system_path` /
+//! # Canonical map is a parameter
+//! `CANONICAL_PATHS` / `GSD_SYSTEM_PATH` stay DUPLICATED between the bin and the
+//! bash recipes. The deciders receive `canonical` / `gsd_system_path` /
 //! `agent_home` as parameters — never hardcode a map inside a decider (mirrors
 //! `reuse::agent_decision`).
 //!
 //! # Pitfalls (RESEARCH)
-//! - **Pitfall 4** — `!!entry.compatibility_window` (detect.ts:271) is FALSY for
+//! - **Pitfall 4** — `!!entry.compatibility_window` is FALSY for
 //!   BOTH `undefined` AND `""`. Gate on `.as_deref().is_some_and(|w| !w.is_empty())`
 //!   so an empty-string window is treated as absent (NOT adoptable).
 //! - **Pitfall 5** — `tryReuse` uses `isAtManagedPath` (any catalog tool at its
@@ -45,9 +45,9 @@ use crate::types::{CatalogEntry, DetectedAgent};
 
 /// A detected agent is "at canonical" when its path is the catalog canonical OR,
 /// for gsd only, the deployed-system VERSION file (gsd's dual presence).
-/// Port of `isCanonicalAgentPath` (detect.ts:32-38).
+/// Port of `isCanonicalAgentPath`.
 #[must_use]
-pub fn is_canonical_agent_path(
+pub(crate) fn is_canonical_agent_path(
     entry: &CatalogEntry,
     path: &str,
     canonical: &str,
@@ -59,12 +59,12 @@ pub fn is_canonical_agent_path(
 /// The dir AgentLinux's recipe installs a tool's binary into, by `source_kind`:
 /// npm globals → `{agent_home}/.npm-global/bin`; prebuilt binaries and script
 /// installers → `{agent_home}/.local/bin`; `None` for kinds with no PATH binary
-/// (mcp/other). Port of `managedBinDir` (detect.ts:51-61).
+/// (mcp/other). Port of `managedBinDir`.
 ///
 /// `agent_home` is passed in (TS reads `AGENTLINUX_AGENT_HOME` — that env read is
-/// the Phase-56 adapter; this pure fn receives the resolved home string).
+/// the adapter; this pure fn receives the resolved home string).
 #[must_use]
-pub fn managed_bin_dir(entry: &CatalogEntry, agent_home: &str) -> Option<String> {
+pub(crate) fn managed_bin_dir(entry: &CatalogEntry, agent_home: &str) -> Option<String> {
     match entry.source_kind.as_deref() {
         Some("npm") => Some(format!("{agent_home}/.npm-global/bin")),
         Some("binary") | Some("script") => Some(format!("{agent_home}/.local/bin")),
@@ -73,9 +73,9 @@ pub fn managed_bin_dir(entry: &CatalogEntry, agent_home: &str) -> Option<String>
 }
 
 /// True when a detected binary sits in its `source_kind`'s managed install dir.
-/// Port of `isManagedPath` (detect.ts:65-68).
+/// Port of `isManagedPath`.
 #[must_use]
-pub fn is_managed_path(entry: &CatalogEntry, path: &str, agent_home: &str) -> bool {
+pub(crate) fn is_managed_path(entry: &CatalogEntry, path: &str, agent_home: &str) -> bool {
     match managed_bin_dir(entry, agent_home) {
         Some(dir) => path.starts_with(&format!("{dir}/")),
         None => false,
@@ -84,7 +84,7 @@ pub fn is_managed_path(entry: &CatalogEntry, path: &str, agent_home: &str) -> bo
 
 /// "Is this detected binary at the path AgentLinux would manage it at?" — the
 /// single at-canonical predicate shared by the reuse gate and the presence gate.
-/// Port of `isAtManagedPath` (detect.ts:78-81): the original three carry an EXACT
+/// Port of `isAtManagedPath`: the original three carry an EXACT
 /// canonical path; every other catalog tool derives its managed path from the
 /// `source_kind` install dir.
 ///
@@ -108,8 +108,28 @@ pub fn is_at_managed_path(
 // Reuse gate (pure part of tryReuse, detect.ts:165-194 minus statSync)
 // ---------------------------------------------------------------------------
 
-/// The slim pure verdict of the reuse gate (RESEARCH Open Q2): the detected
-/// binary path + the CLEAN (normalized) version. The Phase-56 adapter `statSync`s
+/// The host paths the detect gates decide against, resolved by the CALLER.
+///
+/// A struct rather than three loose parameters: `gsd_system_path` and
+/// `agent_home` are both bare `&str`, so a call site that swapped them compiled
+/// cleanly and silently inverted the verdict. Named fields make that
+/// unrepresentable.
+///
+/// The gates stay pure — nothing here is read from the environment; the bin
+/// resolves all three and passes them in.
+#[derive(Debug, Clone, Copy)]
+pub struct HostPaths<'a> {
+    /// The catalog's canonical path for this id, or `None` when it has none.
+    /// A `None` here makes the canonical-gated verdicts fall through.
+    pub canonical: Option<&'a str>,
+    /// GSD's deployed-system VERSION path — gsd's second valid presence.
+    pub gsd_system_path: &'a str,
+    /// The agent's home: the root every managed install dir hangs off.
+    pub agent_home: &'a str,
+}
+
+/// The slim pure verdict of the reuse gate: the detected
+/// binary path + the CLEAN (normalized) version. The bin's adapter then `stat`s
 /// `path` and constructs the final `ReuseHit` (`binary_path` + `version` +
 /// `detected_source`). NO `statSync` here.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -120,24 +140,27 @@ pub struct ReuseCandidate {
 
 /// The pure REUSE-03 gate: given a catalog entry + a detected-agent record +
 /// its canonical map, decide whether this is a reuse candidate — WITHOUT the
-/// host `statSync` (that stays in the Phase-56 adapter). Returns `Some` with the
+/// host `statSync` (that stays in the adapter). Returns `Some` with the
 /// path + clean version on a full match, `None` on any non-reuse condition.
 ///
-/// Gate order is byte-for-byte with `tryReuse` (detect.ts:166-179):
+/// Gate order is byte-for-byte with `tryReuse`:
 /// 1. `compatibility_window` nonempty (Pitfall 4 — `""` treated as absent),
 /// 2. `status == "healthy"`,
 /// 3. `is_at_managed_path` (NOT canonical-gated — any catalog tool at its managed
 ///    path, Pitfall 5),
-/// 4. `semver_shim::valid(version)` yields the CLEAN version (Pitfall 6),
+/// 4. `semver_shim::valid(version)` yields the CLEAN version,
 /// 5. `semver_shim::satisfies(clean, window)`.
 #[must_use]
 pub fn reuse_gate(
     entry: &CatalogEntry,
     detected: &DetectedAgent,
-    canonical: Option<&str>,
-    gsd_system_path: &str,
-    agent_home: &str,
+    paths: HostPaths<'_>,
 ) -> Option<ReuseCandidate> {
+    let HostPaths {
+        canonical,
+        gsd_system_path,
+        agent_home,
+    } = paths;
     // Gate 1: window present (Pitfall 4 — empty string is absent).
     let window = entry
         .compatibility_window
@@ -174,7 +197,7 @@ pub fn reuse_gate(
 // ---------------------------------------------------------------------------
 
 /// Which trigger fired the remediate gate — the discriminant of the two paths.
-/// Port of the TS `reason: "broken" | "path-mismatch"` union (detect.ts:99).
+/// Port of the TS `reason: "broken" | "path-mismatch"` union.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RemediateReason {
     /// detect cache reports `status == "broken"`.
@@ -194,7 +217,7 @@ impl RemediateReason {
     }
 }
 
-/// The pure REMEDIATE-04 verdict. Port of `RemediateHit` (detect.ts:99-104):
+/// The pure REMEDIATE-04 verdict. Port of `RemediateHit`:
 /// `detected_version` carries the CLEAN currently-installed version for a healthy
 /// path-mismatch (so migration can preserve it), `None` for a broken install.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -205,9 +228,9 @@ pub struct RemediateHit {
     pub detected_version: Option<String>,
 }
 
-/// The pure REMEDIATE-04 gate. CANONICAL-GATED (Pitfall 5): `canonical` is `None`
+/// The pure REMEDIATE-04 gate. CANONICAL-GATED: `canonical` is `None`
 /// for an id without a `CANONICAL_PATHS` entry → not a remediate candidate.
-/// Port of `tryRemediate` (detect.ts:202-224):
+/// Port of `tryRemediate`:
 /// - `status == "broken"` → broken hit (`detected_version = None`),
 /// - `status == "healthy"` AND NOT `is_canonical_agent_path` → path-mismatch hit
 ///   (`detected_version = semver_shim::valid(version)`),
@@ -216,9 +239,13 @@ pub struct RemediateHit {
 pub fn remediate_gate(
     entry: &CatalogEntry,
     detected: &DetectedAgent,
-    canonical: Option<&str>,
-    gsd_system_path: &str,
+    paths: HostPaths<'_>,
 ) -> Option<RemediateHit> {
+    let HostPaths {
+        canonical,
+        gsd_system_path,
+        ..
+    } = paths;
     // Canonical-gated: an id without a canonical entry is not a candidate.
     let canonical = canonical?;
     if detected.status == "broken" {
@@ -247,10 +274,9 @@ pub fn remediate_gate(
 // Presence gate (pure port of detectPresence, detect.ts:248-275)
 // ---------------------------------------------------------------------------
 
-/// The pure presence verdict for `agentlinux list`. Port of `PresenceHit`
-/// (detect.ts:241-246): `version` is the CLEAN version (or `None`), `canonical`
-/// = at its managed path, `adoptable` = `canonical` AND window-nonempty AND
-/// version-in-window.
+/// The pure presence verdict for `agentlinux list`: `version` is the CLEAN
+/// version (or `None`), `canonical` = at its managed path, `adoptable` =
+/// `canonical` AND window-nonempty AND version-in-window.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PresenceHit {
     pub version: Option<String>,
@@ -259,20 +285,23 @@ pub struct PresenceHit {
     pub adoptable: bool,
 }
 
-/// The pure presence gate. Port of `detectPresence` (detect.ts:248-275):
+/// The pure presence gate. Port of `detectPresence`:
 /// - `source_kind == "mcp"` → `None` (no PATH binary),
 /// - detected `status != "healthy"` (incl. broken) → `None`,
 /// - else: `canonical = is_at_managed_path(...)`, `version = valid(version)`,
-///   `adoptable = canonical && window-nonempty (Pitfall 4) && version.is_some()
+///   `adoptable = canonical && window-nonempty && version.is_some()
 ///   && satisfies(version, window)`.
 #[must_use]
 pub fn presence_gate(
     entry: &CatalogEntry,
     detected: &DetectedAgent,
-    canonical: Option<&str>,
-    gsd_system_path: &str,
-    agent_home: &str,
+    paths: HostPaths<'_>,
 ) -> Option<PresenceHit> {
+    let HostPaths {
+        canonical,
+        gsd_system_path,
+        agent_home,
+    } = paths;
     // MCP entries have no PATH binary — presence is a client-config registration
     // the overlay does not detect. Guard so a stray mcp cache entry is never
     // mislabeled as a present-but-migrate binary.
@@ -315,12 +344,12 @@ pub fn presence_gate(
 #[cfg(test)]
 mod tests {
     //! Golden corpus — the pre-statSync deterministic rows from
-    //! `plugin/cli/test/adopt.test.ts` + `list-presence.test.ts` (the parity
+    //! the pre-cutover TypeScript suite (the
     //! oracles). Fixtures mirror those test catalogs verbatim.
     use super::*;
 
     // Canonical map values, byte-identical to detect.ts:16-28 (duplicated here as
-    // params — Phase-57 consolidation). Agent home defaults to /home/agent.
+    // params). Agent home defaults to /home/agent.
     const CLAUDE_CANONICAL: &str = "/home/agent/.local/bin/claude";
     const GSD_CANONICAL: &str = "/home/agent/.npm-global/bin/gsd-core";
     const GSD_SYSTEM_PATH: &str = "/home/agent/.claude/gsd-core/VERSION";
@@ -340,6 +369,15 @@ mod tests {
     }
 
     /// Build a `DetectedAgent` cache record.
+    /// The standard fixture paths, as one `HostPaths`.
+    fn paths(canonical: Option<&'static str>) -> HostPaths<'static> {
+        HostPaths {
+            canonical,
+            gsd_system_path: GSD_SYSTEM_PATH,
+            agent_home: AGENT_HOME,
+        }
+    }
+
     fn detected(id: &str, status: &str, path: &str, version: &str) -> DetectedAgent {
         DetectedAgent {
             id: id.to_string(),
@@ -349,7 +387,7 @@ mod tests {
         }
     }
 
-    // --- is_canonical_agent_path (detect.ts:32-38) ---
+    // --- is_canonical_agent_path ---
 
     #[test]
     fn canonical_path_matches_exact_or_gsd_system_path() {
@@ -377,7 +415,7 @@ mod tests {
         ));
     }
 
-    // --- managed_bin_dir / is_managed_path (detect.ts:51-68) ---
+    // --- managed_bin_dir / is_managed_path ---
 
     #[test]
     fn managed_bin_dir_by_source_kind() {
@@ -404,7 +442,7 @@ mod tests {
     fn reuse_gsd_at_system_path_in_window() {
         let gsd = entry("gsd", "script", Some(">=1.37.0 <2.0.0"));
         let det = detected("gsd", "healthy", GSD_SYSTEM_PATH, "1.37.1");
-        let got = reuse_gate(&gsd, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH, AGENT_HOME);
+        let got = reuse_gate(&gsd, &det, paths(Some(GSD_CANONICAL)));
         assert_eq!(
             got,
             Some(ReuseCandidate {
@@ -419,10 +457,7 @@ mod tests {
     fn reuse_gsd_out_of_window_skipped() {
         let gsd = entry("gsd", "script", Some(">=1.37.0 <2.0.0"));
         let det = detected("gsd", "healthy", GSD_SYSTEM_PATH, "1.36.0");
-        assert_eq!(
-            reuse_gate(&gsd, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH, AGENT_HOME),
-            None
-        );
+        assert_eq!(reuse_gate(&gsd, &det, paths(Some(GSD_CANONICAL))), None);
     }
 
     // adopt.test.ts:273-297 — non-canonical rtk at its managed ~/.local/bin
@@ -432,7 +467,7 @@ mod tests {
         let rtk = entry("rtk", "binary", Some(">=0.42.0 <0.43.0"));
         // AGENT_HOME/.local/bin/rtk → managed for a binary tool.
         let det = detected("rtk", "healthy", "/home/agent/.local/bin/rtk", "0.42.4");
-        let got = reuse_gate(&rtk, &det, None, GSD_SYSTEM_PATH, AGENT_HOME);
+        let got = reuse_gate(&rtk, &det, paths(None));
         assert_eq!(
             got,
             Some(ReuseCandidate {
@@ -447,10 +482,7 @@ mod tests {
     fn reuse_rtk_non_managed_path_skipped() {
         let rtk = entry("rtk", "binary", Some(">=0.42.0 <0.43.0"));
         let det = detected("rtk", "healthy", "/usr/bin/rtk", "0.42.4");
-        assert_eq!(
-            reuse_gate(&rtk, &det, None, GSD_SYSTEM_PATH, AGENT_HOME),
-            None
-        );
+        assert_eq!(reuse_gate(&rtk, &det, paths(None)), None);
     }
 
     // Pitfall 4 — empty compatibility_window → not a reuse candidate.
@@ -458,10 +490,7 @@ mod tests {
     fn reuse_empty_window_skipped() {
         let e = entry("gsd", "script", Some(""));
         let det = detected("gsd", "healthy", GSD_SYSTEM_PATH, "1.37.1");
-        assert_eq!(
-            reuse_gate(&e, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH, AGENT_HOME),
-            None
-        );
+        assert_eq!(reuse_gate(&e, &det, paths(Some(GSD_CANONICAL))), None);
     }
 
     // broken status → not a reuse candidate.
@@ -469,10 +498,7 @@ mod tests {
     fn reuse_broken_skipped() {
         let gsd = entry("gsd", "script", Some(">=1.37.0 <2.0.0"));
         let det = detected("gsd", "broken", GSD_SYSTEM_PATH, "1.37.1");
-        assert_eq!(
-            reuse_gate(&gsd, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH, AGENT_HOME),
-            None
-        );
+        assert_eq!(reuse_gate(&gsd, &det, paths(Some(GSD_CANONICAL))), None);
     }
 
     // --- remediate_gate ---
@@ -488,7 +514,7 @@ mod tests {
             "/home/agent/.npm-global/bin/claude",
             "2.1.98",
         );
-        let got = remediate_gate(&claude, &det, Some(CLAUDE_CANONICAL), GSD_SYSTEM_PATH);
+        let got = remediate_gate(&claude, &det, paths(Some(CLAUDE_CANONICAL)));
         assert_eq!(
             got,
             Some(RemediateHit {
@@ -505,7 +531,7 @@ mod tests {
     fn remediate_broken_hit_no_version() {
         let claude = entry("claude-code", "script", Some(">=2.0.0 <3.0.0"));
         let det = detected("claude-code", "broken", CLAUDE_CANONICAL, "2.1.98");
-        let got = remediate_gate(&claude, &det, Some(CLAUDE_CANONICAL), GSD_SYSTEM_PATH);
+        let got = remediate_gate(&claude, &det, paths(Some(CLAUDE_CANONICAL)));
         assert_eq!(
             got,
             Some(RemediateHit {
@@ -523,18 +549,18 @@ mod tests {
         let claude = entry("claude-code", "script", Some(">=2.0.0 <3.0.0"));
         let det = detected("claude-code", "healthy", CLAUDE_CANONICAL, "2.1.98");
         assert_eq!(
-            remediate_gate(&claude, &det, Some(CLAUDE_CANONICAL), GSD_SYSTEM_PATH),
+            remediate_gate(&claude, &det, paths(Some(CLAUDE_CANONICAL))),
             None
         );
     }
 
-    // canonical-gated (Pitfall 5): an id without a canonical entry is never a
+    // canonical-gated: an id without a canonical entry is never a
     // remediate candidate even when broken.
     #[test]
     fn remediate_no_canonical_entry_none() {
         let rtk = entry("rtk", "binary", Some(">=0.42.0 <0.43.0"));
         let det = detected("rtk", "broken", "/usr/bin/rtk", "0.42.4");
-        assert_eq!(remediate_gate(&rtk, &det, None, GSD_SYSTEM_PATH), None);
+        assert_eq!(remediate_gate(&rtk, &det, paths(None)), None);
     }
 
     // gsd at system VERSION path (healthy) is canonical → no path-mismatch.
@@ -542,10 +568,7 @@ mod tests {
     fn remediate_gsd_system_path_is_canonical_none() {
         let gsd = entry("gsd", "script", Some(">=1.37.0 <2.0.0"));
         let det = detected("gsd", "healthy", GSD_SYSTEM_PATH, "1.37.1");
-        assert_eq!(
-            remediate_gate(&gsd, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH),
-            None
-        );
+        assert_eq!(remediate_gate(&gsd, &det, paths(Some(GSD_CANONICAL))), None);
     }
 
     // --- presence_gate ---
@@ -556,7 +579,7 @@ mod tests {
     fn presence_healthy_canonical_in_window_adoptable() {
         let gsd = entry("gsd", "script", Some(">=1.37.0 <2.0.0"));
         let det = detected("gsd", "healthy", GSD_SYSTEM_PATH, "1.37.1");
-        let got = presence_gate(&gsd, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH, AGENT_HOME);
+        let got = presence_gate(&gsd, &det, paths(Some(GSD_CANONICAL)));
         assert_eq!(
             got,
             Some(PresenceHit {
@@ -573,10 +596,7 @@ mod tests {
     fn presence_broken_is_none() {
         let gsd = entry("gsd", "script", Some(">=1.37.0 <2.0.0"));
         let det = detected("gsd", "broken", GSD_SYSTEM_PATH, "1.37.1");
-        assert_eq!(
-            presence_gate(&gsd, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH, AGENT_HOME),
-            None
-        );
+        assert_eq!(presence_gate(&gsd, &det, paths(Some(GSD_CANONICAL))), None);
     }
 
     // list-presence.test.ts:135-151 — healthy at NON-canonical path → present but
@@ -590,7 +610,7 @@ mod tests {
             "/home/agent/.npm-global/bin/gsd",
             "1.37.1",
         );
-        let got = presence_gate(&gsd, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH, AGENT_HOME);
+        let got = presence_gate(&gsd, &det, paths(Some(GSD_CANONICAL)));
         assert_eq!(
             got,
             Some(PresenceHit {
@@ -607,7 +627,7 @@ mod tests {
     fn presence_empty_window_not_adoptable() {
         let gsd = entry("gsd", "script", Some(""));
         let det = detected("gsd", "healthy", GSD_SYSTEM_PATH, "1.37.1");
-        let got = presence_gate(&gsd, &det, Some(GSD_CANONICAL), GSD_SYSTEM_PATH, AGENT_HOME);
+        let got = presence_gate(&gsd, &det, paths(Some(GSD_CANONICAL)));
         assert_eq!(
             got,
             Some(PresenceHit {
@@ -624,10 +644,7 @@ mod tests {
     fn presence_mcp_is_none() {
         let e = entry("context7", "mcp", Some(">=1.0.0 <2.0.0"));
         let det = detected("context7", "healthy", "/anywhere", "1.5.0");
-        assert_eq!(
-            presence_gate(&e, &det, None, GSD_SYSTEM_PATH, AGENT_HOME),
-            None
-        );
+        assert_eq!(presence_gate(&e, &det, paths(None)), None);
     }
 
     // The exact reason strings the TS `RemediateHit.reason` carries — consumed by
@@ -642,8 +659,8 @@ mod tests {
 
 #[cfg(test)]
 mod proptests {
-    //! Property tests (TEST-01) — totality of each decider (threats T-55-04 /
-    //! T-55-05): any `(entry, detected)` yields an `Option`, never panics.
+    //! Property tests (TEST-01) — totality of each decider: any
+    //! `(entry, detected)` yields an `Option`, never panics.
     use super::*;
     use proptest::prelude::*;
 
@@ -707,9 +724,14 @@ mod proptests {
             agent_home in "[a-z/.0-9-]{0,20}",
         ) {
             // Each call returning without unwinding IS the totality proof.
-            let _ = reuse_gate(&entry, &det, canonical.as_deref(), &gsd_system_path, &agent_home);
-            let _ = remediate_gate(&entry, &det, canonical.as_deref(), &gsd_system_path);
-            let _ = presence_gate(&entry, &det, canonical.as_deref(), &gsd_system_path, &agent_home);
+            let hp = HostPaths {
+                canonical: canonical.as_deref(),
+                gsd_system_path: &gsd_system_path,
+                agent_home: &agent_home,
+            };
+            let _ = reuse_gate(&entry, &det, hp);
+            let _ = remediate_gate(&entry, &det, hp);
+            let _ = presence_gate(&entry, &det, hp);
             let _ = is_at_managed_path(&entry, &det.path, canonical.as_deref(), &gsd_system_path, &agent_home);
         }
     }
