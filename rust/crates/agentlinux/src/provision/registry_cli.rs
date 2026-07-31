@@ -471,6 +471,85 @@ mod registry_cli_tests {
         stage(&ctx_at(root))
     }
 
+    thread_local! {
+        /// The argv, and the user, of every `as_user` the step dispatched.
+        static AS_USER_CALLS: RefCell<Vec<(String, Vec<String>)>> =
+            const { RefCell::new(Vec::new()) };
+    }
+
+    fn record_as_user(user: &str, argv: &[String], code: i32) -> crate::dispatcher::DispatchResult {
+        AS_USER_CALLS.with(|c| c.borrow_mut().push((user.to_string(), argv.to_vec())));
+        crate::dispatcher::DispatchResult {
+            exit_code: code,
+            stdout: String::new(),
+            stderr: String::new(),
+            streamed: false,
+        }
+    }
+
+    fn as_user_ok(
+        u: &str,
+        argv: &[String],
+        _e: &[(String, String)],
+        _c: Capture,
+        _t: Option<u64>,
+    ) -> crate::dispatcher::DispatchResult {
+        record_as_user(u, argv, 0)
+    }
+
+    fn as_user_not_executable(
+        u: &str,
+        argv: &[String],
+        _e: &[(String, String)],
+        _c: Capture,
+        _t: Option<u64>,
+    ) -> crate::dispatcher::DispatchResult {
+        record_as_user(u, argv, 1)
+    }
+
+    /// The CLI-01 verification — `run`'s reason for existing beyond `stage`.
+    ///
+    /// Every other test in this module calls `stage` directly, so the last act of
+    /// the last provisioner step was unasserted despite `as_user` already being an
+    /// `Effects` field. Two mutants survived: `run -> Ok(())`, which skips staging
+    /// entirely, and `!= -> ==` on the exit code, which inverts the gate — a
+    /// symlink that IS executable as the install user is reported as a CLI-01
+    /// regression, and one that is NOT passes silently, which is the whole failure
+    /// this check was written to catch.
+    #[test]
+    fn the_cli01_verification_runs_as_the_install_user_and_both_arms_decide() {
+        let d = tempdir().unwrap();
+        let src = plugin_root(d.path());
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope
+            .set("AGENTLINUX_SRC_ROOT", &src)
+            .set("AGENTLINUX_VERSION", "v9.9.9-rc1");
+
+        AS_USER_CALLS.with(|c| c.borrow_mut().clear());
+        let mut ctx = ctx_at(d.path());
+        ctx.fx.as_user = as_user_ok;
+        run(&ctx).expect("an executable symlink is not a CLI-01 regression");
+
+        let calls = AS_USER_CALLS.with(|c| c.borrow().clone());
+        assert_eq!(calls.len(), 1, "one verification, no more");
+        let (user, argv) = &calls[0];
+        assert_eq!(user, "agent", "the check must run AS the install user");
+        assert_eq!(argv[0], "test");
+        assert_eq!(argv[1], "-x");
+        assert!(
+            argv[2].ends_with("/.npm-global/bin/agentlinux"),
+            "must test the staged symlink, got {argv:?}"
+        );
+
+        // The other arm: not executable as the install user is a hard error, and
+        // it names CLI-01 so an operator can find what broke.
+        AS_USER_CALLS.with(|c| c.borrow_mut().clear());
+        let mut ctx = ctx_at(d.path());
+        ctx.fx.as_user = as_user_not_executable;
+        let err = run(&ctx).expect_err("a non-executable symlink IS a regression");
+        assert!(err.to_string().contains("CLI-01"), "unexpected: {err}");
+    }
+
     #[test]
     fn stage_installs_the_musl_bin_0755_root_owned() {
         let d = tempdir().unwrap();

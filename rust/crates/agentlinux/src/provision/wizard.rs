@@ -480,7 +480,85 @@ mod wizard_prompt_tests {
 #[cfg(test)]
 mod wizard_tests {
     use super::*;
+    use crate::provision::probe::{NpmPrefixState, SudoersState, UserState};
     use std::io::Cursor;
+
+    /// The AL-50 prompt gate, exhaustively over the axes that decide it.
+    ///
+    /// `should_prompt_from` was introduced with its own coverage claim already
+    /// written into the doc comment — "a one-line test here instead of a fixture
+    /// that has to manufacture a brownfield host" — and no such test existed.
+    /// Eight mutants survived on a four-input boolean, including `-> true`,
+    /// which fires the install-user prompt on a drifted-sudoers host. This
+    /// module's own comment says what happens then: the prompt eats the `[Y/n]`
+    /// answers out of the shared read buffer and desyncs the consent loop, "the
+    /// bug class this project has shipped twice".
+    #[test]
+    fn the_install_user_prompt_fires_only_on_a_clean_greenfield_host() {
+        let clean = || {
+            should_prompt_from(
+                false,
+                UserState::Absent,
+                SudoersState::Absent,
+                NpmPrefixState::Absent,
+            )
+        };
+        assert!(clean(), "no prior provision and no brownfield flow: prompt");
+
+        // A prior provision. The env-file is the "we already chose a user" mark.
+        assert!(!should_prompt_from(
+            true,
+            UserState::Absent,
+            SudoersState::Absent,
+            NpmPrefixState::Absent
+        ));
+
+        // Each irreconcilable user state owns its own flow: WrongShell is the
+        // UX-04 alt-user gate, HomeNotWritable is a REUSE-01 bail. Prompting
+        // first would swallow their answers.
+        for state in [UserState::WrongShell, UserState::HomeNotWritable] {
+            assert!(
+                !should_prompt_from(false, state, SudoersState::Absent, NpmPrefixState::Absent),
+                "{state:?} has its own flow"
+            );
+        }
+        // Conforming does NOT: an existing compatible user is still offered for
+        // rename, so this arm must stay true.
+        assert!(should_prompt_from(
+            false,
+            UserState::Conforming,
+            SudoersState::Absent,
+            NpmPrefixState::Absent
+        ));
+
+        // The two REMEDIATE consent flows. Only the drifted/wrong-owner arms
+        // suppress — a sudoers drop-in that merely EXISTS and carries the
+        // canonical line, or an npm prefix already owned by the user, does not.
+        assert!(!should_prompt_from(
+            false,
+            UserState::Absent,
+            SudoersState::Drifted,
+            NpmPrefixState::Absent
+        ));
+        assert!(should_prompt_from(
+            false,
+            UserState::Absent,
+            SudoersState::Canonical,
+            NpmPrefixState::Absent
+        ));
+        assert!(!should_prompt_from(
+            false,
+            UserState::Absent,
+            SudoersState::Absent,
+            NpmPrefixState::WrongOwner
+        ));
+        assert!(should_prompt_from(
+            false,
+            UserState::Absent,
+            SudoersState::Absent,
+            NpmPrefixState::OwnedByUser
+        ));
+    }
 
     fn ok(_n: &str) -> bool {
         true

@@ -55,6 +55,10 @@ macro_rules! outln {
 macro_rules! errln {
     ($o:expr, $($arg:tt)*) => { let _ = writeln!($o.err, $($arg)*); };
 }
+// `cmd/provision.rs` writes its detection report and its [DRY-RUN] markers
+// through the same sink, so the two verbs share one pair of line macros rather
+// than each growing its own.
+pub(crate) use {errln, outln};
 
 /// "Does this path exist on the host?" — the REMEDIATE-04 post-uninstall check,
 /// injected.

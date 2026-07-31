@@ -492,6 +492,29 @@ mod probe_tests {
                 mode: 0o777
             })
         ));
+        // The primary group OWNS it but cannot write. The row the table was
+        // missing, and the one that pins the mask: with `&` read as `|` the mode
+        // check is satisfied by any bit and this reads Conforming, so the
+        // REUSE-01 bail that stops the provisioner adopting a user who cannot
+        // write their own home never fires — and the run proceeds into exactly
+        // the EACCES class this project exists to eliminate.
+        assert!(!home_writable(
+            &a,
+            Some(&DirFacts {
+                uid: 0,
+                gid: 1000,
+                mode: 0o755
+            })
+        ));
+        // …and the owner arm needs the same row: owner, no owner-write bit.
+        assert!(!home_writable(
+            &a,
+            Some(&DirFacts {
+                uid: 1000,
+                gid: 1000,
+                mode: 0o577
+            })
+        ));
         // An absent home is the fresh-useradd shape, not a failure.
         assert!(home_writable(&a, None));
     }

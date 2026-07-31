@@ -125,20 +125,42 @@ structurally unassertable: a test reaching it kills the test binary.
 
 `provision::agent_user` and `provision::nodejs` reach `useradd`, `apt-get`/`dnf`,
 the NodeSource script and `node --version` with no injection point, and no test
-drives their `run`. `cmd/provision::run_purge` spawns `pkill`/`userdel`
-unconditionally.
+drives their `run`. `cmd/provision::run_purge` and `::remove_install_user` spawn
+`pkill`/`userdel` unconditionally. Those four carry `#[cfg_attr(test,
+mutants::skip)]` pointing here — ADR-020 §4's third case — so the enforcing gate
+does not redden on a mutant no writable test could kill; `grep -c 'ADR-019 §5'`
+is the size of the debt, and closing a gap deletes its skips.
 
 **Production wiring adapters.** Pushing an ambient read behind a seam leaves a
-one-line adapter that performs it — `cmd/install::real_is_tty`,
-`cmd/provision::real_choose_user` and `detect::scan`. Those three carry
-`#[cfg_attr(test, mutants::skip)]` with a back-reference here, because they are
-unkillable by construction: observing them means reasserting the very coupling
-the seam removed — attaching a real pty, a real passwd DB, a real login shell.
+one-line adapter that performs it. Each carries `#[cfg_attr(test,
+mutants::skip)]` with a back-reference here, because they are unkillable by
+construction: observing them means reasserting the very coupling the seam
+removed — attaching a real pty, a real passwd DB, a real login shell, the real
+process streams.
+
+- `cmd/install::real_is_tty`
+- `cmd/provision::real_choose_user`, `::resolve_wrong_shell`, `::run_steps`,
+  `::provision`, `::run_agent_adoption`, `::report_only`, `::dry_run_report`
+- `detect::scan`
+
+`grep -c 'mutants::skip'` is the whole census, and the entries in `sysio.rs`
+(`TmpGuard::disarm`, `mktemp_in`, `ensure_user`, `visudo_validate`) are the
+DIFFERENT case — genuinely unobservable mutants, ADR-020 §4's first hatch — while
+`cmd/provision::run_purge` and `::remove_install_user` are the THIRD case, a
+recorded seam gap (below). Each site says which it is in its own comment; this
+list exists so nobody has to guess from the annotation alone.
 
 (`ProvisionDeps::default` is NOT one of them: cargo-mutants generates no mutants
 for a struct literal of function pointers, so it needs no annotation. An earlier
 revision of this section claimed it carried one — wrong in both directions, in
 the paragraph people read while triaging a red gate.)
+
+`wizard::{stdin_is_tty, should_prompt_install_user, choose_install_user}` are the
+same shape and carry no annotation, deliberately: `wizard.rs` has other untested
+surface (`find_alt_user_name` reads the passwd DB with no injection point, and
+its "agent2..agent99 all taken" arm selects a distinct UX-04 message), so
+blanket-skipping the file's adapters would hide that. A contributor whose diff
+lands there meets a red gate and this paragraph.
 
 This is a real cost of the design and is stated so it is not rediscovered: every
 seam of this kind trades a testable branch for an untestable adapter. The trade

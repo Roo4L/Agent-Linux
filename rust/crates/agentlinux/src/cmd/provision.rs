@@ -19,6 +19,7 @@
 //! receive settled `StepResolution` tokens and only do I/O.
 
 use crate::cli::ProvisionArgs;
+use crate::cmd::install::{errln, outln, Out};
 use crate::distro;
 use crate::provision::{self, log, ProvisionCtx, Resolutions};
 use crate::recipe_env::resolve_install_user;
@@ -33,11 +34,6 @@ const EX_SOFTWARE: u8 = 70;
 /// EX_DATAERR (sysexits.h) — incompatible host state (a wrong-shell user bail /
 /// an operator-declined alt-user prompt).
 const EX_DATAERR: u8 = 65;
-
-/// Reserved / system-account denylist — byte-for-byte with
-/// the reserved-name denylist. A name
-/// matching the POSIX charset but on this list must NEVER become the install
-/// user (granting NOPASSWD sudo to root/a daemon is an elevation hole —).
 
 /// The `--user` flag check: POSIX charset AND not a reserved/system account.
 /// PURE — the runtime UID<1000 adoption gate (`user_adoptable`) is a separate
@@ -90,6 +86,13 @@ fn resolve_provision_user(user_flag: Option<&str>, default_user: &str) -> Result
 /// operator-chosen alternate on a TTY; else an `Err(exit)` — 65 for a non-TTY
 /// bail-with-hint or an EOF decline, 64 for 3 invalid names. On a TTY the accepted
 /// alternate is a fresh user provisioned via the normal Create path.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5). Reaching its
+/// two mutants needs a real passwd DB, a real terminal and a real stdin — the
+/// exact coupling the seam removed. Every decision it composes is asserted from
+/// literals through [`resolve_wrong_shell_with`], and — unlike the other
+/// adapters — its RETURN is re-validated by the caller, because an
+/// operator-typed name flows into `install_home` and `useradd`.
+#[cfg_attr(test, mutants::skip)]
 fn resolve_wrong_shell(user: &str) -> Result<String, ExitCode> {
     resolve_wrong_shell_with(
         user,
@@ -234,8 +237,31 @@ const STEPS: &[Step] = &[
 ];
 
 /// Run every step in `STEPS` in order, stopping at the first failure.
+///
+/// Not mutation-tested: this binds the table to the loop and does nothing else.
+/// The ORDER is asserted against `STEPS` itself and the loop's behaviour through
+/// [`run_step_table`], both from literals; driving this one would mean running
+/// `useradd`, `apt-get` and the NodeSource script for real (ADR-019 §5).
+#[cfg_attr(test, mutants::skip)]
 fn run_steps(ctx: &ProvisionCtx) -> Result<(), ExitCode> {
-    for (label, step) in STEPS {
+    run_step_table(ctx, STEPS)
+}
+
+/// [`run_steps`] over a stated table.
+///
+/// Every orchestrator test injects `deps.run_steps`, so nothing drove the
+/// production one and `replace run_steps -> Ok(())` survived: `agentlinux
+/// provision` runs ZERO steps, prints "complete", and exits 0. Unobserved with
+/// it: that the loop stops at the first failure rather than carrying on, that a
+/// step's `io::Error` becomes `EX_SOFTWARE` (70) and not some other code, and
+/// that each step emits its `agentlinux provision: <label>` transcript line —
+/// the line the INST-01 bats greps for.
+///
+/// The table stays a parameter rather than the loop being inlined per step:
+/// `STEPS`' ORDER is a separate contract, documented above it, and is asserted
+/// against `STEPS` itself.
+fn run_step_table(ctx: &ProvisionCtx, steps: &[Step]) -> Result<(), ExitCode> {
+    for (label, step) in steps {
         log::line(&format!("agentlinux provision: {label}"));
         step(ctx).map_err(|e| {
             log::line(&format!("agentlinux provision: {label} step failed: {e}"));
@@ -263,8 +289,34 @@ fn run_steps(ctx: &ProvisionCtx) -> Result<(), ExitCode> {
 ///     `AGENTLINUX_*` seams — so the child resolves the state/catalog dirs the
 ///     same way the login shell would (real runs fall through to the `/opt`
 ///     defaults; the bats harness's seam vars are forwarded).
+///
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) binding the
+/// real dispatcher and the real transcript. Both arms are asserted from literals
+/// through [`run_agent_adoption_with`].
+#[cfg_attr(test, mutants::skip)]
 fn run_agent_adoption(user: &str, home: &str) {
-    log::line(&format!(
+    run_agent_adoption_with(user, home, crate::dispatcher::as_user, &mut |m| {
+        log::line(m)
+    })
+}
+
+/// [`run_agent_adoption`] over an injected dispatcher and an injected log sink.
+///
+/// Best-effort means the only thing this function CAN be wrong about is what it
+/// dispatches and what it reports, and neither was observed: `run_agent_adoption
+/// -> ()` (adoption never runs; every reuse-eligible agent stays unmanaged and
+/// the provision still reports success) and `!= -> ==` on the exit code (the
+/// "reported a problem" warning fires on success and stays silent on failure)
+/// both survived a full mutation run. `as_user` is already a named type
+/// (`dispatcher::AsUser`) used as a seam elsewhere in this tree; this call site
+/// reached the concrete function directly.
+fn run_agent_adoption_with(
+    user: &str,
+    home: &str,
+    dispatch: crate::dispatcher::AsUser,
+    log_line: &mut dyn FnMut(&str),
+) {
+    log_line(&format!(
         "agentlinux provision: adopting pre-existing reuse-eligible agents as {user} (agentlinux adopt --all)"
     ));
     let bin = format!("{home}/.npm-global/bin/agentlinux");
@@ -277,7 +329,7 @@ fn run_agent_adoption(user: &str, home: &str) {
     // so an adopt that ever hangs (a probe that shells out, an NFS-backed home)
     // must not hang the whole installer after the real work is already done. A
     // buffered timeout collapses to exit 1 → the best-effort warning below.
-    let r = crate::dispatcher::as_user(
+    let r = dispatch(
         user,
         &argv,
         &env,
@@ -298,7 +350,7 @@ fn run_agent_adoption(user: &str, home: &str) {
             .chars()
             .take(200)
             .collect();
-        log::line(&format!(
+        log_line(&format!(
             "agentlinux provision: agentlinux adopt --all reported a problem \
              (exit {}; continuing; run it manually to retry){}",
             r.exit_code,
@@ -464,6 +516,11 @@ fn real_choose_user(default_user: &str) -> String {
     provision::wizard::choose_install_user(default_user, &validate_user_name)
 }
 
+/// Not mutation-tested: the production entry point, which is a
+/// `provision_with(args, &ProvisionDeps::default())` call and nothing else.
+/// Everything it orchestrates is asserted through `provision_with` with recorded
+/// phases; driving this one provisions the host (ADR-019 §5).
+#[cfg_attr(test, mutants::skip)]
 pub fn provision(args: &ProvisionArgs) -> ExitCode {
     provision_with(args, &ProvisionDeps::default())
 }
@@ -557,15 +614,24 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
     let install_user = if args.dry_run {
         install_user
     } else {
-        match (deps.resolve_wrong_shell)(&install_user) {
+        // Re-validate on THIS side of the seam, for the same reason the wizard's
+        // answer is re-validated at step 2: making the gate a dep moved its
+        // guarantee outside this function. The name coming back here is
+        // OPERATOR-TYPED, and it flows into `install_home`, `ProvisionCtx::new`
+        // and `useradd`. The adoption gate below is not a substitute —
+        // `probe::adoptable(None)` is true for a name nobody holds, so `""`
+        // walks through it to `useradd ""`, `/home/`, and a sudoers line reading
+        // ` ALL=(ALL) NOPASSWD: ALL`.
+        let chosen = match (deps.resolve_wrong_shell)(&install_user) {
+            Ok(u) => u,
+            Err(code) => return code,
+        };
+        match resolve_provision_user(Some(&chosen), &default_user) {
             Ok(u) => u,
             Err(code) => return code,
         }
     };
     let install_home = format!("/home/{install_user}");
-    // Whether the alt-user gate swapped in a fresh name (a newly-created user) —
-    // drives the partial-provision recovery hint on a step failure below.
-    let alt_user_chosen = install_user != pre_alt_user;
 
     // 5c. Re-gate: the alt-user branch above may have swapped in an operator-TYPED
     //  name that never passed the gate at step 2b.
@@ -650,18 +716,35 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
             // Operability: an accepted alt-user is created fresh mid-run. If a
             // later step failed, that user is left half-provisioned — name the
             // recovery verbs so an orphan is a one-command fix, not a mystery.
-            if alt_user_chosen {
-                log::line(&format!(
-                    "agentlinux provision: NOTE — newly-created install user '{u}' was only \
-                     partially provisioned before this failure. Re-run \
-                     `agentlinux provision --user {u}` to resume, or \
-                     `agentlinux provision --purge --user {u}` to remove it.",
-                    u = ctx.install_user
-                ));
+            if let Some(note) = partial_provision_note(&pre_alt_user, &ctx.install_user) {
+                log::line(&note);
             }
             code
         }
     }
+}
+
+/// Operability: an accepted alt user is created FRESH mid-run, so a later step
+/// failure leaves it half-provisioned. Name the recovery verbs, or the orphan is
+/// a mystery rather than a one-command fix.
+///
+/// A function taking the two NAMES rather than a `bool`, because the comparison
+/// is the whole content: `replace != with == in provision_with` survived, and
+/// inverted it fires on every ordinary step failure — noise — while staying
+/// silent on the one case it exists for. Left as a flag computed at the call
+/// site, that comparison sat outside anything a test could read: `log::line`
+/// writes to a process-global.
+fn partial_provision_note(before: &str, after: &str) -> Option<String> {
+    if before == after {
+        return None;
+    }
+    let user = after;
+    Some(format!(
+        "agentlinux provision: NOTE — newly-created install user '{user}' was only \
+         partially provisioned before this failure. Re-run \
+         `agentlinux provision --user {user}` to resume, or \
+         `agentlinux provision --purge --user {user}` to remove it."
+    ))
 }
 
 /// `run_purge` port — the ordered 7-step teardown.
@@ -670,6 +753,12 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
 /// Recipe paths derive from the catalog snapshot keyed by the sentinel BASENAME
 /// (a tampered sentinel cannot pick scripts to run as agent). Always
 /// exits 0.
+/// Not mutation-tested: an ADR-019 §5 seam gap, not an adapter. This spawns
+/// `pkill`/`userdel` unconditionally with no injection point, so its mutants are
+/// unreachable until the `Effects` bag is threaded through the purge path.
+/// Skipped with a back-reference rather than left to redden the enforcing gate
+/// for anyone whose diff lands here (ADR-020 §4, third case).
+#[cfg_attr(test, mutants::skip)]
 fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
     eprintln!("agentlinux provision: running --purge (destructive) — install user '{user}'");
 
@@ -767,6 +856,8 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
 /// first to avoid "user is logged in"; a userdel failure retries with `-rf`. The
 /// name is charset-validated upstream — it is the ONLY `$VAR` fed to userdel, and
 /// it never reaches an `rm -rf`.
+/// Not mutation-tested: part of the same ADR-019 §5 purge gap as [`run_purge`].
+#[cfg_attr(test, mutants::skip)]
 fn remove_install_user(user: &str) {
     // `id <user>` — skip if the user does not exist.
     if !crate::provision::probe::user_exists(user) {
@@ -807,18 +898,54 @@ fn remove_install_user(user: &str) {
 /// `{components:{agents:[...]}}` on STDOUT (the only shape any test consumes — the
 /// DET-04 brownfield-detection suite); the default `text` format prints the
 /// human report to stderr. The scan runs once either way and refreshes the cache.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) binding the
+/// process streams and the real re-scan. The format split and the report body
+/// are asserted through [`report_only_to`].
+#[cfg_attr(test, mutants::skip)]
 fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&str>) -> ExitCode {
+    let (mut out, mut err) = (io::stdout(), io::stderr());
+    report_only_to(
+        &mut Out {
+            out: &mut out,
+            err: &mut err,
+        },
+        user,
+        home,
+        distro,
+        format,
+        crate::detect::scan_and_write,
+    )
+}
+
+/// [`report_only`] over an injected sink and an injected re-scan.
+///
+/// The format choice IS the contract: DET-04 pipes the whole of stdout to `jq`,
+/// so a `text` run must put nothing there and a `json` run must put nothing
+/// anywhere else. Against a global `println!`/`eprintln!` that was unassertable,
+/// and `replace == with != in report_only` survived — the text report goes to
+/// stdout and breaks every DET-04 test, while `--report-format=json` prints
+/// human prose. `Out<'a>` is the sink `cmd/install.rs` already defines for
+/// exactly this reason (ADR-019); it had not been applied to the provisioner.
+fn report_only_to(
+    o: &mut Out<'_>,
+    user: &str,
+    home: &str,
+    distro: &distro::Distro,
+    format: Option<&str>,
+    rescan: fn(&str, &str),
+) -> ExitCode {
     if format == Some("json") {
         let report = crate::detect::scan_persist_report_json(user, home);
         // STDOUT only, nothing else — the DET-04 tests pipe the whole output to jq.
-        println!(
+        outln!(
+            o,
             "{}",
             serde_json::to_string_pretty(&report)
                 .unwrap_or_else(|_| String::from("{\"components\":{\"agents\":[]}}"))
         );
     } else {
-        crate::detect::scan_and_write(user, home);
-        emit_report(user, distro);
+        rescan(user, home);
+        emit_report(o, user, distro);
     }
     ExitCode::SUCCESS
 }
@@ -826,17 +953,50 @@ fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&
 /// `--dry-run`: print the pre-flight report + exit 0.
 /// ZERO mutation. After the DECIDE phase so the report reflects every decision the
 /// real install would make.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5), as
+/// [`report_only`]. The `[DRY-RUN]` markers are asserted through
+/// [`dry_run_report_to`].
+#[cfg_attr(test, mutants::skip)]
 fn dry_run_report(user: &str, home: &str, distro: &distro::Distro) -> ExitCode {
-    eprintln!("agentlinux provision: [DRY-RUN] pre-flight report (no host mutation):");
+    let (mut out, mut err) = (io::stdout(), io::stderr());
+    dry_run_report_to(
+        &mut Out {
+            out: &mut out,
+            err: &mut err,
+        },
+        user,
+        home,
+        distro,
+        crate::detect::scan_and_write,
+    )
+}
+
+/// [`dry_run_report`] over an injected sink and re-scan. UX-01's `[DRY-RUN]`
+/// markers are grepped byte-for-byte by the bats suite, and stdout must stay
+/// EMPTY — a dry run that printed to stdout would corrupt the DET-04 json pipe
+/// if the two paths were ever composed.
+fn dry_run_report_to(
+    o: &mut Out<'_>,
+    user: &str,
+    home: &str,
+    distro: &distro::Distro,
+    rescan: fn(&str, &str),
+) -> ExitCode {
+    errln!(
+        o,
+        "agentlinux provision: [DRY-RUN] pre-flight report (no host mutation):"
+    );
     // Refresh the detect cache (tmpfs, not host state) so the pre-flight report
     // reflects current host state. See report_only for the NO-MUTATION rationale.
-    crate::detect::scan_and_write(user, home);
-    emit_report(user, distro);
-    eprintln!(
+    rescan(user, home);
+    emit_report(o, user, distro);
+    errln!(
+        o,
         "agentlinux provision: [DRY-RUN] on apply, reuse-eligible agents are adopted \
          into managed sentinels (agentlinux adopt --all)"
     );
-    eprintln!(
+    errln!(
+        o,
         "agentlinux provision: [DRY-RUN] exit 0 (no mutation; re-run without --dry-run to apply)"
     );
     ExitCode::SUCCESS
@@ -846,12 +1006,14 @@ fn dry_run_report(user: &str, home: &str, distro: &distro::Distro) -> ExitCode {
 /// Prints the resolved install user + distro family + the per-agent decisions over
 /// the Rust `canonical_path` map, sourced from the same in-process probe+gate the
 /// install path uses. A report is read-only — NO mutation.
-fn emit_report(user: &str, distro: &distro::Distro) {
-    eprintln!("agentlinux provision: detection report");
-    eprintln!("  install-user: {user}");
-    eprintln!(
+fn emit_report(o: &mut Out<'_>, user: &str, distro: &distro::Distro) {
+    errln!(o, "agentlinux provision: detection report");
+    errln!(o, "  install-user: {user}");
+    errln!(
+        o,
         "  distro: version={} family={:?}",
-        distro.version, distro.family
+        distro.version,
+        distro.family
     );
     for &id in crate::CANONICAL_IDS {
         let probe = crate::provision::probe::probe_agent(id);
@@ -866,7 +1028,8 @@ fn emit_report(user: &str, distro: &distro::Distro) {
             crate::canonical_path(id),
             crate::GSD_SYSTEM_PATH,
         );
-        eprintln!(
+        errln!(
+            o,
             "  agent {id}: status={} decision={}",
             probe.status,
             decision.as_str()
@@ -1069,8 +1232,35 @@ mod provision_tests {
             .push(phase);
     }
 
+    /// Drain BOTH recordings. One call site for both is deliberate: an earlier
+    /// version drained only the phase log, so a test asserting `ctx_users()`
+    /// passed alone and failed in the suite, reading the users left behind by
+    /// whichever ordering test ran before it.
     fn taken() -> Vec<&'static str> {
+        let _ = ctx_users();
         let mut g = phase_log().lock().unwrap_or_else(|e| e.into_inner());
+        std::mem::take(&mut *g)
+    }
+
+    /// The `install_user` each `ProvisionCtx` handed to `run_steps` carried.
+    ///
+    /// Same process-global reason as `phase_log`, and serialised by the same
+    /// `EnvScope`. The phase log says a step RAN; this says who it ran as, which
+    /// is what the alt-user swap changes and what nothing else observes.
+    fn ctx_user_log() -> &'static Mutex<Vec<String>> {
+        static USERS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+        USERS.get_or_init(|| Mutex::new(Vec::new()))
+    }
+
+    fn record_ctx_user(u: &str) {
+        ctx_user_log()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(u.to_string());
+    }
+
+    fn ctx_users() -> Vec<String> {
+        let mut g = ctx_user_log().lock().unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *g)
     }
 
@@ -1141,8 +1331,9 @@ mod provision_tests {
             record("default_user");
             "agent".to_string()
         }
-        fn steps(_c: &ProvisionCtx) -> Result<(), ExitCode> {
+        fn steps(c: &ProvisionCtx) -> Result<(), ExitCode> {
             record("run_steps");
+            record_ctx_user(&c.install_user);
             Ok(())
         }
         fn scan(_u: &str, _h: &str) {
@@ -1377,6 +1568,356 @@ mod provision_tests {
             !degraded.contains("agentlinux-install.log"),
             "the degraded banner must not name a path that does not exist"
         );
+    }
+
+    #[test]
+    fn adoption_dispatches_the_absolute_bin_and_reports_only_a_real_failure() {
+        // Best-effort, so what it dispatches and what it reports are the only
+        // things it can get wrong — and neither was observed. Both `-> ()` (no
+        // adoption ever runs, every reuse-eligible agent stays unmanaged, the
+        // provision still reports success) and `!= -> ==` (the warning fires on
+        // success and is silent on failure) survived a full mutation run.
+        fn ok(
+            _u: &str,
+            _a: &[String],
+            _e: &[(String, String)],
+            _c: crate::dispatcher::Capture,
+            _t: Option<u64>,
+        ) -> crate::dispatcher::DispatchResult {
+            crate::dispatcher::DispatchResult {
+                exit_code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+                streamed: false,
+            }
+        }
+        fn fails(
+            _u: &str,
+            _a: &[String],
+            _e: &[(String, String)],
+            _c: crate::dispatcher::Capture,
+            _t: Option<u64>,
+        ) -> crate::dispatcher::DispatchResult {
+            crate::dispatcher::DispatchResult {
+                exit_code: 3,
+                stdout: String::new(),
+                stderr: "  boom   \n  everywhere \n".to_string(),
+                streamed: false,
+            }
+        }
+
+        let mut lines = Vec::new();
+        run_agent_adoption_with("agent", "/home/agent", ok, &mut |m| {
+            lines.push(m.to_string())
+        });
+        assert_eq!(
+            lines.len(),
+            1,
+            "a clean adopt says only that it ran: {lines:?}"
+        );
+        assert!(lines[0].contains("adopting pre-existing reuse-eligible agents as agent"));
+
+        let mut lines = Vec::new();
+        run_agent_adoption_with("agent", "/home/agent", fails, &mut |m| {
+            lines.push(m.to_string())
+        });
+        assert_eq!(lines.len(), 2, "a failure must be surfaced: {lines:?}");
+        // The exit code AND a whitespace-collapsed stderr, so an operator can
+        // diagnose it without re-running — and "continuing", because a failed
+        // adoption must not fail an otherwise-successful install.
+        assert!(lines[1].contains("exit 3"), "{}", lines[1]);
+        assert!(lines[1].contains("continuing"), "{}", lines[1]);
+        assert!(lines[1].contains(": boom everywhere"), "{}", lines[1]);
+    }
+
+    #[test]
+    fn the_adoption_argv_uses_the_absolute_staged_bin() {
+        // OBS-01: `sudo`'s secure_path does not include ~/.npm-global/bin, so a
+        // BARE `agentlinux` is ENOENT -> exit 1 -> a spurious "reported a
+        // problem" on every greenfield provision.
+        thread_local! {
+            static ARGV: std::cell::RefCell<Vec<String>> =
+                const { std::cell::RefCell::new(Vec::new()) };
+        }
+        fn capture(
+            _u: &str,
+            a: &[String],
+            _e: &[(String, String)],
+            _c: crate::dispatcher::Capture,
+            _t: Option<u64>,
+        ) -> crate::dispatcher::DispatchResult {
+            ARGV.with(|v| *v.borrow_mut() = a.to_vec());
+            crate::dispatcher::DispatchResult {
+                exit_code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+                streamed: false,
+            }
+        }
+        run_agent_adoption_with("agent", "/home/agent", capture, &mut |_| {});
+        assert_eq!(
+            ARGV.with(|v| v.borrow().clone()),
+            vec![
+                "/home/agent/.npm-global/bin/agentlinux".to_string(),
+                "adopt".to_string(),
+                "--all".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_report_format_decides_which_stream_gets_what() {
+        // DET-04 pipes the WHOLE of stdout to jq, so a text run must leave it
+        // empty and a json run must put nothing anywhere else. Against a global
+        // println!/eprintln! that was unassertable, and `replace == with != in
+        // report_only` survived: the human report goes to stdout and breaks every
+        // DET-04 test, while --report-format=json prints prose.
+        fn no_rescan(_u: &str, _h: &str) {}
+        let d = fake_distro();
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut o = Out {
+            out: &mut out,
+            err: &mut err,
+        };
+        assert_eq!(
+            report_only_to(&mut o, "agent", "/home/agent", &d, Some("json"), no_rescan),
+            ExitCode::SUCCESS
+        );
+        let (o_json, e_json) = (
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        );
+        assert!(
+            o_json.contains("\"agents\""),
+            "json goes to stdout: {o_json}"
+        );
+        assert!(e_json.is_empty(), "json mode must print nothing to stderr");
+
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut o = Out {
+            out: &mut out,
+            err: &mut err,
+        };
+        assert_eq!(
+            report_only_to(&mut o, "agent", "/home/agent", &d, None, no_rescan),
+            ExitCode::SUCCESS
+        );
+        let (o_text, e_text) = (
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        );
+        assert!(
+            o_text.is_empty(),
+            "text mode must leave stdout empty for the jq pipe, got {o_text}"
+        );
+        assert!(e_text.contains("detection report"), "{e_text}");
+        assert!(e_text.contains("install-user: agent"));
+        assert!(e_text.contains("family=Debian"));
+    }
+
+    #[test]
+    fn a_dry_run_names_itself_on_stderr_and_writes_nothing_to_stdout() {
+        // UX-01: the [DRY-RUN] markers are grepped byte-for-byte, and the run
+        // must say that adoption happens on apply — the one thing a reader
+        // cannot infer from a report that shows only detection.
+        fn no_rescan(_u: &str, _h: &str) {}
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let mut o = Out {
+            out: &mut out,
+            err: &mut err,
+        };
+        assert_eq!(
+            dry_run_report_to(&mut o, "agent", "/home/agent", &fake_distro(), no_rescan),
+            ExitCode::SUCCESS
+        );
+        let (stdout, stderr) = (
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        );
+        assert!(stdout.is_empty(), "a dry run writes nothing to stdout");
+        assert!(stderr.contains("[DRY-RUN] pre-flight report (no host mutation)"));
+        assert!(
+            stderr.contains("detection report"),
+            "the body must be there"
+        );
+        assert!(stderr.contains("[DRY-RUN] on apply, reuse-eligible agents are adopted"));
+        assert!(stderr.contains("[DRY-RUN] exit 0 (no mutation"));
+    }
+
+    #[test]
+    fn the_step_loop_runs_every_step_in_order_and_stops_at_the_first_failure() {
+        // The production `run_steps` was driven by nothing: every orchestrator
+        // test injects it, so `replace run_steps -> Ok(())` — provision runs zero
+        // steps and reports success — survived a full mutation run.
+        thread_local! {
+            static RAN: std::cell::RefCell<Vec<&'static str>> =
+                const { std::cell::RefCell::new(Vec::new()) };
+        }
+        fn note(l: &'static str) {
+            RAN.with(|r| r.borrow_mut().push(l));
+        }
+        fn first(_c: &ProvisionCtx) -> io::Result<()> {
+            note("first");
+            Ok(())
+        }
+        fn boom(_c: &ProvisionCtx) -> io::Result<()> {
+            note("boom");
+            Err(io::Error::other("step exploded"))
+        }
+        fn never(_c: &ProvisionCtx) -> io::Result<()> {
+            note("never");
+            Ok(())
+        }
+
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ProvisionCtx::new(
+            "agent".to_string(),
+            d.path().to_string_lossy().into_owned(),
+            fake_distro().family,
+            Resolutions::default().into_step().unwrap(),
+        );
+
+        RAN.with(|r| r.borrow_mut().clear());
+        let ok: &[Step] = &[("a", first), ("b", first)];
+        assert_eq!(run_step_table(&ctx, ok), Ok(()));
+        assert_eq!(RAN.with(|r| r.borrow().clone()), vec!["first", "first"]);
+
+        // A failing step aborts the sequence, and its io::Error becomes 70.
+        RAN.with(|r| r.borrow_mut().clear());
+        let failing: &[Step] = &[("a", first), ("b", boom), ("c", never)];
+        assert_eq!(
+            run_step_table(&ctx, failing),
+            Err(ExitCode::from(EX_SOFTWARE)),
+            "a step's io::Error is EX_SOFTWARE, not EX_USAGE or success"
+        );
+        assert_eq!(
+            RAN.with(|r| r.borrow().clone()),
+            vec!["first", "boom"],
+            "no step may run after one has failed"
+        );
+    }
+
+    #[test]
+    fn the_step_table_is_the_documented_order() {
+        // The ordering constraints above STEPS are the contract — the user must
+        // exist before it can be granted sudo, NodeSource installs packages after
+        // that, the PATH artefacts reference the prefix Node created, and the
+        // symlink target dir must exist before the CLI is staged. A table with
+        // the right five entries in the wrong order compiles and passes
+        // everything else.
+        assert_eq!(
+            STEPS.iter().map(|(l, _)| *l).collect::<Vec<_>>(),
+            vec![
+                "10-agent-user",
+                "20-sudoers",
+                "30-nodejs",
+                "40-path-wiring",
+                "50-registry-cli",
+            ]
+        );
+    }
+
+    #[test]
+    fn an_alt_user_name_that_is_not_a_legal_user_is_refused() {
+        // The UX-04 gate returns an OPERATOR-TYPED name, and that name reaches
+        // `install_home`, `ProvisionCtx::new` and `useradd`. The adoption gate is
+        // not a substitute: `probe::adoptable(None)` is true for a name nobody
+        // holds, so "" walked through to `useradd ""`, `/home/`, and a sudoers
+        // line reading " ALL=(ALL) NOPASSWD: ALL".
+        let _lock = crate::test_support::EnvScope::new();
+        for bad in ["", "root", "Bad User!"] {
+            let _ = taken();
+            fn empty(_u: &str) -> Result<String, ExitCode> {
+                record("resolve_wrong_shell");
+                Ok(String::new())
+            }
+            fn reserved(_u: &str) -> Result<String, ExitCode> {
+                record("resolve_wrong_shell");
+                Ok("root".to_string())
+            }
+            fn malformed(_u: &str) -> Result<String, ExitCode> {
+                record("resolve_wrong_shell");
+                Ok("Bad User!".to_string())
+            }
+            let mut deps = recording_deps();
+            deps.resolve_wrong_shell = match bad {
+                "" => empty,
+                "root" => reserved,
+                _ => malformed,
+            };
+
+            assert_eq!(
+                provision_with(&base_args(), &deps),
+                ExitCode::from(EX_USAGE),
+                "alt-user gate answered {bad:?}; it must be refused, not provisioned"
+            );
+            let seq = taken();
+            assert!(
+                !seq.contains(&"probe_facts") && !seq.contains(&"log_init"),
+                "nothing may proceed on an illegal alt user, seq={seq:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_partial_provision_hint_is_scoped_to_a_freshly_created_alt_user() {
+        // The NOTE naming `--purge --user <u>` exists for ONE case: an operator
+        // typed an alternate name, it was created mid-run, and a later step
+        // failed, leaving it half-provisioned. Fired on every step failure it is
+        // noise; suppressed on this one it is a orphaned user with no recovery
+        // instruction. The distinction is `install_user != pre_alt_user`.
+        let _lock = crate::test_support::EnvScope::new();
+        fn swaps_in_an_alt(_u: &str) -> Result<String, ExitCode> {
+            record("resolve_wrong_shell");
+            Ok("agent2".to_string())
+        }
+        fn failing_steps(c: &ProvisionCtx) -> Result<(), ExitCode> {
+            record("run_steps");
+            record_ctx_user(&c.install_user);
+            Err(ExitCode::from(EX_SOFTWARE))
+        }
+
+        // With a swap: the run must fail, and everything after it must be scoped
+        // to the NEW name, not the one the operator asked for.
+        let _ = taken();
+        let mut deps = recording_deps();
+        deps.resolve_wrong_shell = swaps_in_an_alt;
+        deps.run_steps = failing_steps;
+        assert_eq!(
+            provision_with(&base_args(), &deps),
+            ExitCode::from(EX_SOFTWARE)
+        );
+        assert_eq!(
+            ctx_users(),
+            vec!["agent2".to_string()],
+            "the steps must run under the alternate, not the original"
+        );
+        let _ = taken();
+
+        // Without a swap the same failure occurs under the original name.
+        let mut deps = recording_deps();
+        deps.run_steps = failing_steps;
+        assert_eq!(
+            provision_with(&base_args(), &deps),
+            ExitCode::from(EX_SOFTWARE)
+        );
+        assert_eq!(ctx_users(), vec!["agent".to_string()]);
+    }
+
+    #[test]
+    fn the_recovery_note_names_the_user_that_was_actually_created() {
+        let note =
+            partial_provision_note("agent", "agent2").expect("a fresh alt user needs the note");
+        assert!(note.contains("newly-created install user 'agent2'"));
+        // Both verbs, both scoped to the NEW name — a `--purge --user agent`
+        // would remove the operator's pre-existing user instead.
+        assert!(note.contains("agentlinux provision --user agent2` to resume"));
+        assert!(note.contains("agentlinux provision --purge --user agent2` to remove"));
+        // No swap, no note: the original user was not created by this run, so
+        // suggesting `--purge` on it would be an instruction to delete a user
+        // that predates the install.
+        assert_eq!(partial_provision_note("agent", "agent"), None);
     }
 
     #[test]

@@ -174,8 +174,7 @@ together, they still match, and the gate reports PASS. In the enforcing per-PR
 gate that makes it self-licensing: an author facing a red mutant can grant the
 exemption inside the very diff being scored. So when a `--in-diff` is given, the
 gate refuses any file whose diff ADDS a skip line if any skip in that file has no
-comment on the three lines above it (`scripts/mutation-gate.sh:check_added_skips`,
-MUT-21).
+comment on the three lines above it (`scripts/mutation-gate.sh`'s `check_diff`, MUT-21).
 
 Deliberately a shape check, not a judgement. It makes an *unannotated* skip
 unmergeable; whether the stated reason is any good — and whether it carries the

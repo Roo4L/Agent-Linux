@@ -140,6 +140,16 @@ pub struct Effects {
     pub ensure_dir: fn(&Path, u32, &str) -> io::Result<()>,
     /// `chown -h` — retarget the SYMLINK's owner, never its target.
     pub chown_symlink: fn(&Path, &str) -> io::Result<()>,
+    /// `chown -R <user>:<group> <path>`, owner given as `"user:group"`.
+    ///
+    /// Separate from [`Effects::chown`] because the recursive walk is where the
+    /// damage lives: REMEDIATE-01's chown strategy runs it as root over a
+    /// directory the operator named. Without a door, `apply_chown -> Ok(())`
+    /// (the remediation silently does nothing) and `resolve_user_group ->
+    /// Ok((0, 0))` (`chown -R 0:0` over the agent's npm prefix — the EACCES bug
+    /// this project exists to eliminate, reported as a completed remediation)
+    /// both survived a full mutation run.
+    pub chown_recursive: fn(&Path, &str) -> io::Result<()>,
     /// `visudo -cf <path>` — `Err` when the file does not parse.
     pub visudo_validate: fn(&Path) -> io::Result<()>,
     /// The family-correct package install verb.
@@ -158,6 +168,7 @@ impl Default for Effects {
             chown: crate::sysio::chown_by_name,
             ensure_dir: crate::sysio::ensure_dir,
             chown_symlink: crate::sysio::chown_symlink_by_name,
+            chown_recursive: crate::provision::remediate_npm_prefix::chown_recursive_by_name,
             visudo_validate: crate::sysio::visudo_validate,
             pkg_install: crate::pkg::pkg_install,
             which: crate::sysio::which,
@@ -283,8 +294,10 @@ mod provision_mod_tests {
                 StepResolution::ReuseWithWarning,
             ),
         ] {
-            let mut r = Resolutions::default();
-            r.sudoers = wide;
+            let r = Resolutions {
+                sudoers: wide,
+                ..Default::default()
+            };
             assert_eq!(r.into_step().unwrap().sudoers, narrow_expected);
         }
     }

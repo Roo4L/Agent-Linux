@@ -81,7 +81,7 @@ pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
     let old_owner = prefix_owner_user(Path::new(&prefix)).unwrap_or_else(|| "root".to_string());
 
     match strategy_for(Path::new(&prefix), user_home) {
-        Strategy::Chown => apply_chown(&prefix, user),
+        Strategy::Chown => apply_chown(ctx, &prefix, user),
         Strategy::Rebase => apply_rebase(ctx, &prefix, &old_owner),
     }
 }
@@ -148,10 +148,19 @@ fn is_trivially_salvageable(prefix: &Path) -> bool {
 /// `remediate::nodejs::_apply_chown` port.
 /// `chown -R <user>:<user> <prefix>`. Emits the `[REMEDIATE-01] strategy=chown`
 /// marker; a chown failure is a hard error with `[REMEDIATE-01:fail]`.
-fn apply_chown(prefix: &str, user: &str) -> io::Result<()> {
+///
+/// Takes `ctx` for the same reason `apply_rebase` does. It used to call
+/// `resolve_user_group` + `chown_recursive` directly, which meant the whole
+/// strategy=chown arm had no door: `strategy_for` decided correctly WHICH arm to
+/// take and then nothing observed what that arm did. Both
+/// `apply_chown -> Ok(())` — the remediation silently does nothing, the prefix
+/// stays root-owned, and the provisioner reports success — and
+/// `resolve_user_group -> Ok((0, 0))` — `chown -R 0:0` over the agent's own npm
+/// prefix — survived a full mutation run with the suite green.
+fn apply_chown(ctx: &ProvisionCtx, prefix: &str, user: &str) -> io::Result<()> {
     eprintln!("[REMEDIATE-01] strategy=chown path={prefix} new_owner={user}:{user}");
-    let (uid, gid) = resolve_user_group(user)?;
-    if let Err(e) = chown_recursive(Path::new(prefix), uid, gid) {
+    let owner = format!("{user}:{user}");
+    if let Err(e) = (ctx.fx.chown_recursive)(Path::new(prefix), &owner) {
         eprintln!("[REMEDIATE-01:fail] reason=chown-denied path={prefix}");
         return Err(e);
     }
@@ -310,6 +319,16 @@ fn prefix_owner_user(path: &Path) -> Option<String> {
         .ok()
         .flatten()
         .map(|u| u.name)
+}
+
+/// The production [`Effects::chown_recursive`]: resolve `"user:group"` through
+/// the passwd DB, then walk. The two halves it composes are both tested —
+/// [`resolve_user_group`] against a name no host has, and the walk through
+/// [`chown_recursive_with`] — so this line binds them and nothing else.
+pub fn chown_recursive_by_name(path: &Path, owner: &str) -> io::Result<()> {
+    let user = owner.split(':').next().unwrap_or(owner);
+    let (uid, gid) = resolve_user_group(user)?;
+    chown_recursive(path, uid, gid)
 }
 
 /// Recursive `chown -R uid:gid <path>` — walks the tree, chowning every entry.
@@ -550,13 +569,15 @@ mod remediate_npm_prefix_tests {
         NPM_CALLS.with(|c| c.borrow().clone())
     }
 
+    /// The user a dispatch ran as, and the env it carried.
+    type DispatchContext = (String, Vec<(String, String)>);
+
     thread_local! {
         /// The user and env `npm ls` was invoked with. Recorded because those two
         /// ARE the contract: enumerate as the OLD owner against the OLD prefix.
         /// The stub used to discard both, so the test named after them asserted
         /// only the argv — a compile-time constant naming neither.
-        static LS_CONTEXT: RefCell<Option<(String, Vec<(String, String)>)>> =
-            const { RefCell::new(None) };
+        static LS_CONTEXT: RefCell<Option<DispatchContext>> = const { RefCell::new(None) };
     }
 
     fn record_ls_context(user: &str, env: &[(String, String)]) {
@@ -636,6 +657,8 @@ mod remediate_npm_prefix_tests {
     thread_local! {
         /// The `(path, mode, owner)` of every `ensure_dir` the rebase asked for.
         static DIRS: RefCell<Vec<(String, u32, String)>> = const { RefCell::new(Vec::new()) };
+        /// The `(path, owner)` of every plain and every RECURSIVE chown.
+        static CHOWNS: RefCell<Vec<(String, String)>> = const { RefCell::new(Vec::new()) };
     }
 
     /// `ensure_dir` that performs the CREATE and the MODE but records the owner
@@ -666,26 +689,112 @@ mod remediate_npm_prefix_tests {
         DIRS.with(|d| d.borrow().clone())
     }
 
+    /// The same reasoning as `recording_ensure_dir`, one line down.
+    ///
+    /// `apply_rebase` also chowns `~user/.npmrc` through `ctx.fx.chown`, and the
+    /// first version of this fixture left that at `Effects::default()` — so six
+    /// tests still resolved `"agent:agent"` through the real passwd and group
+    /// DBs and passed only because the runner happens to be a uid named `agent`
+    /// in a gid named `agent`, making the chown a permitted self-chown. On any
+    /// other login they fail with `reason=npmrc-write-denied`, which says nothing
+    /// about names. Recording it means a fabricated fixture user works.
+    fn recording_chown(p: &Path, owner: &str) -> io::Result<()> {
+        CHOWNS.with(|c| {
+            c.borrow_mut()
+                .push((p.to_string_lossy().into_owned(), owner.to_string()))
+        });
+        Ok(())
+    }
+
+    fn chowns() -> Vec<(String, String)> {
+        CHOWNS.with(|c| c.borrow().clone())
+    }
+
+    /// An install user no passwd DB contains: every owner-taking effect in the
+    /// rebase path must be injected, so nothing here may resolve a real name.
+    const FIXTURE_USER: &str = "agentlinux-fixture-user";
+
     fn rebase_ctx(home: &Path, as_user: crate::dispatcher::AsUser) -> ProvisionCtx {
         NPM_CALLS.with(|c| c.borrow_mut().clear());
         DIRS.with(|d| d.borrow_mut().clear());
+        CHOWNS.with(|c| c.borrow_mut().clear());
         ProvisionCtx {
             root: PathBuf::from("/"),
             fx: Effects {
                 as_user,
                 ensure_dir: recording_ensure_dir,
+                chown: recording_chown,
+                chown_recursive: recording_chown,
                 ..Effects::default()
             },
-            // A literal, not the runner's name: with `ensure_dir` recorded rather
-            // than performed, nothing here needs to exist in the passwd DB, and
-            // the owner assertion below is only meaningful against a fixed name.
-            install_user: "agent".to_string(),
+            // A name NO host has, deliberately. A literal that happens to match
+            // the runner ("agent" on this box) still passes when a chown escapes
+            // the seam, because chowning a file to its own owner succeeds — so
+            // the fixture would keep the coupling it was written to remove.
+            install_user: FIXTURE_USER.to_string(),
             install_home: home.to_string_lossy().into_owned(),
             family: crate::distro::Family::Debian,
             resolutions: crate::provision::Resolutions::default()
                 .into_step()
                 .unwrap(),
         }
+    }
+
+    // The strategy=chown arm. `strategy_for` is well covered, so the code decided
+    // correctly WHICH arm to take and then nothing observed what that arm did:
+    // `apply_chown -> Ok(())` (the remediation silently does nothing; the prefix
+    // stays root-owned and the provisioner reports success) and
+    // `resolve_user_group -> Ok((0, 0))` (`chown -R 0:0` over the agent's own npm
+    // prefix — the EACCES bug AgentLinux exists to eliminate, handed back as a
+    // completed remediation) both survived a full mutation run.
+
+    #[test]
+    fn chown_retargets_the_prefix_at_the_install_user_recursively() {
+        let d = TempDir::new().unwrap();
+        let prefix = d.path().join(".npm-global");
+        std::fs::create_dir_all(&prefix).unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+
+        apply_chown(&ctx, &prefix.to_string_lossy(), FIXTURE_USER).unwrap();
+
+        // ONE recursive chown, of the prefix, to the install user's own
+        // user:group. Not root, and not the invoking user.
+        assert_eq!(
+            chowns(),
+            vec![(
+                prefix.display().to_string(),
+                format!("{FIXTURE_USER}:{FIXTURE_USER}")
+            )]
+        );
+    }
+
+    #[test]
+    fn a_failed_chown_is_a_hard_error_not_a_silent_skip() {
+        // REMEDIATE-01's whole purpose is that `npm install -g` stops racing
+        // root. A chown that could not be applied and was reported as success
+        // leaves exactly the state the remediation was invoked to remove.
+        fn denied(_p: &Path, _o: &str) -> io::Result<()> {
+            Err(io::Error::other("chown: Operation not permitted"))
+        }
+        let d = TempDir::new().unwrap();
+        let mut ctx = rebase_ctx(d.path(), npm_two_modules);
+        ctx.fx.chown_recursive = denied;
+
+        assert!(apply_chown(&ctx, &d.path().to_string_lossy(), FIXTURE_USER).is_err());
+    }
+
+    #[test]
+    fn the_production_recursive_chown_refuses_a_name_no_host_has() {
+        // The wiring adapter `chown_recursive_by_name` splits "user:group" and
+        // resolves the LHS. A name that does not resolve must be an error, not a
+        // silent (0, 0) — which is what `chown -R root:root` on the agent's
+        // prefix would be.
+        let d = TempDir::new().unwrap();
+        let err = chown_recursive_by_name(d.path(), "agentlinux-no-such-user:x").unwrap_err();
+        assert!(
+            err.to_string().contains("unknown user"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]
@@ -713,17 +822,17 @@ mod remediate_npm_prefix_tests {
                 (
                     new_prefix.display().to_string(),
                     0o755,
-                    "agent:agent".to_string()
+                    format!("{FIXTURE_USER}:{FIXTURE_USER}")
                 ),
                 (
                     new_prefix.join("bin").display().to_string(),
                     0o755,
-                    "agent:agent".to_string()
+                    format!("{FIXTURE_USER}:{FIXTURE_USER}")
                 ),
                 (
                     new_prefix.join("lib").display().to_string(),
                     0o755,
-                    "agent:agent".to_string()
+                    format!("{FIXTURE_USER}:{FIXTURE_USER}")
                 ),
             ]
         );
