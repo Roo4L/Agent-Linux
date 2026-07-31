@@ -83,14 +83,43 @@ fn resolve_provision_user(user_flag: Option<&str>) -> Result<String, ExitCode> {
 /// bail-with-hint or an EOF decline, 64 for 3 invalid names. On a TTY the accepted
 /// alternate is a fresh user provisioned via the normal Create path.
 fn resolve_wrong_shell(user: &str) -> Result<String, ExitCode> {
-    if provision::probe::user_state(user) != provision::probe::UserState::WrongShell {
+    resolve_wrong_shell_with(
+        user,
+        provision::probe::user_state(user),
+        provision::wizard::find_alt_user_name().as_deref(),
+        provision::wizard::stdin_is_tty(),
+        &mut |s| provision::wizard::alt_user_prompt(s, &validate_user_name),
+    )
+}
+
+/// [`resolve_wrong_shell`] over stated host facts and an injected prompt.
+///
+/// Every input this decision rests on — whether the user's shell is wrong, what
+/// alternate name is free, whether there is a terminal, what the operator
+/// answered — arrives as a parameter, following the shape
+/// `wizard::should_prompt_from` already uses in this tree.
+///
+/// The outer function being a `ProvisionDeps` field made the ORCHESTRATOR
+/// testable; it left this decision itself unreachable. It has five outcomes and
+/// two distinct exit codes — UX-04 specifies 65 (EX_DATAERR) when the operator
+/// declines or there is no terminal, and 64 (EX_USAGE) after three invalid
+/// answers — and nothing asserted the difference at any level. Swapping those
+/// two codes, or dropping the `--user=<suggested>` hint from the non-TTY
+/// branch, would have surfaced no earlier than a QEMU run.
+fn resolve_wrong_shell_with(
+    user: &str,
+    state: provision::probe::UserState,
+    suggested: Option<&str>,
+    is_tty: bool,
+    prompt: &mut dyn FnMut(Option<&str>) -> provision::wizard::AltUser,
+) -> Result<String, ExitCode> {
+    if state != provision::probe::UserState::WrongShell {
         return Ok(user.to_string());
     }
-    let suggested = provision::wizard::find_alt_user_name();
 
-    if !provision::wizard::stdin_is_tty() {
+    if !is_tty {
         eprintln!("agentlinux: existing user \"{user}\" is incompatible (wrong-shell).");
-        match suggested.as_deref() {
+        match suggested {
             Some(s) => eprintln!("Re-run with --user={s} or fix the existing user manually."),
             None => eprintln!(
                 "Re-run with --user=NAME (no auto-suggested name available — agent2..agent99 \
@@ -105,12 +134,12 @@ fn resolve_wrong_shell(user: &str) -> Result<String, ExitCode> {
          writable home)."
     );
     eprintln!("AgentLinux can create a new install user instead.");
-    match suggested.as_deref() {
+    match suggested {
         Some(s) => eprintln!("Suggested alternate name: {s}"),
         None => eprintln!("No auto-suggested name available (agent2..agent99 all taken)."),
     }
 
-    match provision::wizard::alt_user_prompt(suggested.as_deref(), &validate_user_name) {
+    match prompt(suggested) {
         provision::wizard::AltUser::Chosen(name) => {
             eprintln!("[ALT-USER] accepted: {name}");
             Ok(name)
@@ -1368,6 +1397,96 @@ mod provision_tests {
                 "probe_facts"
             ],
             "no transcript, no step, no scan may run after a bail"
+        );
+    }
+
+    // --- resolve_wrong_shell: five outcomes, two exit codes, all from literals.
+
+    use provision::probe::UserState;
+    use provision::wizard::AltUser;
+
+    fn never_prompts(_s: Option<&str>) -> AltUser {
+        panic!("no prompt is owed when the shell is fine or there is no terminal");
+    }
+
+    #[test]
+    fn a_conforming_user_is_returned_untouched_and_never_prompts() {
+        for state in [
+            UserState::Absent,
+            UserState::Conforming,
+            UserState::HomeNotWritable,
+        ] {
+            let got = resolve_wrong_shell_with("agent", state, Some("agent2"), true, &mut |s| {
+                never_prompts(s)
+            });
+            assert_eq!(got.unwrap(), "agent", "state={state:?}");
+        }
+    }
+
+    #[test]
+    fn a_wrong_shell_without_a_terminal_exits_65_and_never_prompts() {
+        // UX-04: no TTY means no way to ask, so it must bail — and bail with
+        // EX_DATAERR (incompatible host state), NOT EX_USAGE.
+        let got = resolve_wrong_shell_with(
+            "agent",
+            UserState::WrongShell,
+            Some("agent2"),
+            false,
+            &mut |s| never_prompts(s),
+        );
+        assert_eq!(got.unwrap_err(), ExitCode::from(EX_DATAERR));
+
+        // …and the same with no suggestion available.
+        let got = resolve_wrong_shell_with("agent", UserState::WrongShell, None, false, &mut |s| {
+            never_prompts(s)
+        });
+        assert_eq!(got.unwrap_err(), ExitCode::from(EX_DATAERR));
+    }
+
+    #[test]
+    fn an_accepted_alternate_name_becomes_the_install_user() {
+        let got = resolve_wrong_shell_with(
+            "agent",
+            UserState::WrongShell,
+            Some("agent2"),
+            true,
+            &mut |suggested| {
+                // The prompt is offered the suggestion the caller computed.
+                assert_eq!(suggested, Some("agent2"));
+                AltUser::Chosen("agent2".to_string())
+            },
+        );
+        assert_eq!(got.unwrap(), "agent2");
+    }
+
+    #[test]
+    fn declining_exits_65_but_three_invalid_answers_exit_64() {
+        // The distinction UX-04 specifies, and the one nothing asserted: EOF is
+        // "incompatible host state" (65); an operator who cannot type a legal
+        // name three times is a usage error (64). Swapping them would have gone
+        // unnoticed until a QEMU run.
+        let declined = resolve_wrong_shell_with(
+            "agent",
+            UserState::WrongShell,
+            Some("agent2"),
+            true,
+            &mut |_| AltUser::DeclinedEof,
+        );
+        assert_eq!(declined.unwrap_err(), ExitCode::from(EX_DATAERR));
+
+        let exhausted = resolve_wrong_shell_with(
+            "agent",
+            UserState::WrongShell,
+            Some("agent2"),
+            true,
+            &mut |_| AltUser::Exhausted,
+        );
+        assert_eq!(exhausted.unwrap_err(), ExitCode::from(EX_USAGE));
+
+        assert_ne!(
+            ExitCode::from(EX_DATAERR),
+            ExitCode::from(EX_USAGE),
+            "the two codes must differ, or the assertions above are vacuous"
         );
     }
 }
