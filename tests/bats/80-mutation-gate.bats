@@ -48,7 +48,7 @@ cat >mutants.out/outcomes.json <<JSON
 {"total_mutants": $1, "missed": $2, "caught": $3, "timeout": $4,
  "unviable": $unviable, "end_time": "2026-07-31T00:00:00Z"}
 JSON
-python3 -c "import json,sys; json.dump([{}]*$1, open('mutants.out/mutants.json','w'))"
+python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, $1 + 1)], open('mutants.out/mutants.json','w'))"
 printf 'crates/x.rs:1:1: replace a with b\n' >mutants.out/missed.txt
 : >mutants.out/timeout.txt
 exit $5
@@ -74,7 +74,7 @@ cat >mutants.out/outcomes.json <<JSON
 {"total_mutants": $1, "missed": 0, "caught": $1, "timeout": 0,
  "unviable": 0, "end_time": null}
 JSON
-python3 -c "import json,sys; json.dump([{}]*$2, open('mutants.out/mutants.json','w'))"
+python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, $1 + 1)], open('mutants.out/mutants.json','w'))"
 : >mutants.out/missed.txt
 : >mutants.out/timeout.txt
 exit $3
@@ -174,7 +174,7 @@ cat >mutants.out/outcomes.json <<'JSON'
 {"total_mutants": 5, "missed": 0, "caught": 5, "timeout": 0,
  "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
 JSON
-python3 -c "import json; json.dump([{}]*5, open('mutants.out/mutants.json','w'))"
+python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, 6)], open('mutants.out/mutants.json','w'))"
 : >mutants.out/missed.txt
 : >mutants.out/timeout.txt
 exit 0
@@ -182,8 +182,40 @@ EOF
   chmod +x "$BIN/cargo"
   run "$GATE" enforce
   [ "$status" -ne 0 ]
-  [[ "$output" == *"scored 5"* ]]
-  [[ "$output" == *"contains 10"* ]]
+  [[ "$output" == *"never scored"* ]]
+  # The message must NAME the unscored mutants, not just count them — a bare
+  # count leaves the reader unable to tell which part of the change went
+  # unmeasured.
+  [[ "$output" == *"unscored: src/x.rs"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-05c: scoring a mutant the scope does not contain fails too" {
+  # `--error VALUE` (and error_values in .cargo/mutants.toml) ADDS a mutant per
+  # Result-returning fn. Comparing sizes let one knob hide the survivors and a
+  # second refill the count — "PASS — every mutant was caught", no argv evidence.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then
+    for i in 1 2 3; do echo "src/x.rs:$i:1: replace a with b"; done
+    exit 0
+  fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 3, "missed": 0, "caught": 3, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
+JSON
+python3 -c "import json; json.dump([{'name': 'src/x.rs:1:1: replace a with b'}, {'name': 'src/x.rs:2:1: replace a with b'}, {'name': 'src/OTHER.rs:9:1: injected'}], open('mutants.out/mutants.json','w'))"
+: >mutants.out/missed.txt
+: >mutants.out/timeout.txt
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"does not contain"* ]]
   [[ "$output" != *"PASS"* ]]
 }
 
@@ -204,7 +236,7 @@ cat >mutants.out/outcomes.json <<'JSON'
 {"total_mutants": 5, "missed": 0, "caught": 0, "timeout": 0,
  "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
 JSON
-python3 -c "import json; json.dump([{}]*5, open('mutants.out/mutants.json','w'))"
+python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, 6)], open('mutants.out/mutants.json','w'))"
 : >mutants.out/missed.txt
 : >mutants.out/timeout.txt
 exit 0
@@ -429,7 +461,7 @@ cat >mutants.out/outcomes.json <<'JSON'
 {"total_mutants": 2, "missed": 0, "caught": 2, "timeout": 0,
  "unviable": 0, "end_time": "2026-07-31T00:00:00Z"}
 JSON
-python3 -c "import json; json.dump([{}]*2, open('mutants.out/mutants.json','w'))"
+python3 -c "import json; json.dump([{'name': 'src/x.rs:%d:1: replace a with b' % i} for i in range(1, 3)], open('mutants.out/mutants.json','w'))"
 : >mutants.out/missed.txt
 : >mutants.out/timeout.txt
 exit 0

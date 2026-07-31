@@ -62,10 +62,23 @@ Corollaries, each of which was a real false-green:
   non-resolving `--in-diff` — and, worse, `.cargo/mutants.toml` can narrow the
   set with no argv evidence at all. So the gate asks
   `cargo mutants --no-config --list --in-diff <diff>` what the scope SHOULD
-  contain and licenses the skip only when the answer is zero. It then requires
-  the run to have scored at least that many, and requires
-  `caught + missed + timeout + unviable == total` so a `--check` run — which
-  builds mutants without testing any — cannot report a score.
+  contain, BEFORE the run, and licenses the skip only when the answer is zero.
+  A failed query is fatal, not an empty scope — swallowing it produced
+  `expected=0` and skipped past every other check.
+
+  It then compares the two SETS, not their sizes: `mutants.json`'s `name` field
+  is byte-identical to a `--list` line. Sizes were not enough — `--error VALUE`
+  (and `error_values` in the config) ADDS a mutant per Result-returning fn, so
+  one knob could hide the survivors and a second refill the count. Anything
+  scored that is not in the expectation fails in both modes. Anything expected
+  but unscored fails in ENFORCE mode, and is reported as partial coverage in
+  ADVISORY mode — which is what makes the nightly's `--shard` legal (§1, §3):
+  each runner scores a slice and the four together cover the workspace. That
+  asymmetry is the only place narrowing is tolerated, and only because advisory
+  is a warning.
+
+  Finally `caught + missed + timeout + unviable == total`, so a `--check` run —
+  which builds mutants without testing any — cannot report a score.
 
   Three earlier revisions tried to decide this by inspecting arguments: a
   denylist of filter flags, then an allowlist of benign ones. Both are

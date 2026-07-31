@@ -76,8 +76,8 @@ check_diff_file() {
   # a step moved out of working-directory: rust) matches NOTHING and exits 0 —
   # indistinguishable from an honest "nothing here is mutable" unless checked.
   #
-  # Tolerant of: CRLF; a trailing tab+timestamp (GNU `diff -u` headers); git's
-  # `core.quotePath` double-quoting of non-ASCII names; a one-letter prefix
+  # Tolerant of: CRLF; a trailing tab+timestamp (GNU `diff -u` headers); a
+  # one-letter prefix
   # (`a/`, `i/`, git's diff.srcPrefix/dstPrefix); `diff.noprefix` (no prefix at
   # all); and spaces in paths. `/dev/null` (a deletion) is skipped.
   #
@@ -85,6 +85,16 @@ check_diff_file() {
   # `[a-z]\{0,1\}/\{0,1\}` turned `+++ src/lib.rs` into `rc/lib.rs`, which
   # would hard-fail every legitimate PR under a runner with diff.noprefix set
   # while a comment claimed the opposite.
+  # A `core.quotePath` header (git's default) octal-escapes non-ASCII bytes:
+  # `+++ "b/src/caf\303\251.rs"`. Decoding that correctly in sed is more
+  # trouble than it is worth, and guessing wrong means hard-failing an honest
+  # PR — so refuse the diff and say what to do instead. An earlier comment
+  # claimed this shape was tolerated; it was not.
+  if grep -qE '^\+\+\+ ".*\\[0-7]{3}' "$f"; then
+    die "--in-diff file '$f' contains a core.quotePath-escaped path, which this
+  gate cannot verify. Regenerate the diff with -c core.quotePath=false."
+  fi
+
   local p
   while read -r p; do
     [[ -f $p ]] || die "--in-diff names '$p', which does not exist relative to
@@ -144,6 +154,50 @@ if command -v git >/dev/null && git rev-parse --git-dir >/dev/null 2>&1 &&
   echo "  residue if this run is interrupted." >&2
 fi
 
+# ---------------------------------------------------------------------------
+# The expectation, asked of the tool BEFORE anything runs.
+#
+# `--list` performs cargo-mutants' own filtering, so it accounts for every flag
+# spelling, every flag a future release adds, and `.cargo/mutants.toml` — which
+# narrows the set with no argument-vector evidence at all. `--no-config` makes
+# the expectation the honest one: what this scope SHOULD contain, not what a
+# config file left behind. `--list` builds nothing and writes no `mutants.out`,
+# so it is cheap to run first — and running it first means a scope mismatch is
+# reported before paying for the run, and before `--in-place` has rewritten the
+# tree the query would otherwise parse.
+#
+# A FAILED query is fatal. It used to be swallowed (`2>/dev/null … || true`),
+# which produced `expected=0` and took the skip below — silently disabling the
+# outcomes check, both completeness checks, the accounting identity and the
+# survivor check in one step. `cargo mutants --list` failing is a broken gate,
+# not an empty scope.
+expected_file="$(mktemp)"
+list_err="$(mktemp)"
+trap 'rm -f "$expected_file" "$list_err"' EXIT
+
+list_args=(--no-config --list)
+[[ -n $diff_file ]] && list_args+=(--in-diff "$diff_file")
+
+if ! cargo mutants "${list_args[@]}" >"$expected_file" 2>"$list_err"; then
+  echo "--- cargo mutants --list stderr ---" >&2
+  cat "$list_err" >&2 || true
+  die "could not ask cargo-mutants what this scope contains. The gate's
+  expectation is unknown, so nothing it observes afterwards can be trusted.
+  (A common cause is running from a directory with no Cargo.toml.)"
+fi
+
+expected=$(grep -c . "$expected_file" || true)
+
+# Zero expected is the ONE legitimate skip: this scope genuinely contains
+# nothing mutable. Derived from the tool, so no filter flag or config file can
+# manufacture it — and reached only when the query SUCCEEDED.
+if [[ $expected -eq 0 ]]; then
+  echo "mutation gate: nothing mutable in scope — cargo-mutants lists 0 mutants,"
+  echo "  so there is nothing to score."
+  echo "- \`$mode\`: SKIPPED (no mutants in scope)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
+  exit 0
+fi
+
 rm -rf "$OUT_DIR"
 
 # Run it. A non-zero exit is NOT interpreted here: cargo-mutants exits non-zero
@@ -156,37 +210,6 @@ cargo_status=$?
 set -e
 
 outcomes="$OUT_DIR/outcomes.json"
-
-# What SHOULD have been scored, according to cargo-mutants itself.
-#
-# `--list` runs the tool's own filtering, so it accounts for every flag spelling,
-# every future flag, and — crucially — `.cargo/mutants.toml`, which narrows the
-# set with no argument-vector evidence at all. `--no-config` is passed so the
-# expectation is the honest one: the mutants this diff SHOULD produce, not the
-# ones a config file left after excluding some.
-#
-# The diff is the only narrowing this gate accepts. Everything else — a stray
-# `--file`, an empty `--shard`, an `exclude_globs` in a config — shows up as a
-# disagreement between this expectation and what the run actually scored.
-expected_mutants() {
-  if [[ -n $diff_file ]]; then
-    cargo mutants --no-config --list --in-diff "$diff_file" 2>/dev/null | grep -c . || true
-  else
-    cargo mutants --no-config --list 2>/dev/null | grep -c . || true
-  fi
-}
-
-expected=$(expected_mutants)
-
-# Zero expected is the ONE legitimate skip: the diff (or the workspace) genuinely
-# contains nothing mutable. Derived from the tool, so it cannot be manufactured
-# by a filter flag or a config file.
-if [[ $expected -eq 0 ]]; then
-  echo "mutation gate: nothing mutable in scope — cargo-mutants lists 0 mutants"
-  echo "  for this diff, so there is nothing to score."
-  echo "- \`$mode\`: SKIPPED (no mutants in scope)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
-  exit 0
-fi
 
 [[ -f $outcomes ]] || die "no $outcomes after cargo-mutants exited $cargo_status.
   cargo-mutants did not complete a run — usually a rejected flag combination or a
@@ -231,16 +254,64 @@ if [[ $planned -ge 0 && $planned -ne $total ]]; then
   $total. The run did not finish; a partial result is not a pass."
 fi
 
-# The run must have scored everything the tool says this scope contains. A
-# narrowing filter or a config exclusion shows up HERE, as a smaller set than
-# expected — including when the subset it scored is entirely clean, which is the
-# case that printed "PASS — every mutant was caught" on a diff with survivors.
-if [[ $total -lt $expected ]]; then
-  die "cargo-mutants scored $total mutant(s) but this scope contains $expected.
-  Something narrowed the set — a filter flag, a --shard, or an exclusion in
-  .cargo/mutants.toml. Scoring a subset is not scoring the change: the $((expected - total))
-  unscored mutant(s) may be exactly the surviving ones. Run the gate over the
-  whole scope, or shard it by splitting the DIFF rather than the mutant set."
+# Compare the SETS, not their sizes.
+#
+# `mutants.json`'s `name` field is byte-identical to a `--list` line, so the two
+# are directly comparable — and the script already opens both. Counting was not
+# enough: `--error VALUE` (and its `error_values` config equivalent) ADDS a
+# mutant per Result-returning fn, so one knob could hide the survivors and a
+# second refill the count back to the expected number, yielding
+# "PASS — every mutant was caught" with no argv evidence at all.
+#
+# Two rules, matching what the two gates are for:
+#   enforce  — the scored set must EQUAL the expectation. A merge gate that
+#              skipped part of the change is not a merge gate.
+#   advisory — the scored set must be a non-empty SUBSET. Sharding is legitimate
+#              narrowing here: each nightly runner scores a slice, and the four
+#              together cover the workspace. (This is the one place a narrowing
+#              filter is tolerated, and only because the mode is a warning.)
+# In BOTH modes, anything scored that is NOT in the expectation fails — that is
+# the mutant-adding case, and it means the run was not measuring this code.
+mapfile -t verdict < <(
+  python3 -c '
+import json, sys
+expected = {l.rstrip("\n") for l in open(sys.argv[1]) if l.strip()}
+scored = {m.get("name", "") for m in json.load(open(sys.argv[2]))}
+missing = sorted(expected - scored)
+extra = sorted(scored - expected)
+print(len(missing))
+print(len(extra))
+for m in missing[:10]:
+    print("  unscored: " + m)
+for m in extra[:10]:
+    print("  unexpected: " + m)
+' "$expected_file" "$OUT_DIR/mutants.json"
+)
+unscored_n="${verdict[0]}"
+unexpected_n="${verdict[1]}"
+detail=$(printf '%s\n' "${verdict[@]:2}")
+
+if [[ $unexpected_n -gt 0 ]]; then
+  echo "$detail" >&2
+  die "the run scored $unexpected_n mutant(s) this scope does not contain. Something
+  ADDED mutants (--error, or error_values in .cargo/mutants.toml), so the score
+  does not describe this code."
+fi
+
+if [[ $unscored_n -gt 0 ]]; then
+  if [[ $mode == enforce ]]; then
+    echo "$detail" >&2
+    die "$unscored_n mutant(s) in scope were never scored. Something narrowed the
+  set — a filter flag, a --shard, or an exclusion in .cargo/mutants.toml. Scoring
+  a subset is not scoring the change: the unscored mutants may be exactly the
+  surviving ones. Run the enforcing gate over the whole scope; shard the DIFF,
+  not the mutant set."
+  else
+    # Advisory: a shard is a legal subset. Say how much of the scope this run
+    # covered so a reader is never misled about what the score means.
+    echo "mutation gate ($mode): scored $total of $expected mutant(s) in scope" \
+      "($unscored_n not in this run's slice)."
+  fi
 fi
 
 # Every mutant must land in exactly one bucket. `--check` builds each mutant

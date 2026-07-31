@@ -5,10 +5,10 @@ milestone_name: Rust Rewrite
 current_phase: 59
 current_phase_name: Full Validation Gate
 status: complete
-stopped_at: v0.4.0 Rust Rewrite — milestone gate MET + cutover delivered on PR #59 (legacy TS/Bash deleted, wizard/remediation/detect reimplemented in Rust); .planning/ closed out to the durable record. PR in review; GitHub release gated on owner green-light.
-last_updated: "2026-07-30T10:10:00.000Z"
-last_activity: 2026-07-30
-last_activity_desc: Milestone close-out — archived phases 53-59 + the RC QA campaign into .planning/milestones/v0.4.0-{phases,qa}/ and the Rust Rewrite requirements to .planning/milestones/v0.4.0-rust-rewrite-REQUIREMENTS.md (a distinct name — the v0.4.0-* slot still holds the renumber-pending Open-Source Release archive); STATE reset to complete. Cutover (detect-cache writer wiring REMEDIATE-04 + review-sweep fixes) pushed to PR #59; AL-125 In Review.
+stopped_at: context exhaustion at 75% (2026-07-31)
+last_updated: "2026-07-31T11:03:11.528Z"
+last_activity: 2026-07-28
+last_activity_desc: Plan 56-02 complete (list/pin/adopt verbs + guard/catalog/sentinel/cache adapters)
 progress:
   total_phases: 7
   completed_phases: 7
@@ -467,6 +467,6 @@ Items acknowledged and carried forward:
 
 ## Session Continuity
 
-Last session: 2026-07-29T09:42:30.382Z
-Stopped at: Completed 59-02-PLAN.md
+Last session: 2026-07-31T11:03:11.512Z
+Stopped at: context exhaustion at 75% (2026-07-31)
 Resume file: None

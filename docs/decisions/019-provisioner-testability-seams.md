@@ -130,8 +130,13 @@ unconditionally.
 
 **Production wiring adapters.** Pushing an ambient read behind a seam leaves a
 one-line adapter that performs it — `cmd/install::real_is_tty`,
-`cmd/provision::real_choose_user`, `detect::scan`, and the
-`ProvisionDeps::default` field initialisers. Those lines are unkillable by
+`cmd/provision::real_choose_user` and `detect::scan`. Those three carry
+`#[cfg_attr(test, mutants::skip)]` with a back-reference here.
+
+(`ProvisionDeps::default` is NOT one of them: cargo-mutants generates no mutants
+for a struct literal of function pointers, so it needs no annotation. An earlier
+revision of this section claimed it carried one — wrong in both directions, in
+the paragraph people read while triaging a red gate.) Those lines are unkillable by
 construction: observing them requires reasserting the very coupling the seam
 removed (attaching a real pty, a real passwd DB). They carry
 `#[cfg_attr(test, mutants::skip)]` with a back-reference here, per ADR-020 §4.
