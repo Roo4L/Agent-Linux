@@ -97,8 +97,8 @@ findings to a fix — largely on its own, and several shipped fixes came out of
 it.
 
 The full write-up is in
-[CODEX-QA-HACKATHON-REPORT.md](CODEX-QA-HACKATHON-REPORT.md); using Codex in
-this repo is covered in [docs/codex.md](docs/codex.md).
+[docs/CODEX-QA-HACKATHON-REPORT.md](docs/CODEX-QA-HACKATHON-REPORT.md); using
+Codex in this repo is covered in [docs/codex.md](docs/codex.md).
 
 ## Learn more
 
