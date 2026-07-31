@@ -129,7 +129,8 @@ drives their `run`. `cmd/provision::run_purge` spawns `pkill`/`userdel`
 unconditionally.
 
 **Production wiring adapters.** Pushing an ambient read behind a seam leaves a
-one-line adapter that performs it — `cmd/install::real_is_tty`, and the
+one-line adapter that performs it — `cmd/install::real_is_tty`,
+`cmd/provision::real_choose_user`, `detect::scan`, and the
 `ProvisionDeps::default` field initialisers. Those lines are unkillable by
 construction: observing them requires reasserting the very coupling the seam
 removed (attaching a real pty, a real passwd DB). They carry

@@ -351,6 +351,19 @@ fn record_value(r: &AgentRecord) -> serde_json::Value {
 /// records (mcp/test entries excluded, absent agents included as `status=absent`).
 /// A catalog-read failure logs a breadcrumb and returns an empty vec (the callers
 /// treat that as "detected nothing" — the same absent-cache fallback).
+/// Not mutation-tested — ADR-019 §5, "production wiring adapters". This is the
+/// one line that binds the real login shell and the ambient catalog dir to
+/// [`scan_with`], and `replace scan -> vec![]` is unkillable HERE because no
+/// test drives it: driving it means spawning `bash --login` against a real
+/// catalog, which is the coupling the seam removed.
+///
+/// Recorded rather than claimed fixed. An earlier commit said the seam killed
+/// this mutant; it kills `scan_with -> vec![]`, which is a different function.
+/// Measured: `scan -> vec![]` passed all 493 tests. The BEHAVIOUR it would cause
+/// — an empty detect cache, so every downstream REUSE-03/REMEDIATE-04 verdict
+/// sees "nothing installed" — is asserted through the seam by
+/// `scan_probes_every_non_mcp_agent_in_the_catalog`.
+#[cfg_attr(test, mutants::skip)]
 fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
     scan_with(login_run, &catalog::resolve_catalog_dir(), user, home)
 }

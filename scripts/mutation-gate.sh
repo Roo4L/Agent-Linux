@@ -49,10 +49,18 @@ esac
 # logs "Diff file is empty" and exits 0. That is a legitimate outcome (a PR that
 # touches no Rust), but it must be visible rather than indistinguishable from a
 # clean pass, so name it here and skip the run.
-# Set once an --in-diff file has been seen and validated. Guards the
-# "no mutants in the diff" skip below: without it, that skip also swallows every
-# OTHER way cargo-mutants exits 0 with no results file.
+# Set once an --in-diff file has been seen and validated, and cleared by any
+# OTHER filter flag. Guards the "no mutants in the diff" skip below.
+#
+# `--in-diff` must be the SOLE filter for that skip to mean anything. Pairing it
+# with `--file`, `--exclude`, `--re` or `--shard` also yields "exit 0, no results
+# file" — for a diff that may be full of uncaught mutants, because the second
+# filter is what emptied the set. Enumerating the flagless shapes (as the first
+# version did) closes instances; requiring sole-filter closes the class. This
+# matters concretely: test.yml's own comment tells the next maintainer to SHARD
+# this gate when the diff is large, which would otherwise walk straight into it.
 saw_diff_file=0
+saw_other_filter=""
 
 check_diff_file() {
   local f="$1"
@@ -62,6 +70,15 @@ check_diff_file() {
     echo "- \`$mode\`: SKIPPED (empty diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
     exit 0
   fi
+
+  # The file must actually PARSE as a diff before "found no .rs paths" can mean
+  # "nothing to check". Without this the extraction below is a fail-OPEN
+  # whitelist: a diff with `diff.noprefix`, custom `diff.srcPrefix`, CRLF line
+  # endings, a space in a path, `--stat` output, or plain garbage yields zero
+  # matches and is waved through as verified.
+  grep -qE '^(diff --git |--- |\+\+\+ )' "$f" || die "--in-diff file '$f' is not
+  a diff — no 'diff --git' or '---/+++' header found. Refusing to treat an
+  unparseable file as 'nothing to check'."
 
   # Every `+++ b/<path>.rs` in the diff must resolve from the directory this
   # runs in. cargo-mutants matches --in-diff paths against the WORKSPACE root,
@@ -76,7 +93,12 @@ check_diff_file() {
   $(pwd). The diff's paths do not resolve against the workspace, so
   cargo-mutants would match nothing and exit 0 — a green gate that scored
   nothing. Check --relative and the step's working-directory."
-  done < <(grep -oE '^\+\+\+ b/[^[:space:]]+\.rs$' "$f" | sed 's|^+++ b/||')
+    # Tolerant of CRLF, of any one-letter prefix (git's diff.srcPrefix/dstPrefix),
+    # of `diff.noprefix`, and of spaces in paths: take everything after the header
+    # marker, strip an optional `<x>/` prefix and any trailing CR, and check only
+    # `.rs` names. `/dev/null` (a deletion) is skipped.
+  done < <(sed -n 's/\r$//; s|^+++ [a-z]\{0,1\}/\{0,1\}||p' "$f" |
+    grep -E '\.rs$' | grep -v '^dev/null$')
 
   saw_diff_file=1
 }
@@ -93,6 +115,11 @@ for arg in "$@"; do
     # matching only the first left the equals form skipping this check entirely.
     --in-diff) want_diff_file=1 ;;
     --in-diff=*) check_diff_file "${arg#--in-diff=}" ;;
+    # `--list` produces no score at all, so a gate can never be satisfied by one.
+    --list) die "--list produces no mutation score; the gate cannot run against it" ;;
+    --file | --file=* | --exclude | --exclude=* | --exclude-re | --exclude-re=* | --re | --re=* | --shard | --shard=*)
+      saw_other_filter="$arg"
+      ;;
   esac
 done
 [[ $want_diff_file -eq 0 ]] || die "--in-diff given with no file argument"
@@ -135,11 +162,19 @@ outcomes="$OUT_DIR/outcomes.json"
 # So the skip requires an --in-diff file that was supplied, non-empty, and whose
 # paths resolve (checked in check_diff_file). Every other absent-outcomes case
 # falls through to the hard failure below.
-if [[ ! -f $outcomes && $cargo_status -eq 0 && $saw_diff_file -eq 1 ]]; then
+if [[ ! -f $outcomes && $cargo_status -eq 0 && $saw_diff_file -eq 1 && -z $saw_other_filter ]]; then
   echo "mutation gate: the diff produced no mutants — nothing in it is mutable"
   echo "  (test-only lines, comments, or manifest edits). Nothing to score."
   echo "- \`$mode\`: SKIPPED (no mutants in diff)" >>"${GITHUB_STEP_SUMMARY:-/dev/null}"
   exit 0
+fi
+
+if [[ ! -f $outcomes && $cargo_status -eq 0 && -n $saw_other_filter ]]; then
+  die "cargo-mutants produced no results, and '$saw_other_filter' was passed
+  alongside --in-diff. A second filter can empty the mutant set for a diff that
+  is full of uncaught mutants, so this cannot be reported as 'nothing in the
+  diff was mutable'. Run the gate with --in-diff as the only filter, or score
+  each shard's own diff."
 fi
 
 [[ -f $outcomes ]] || die "no $outcomes after cargo-mutants exited $cargo_status.

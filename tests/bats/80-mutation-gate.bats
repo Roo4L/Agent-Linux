@@ -317,3 +317,50 @@ print('contract OK')
   [ "$status" -ne 0 ]
   [[ "$output" == *"does not exist relative to"* ]]
 }
+
+@test "MUT-18: --in-diff paired with any other filter cannot license the skip" {
+  # A second filter can empty the mutant set for a diff that is full of uncaught
+  # mutants, producing the same "exit 0, no results file" as an honest
+  # nothing-to-mutate run. Enumerating the flagless shapes closed instances;
+  # this closes the class. test.yml's own comment advises sharding this gate for
+  # a large diff, which would otherwise walk straight into it.
+  stub_cargo_zero_mutants
+  mkdir -p crates/c/src
+  printf 'pub fn f() {}\n' >crates/c/src/lib.rs
+  printf 'diff --git a/crates/c/src/lib.rs b/crates/c/src/lib.rs\n--- a/crates/c/src/lib.rs\n+++ b/crates/c/src/lib.rs\n@@ -1 +1 @@\n-x\n+y\n' >d.diff
+
+  for extra in "--file crates/zzz/**" "--exclude crates/c/**" "--shard 99/100"; do
+    # shellcheck disable=SC2086
+    run "$GATE" enforce --in-diff d.diff $extra
+    [ "$status" -ne 0 ] || {
+      echo "BYPASS via $extra"
+      return 1
+    }
+  done
+
+  # --list can never produce a score, so it is refused outright.
+  run "$GATE" enforce --in-diff d.diff --list
+  [ "$status" -ne 0 ]
+
+  # …and --in-diff alone still skips.
+  run "$GATE" enforce --in-diff d.diff
+  [ "$status" -eq 0 ]
+}
+
+@test "MUT-19: a file that is not a diff is never treated as verified" {
+  # The path check only fires on lines it recognises, so anything it cannot
+  # parse — diff.noprefix, custom srcPrefix, CRLF, a space in a path, --stat
+  # output, plain garbage — used to be waved through as "no .rs paths to check".
+  stub_cargo_zero_mutants
+  printf 'this is not a diff\n' >garbage.diff
+  run "$GATE" enforce --in-diff garbage.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"not"*"diff"* ]]
+
+  # A real diff shape the old regex could not parse, naming a path that does
+  # not resolve, must still be caught.
+  printf 'diff --git nope/x.rs nope/x.rs\n--- nope/x.rs\n+++ nope/x.rs\n@@ -1 +1 @@\n-x\n+y\n' >noprefix.diff
+  run "$GATE" enforce --in-diff noprefix.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"does not exist relative to"* ]]
+}
