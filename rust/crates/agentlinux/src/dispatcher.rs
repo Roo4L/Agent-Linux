@@ -24,8 +24,8 @@
 //!   deliberate — see `Capture::timeout_exit`.
 //! - **every dispatch is bounded**: `dispatch_recipe` carries
 //!   `recipe_timeout_ms()`, and output collection gives up after
-//!   `READER_DRAIN_GRACE`. A leaked background job holding the pipe open can
-//!   truncate a capture; it can no longer hang the process.
+//!   `READER_DRAIN_GRACE`. A leaked background job holding the pipe open costs
+//!   that capture entirely; it can no longer hang the process.
 //!
 //! # Where the invoker check lives
 //! `as_user` almost always hits the invoker==target short-circuit *because* the
@@ -333,10 +333,14 @@ fn run(spawn: &Spawn, out_sink: Option<TeeSink>, err_sink: Option<TeeSink>) -> D
 /// Take a reader thread's accumulated output, giving up at `deadline` rather
 /// than blocking forever on a leaked pipe holder.
 ///
-/// Returning partial output beats hanging: the exit status is already known by
-/// the time this runs, so the caller can still act. The give-up is logged because
-/// a truncated capture would otherwise look like a child that simply said
-/// nothing — and for a parsed probe (`npm ls --json`) that difference matters.
+/// Losing the capture beats hanging: the exit status is already known by the time
+/// this runs, so the caller can still act. Be precise about the cost — the reader
+/// sends its whole accumulated string in one go, so there is no partial result to
+/// recover and this returns EMPTY, not truncated. The give-up is logged because an
+/// empty capture would otherwise look like a child that simply said nothing, and
+/// several callers parse what they capture (`npm ls -g --json`, `npm view`, and
+/// the version and `command -v` probes in `detect.rs`) — for those, the difference
+/// is "unknown" versus "absent".
 fn collect(rx: mpsc::Receiver<String>, deadline: Instant, label: &str, stream: &str) -> String {
     let remaining = deadline.saturating_duration_since(Instant::now());
     match rx.recv_timeout(remaining) {
@@ -344,7 +348,7 @@ fn collect(rx: mpsc::Receiver<String>, deadline: Instant, label: &str, stream: &
         Err(_) => {
             crate::plog!(
                 "agentlinux: `{label}` exited but its {stream} pipe is still held by a background \
-                 process after {}s; captured output may be truncated",
+                 process after {}s; its output could not be captured",
                 READER_DRAIN_GRACE.as_secs()
             );
             String::new()
