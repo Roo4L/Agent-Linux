@@ -36,3 +36,5 @@ New ADR: copy [`000-template.md`](000-template.md) and add a row below.
 | [016](016-agenda-redefinition.md) | Agenda redefinition — two pillars, vision-only doc | product, vision | Accepted |
 | [017](017-distro-family-bucket.md) | Distro-family bucket (`AGENTLINUX_DISTRO_FAMILY`) + single `pkg.sh` dispatch | distro, installer | Accepted |
 | [018](018-mcp-thin-installer-in-client-auth.md) | MCP entries are thin client-config installers; auth happens in-client | catalog, mcp, security | Accepted |
+| [019](019-provisioner-testability-seams.md) | Provisioner testability seams — injected effects, a root prefix, and what stays untested | testing, provisioner | Accepted |
+| [020](020-mutation-testing-policy.md) | Mutation testing — enforcing per-PR gate, advisory nightly, and what may be skipped | testing, ci | Accepted |

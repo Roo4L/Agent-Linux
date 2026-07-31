@@ -56,6 +56,22 @@ macro_rules! errln {
     ($o:expr, $($arg:tt)*) => { let _ = writeln!($o.err, $($arg)*); };
 }
 
+/// "Does this path exist on the host?" — the REMEDIATE-04 post-uninstall check,
+/// injected.
+///
+/// The canonical path comes from a hardcoded map (`/home/agent/.local/bin/claude`
+/// and friends), so a test cannot move it out of the way. Reading the real
+/// filesystem therefore made the remediate test pass only on a host WITHOUT
+/// Claude Code installed — it went red on the product's primary deployment, and
+/// in the QEMU suite after `agentlinux install claude-code`. Same class of
+/// host-coupling as reading the real /etc/sudoers.d.
+pub type PathExists = fn(&std::path::Path) -> bool;
+
+/// The production check.
+fn real_path_exists(p: &std::path::Path) -> bool {
+    p.exists()
+}
+
 /// `agentlinux install <name>` body.
 #[must_use]
 pub fn install(name: &str, opts: &InstallArgs) -> ExitCode {
@@ -71,6 +87,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         name,
         opts,
         dispatch,
+        real_path_exists,
         &mut Out {
             out: &mut out,
             err: &mut err,
@@ -84,6 +101,7 @@ pub fn install_into(
     name: &str,
     opts: &InstallArgs,
     dispatch: RecipeDispatcher,
+    path_exists: PathExists,
     o: &mut Out<'_>,
 ) -> ExitCode {
     // --dry-run + --yes is contradictory (dry-run never mutates; --yes is a
@@ -329,8 +347,8 @@ pub fn install_into(
 
         // Post-uninstall verification: the binary must be gone
         // at BOTH the canonical + detected path, else abort (exit 1). ADAPTER I/O.
-        let canonical_present = std::path::Path::new(&rem.canonical_path).exists();
-        let detected_present = std::path::Path::new(&rem.detected_path).exists();
+        let canonical_present = path_exists(std::path::Path::new(&rem.canonical_path));
+        let detected_present = path_exists(std::path::Path::new(&rem.detected_path));
         if canonical_present || detected_present {
             errln!(
                     o,
@@ -784,10 +802,26 @@ mod install_tests {
     // a dropped line, a reordered argument or a wrong branch were all invisible.
 
     /// Run the verb capturing both streams; returns (exit, stdout, stderr).
+    /// Nothing exists — the default for tests that never reach the
+    /// post-uninstall check. Stated as a fixture rather than inherited from the
+    /// runner's filesystem.
+    fn nothing_exists(_p: &std::path::Path) -> bool {
+        false
+    }
+
     fn run_capturing(
         name: &str,
         opts: &InstallArgs,
         dispatch: RecipeDispatcher,
+    ) -> (ExitCode, String, String) {
+        run_capturing_with(name, opts, dispatch, nothing_exists)
+    }
+
+    fn run_capturing_with(
+        name: &str,
+        opts: &InstallArgs,
+        dispatch: RecipeDispatcher,
+        path_exists: PathExists,
     ) -> (ExitCode, String, String) {
         let mut out: Vec<u8> = Vec::new();
         let mut err: Vec<u8> = Vec::new();
@@ -795,6 +829,7 @@ mod install_tests {
             name,
             opts,
             dispatch,
+            path_exists,
             &mut Out {
                 out: &mut out,
                 err: &mut err,
@@ -895,8 +930,11 @@ mod install_tests {
             ]}"#,
         )
         .unwrap();
-        // Healthy, but at a path that is neither the canonical one nor on disk —
-        // so the post-uninstall "binary is gone" verification passes.
+        // Healthy at a NON-canonical path. Whether the post-uninstall "binary is
+        // gone" check passes is now a fixture (`nothing_exists`) rather than a
+        // property of the runner's filesystem — the canonical path is hardcoded
+        // to /home/agent/.local/bin/claude, so reading the real FS made this test
+        // pass only on a host without Claude Code installed.
         let cache = detect.path().join("detect.json");
         std::fs::write(
             &cache,
@@ -935,6 +973,61 @@ mod install_tests {
         assert!(
             out.contains("▸ reinstalling claude-code 2.1.98…\n"),
             "stdout={out:?}"
+        );
+    }
+
+    #[test]
+    fn a_binary_still_present_after_uninstall_aborts_before_reinstalling() {
+        // The other side of REMEDIATE-04's post-uninstall verification: the
+        // uninstall recipe exited 0 but the binary is still there, so the verb
+        // must refuse rather than reinstall over it. This branch was previously
+        // reachable only by accident — on a host that HAD the binary, where it
+        // turned the sibling test red instead of being asserted here.
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        let detect = tempdir().unwrap();
+        std::fs::write(
+            cat.path().join("catalog.json"),
+            r#"{"version":"0.3.6","agents":[
+                {"id":"claude-code","display_name":"Claude Code","description":"d",
+                 "source_kind":"script","pinned_version":"2.1.98",
+                 "install_recipe_path":"install.sh","uninstall_recipe_path":"uninstall.sh",
+                 "test_only":true,"tags":["agent"]}
+            ]}"#,
+        )
+        .unwrap();
+        let cache = detect.path().join("detect.json");
+        std::fs::write(
+            &cache,
+            r#"{"agents":[{"id":"claude-code","status":"healthy",
+                 "path":"/usr/local/bin/claude","version":"2.1.90"}]}"#,
+        )
+        .unwrap();
+        env_scope
+            .set("AGENTLINUX_CATALOG_DIR", cat.path())
+            .set("AGENTLINUX_STATE_DIR", state.path())
+            .set("AGENTLINUX_DETECT_CACHE", &cache);
+
+        fn everything_exists(_p: &std::path::Path) -> bool {
+            true
+        }
+
+        let (code, out, err) = run_capturing_with(
+            "claude-code",
+            &args(false, None, true, true, false, "claude-code"),
+            ok_dispatch,
+            everything_exists,
+        );
+        assert_eq!(code, ExitCode::from(1), "stdout={out:?} stderr={err:?}");
+        assert!(
+            err.contains("[REMEDIATE-04:uninstall-incomplete] claude-code"),
+            "stderr={err:?}"
+        );
+        // …and it must NOT have gone on to reinstall.
+        assert!(
+            !out.contains("reinstalling"),
+            "reinstalled over a binary that is still present: {out:?}"
         );
     }
 
