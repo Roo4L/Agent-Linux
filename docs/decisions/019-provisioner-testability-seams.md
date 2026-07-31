@@ -153,12 +153,17 @@ adapter's mutants observable, because no test drives the production adapter at
 all. Measured, not assumed: `real_choose_user`'s two mutants still survived a
 full `cargo mutants` run after the re-validation landed.
 
-`pkg.rs`'s executor half — `pkg_install`, `pkg_remove`, `nodesource_setup` — is
-part of the SAME gap and is named here explicitly, because this list is read by
-people triaging a red mutation gate and that gate matches changed *lines in
-files*, not modules. Those three have no callers outside the modules above, so
-seaming them is the same piece of work; without the name, a contributor whose
-diff lands in `pkg.rs` has no auditable answer.
+`pkg.rs`'s executor half is part of the SAME gap and is named here explicitly,
+because this list is read by people triaging a red mutation gate and that gate
+matches changed *lines in files*, not modules. Every function in `pkg.rs` that
+SHELLS OUT rather than building a command is in it: `pkg_install`, `pkg_remove`,
+`pkg_autoremove`, `nodesource_prereqs`, `nodesource_setup`,
+`nodesource_module_reset`, `locale_ensure` (which also writes a literal
+`/etc/locale.conf`, with no `ctx.sys()`), and their `run_all`/`run_one`
+substrate. None has a caller outside the modules above, so seaming them is one
+piece of work; without the names, a contributor whose diff lands in `pkg.rs` has
+no auditable answer. The `*_cmd`/`*_cmds` builders beside them are pure and ARE
+tested — that split is the reason the list has to be by function, not by file.
 
 This is a **gap, not a decision** — it is recorded here so it is not mistaken
 for one. The seam these need is the same `Effects` bag the other steps use; the

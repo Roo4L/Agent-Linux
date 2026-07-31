@@ -53,18 +53,26 @@ fn validate_user_name(name: &str) -> bool {
 }
 
 /// Resolve the install user with `--user` precedence: an explicit `--user` (when
-/// valid) wins over `$AGENTLINUX_USER` / the env-file / `agent`; otherwise defer
-/// to `resolve_install_user()` (which already applies the `$AGENTLINUX_USER` >
-/// env-file > `agent` precedence, mirroring agentlinux-install:459-474). Returns
-/// `Err` (→ EX_USAGE) on an explicit but invalid `--user`, matching the Bash
-/// parse-time `validate_user_name` reject.
-fn resolve_provision_user(user_flag: Option<&str>) -> Result<String, ExitCode> {
+/// valid) wins over `default_user`; otherwise `default_user` is taken as-is.
+/// Returns `Err` (→ EX_USAGE) on an invalid name on EITHER path, matching the
+/// Bash parse-time `validate_user_name` reject.
+///
+/// `default_user` is a PARAMETER, not a `resolve_install_user()` call. That
+/// function reads `$AGENTLINUX_USER` and then the real, root-owned
+/// `/etc/agentlinux.env`, so calling it here made this decision — and every
+/// orchestrator test that reaches it — a function of the host the suite runs on.
+/// On a host provisioned under a name this denylist rejects, or under any
+/// harness that exports `AGENTLINUX_USER` (the bats suite does, routinely), the
+/// wizard-ordering tests turned red for a reason unrelated to their fixture, and
+/// `a_wizard_answer_that_is_not_a_legal_user_is_refused` went VACUOUS — it still
+/// got EX_USAGE with the re-validation it exists to prove deleted. ADR-019 §3.
+fn resolve_provision_user(user_flag: Option<&str>, default_user: &str) -> Result<String, ExitCode> {
     let name = match user_flag {
         Some(name) => name.to_string(),
         // M-1: the default/env-resolved user ($AGENTLINUX_USER > env-file > agent)
         // must pass the SAME reserved-name denylist the explicit --user path uses,
         // so both agree on what may become the install user.
-        None => resolve_install_user(),
+        None => default_user.to_string(),
     };
     if validate_user_name(&name) {
         Ok(name)
@@ -381,6 +389,13 @@ pub struct ProvisionDeps {
     /// "transcript unavailable" arm unreachable by fixture and any assertion on
     /// the banner order-dependent.
     pub log_active: fn() -> bool,
+    /// The install user to fall back on when `--user` is absent, and the name
+    /// the wizard offers as its default. A dep because the production
+    /// implementation reads `$AGENTLINUX_USER` and the root-owned
+    /// `/etc/agentlinux.env`: leaving it ambient made the host's own
+    /// provisioning decide the verdict of the orchestrator's tests. See
+    /// `resolve_provision_user`.
+    pub default_user: fn() -> String,
     pub run_steps: fn(&ProvisionCtx) -> Result<(), ExitCode>,
     pub scan_and_write: fn(&str, &str),
     pub adopt: fn(&str, &str),
@@ -402,10 +417,32 @@ impl Default for ProvisionDeps {
             dry_run_report,
             log_init: log::init,
             log_active: log::is_active,
+            default_user: resolve_install_user,
             run_steps,
             scan_and_write: crate::detect::scan_and_write,
             adopt: run_agent_adoption,
         }
+    }
+}
+
+/// M-3: the closing line of a successful provision. Names the transcript only
+/// when it was actually persisted — if `log::init` could not open the file, a
+/// banner pointing at that path sends an operator to a file that does not exist.
+///
+/// A pure function of the two inputs because the `false` arm was previously
+/// unreachable by fixture: `log_active` reads a process-global `OnceLock` that a
+/// fake `log_init` never sets, so which banner ran was a function of whether some
+/// EARLIER test in the binary had called `log::init`. Splitting it this way makes
+/// the seam's CONSULTATION observable in the orchestrator (the recording dep) and
+/// the ARM it selects observable from literals here.
+fn completion_banner(log_active: bool, log_path: &std::path::Path) -> String {
+    if log_active {
+        format!(
+            "agentlinux-install complete (transcript: {})",
+            log_path.display()
+        )
+    } else {
+        "agentlinux-install complete (stderr-only; transcript unavailable)".to_string()
     }
 }
 
@@ -448,7 +485,7 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
     //  Bash prompt::choose_install_user). The curl-installer path passes --user
     //  (or is non-TTY), so it never prompts. A bare Enter / EOF / 3 invalid
     //  tries fall back to the default.
-    let default_user = resolve_install_user();
+    let default_user = (deps.default_user)();
     let default_home = format!("/home/{default_user}");
     let install_user = if args.user.is_none()
         && !args.dry_run
@@ -463,12 +500,12 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
         // reach `useradd ""` / `/home/`. Trusting a seam to uphold an invariant
         // the caller depends on is how the two username validators drifted.
         let chosen = (deps.choose_user)(&default_user);
-        match resolve_provision_user(Some(&chosen)) {
+        match resolve_provision_user(Some(&chosen), &default_user) {
             Ok(u) => u,
             Err(code) => return code,
         }
     } else {
-        match resolve_provision_user(args.user.as_deref()) {
+        match resolve_provision_user(args.user.as_deref(), &default_user) {
             Ok(u) => u,
             Err(code) => return code,
         }
@@ -606,17 +643,7 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
             // REUSE-03 / REMEDIATE-04 can fire. Best-effort (logs on failure).
             (deps.scan_and_write)(&ctx.install_user, &ctx.install_home);
             (deps.adopt)(&ctx.install_user, &ctx.install_home);
-            // M-3: only name the transcript path when it was actually persisted;
-            // if log::init could not open the file, the banner must not assert a
-            // file that does not exist.
-            if (deps.log_active)() {
-                log::line(&format!(
-                    "agentlinux-install complete (transcript: {})",
-                    log_path.display()
-                ));
-            } else {
-                log::line("agentlinux-install complete (stderr-only; transcript unavailable)");
-            }
+            log::line(&completion_banner((deps.log_active)(), &log_path));
             ExitCode::SUCCESS
         }
         Err(code) => {
@@ -929,13 +956,16 @@ mod provision_tests {
 
     #[test]
     fn explicit_user_flag_valid_wins() {
-        assert_eq!(resolve_provision_user(Some("claude")).unwrap(), "claude");
+        assert_eq!(
+            resolve_provision_user(Some("claude"), "agent").unwrap(),
+            "claude"
+        );
     }
 
     #[test]
     fn explicit_user_flag_invalid_is_ex_usage() {
         assert_eq!(
-            resolve_provision_user(Some("root")).unwrap_err(),
+            resolve_provision_user(Some("root"), "agent").unwrap_err(),
             ExitCode::from(EX_USAGE)
         );
     }
@@ -943,15 +973,21 @@ mod provision_tests {
     #[test]
     fn default_path_reserved_name_is_ex_usage() {
         // M-1: the default/env-resolved user must go through the SAME denylist.
-        // Force $AGENTLINUX_USER to a reserved name and confirm the None (default)
-        // path rejects it with EX_USAGE, exactly as the explicit --user path does.
-        let mut env_scope = crate::test_support::EnvScope::new();
-        env_scope.set("AGENTLINUX_USER", "root");
+        // The default arrives as an ARGUMENT now, so this states the rule from a
+        // literal. It used to set $AGENTLINUX_USER and let the function read it
+        // back, which meant the test could only ever exercise the one precedence
+        // rung the env var occupies — and it left the decision partly in the
+        // hands of the host's /etc/agentlinux.env. `resolve_install_user`'s own
+        // precedence is tested where it lives, in recipe_env.
         assert_eq!(
-            resolve_provision_user(None).unwrap_err(),
+            resolve_provision_user(None, "root").unwrap_err(),
             ExitCode::from(EX_USAGE)
         );
-        env_scope.unset("AGENTLINUX_USER");
+        assert_eq!(
+            resolve_provision_user(None, "systemd-network").unwrap_err(),
+            ExitCode::from(EX_USAGE)
+        );
+        assert_eq!(resolve_provision_user(None, "agent").unwrap(), "agent");
     }
 
     #[test]
@@ -1098,7 +1134,12 @@ mod provision_tests {
             std::path::PathBuf::from("/dev/null")
         }
         fn log_active() -> bool {
+            record("log_active");
             true
+        }
+        fn default_user() -> String {
+            record("default_user");
+            "agent".to_string()
         }
         fn steps(_c: &ProvisionCtx) -> Result<(), ExitCode> {
             record("run_steps");
@@ -1148,6 +1189,7 @@ mod provision_tests {
             dry_run_report: dry,
             log_init,
             log_active,
+            default_user,
             run_steps: steps,
             scan_and_write: scan,
             adopt,
@@ -1163,6 +1205,7 @@ mod provision_tests {
         assert_eq!(
             taken(),
             vec![
+                "default_user",
                 "check_adoptable",
                 "detect_distro",
                 "resolve_wrong_shell",
@@ -1172,6 +1215,9 @@ mod provision_tests {
                 "run_steps",
                 "scan_and_write",
                 "adopt",
+                // The banner CONSULTS the transcript seam rather than assuming
+                // it opened; which line it then prints is `completion_banner`.
+                "log_active",
             ],
             "the transcript must open AFTER the bail flush, the re-scan must \
              follow the steps, and adoption must follow the re-scan"
@@ -1202,6 +1248,7 @@ mod provision_tests {
         assert_eq!(
             taken(),
             vec![
+                "default_user",
                 "check_adoptable",
                 "detect_distro",
                 "resolve_wrong_shell",
@@ -1308,6 +1355,31 @@ mod provision_tests {
     }
 
     #[test]
+    fn the_completion_banner_names_the_transcript_only_when_it_exists() {
+        // M-3. The `false` arm shipped unexecuted: `log_active` reads a
+        // process-global OnceLock that the fixture's fake `log_init` never sets,
+        // so this line's behaviour was a function of test ORDER. As a pure
+        // function of the two inputs it is decidable, and the orchestrator's
+        // phase log proves the seam is consulted at all.
+        let p = std::path::Path::new("/var/log/agentlinux-install.log");
+        assert_eq!(
+            completion_banner(true, p),
+            "agentlinux-install complete (transcript: /var/log/agentlinux-install.log)"
+        );
+        let degraded = completion_banner(false, p);
+        assert_eq!(
+            degraded,
+            "agentlinux-install complete (stderr-only; transcript unavailable)"
+        );
+        // The point of the arm: an operator must not be sent to a file that was
+        // never written.
+        assert!(
+            !degraded.contains("agentlinux-install.log"),
+            "the degraded banner must not name a path that does not exist"
+        );
+    }
+
+    #[test]
     fn purge_returns_before_anything_else_is_touched() {
         // --purge is a teardown: it must not detect the distro, probe, open a
         // transcript or run a step.
@@ -1319,7 +1391,7 @@ mod provision_tests {
         // The adoption gate MUST precede the teardown: `userdel -r` on a system
         // account is the loss it exists to prevent, and the denylist alone does
         // not cover every system user (syslog and dhcpcd pass it).
-        assert_eq!(taken(), vec!["check_adoptable", "purge"]);
+        assert_eq!(taken(), vec!["default_user", "check_adoptable", "purge"]);
     }
 
     #[test]
@@ -1331,7 +1403,12 @@ mod provision_tests {
         assert_eq!(provision_with(&args, &recording_deps()), ExitCode::SUCCESS);
         assert_eq!(
             taken(),
-            vec!["check_adoptable", "detect_distro", "report_only"]
+            vec![
+                "default_user",
+                "check_adoptable",
+                "detect_distro",
+                "report_only"
+            ]
         );
     }
 
@@ -1348,6 +1425,7 @@ mod provision_tests {
         assert_eq!(
             taken(),
             vec![
+                "default_user",
                 "check_adoptable",
                 "detect_distro",
                 // --dry-run skips the wrong-shell RECOVERY (it would prompt) but
@@ -1390,6 +1468,7 @@ mod provision_tests {
         assert_eq!(
             taken(),
             vec![
+                "default_user",
                 "check_adoptable",
                 "detect_distro",
                 "resolve_wrong_shell",

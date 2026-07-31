@@ -609,20 +609,60 @@ mod dispatcher_tests {
         assert_eq!(out[2], "claude");
     }
 
-    // Case 4 (:84): the sudo branch fires when invoker != target; an unknown
-    // user makes the outcome deterministic (sudo errors → non-zero), surfaced
-    // as a returned shape, never a panic.
+    // Case 4 (:84): the sudo branch fires when invoker != target, and what it
+    // EXECUTES is `resolve_argv_for`'s output.
+    //
+    // This used to invoke the real `sudo` against a nonexistent user and assert
+    // `exit_code != 0`. That verdict holds on every host, but for three
+    // different reasons — unknown user, invoker not in sudoers, or no `sudo`
+    // binary at all (ENOENT → 1, which `enoent_maps_to_one` below already
+    // covers) — so it could not distinguish "the sudo branch ran" from "nothing
+    // ran". It also executed real `sudo` during `cargo test`, which is how the
+    // suite came to print `sudo: error initializing audit plugin sudoers_audit`.
+    //
+    // A stub `sudo` on PATH makes the claim decidable: the branch is observed by
+    // what it invoked, not by a failure code shared with the ways it can not run.
     #[test]
-    fn sudo_branch_unknown_user_returns_shape() {
+    fn the_sudo_branch_executes_the_resolved_argv() {
+        let d = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            d.path().join("sudo"),
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            d.path().join("sudo"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+
+        // The child env is `env_clear`ed, so PATH must arrive through the same
+        // `env` argument a real recipe dispatch uses — which is also why this
+        // needs no process-global mutation and no `EnvScope` lock.
+        let path = format!("{}:/usr/bin:/bin", d.path().display());
+        let env = vec![("PATH".to_string(), path)];
+
+        let want = resolve_argv_for(&invoker_username(), "claude", &argv(&["bash", "x.sh"]));
+        assert_eq!(
+            want[0], "sudo",
+            "this test is meaningless on the direct branch"
+        );
+
         let r = as_user(
-            "no-such-user-agentlinux-xyzzy",
-            &argv(&["bash", "-c", "echo x"]),
-            &[],
-            Capture::Streamed,
+            "claude",
+            &argv(&["bash", "x.sh"]),
+            &env,
+            Capture::Buffered,
             None,
         );
-        assert_ne!(r.exit_code, 0, "unknown sudo target must fail non-zero");
-        assert!(r.streamed);
+        assert_eq!(r.exit_code, 0);
+        assert!(!r.streamed);
+        assert_eq!(
+            r.stdout.lines().collect::<Vec<_>>(),
+            want[1..].iter().map(String::as_str).collect::<Vec<_>>(),
+            "the sudo branch must execute exactly what resolve_argv_for produced"
+        );
     }
 
     // Case 5 (:104): ENOENT (missing binary) maps to exit_code 1, streamed true.

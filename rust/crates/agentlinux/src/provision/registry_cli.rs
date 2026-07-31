@@ -59,15 +59,29 @@ const DEFAULT_SRC_ROOT: &str = "/opt/agentlinux-src/plugin";
 ///     tree there and runs the provisioner bin from an unrelated off-tree path,
 ///     so its grandparent is NOT a plugin root and correctly falls through).
 fn src_root() -> PathBuf {
-    if let Ok(v) = std::env::var("AGENTLINUX_SRC_ROOT") {
+    src_root_from(
+        std::env::var("AGENTLINUX_SRC_ROOT").ok().as_deref(),
+        std::env::current_exe().ok().as_deref(),
+    )
+}
+
+/// [`src_root`] over stated inputs.
+///
+/// Split out because tier 2 — the branch the sole distribution path depends on —
+/// was reachable only by relocating the test binary. The one test that existed
+/// asserted the tier-3 fallback and was correct only because `cargo`'s target
+/// directory happens not to contain `bin/agentlinux` + `catalog/`: a property of
+/// the build layout, not of the fixture. Tier 2 itself had no coverage, so
+/// dropping it — the exact regression the doc comment above says the earlier
+/// port shipped — would have surfaced no earlier than a curl-install.
+fn src_root_from(env: Option<&str>, exe: Option<&Path>) -> PathBuf {
+    if let Some(v) = env {
         if !v.is_empty() {
             return PathBuf::from(v);
         }
     }
-    if let Some(candidate) = std::env::current_exe()
-        .ok()
-        .and_then(|exe| exe.parent().and_then(Path::parent).map(Path::to_path_buf))
-    {
+    if let Some(candidate) = exe.and_then(|e| e.parent().and_then(Path::parent)) {
+        let candidate = candidate.to_path_buf();
         if looks_like_plugin_root(&candidate) {
             return candidate;
         }
@@ -599,14 +613,58 @@ mod registry_cli_tests {
     fn src_root_honors_env_else_default() {
         let mut env_scope = crate::test_support::EnvScope::new();
         env_scope.unset("AGENTLINUX_SRC_ROOT");
-        // With the env var unset the current_exe derivation runs first, but the
-        // test runner's own bin is not laid out as a plugin root (no sibling
-        // bin/agentlinux + catalog/), so it correctly falls through to the
-        // container default.
         assert_eq!(src_root(), PathBuf::from(DEFAULT_SRC_ROOT));
         env_scope.set("AGENTLINUX_SRC_ROOT", "/tmp/x/plugin");
         assert_eq!(src_root(), PathBuf::from("/tmp/x/plugin"));
         env_scope.unset("AGENTLINUX_SRC_ROOT");
+    }
+
+    /// Build a shipped-tarball layout: `<plugin>/bin/agentlinux` + `<plugin>/catalog/`.
+    fn plugin_tree(root: &Path) -> PathBuf {
+        let plugin = root.join("plugin");
+        std::fs::create_dir_all(plugin.join("bin")).unwrap();
+        std::fs::create_dir_all(plugin.join("catalog")).unwrap();
+        std::fs::write(plugin.join("bin/agentlinux"), b"#!/bin/sh\n").unwrap();
+        plugin
+    }
+
+    #[test]
+    fn all_three_src_root_tiers_are_decidable_from_literals() {
+        let d = tempfile::TempDir::new().unwrap();
+        let plugin = plugin_tree(d.path());
+        let exe = plugin.join("bin/agentlinux");
+
+        // 1. The explicit override wins even from inside a real plugin tree.
+        assert_eq!(
+            src_root_from(Some("/opt/override"), Some(&exe)),
+            PathBuf::from("/opt/override")
+        );
+        // An EMPTY override is not an override — it falls through rather than
+        // resolving to "".
+        assert_eq!(src_root_from(Some(""), Some(&exe)), plugin);
+
+        // 2. The bin's grandparent, when it looks like a plugin root. This is
+        //    what makes the curl-installer work: it execs the staged bin WITHOUT
+        //    setting the env var (OBS-04).
+        assert_eq!(src_root_from(None, Some(&exe)), plugin);
+
+        // 3. Fall through when the grandparent is NOT a plugin root — an
+        //    off-tree bin (run.sh), or a tree missing either half.
+        let bare = d.path().join("elsewhere/bin/agentlinux");
+        std::fs::create_dir_all(bare.parent().unwrap()).unwrap();
+        std::fs::write(&bare, b"").unwrap();
+        assert_eq!(
+            src_root_from(None, Some(&bare)),
+            PathBuf::from(DEFAULT_SRC_ROOT)
+        );
+        std::fs::remove_dir_all(plugin.join("catalog")).unwrap();
+        assert_eq!(
+            src_root_from(None, Some(&exe)),
+            PathBuf::from(DEFAULT_SRC_ROOT),
+            "bin/agentlinux without catalog/ is not a plugin root"
+        );
+        // No exe at all (current_exe() failed) still resolves.
+        assert_eq!(src_root_from(None, None), PathBuf::from(DEFAULT_SRC_ROOT));
     }
 
     #[test]

@@ -73,7 +73,7 @@ fn validate_reused_binary(sentinel: Option<&Sentinel>) -> bool {
     let Some(bin) = s.binary_path.as_deref() else {
         return true;
     };
-    std::fs::metadata(bin).map(|m| m.is_file()).unwrap_or(false)
+    crate::cmd::is_regular_file(bin)
 }
 
 fn will_touch_upstream(opts: &UpgradeArgs) -> bool {

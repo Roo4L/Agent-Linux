@@ -63,13 +63,7 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
     let reuse_hit = detected
         .as_ref()
         .and_then(|d| reuse_gate(&core_entry, d, host_paths(canonical, &home)));
-    let reuse_hit = reuse_hit.filter(|c| {
-        // ADAPTER statSync re-validation: confirm the binary
-        // still exists at install time. Stale-cache safety.
-        std::fs::metadata(&c.path)
-            .map(|m| m.is_file())
-            .unwrap_or(false)
-    });
+    let reuse_hit = reuse_hit.filter(|c| crate::cmd::is_regular_file(&c.path));
 
     let Some(hit) = reuse_hit else {
         // Not reuse-eligible. AL-62: distinguish a migration candidate (healthy at

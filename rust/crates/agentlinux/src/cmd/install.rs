@@ -544,11 +544,7 @@ fn try_reuse(
     home: &str,
 ) -> Option<ReuseHit> {
     let candidate = reuse_gate(core_entry, detected?, host_paths(canonical, home))?;
-    // ADAPTER statSync re-validation.
-    if !std::fs::metadata(&candidate.path)
-        .map(|m| m.is_file())
-        .unwrap_or(false)
-    {
+    if !crate::cmd::is_regular_file(&candidate.path) {
         return None;
     }
     Some(ReuseHit {

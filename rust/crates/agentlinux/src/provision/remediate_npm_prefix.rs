@@ -633,17 +633,53 @@ mod remediate_npm_prefix_tests {
         }
     }
 
+    thread_local! {
+        /// The `(path, mode, owner)` of every `ensure_dir` the rebase asked for.
+        static DIRS: RefCell<Vec<(String, u32, String)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    /// `ensure_dir` that performs the CREATE and the MODE but records the owner
+    /// instead of chowning.
+    ///
+    /// The real `sysio::ensure_dir` resolves `"user:group"` through the passwd
+    /// AND group DBs. `apply_rebase` builds that string as `format!("{user}:{user}")`,
+    /// so taking `Effects::default()` here made these tests require the runner's
+    /// primary group to be NAMED the same as the runner. Root satisfies that
+    /// (`root:root`) and so does every user-private-group distro, so it was green
+    /// in CI and in both harnesses — and failed on any host where the invoking
+    /// user's primary group is `users` or `staff`, with `[REMEDIATE-01:fail]
+    /// reason=mkdir-denied` saying nothing about groups. A seam was present and
+    /// the fixture declined it.
+    fn recording_ensure_dir(p: &Path, mode: u32, owner: &str) -> io::Result<()> {
+        DIRS.with(|d| {
+            d.borrow_mut()
+                .push((p.to_string_lossy().into_owned(), mode, owner.to_string()))
+        });
+        if !p.is_dir() {
+            std::fs::create_dir_all(p)?;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(p, std::fs::Permissions::from_mode(mode))
+    }
+
+    fn dirs_created() -> Vec<(String, u32, String)> {
+        DIRS.with(|d| d.borrow().clone())
+    }
+
     fn rebase_ctx(home: &Path, as_user: crate::dispatcher::AsUser) -> ProvisionCtx {
         NPM_CALLS.with(|c| c.borrow_mut().clear());
-        let uid = nix::unistd::getuid();
-        let uname = nix::unistd::User::from_uid(uid).unwrap().unwrap().name;
+        DIRS.with(|d| d.borrow_mut().clear());
         ProvisionCtx {
             root: PathBuf::from("/"),
             fx: Effects {
                 as_user,
+                ensure_dir: recording_ensure_dir,
                 ..Effects::default()
             },
-            install_user: uname,
+            // A literal, not the runner's name: with `ensure_dir` recorded rather
+            // than performed, nothing here needs to exist in the passwd DB, and
+            // the owner assertion below is only meaningful against a fixed name.
+            install_user: "agent".to_string(),
             install_home: home.to_string_lossy().into_owned(),
             family: crate::distro::Family::Debian,
             resolutions: crate::provision::Resolutions::default()
@@ -665,6 +701,31 @@ mod remediate_npm_prefix_tests {
         assert_eq!(
             std::fs::read_to_string(d.path().join(".npmrc")).unwrap(),
             format!("prefix={}\n", new_prefix.display())
+        );
+        // The prefix must end up owned by the INSTALL USER at 0755 — the whole
+        // point of the rebase is that the agent can write its own npm prefix
+        // without sudo. Asserting the ownership argument, not just that a
+        // directory appeared: the previous fixture performed the real chown and
+        // so could assert nothing about it.
+        assert_eq!(
+            dirs_created(),
+            vec![
+                (
+                    new_prefix.display().to_string(),
+                    0o755,
+                    "agent:agent".to_string()
+                ),
+                (
+                    new_prefix.join("bin").display().to_string(),
+                    0o755,
+                    "agent:agent".to_string()
+                ),
+                (
+                    new_prefix.join("lib").display().to_string(),
+                    0o755,
+                    "agent:agent".to_string()
+                ),
+            ]
         );
     }
 
