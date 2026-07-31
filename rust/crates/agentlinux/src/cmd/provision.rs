@@ -38,51 +38,18 @@ const EX_DATAERR: u8 = 65;
 /// the reserved-name denylist. A name
 /// matching the POSIX charset but on this list must NEVER become the install
 /// user (granting NOPASSWD sudo to root/a daemon is an elevation hole —).
-const RESERVED_USER_NAMES: &[&str] = &[
-    "root",
-    "daemon",
-    "bin",
-    "sys",
-    "sync",
-    "games",
-    "man",
-    "lp",
-    "mail",
-    "news",
-    "uucp",
-    "proxy",
-    "www-data",
-    "backup",
-    "list",
-    "irc",
-    "gnats",
-    "nobody",
-    "_apt",
-    "systemd-network",
-    "systemd-resolve",
-    "systemd-timesync",
-    "messagebus",
-    "sshd",
-];
 
-/// `validate_user_name` port (`remediate.sh:92-107`): POSIX charset
-/// (`^[a-z][a-z0-9_-]*$`) AND not a reserved/system account (case-insensitive,
-/// plus the whole `systemd-*` prefix). PURE — the runtime UID<1000 adoption gate
-/// (`user_adoptable`) is a separate check — see `check_user_adoptable`.
+/// The `--user` flag check: POSIX charset AND not a reserved/system account.
+/// PURE — the runtime UID<1000 adoption gate (`user_adoptable`) is a separate
+/// check, see `check_user_adoptable`.
+///
+/// Composed from the two `recipe_env` predicates rather than re-implementing
+/// them. Both used to be spelled out a second time here, with the agreement
+/// resting on a comment that read "MUST mirror `validate_user_name`" — the kind
+/// of invariant that holds until someone edits one copy.
 fn validate_user_name(name: &str) -> bool {
-    let mut chars = name.chars();
-    match chars.next() {
-        Some(c) if c.is_ascii_lowercase() => {}
-        _ => return false, // empty or non-[a-z] first char
-    }
-    if !chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-') {
-        return false;
-    }
-    let lower = name.to_ascii_lowercase();
-    if lower.starts_with("systemd-") {
-        return false;
-    }
-    !RESERVED_USER_NAMES.contains(&lower.as_str())
+    crate::recipe_env::is_valid_install_user(name)
+        && !crate::recipe_env::is_reserved_user_name(name)
 }
 
 /// Resolve the install user with `--user` precedence: an explicit `--user` (when

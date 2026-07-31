@@ -22,9 +22,6 @@
 
 use std::fs;
 
-/// POSIX-portable username charset — MUST mirror `remediate::validate_user_name`
-/// Belt-and-suspenders
-/// re-validation of the configured install user before it flows into `sudo -u`.
 const DEFAULT_INSTALL_USER: &str = "agent";
 const AGENTLINUX_ENV_FILE: &str = "/etc/agentlinux.env";
 
@@ -87,16 +84,63 @@ impl RecipeEnv {
     }
 }
 
+/// Reserved / system account names an install user may never be. Case-folded
+/// before comparison; the whole `systemd-*` prefix is rejected separately.
+const RESERVED_USER_NAMES: &[&str] = &[
+    "root",
+    "daemon",
+    "bin",
+    "sys",
+    "sync",
+    "games",
+    "man",
+    "lp",
+    "mail",
+    "news",
+    "uucp",
+    "proxy",
+    "www-data",
+    "backup",
+    "list",
+    "irc",
+    "gnats",
+    "nobody",
+    "_apt",
+    "systemd-network",
+    "systemd-resolve",
+    "systemd-timesync",
+    "messagebus",
+    "sshd",
+];
+
 /// True iff `name` matches `^[a-z][a-z0-9_-]*$` — the POSIX-portable username
 /// charset. Hand-rolled (no regex crate) so the charset lives inline and the bin
 /// stays dependency-light.
-fn is_valid_install_user(name: &str) -> bool {
+///
+/// CHARSET ONLY, deliberately. This is the predicate behind the RESOLUTION
+/// fallback: a malformed `$AGENTLINUX_USER` or env-file line degrades to `agent`
+/// rather than failing, because every verb resolves an install user and most of
+/// them (`list`, `pin`) have no business dying over a stale env file. A RESERVED
+/// name is a different case — it is well-formed, so falling back would silently
+/// provision a DIFFERENT user than the operator configured. The verb that
+/// creates state re-validates with [`is_reserved_user_name`] and exits EX_USAGE
+/// instead; see `cmd/provision::validate_user_name`.
+#[must_use]
+pub fn is_valid_install_user(name: &str) -> bool {
     let mut chars = name.chars();
     match chars.next() {
         Some(c) if c.is_ascii_lowercase() => {}
         _ => return false, // must start with [a-z]
     }
     chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_' || c == '-')
+}
+
+/// True iff `name` is a reserved / system account an install user may never be.
+/// Case-insensitive, and the whole `systemd-*` prefix is reserved.
+#[must_use]
+pub fn is_reserved_user_name(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("systemd-") || RESERVED_USER_NAMES.contains(&lower.as_str())
 }
 
 /// Resolve the install user catalog ops run as.
@@ -415,6 +459,43 @@ mod recipe_env_tests {
             "agent"
         );
         assert_eq!(resolve_install_user_from(None, None), "agent");
+        assert_eq!(resolve_install_user_from(Some("Bad User!"), None), "agent");
+    }
+
+    #[test]
+    fn the_reserved_denylist_covers_root_and_the_systemd_prefix() {
+        assert!(is_reserved_user_name("root"));
+        assert!(is_reserved_user_name("daemon"));
+        assert!(is_reserved_user_name("nobody"));
+        // Case-insensitive, so a capitalised spelling cannot slip past.
+        assert!(is_reserved_user_name("Root"));
+        // The whole systemd-* family, including names not on the literal list.
+        assert!(is_reserved_user_name("systemd-network"));
+        assert!(is_reserved_user_name("systemd-anything-at-all"));
+        // …and a normal name is not reserved.
+        assert!(!is_reserved_user_name("agent"));
+        assert!(!is_reserved_user_name("claude"));
+    }
+
+    #[test]
+    fn a_reserved_name_is_well_formed_and_must_not_silently_fall_back() {
+        // The deliberate split between the two predicates, pinned so the
+        // asymmetry reads as a decision rather than an oversight.
+        //
+        // `root` PASSES the charset check — it is a perfectly legal POSIX
+        // username — so the resolution path returns it verbatim rather than
+        // degrading to `agent`. Falling back here would silently provision a
+        // different user than the operator configured. It is the state-creating
+        // verb that must refuse it, loudly:
+        // `cmd/provision::default_path_reserved_name_is_ex_usage` asserts the
+        // EX_USAGE exit.
+        assert!(is_valid_install_user("root"));
+        assert!(is_reserved_user_name("root"));
+        assert_eq!(resolve_install_user_from(Some("root"), None), "root");
+
+        // A MALFORMED value is the other case: nothing sensible to surface, and
+        // every verb resolves a user, so it degrades to the default instead.
+        assert!(!is_valid_install_user("Bad User!"));
         assert_eq!(resolve_install_user_from(Some("Bad User!"), None), "agent");
     }
 

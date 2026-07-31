@@ -318,14 +318,32 @@ fn prefix_owner_user(path: &Path) -> Option<String> {
 /// the security-load-bearing behavior — a symlink under the prefix pointing at a
 /// system tree must never cause that tree to be chowned to the install user.
 fn chown_recursive(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
-    // lchown the entry itself (never dereference a symlink) — matches `chown -RP`.
-    std::os::unix::fs::lchown(path, Some(uid), Some(gid))?;
+    chown_recursive_with(path, uid, gid, &|p, u, g| {
+        // lchown the entry itself (never dereference a symlink) — `chown -RP`.
+        std::os::unix::fs::lchown(p, Some(u), Some(g))
+    })
+}
+
+/// [`chown_recursive`] with the per-entry chown injected.
+///
+/// The seam is what makes the WALK assertable. Chowning to one's own uid is a
+/// no-op, so an unprivileged test cannot tell "descended into the symlink and
+/// chowned the target" from "stopped at the link" by inspecting owners — the
+/// escape-the-prefix bug this guards against was invisible to it. A recording
+/// chown makes the visited set the observable instead.
+fn chown_recursive_with(
+    path: &Path,
+    uid: u32,
+    gid: u32,
+    chown: &dyn Fn(&Path, u32, u32) -> io::Result<()>,
+) -> io::Result<()> {
+    chown(path, uid, gid)?;
     // Recurse only into REAL directories, never through a symlinked dir (use
     // symlink_metadata so a symlink-to-dir is treated as a leaf).
     let md = std::fs::symlink_metadata(path)?;
     if md.file_type().is_dir() {
         for entry in std::fs::read_dir(path)?.flatten() {
-            chown_recursive(&entry.path(), uid, gid)?;
+            chown_recursive_with(&entry.path(), uid, gid, chown)?;
         }
     }
     Ok(())
@@ -467,20 +485,47 @@ mod remediate_npm_prefix_tests {
         std::fs::create_dir_all(&prefix).unwrap();
         std::os::unix::fs::symlink(&outside, prefix.join("link")).unwrap();
 
-        // Chown to our own uid/gid (self → no-op, unprivileged-safe). The test is
-        // that it succeeds WITHOUT erroring on the symlink target and returns Ok:
-        // proving it lchowns the link and stops (does not descend into outside/).
+        // Record the visited set instead of inspecting owners: the walk chowns to
+        // the CALLER's own uid in this test, so following the link would be an
+        // unobservable no-op. This assertion fails if `symlink_metadata` becomes
+        // `metadata` — the change that lets a planted symlink hand an arbitrary
+        // tree to the install user.
+        let visited = std::cell::RefCell::new(Vec::new());
+        chown_recursive_with(&prefix, 0, 0, &|p, _u, _g| {
+            visited.borrow_mut().push(p.to_path_buf());
+            Ok(())
+        })
+        .unwrap();
+
+        let visited = visited.into_inner();
+        assert_eq!(
+            visited,
+            vec![prefix.clone(), prefix.join("link")],
+            "the walk must visit the prefix and the LINK ITSELF, and stop there"
+        );
+        assert!(
+            !visited.contains(&outside_file),
+            "descended through the symlink into {}",
+            outside_file.display()
+        );
+    }
+
+    #[test]
+    fn chown_recursive_chowns_the_link_not_its_target() {
+        // The other half: that the per-entry chown is `lchown`, not `chown`.
+        // Owners cannot show this unprivileged, but a DANGLING symlink can —
+        // `lchown` succeeds on one, `chown` follows it and fails ENOENT. So this
+        // returning Ok is only possible if the link itself is what gets chowned.
+        let d = TempDir::new().unwrap();
+        let prefix = d.path().join("prefix");
+        std::fs::create_dir_all(&prefix).unwrap();
+        std::os::unix::fs::symlink(d.path().join("no-such-target"), prefix.join("dangling"))
+            .unwrap();
+
         let uid = nix::unistd::getuid().as_raw();
         let gid = nix::unistd::getgid().as_raw();
-        chown_recursive(&prefix, uid, gid).unwrap();
-        // The link is still a symlink (lchown changed the link, not the target;
-        // it was not replaced or dereferenced).
-        assert!(std::fs::symlink_metadata(prefix.join("link"))
-            .unwrap()
-            .file_type()
-            .is_symlink());
-        // The outside file still exists untouched.
-        assert!(outside_file.exists());
+        chown_recursive(&prefix, uid, gid)
+            .expect("a dangling symlink must be lchowned, not dereferenced");
     }
 
     // The rebase .npmrc write establishes the prefix line byte-exactly (the RT-04
