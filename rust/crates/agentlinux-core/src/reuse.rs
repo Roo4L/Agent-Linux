@@ -265,11 +265,17 @@ mod fallthrough_tests {
     /// unrecognised status (a future `degraded`, or a truncated cache write) at
     /// the canonical path is REUSED, not reinstalled.
     ///
-    /// This mirrors the Bash `reuse::agent_decision` it was ported from, so it
-    /// is pinned rather than changed here — but it is a fail-OPEN default, and
-    /// worth revisiting the next time the detect status set grows.
+    /// This test PINS CURRENT BEHAVIOUR — it does not endorse it. The port from
+    /// Bash `reuse::agent_decision` inherited a fail-OPEN default: the only way
+    /// a fourth status reaches here is a hand-edited or truncated
+    /// `/run/agentlinux-detect.json`, and the consequence is that a possibly
+    /// broken binary at the canonical path is reused instead of reinstalled.
+    /// Changing it is a behaviour change with a bats contract behind it, so it is
+    /// recorded rather than fixed in passing; see AL-129. The structural fix is a
+    /// typed `Status` enum at the cache boundary, which makes the fourth case
+    /// unrepresentable instead of merely tested.
     #[test]
-    fn an_unrecognised_status_is_treated_as_healthy() {
+    fn an_unrecognised_status_currently_fails_open_to_reuse() {
         let canonical = "/home/agent/.local/bin/claude";
         assert_eq!(
             agent_decision(
@@ -308,14 +314,29 @@ mod proptests {
         #[test]
         fn agent_decision_is_total(
             id in ".*",
-            status in ".*",
+            // Drawn from the vocabulary `detect` actually emits, plus arbitrary
+            // junk. A bare `".*"` essentially never produces the literal
+            // "broken" or "absent", so the two status-dependent postconditions
+            // below fired ZERO times in 256 cases — asserted but unreachable.
+            status in prop_oneof![
+                Just("healthy".to_string()),
+                Just("broken".to_string()),
+                Just("absent".to_string()),
+                ".*",
+            ],
             detected_path in proptest::option::of(".*"),
             canonical in proptest::option::of(".*"),
             gsd_system_path in ".*",
+            // Same problem for the reuse arm: two independent `option::of(".*")`
+            // draws never coincide, so "detected at exactly its canonical path"
+            // never happened. This aligns them half the time.
+            align_paths in proptest::bool::weighted(0.5),
         ) {
-            // Totality plus the two arms that are decidable from the inputs
-            // alone. "The return is one of three enum variants" is guaranteed by
-            // the type system, so on its own this property could not fail.
+            let detected_path = if align_paths { canonical.clone() } else { detected_path };
+
+            // Totality plus the arms that are decidable from the inputs alone.
+            // "The return is one of three enum variants" is guaranteed by the
+            // type system, so on its own this property could not fail.
             let decision = agent_decision(
                 &id,
                 &status,
@@ -339,7 +360,7 @@ mod proptests {
             }
             // An agent at exactly its canonical path with a status that is not
             // `absent`/`broken` is always a REUSE — see
-            // `an_unrecognised_status_is_treated_as_healthy` for why the
+            // `an_unrecognised_status_currently_fails_open_to_reuse` for why the
             // condition is phrased that way rather than `status == "healthy"`.
             if !id.is_empty()
                 && status != "absent"

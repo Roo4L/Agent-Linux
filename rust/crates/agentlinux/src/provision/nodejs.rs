@@ -303,7 +303,6 @@ mod nodejs_tests {
     // install against `/`. `run` needs the package/exec seam `sudoers` already
     // has before it can be driven from a test at all.
 
-
     // The RT-04 npm-prefix layout paths are derived from install_home — a
     // non-default home lands the prefix + .npmrc under it verbatim (AL-59).
     #[test]
