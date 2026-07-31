@@ -127,6 +127,41 @@ $ sudo -u claude -H agentlinux list   # the CLI now answers to 'claude'
 In-place rename of an already-installed AgentLinux user and multi-user
 installs (more than one agent user on one host) are out of scope.
 
+## When something goes wrong
+
+Provisioning touches a real machine, so it can be interrupted by things that
+have nothing to do with AgentLinux: a mirror that stops responding mid-download,
+cloud-init still holding the package lock on a fresh image, a power loss. Four
+behaviours cover those moments.
+
+**Running it again is the fix.** Every step is written to converge — it checks
+what the host actually looks like and repairs the difference, rather than
+recording that it once ran. A host left half-provisioned by an interrupted run is
+brought the rest of the way by re-running the same command, with no flag and no
+cleanup step. (See
+[the convergence decision record](../decisions/019-idempotent-convergence-over-completion-markers.md)
+for why this is preferred to tracking completion.)
+
+**The previous transcript is kept.** The install log at
+`/var/log/agentlinux-install.log` is written fresh each run, and the run before
+it is moved to `/var/log/agentlinux-install.log.prev`. So the natural response to
+a failure — run it again and see if it sticks — does not destroy the evidence
+from the run that failed.
+
+**One install at a time.** Provisioning and the commands that change state —
+`agentlinux install`, `remove`, `upgrade`, `adopt`, `pin` — take a host-wide lock
+at `/opt/agentlinux/state/agentlinux.lock`. A second one started while the first
+is running is refused immediately, and the error names that file, rather than
+interleaving two runs over the same npm prefix. Pass `--wait-lock` to queue behind
+the running operation instead — the form to use from automation. `agentlinux list`
+takes no lock, so you can always ask what is installed while something else runs.
+
+**Nothing hangs forever.** A wedged network or a stuck package manager fails with
+a message rather than blocking indefinitely: 30 minutes for a single catalog
+recipe, 20 minutes for a single package operation. Both are adjustable with
+`AGENTLINUX_RECIPE_TIMEOUT_MS` and `AGENTLINUX_PKG_TIMEOUT_MS`, and `0` switches
+the bound off.
+
 ## Worked example
 
 ```
