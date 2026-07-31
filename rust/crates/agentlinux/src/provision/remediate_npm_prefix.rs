@@ -149,13 +149,13 @@ fn is_trivially_salvageable(prefix: &Path) -> bool {
 /// `chown -R <user>:<user> <prefix>`. Emits the `[REMEDIATE-01] strategy=chown`
 /// marker; a chown failure is a hard error with `[REMEDIATE-01:fail]`.
 fn apply_chown(prefix: &str, user: &str) -> io::Result<()> {
-    eprintln!("[REMEDIATE-01] strategy=chown path={prefix} new_owner={user}:{user}");
+    crate::plog!("[REMEDIATE-01] strategy=chown path={prefix} new_owner={user}:{user}");
     let (uid, gid) = resolve_user_group(user)?;
     if let Err(e) = chown_recursive(Path::new(prefix), uid, gid) {
-        eprintln!("[REMEDIATE-01:fail] reason=chown-denied path={prefix}");
+        crate::plog!("[REMEDIATE-01:fail] reason=chown-denied path={prefix}");
         return Err(e);
     }
-    eprintln!("[REMEDIATE-01] chown complete: {prefix} now {user}:{user}");
+    crate::plog!("[REMEDIATE-01] chown complete: {prefix} now {user}:{user}");
     Ok(())
 }
 
@@ -165,7 +165,7 @@ fn apply_chown(prefix: &str, user: &str) -> io::Result<()> {
 /// `[REMEDIATE-01:partial]`, no abort). The OLD prefix is NEVER deleted.
 fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) -> io::Result<()> {
     let new_prefix = format!("{user_home}/.npm-global");
-    eprintln!("[REMEDIATE-01] strategy=rebase from={old_prefix} to={new_prefix}");
+    crate::plog!("[REMEDIATE-01] strategy=rebase from={old_prefix} to={new_prefix}");
 
     let owner = format!("{user}:{user}");
     // ensure_dir creates OR re-asserts mode+ownership, so a partial prior rebase
@@ -174,7 +174,7 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
         || sysio::ensure_dir(Path::new(&format!("{new_prefix}/bin")), 0o755, &owner).is_err()
         || sysio::ensure_dir(Path::new(&format!("{new_prefix}/lib")), 0o755, &owner).is_err()
     {
-        eprintln!("[REMEDIATE-01:fail] reason=mkdir-denied path={new_prefix}");
+        crate::plog!("[REMEDIATE-01:fail] reason=mkdir-denied path={new_prefix}");
         return Err(io::Error::other(format!(
             "[REMEDIATE-01:fail] reason=mkdir-denied path={new_prefix}"
         )));
@@ -186,25 +186,25 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
     let npmrc_path = Path::new(&npmrc);
     if !npmrc_path.exists() {
         if let Err(e) = sysio::create_if_absent_0644(npmrc_path, &owner) {
-            eprintln!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
+            crate::plog!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
             return Err(e);
         }
     }
     sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), npmrc_path)?;
     std::fs::set_permissions(npmrc_path, std::fs::Permissions::from_mode(0o644))?;
     sysio::chown_by_name(npmrc_path, &owner)?;
-    eprintln!("[REMEDIATE-01] wrote ~{user}/.npmrc with prefix={new_prefix}");
+    crate::plog!("[REMEDIATE-01] wrote ~{user}/.npmrc with prefix={new_prefix}");
 
     // Enumerate + migrate modules from the OLD prefix, best-effort.
     let modules = enumerate_modules(old_owner, old_prefix);
     let (mut migrated, mut failed) = (0u32, 0u32);
     if modules.is_empty() {
-        eprintln!(
+        crate::plog!(
             "[REMEDIATE-01] no modules to migrate from {old_prefix} \
              (empty or only catalog/npm entries)"
         );
     } else {
-        eprintln!(
+        crate::plog!(
             "[REMEDIATE-01] migrating {} modules from {old_prefix}",
             modules.len()
         );
@@ -219,16 +219,16 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
             // convention) so a wedged/slow registry can't hang provisioning.
             let r = dispatcher::as_user(user, &argv, &[], Capture::Buffered, Some(300_000));
             if r.exit_code == 0 {
-                eprintln!("[REMEDIATE-01:migrated] module={pkg_at_ver}");
+                crate::plog!("[REMEDIATE-01:migrated] module={pkg_at_ver}");
                 migrated += 1;
             } else {
-                eprintln!("[REMEDIATE-01:partial] module={pkg_at_ver} reason=npm-install-failed");
+                crate::plog!("[REMEDIATE-01:partial] module={pkg_at_ver} reason=npm-install-failed");
                 failed += 1;
             }
         }
     }
 
-    eprintln!(
+    crate::plog!(
         "[REMEDIATE-01] rebase complete: migrated={migrated} failed={failed} \
          old_prefix={old_prefix} (NOT deleted; user cleanup)"
     );

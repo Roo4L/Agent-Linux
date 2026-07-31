@@ -102,6 +102,9 @@ pub struct InstallArgs {
     /// preview the install decision (reuse|remediate|create) without dispatching; exits 0
     #[arg(long)]
     pub dry_run: bool,
+    /// queue behind a concurrent agentlinux run instead of failing fast
+    #[arg(long)]
+    pub wait_lock: bool,
 }
 
 /// `adopt [name]` — index.ts:67-78. OPTIONAL positional `name` + `--all`,
@@ -119,6 +122,9 @@ pub struct AdoptArgs {
     /// machine-readable JSON array output
     #[arg(long)]
     pub json: bool,
+    /// queue behind a concurrent agentlinux run instead of failing fast
+    #[arg(long)]
+    pub wait_lock: bool,
 }
 
 /// `remove <name>` — index.ts:80-86. Required positional `name` + `--force`.
@@ -129,6 +135,9 @@ pub struct RemoveArgs {
     /// succeed even if agent is not installed (idempotent no-op)
     #[arg(long)]
     pub force: bool,
+    /// queue behind a concurrent agentlinux run instead of failing fast
+    #[arg(long)]
+    pub wait_lock: bool,
 }
 
 /// `upgrade` — index.ts:88-98. Five boolean `--long` flags, no positional.
@@ -149,6 +158,9 @@ pub struct UpgradeArgs {
     /// machine-readable JSON array output
     #[arg(long)]
     pub json: bool,
+    /// queue behind a concurrent agentlinux run instead of failing fast
+    #[arg(long)]
+    pub wait_lock: bool,
 }
 
 /// `pin <spec>` — index.ts:100-105. Single required positional `spec`.
@@ -156,6 +168,9 @@ pub struct UpgradeArgs {
 pub struct PinArgs {
     /// <name>=curated|latest|x.y.z
     pub spec: String,
+    /// queue behind a concurrent agentlinux run instead of failing fast
+    #[arg(long)]
+    pub wait_lock: bool,
 }
 
 /// `provision [flags]` — the provisioner entrypoint, mirroring
@@ -193,6 +208,9 @@ pub struct ProvisionArgs {
     /// enable DEBUG-level logging
     #[arg(long)]
     pub verbose: bool,
+    /// queue behind a concurrent agentlinux run instead of failing fast
+    #[arg(long)]
+    pub wait_lock: bool,
 }
 
 #[cfg(test)]

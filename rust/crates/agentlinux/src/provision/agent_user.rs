@@ -8,12 +8,16 @@
 //!     then re-chown/chmod 0644 `<user>:<user>`.
 //!
 //! Dispatches on the pre-resolved `RESOLUTIONS[user]` token (the DECIDE phase's
-//! output — the step only does I/O, never re-derives the decision):
-//!  - `Reuse` | `Remediate` → skip Steps 1-3 (identity/locale unchanged), still
-//!    write the DOC-02 block (additive/unconditional).
-//!  - `Create` → run Steps 1-3.
-//!  - `ReuseWithWarning` → log `[REUSE-WARN]`, skip 1-3, still write DOC-02.
+//! output — the step only does I/O, never re-derives the decision). The gate
+//! covers Step 1 ONLY:
+//!  - `Reuse` | `Remediate` → skip Step 1 (identity + home ownership unchanged).
+//!  - `Create` → run Step 1.
+//!  - `ReuseWithWarning` → log `[REUSE-WARN]`, skip Step 1.
 //!  - `Bail` → unreachable (a bail exits 65 before the step loop); defensive Err.
+//!
+//! Steps 2 (locale) and 3 (DOC-02) run on EVERY branch. Both are idempotent,
+//! system- rather than identity-scoped, and self-verifying, so a re-run repairs a
+//! host left half-provisioned by an earlier failure instead of skipping past it.
 //!
 //! The DOC-02 body is the EXACT heredoc from 10-agent-user.sh:88-134, stored as a
 //! single `&str` const so it round-trips byte-exact. The three anti-pattern
@@ -93,14 +97,15 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
         StepResolution::Reuse | StepResolution::Remediate => {
             // `remediate` acts identically to `reuse` on the user's own identity;
             // the sudoers fix is step 20's job (RESOLUTIONS[sudoers]).
-            eprintln!(
-                "10-agent-user: REUSE branch — skipping useradd + locale for existing user '{}'",
+            crate::plog!(
+                "10-agent-user: REUSE branch — skipping useradd for existing user '{}' \
+                 (locale + CLAUDE.md still enforced)",
                 ctx.install_user
             );
             true
         }
         StepResolution::ReuseWithWarning => {
-            eprintln!(
+            crate::plog!(
                 "[REUSE-WARN] component=user — skipped (user declined remediation; manual fix \
                  needed). Existing user '{}' unchanged.",
                 ctx.install_user
@@ -109,19 +114,37 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
         }
     };
 
-    // Steps 1+2 (CREATE path) — only when the user was not reused.
+    // Step 1 (CREATE path only) — identity. `ensure_user` is a no-op if the user
+    // already exists; `ensure_dir` then corrects home mode/ownership. Both stay
+    // gated: the REUSE contract is that an existing user's identity and home
+    // ownership are left exactly as the operator had them.
     if !reused {
-        // Step 1: install user (BHV-01). `ensure_user` is a no-op if the user
-        // already exists; `ensure_dir` then corrects home mode/ownership.
         sysio::ensure_user(&ctx.install_user)?;
         let owner = format!("{u}:{u}", u = ctx.install_user);
         sysio::ensure_dir(Path::new(&ctx.install_home), 0o755, &owner)?;
-
-        // Step 2: locale (BHV-01 — LANG/LC_ALL=C.UTF-8). The per-family branch
-        // (debian /etc/default/locale vs rhel /etc/locale.conf) lives in pkg.rs.
-        pkg::locale_ensure(ctx.family, "C.UTF-8")
-            .map_err(|e| io::Error::other(format!("C.UTF-8 locale not available: {e}")))?;
     }
+
+    // Step 2: locale (BHV-01 — LANG/LC_ALL=C.UTF-8), UNCONDITIONAL.
+    //
+    // This is deliberately outside the REUSE gate. The locale is system-wide
+    // state, not part of the user's identity, and `locale_ensure` both enforces
+    // and VERIFIES it (`locale -a`), so re-running on a conforming host is a
+    // cheap no-op.
+    //
+    // Gating it was a silent-failure hole. `user_state` classifies on the shell
+    // alone, so once step 1 has created the user, the host reads as `Conforming`
+    // forever after — even if the run that created it died at this very line.
+    // Run 1: user created, locale fails, exit 70. Run 2: `Conforming` → REUSE →
+    // locale skipped → every later step passes → `agentlinux-install complete`,
+    // exit 0, with LANG/LC_ALL never set. The failure was permanent (no retry
+    // could ever reach the skipped step) and silent (the installer reported
+    // success). Running the step unconditionally is what makes a retry repair a
+    // half-provisioned host.
+    //
+    // The per-family branch (debian /etc/default/locale vs rhel /etc/locale.conf)
+    // lives in pkg.rs.
+    pkg::locale_ensure(ctx.family, "C.UTF-8")
+        .map_err(|e| io::Error::other(format!("C.UTF-8 locale not available: {e}")))?;
 
     // Step 3: DOC-02 CLAUDE.md (unconditional/additive). ensure_marker_block with
     // the stable `agentlinux-doc-02` tag + Top placement — re-runs are
@@ -134,7 +157,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     std::fs::set_permissions(&claude_md, std::fs::Permissions::from_mode(0o644))?;
     let owner = format!("{u}:{u}", u = ctx.install_user);
     sysio::chown_by_name(&claude_md, &owner)?;
-    eprintln!(
+    crate::plog!(
         "10-agent-user: wrote DOC-02 CLAUDE.md to {}",
         claude_md.display()
     );

@@ -32,7 +32,10 @@ const DEFAULT_INSTALLED_DIR: &str = "/opt/agentlinux/state/installed.d";
 
 /// Resolve the installed.d dir lazily: `$AGENTLINUX_STATE_DIR` (bats seam) else
 /// the default. Port of `installedDir()`.
-fn installed_dir() -> PathBuf {
+///
+/// Public so a diagnostic can name the directory an operator has to go look at —
+/// "cannot read the install records" is not actionable without the path.
+pub fn installed_dir() -> PathBuf {
     match std::env::var("AGENTLINUX_STATE_DIR") {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
         _ => PathBuf::from(DEFAULT_INSTALLED_DIR),
@@ -151,12 +154,22 @@ pub fn read_sentinel(id: &str) -> std::io::Result<Option<Sentinel>> {
     let path = installed_dir().join(format!("{id}.json"));
     match std::fs::read_to_string(&path) {
         Ok(data) => {
-            let s: Sentinel = serde_json::from_str(&data)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            // Name the FILE in the parse error. Serde reports "expected value at
+            // line 1 column 1", which for a zero-length record left by a power
+            // loss says nothing about which record or where to find it.
+            let s: Sentinel = serde_json::from_str(&data).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("{} is not a valid install record: {e}", path.display()),
+                )
+            })?;
             Ok(Some(s))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
-        Err(e) => Err(e),
+        Err(e) => Err(std::io::Error::new(
+            e.kind(),
+            format!("cannot read {}: {e}", path.display()),
+        )),
     }
 }
 
@@ -193,6 +206,20 @@ pub fn delete_sentinel(id: &str) -> std::io::Result<()> {
 
 /// List every sentinel under installed.d. Missing dir → empty (ENOENT-tolerant).
 /// Port of `listSentinels`.
+///
+/// # One bad record does not hide the others
+/// An unreadable or unparseable `<id>.json` is SKIPPED with a loud warning, not
+/// propagated. It used to abort the whole listing through the `?`, and the three
+/// callers each failed differently and badly: `list` swallowed the error into an
+/// empty vec and told the operator nothing was installed, `upgrade` exited 1, and
+/// `rewire::reconcile_cross_wiring` returned silently — so installing an agent
+/// appeared to succeed while the cross-agent wiring never ran. One zero-length
+/// file from a power loss disabled all three, for every agent, permanently: the
+/// same record failed the same way on every subsequent run.
+///
+/// Skipping is the right default because these files are INDEPENDENT records.
+/// Nine good sentinels are still nine correct answers, and the warning names the
+/// file and the fix so the tenth is recoverable.
 pub fn list_sentinels() -> std::io::Result<Vec<Sentinel>> {
     let dir = installed_dir();
     let entries = match std::fs::read_dir(&dir) {
@@ -208,13 +235,22 @@ pub fn list_sentinels() -> std::io::Result<Vec<Sentinel>> {
         // Only `<id>.json`. A concurrent write's tmpfile is `.<id>.json.<pid>.…`
         // (see `sysio::mktemp_in`), which does not end in `.json`, so this
         // suffix test already excludes it — no separate tmp guard needed.
-        if let Some(id) = name.strip_suffix(".json") {
-            if id.is_empty() {
-                continue;
-            }
-            if let Some(s) = read_sentinel(id)? {
-                out.push(s);
-            }
+        let Some(id) = name.strip_suffix(".json") else {
+            continue;
+        };
+        if id.is_empty() {
+            continue;
+        }
+        match read_sentinel(id) {
+            Ok(Some(s)) => out.push(s),
+            // Raced with a `remove` between read_dir and open — not an error.
+            Ok(None) => {}
+            Err(e) => crate::plog!(
+                "agentlinux: skipping unreadable install record {} ({e}). \
+                 `{id}` will not appear as installed; delete that file to clear \
+                 the warning, then re-install `{id}` if you still need it.",
+                dir.join(format!("{id}.json")).display()
+            ),
         }
     }
     Ok(out)
@@ -309,6 +345,67 @@ mod sentinel_tests {
             .map(|s| s.id)
             .collect();
         assert_eq!(ids, vec!["b".to_string()]);
+
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+    }
+
+    // One corrupt record must not hide the others. A zero-length `<id>.json` from
+    // a power loss used to abort the whole listing, which made `list` report
+    // nothing installed, `upgrade` exit 1, and cross-agent wiring silently skip —
+    // for EVERY agent, on every subsequent run.
+    #[test]
+    fn one_corrupt_record_does_not_hide_the_healthy_ones() {
+        let _g = crate::test_support::env_guard();
+        let dir = tempdir().unwrap();
+        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+
+        write_sentinel(&Sentinel::new(
+            "gsd".into(),
+            "1.7.0".into(),
+            "curated".into(),
+            false,
+        ))
+        .unwrap();
+        write_sentinel(&Sentinel::new(
+            "rtk".into(),
+            "2.0.0".into(),
+            "latest".into(),
+            false,
+        ))
+        .unwrap();
+        // The power-loss shape: present, zero-length, unparseable.
+        std::fs::write(dir.path().join("claude-code.json"), b"").unwrap();
+        // And the other shape: valid JSON, wrong schema.
+        std::fs::write(dir.path().join("playwright.json"), b"{\"nope\":1}").unwrap();
+
+        let mut ids: Vec<String> = list_sentinels()
+            .unwrap()
+            .into_iter()
+            .map(|s| s.id)
+            .collect();
+        ids.sort();
+        assert_eq!(
+            ids,
+            vec!["gsd".to_string(), "rtk".to_string()],
+            "healthy records must survive a corrupt sibling"
+        );
+
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+    }
+
+    // The parse error names the FILE. Serde alone reports "expected value at line
+    // 1 column 1", which does not say which record or where to find it.
+    #[test]
+    fn a_corrupt_record_error_names_the_file() {
+        let _g = crate::test_support::env_guard();
+        let dir = tempdir().unwrap();
+        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        std::fs::write(dir.path().join("broken.json"), b"{not json").unwrap();
+
+        let err = read_sentinel("broken").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("broken.json"), "msg={msg}");
+        assert!(msg.contains("not a valid install record"), "msg={msg}");
 
         std::env::remove_var("AGENTLINUX_STATE_DIR");
     }

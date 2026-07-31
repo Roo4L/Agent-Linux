@@ -14,7 +14,8 @@ New ADR: copy [`000-template.md`](000-template.md) and add a row below.
 
 **Tag vocabulary:** `product` · `packaging` · `installer` · `nodejs` · `cli` ·
 `catalog` · `versioning` · `mcp` · `security` · `privilege` · `testing` ·
-`review` · `process` · `docs` · `licensing` · `release` · `distro` · `vision`
+`review` · `process` · `docs` · `licensing` · `release` · `distro` · `vision` ·
+`reliability`
 
 | ADR | Decision | Tags | Status |
 |-----|----------|------|--------|
@@ -36,3 +37,5 @@ New ADR: copy [`000-template.md`](000-template.md) and add a row below.
 | [016](016-agenda-redefinition.md) | Agenda redefinition — two pillars, vision-only doc | product, vision | Accepted |
 | [017](017-distro-family-bucket.md) | Distro-family bucket (`AGENTLINUX_DISTRO_FAMILY`) + single `pkg.sh` dispatch | distro, installer | Accepted |
 | [018](018-mcp-thin-installer-in-client-auth.md) | MCP entries are thin client-config installers; auth happens in-client | catalog, mcp, security | Accepted |
+| [019](019-idempotent-convergence-over-completion-markers.md) | Provisioner steps converge and self-verify; no per-step completion markers | installer, reliability | Accepted |
+| [020](020-bounded-degradation-under-hostile-io.md) | Every wait is bounded; expiry degrades loudly (truncate, refuse, retry) rather than blocking | installer, reliability | Accepted |

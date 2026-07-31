@@ -76,7 +76,7 @@ fn src_root() -> PathBuf {
         // log — instead of surfacing only as a misleading "release tarball
         // malformed?" against the tier-3 default the operator never chose
         // (the OBS-04 class of confusion).
-        eprintln!(
+        crate::plog!(
             "50-registry-cli: bin-relative src root {} lacks bin/agentlinux+catalog/; \
              falling back to {DEFAULT_SRC_ROOT}",
             candidate.display()
@@ -136,7 +136,7 @@ pub fn agentlinux_version() -> String {
 
 /// `run` — the 50-registry-cli.sh port.
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
-    eprintln!("50-registry-cli: starting");
+    crate::plog!("50-registry-cli: starting");
 
     let user = &ctx.install_user;
     let home = &ctx.install_home;
@@ -220,7 +220,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let symlink_target = cli_bin_stage.clone();
     ln_sfn(&symlink_target, &symlink)?;
     chown_symlink(&symlink, &owner)?;
-    eprintln!(
+    crate::plog!(
         "50-registry-cli: symlinked {} -> {}",
         symlink.display(),
         symlink_target.display()
@@ -240,7 +240,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
         )));
     }
 
-    eprintln!("50-registry-cli: done (CLI-01 + CAT-01..05 + INST-02 staging complete)");
+    crate::plog!("50-registry-cli: done (CLI-01 + CAT-01..05 + INST-02 staging complete)");
     Ok(())
 }
 
@@ -275,12 +275,36 @@ fn copy_tree_contents(src: &Path, dst: &Path) -> io::Result<()> {
 }
 
 /// `install -m <mode> -o <u> -g <g> <src> <dst>` — copy the file bytes, set the
-/// exact mode, chown to owner. Overwrites an existing dst.
+/// exact mode, chown to owner. Atomically replaces an existing dst.
+///
+/// Copy into a same-directory tmpfile, set mode and owner on it, then `rename`
+/// onto `dst`. The previous `remove_file` + `fs::copy` left a window in which the
+/// destination did not exist at all: this installs the `agentlinux` BINARY, so an
+/// interrupted re-provision left the host with no CLI — strictly worse than
+/// before the run, and unrecoverable without re-downloading the tarball. The
+/// rename replaces the inode in one step, so a reader sees either the old binary
+/// or the new one.
 fn install_file(src: &Path, dst: &Path, mode: u32, owner: &str) -> io::Result<()> {
-    let _ = fs::remove_file(dst);
-    fs::copy(src, dst)?;
-    fs::set_permissions(dst, fs::Permissions::from_mode(mode))?;
-    chown_path(dst, owner)?;
+    let dir = dst.parent().unwrap_or_else(|| Path::new("."));
+    let base = dst
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| io::Error::other(format!("install_file: bad dst {}", dst.display())))?;
+
+    let (mut tmp_file, tmp) = sysio::mktemp_in(dir, base)?;
+    let mut guard = sysio::TmpGuard::new(tmp.clone());
+
+    let mut source = fs::File::open(src)?;
+    io::copy(&mut source, &mut tmp_file)?;
+    // fsync before publishing: an unflushed multi-megabyte binary that survives a
+    // rename but not a power loss is a truncated executable on the next boot.
+    tmp_file.sync_all()?;
+    drop(tmp_file);
+
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;
+    chown_path(&tmp, owner)?;
+    fs::rename(&tmp, dst)?;
+    guard.disarm();
     Ok(())
 }
 
@@ -317,21 +341,35 @@ fn chmod_catalog_tree(root: &Path) -> io::Result<()> {
 
 /// `ln -sfn <target> <link>` — force + no-deref: atomically replace an existing
 /// link/file with a symlink to `target`, without chasing through an existing
-/// symlink. `remove_file` then `symlink` reproduces `-f` (the symlink syscall
-/// itself is not atomic-replace, but this matches the Bash observable: the link
-/// ends pointing at target regardless of prior state).
+/// symlink.
+///
+/// `symlink(2)` fails on an existing path and cannot replace in place, so the
+/// atomic form is: create the link under a unique same-directory name, then
+/// `rename` it onto `link`. `rename(2)` on a symlink replaces the entry in one
+/// step. The previous `remove_file` + `symlink` left a window with NO link at
+/// all — paired with `install_file`'s window, an interrupted re-provision could
+/// leave both the binary missing and the symlink dangling.
+///
+/// -n semantics come free: `rename` replaces the link entry itself and never
+/// descends into a symlinked directory.
 fn ln_sfn(target: &Path, link: &Path) -> io::Result<()> {
-    // -n: if `link` is an existing symlink to a directory, do NOT descend into it;
-    // removing the link path itself handles that. remove_file removes a symlink
-    // (even a dangling one) without touching its target.
-    match fs::symlink_metadata(link) {
-        Ok(_) => {
-            fs::remove_file(link)?;
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
-    }
-    std::os::unix::fs::symlink(target, link)?;
+    let dir = link.parent().unwrap_or_else(|| Path::new("."));
+    let base = link
+        .file_name()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| io::Error::other(format!("ln_sfn: bad link path {}", link.display())))?;
+
+    // mktemp_in creates a regular file to reserve the name; unlink it and take
+    // the name for the symlink. The reservation is what keeps two concurrent
+    // provisioner runs from choosing the same staging name.
+    let (staging_file, staging) = sysio::mktemp_in(dir, base)?;
+    drop(staging_file);
+    let mut guard = sysio::TmpGuard::new(staging.clone());
+    fs::remove_file(&staging)?;
+
+    std::os::unix::fs::symlink(target, &staging)?;
+    fs::rename(&staging, link)?;
+    guard.disarm();
     Ok(())
 }
 
@@ -354,6 +392,114 @@ fn chown_symlink(link: &Path, owner: &str) -> io::Result<()> {
 mod registry_cli_tests {
     use super::*;
     use tempfile::tempdir;
+
+    /// The owner every atomicity test installs as — the test process's own user,
+    /// so `chown_path` succeeds unprivileged.
+    fn self_owner() -> String {
+        let u = nix::unistd::User::from_uid(nix::unistd::getuid())
+            .ok()
+            .flatten()
+            .expect("passwd entry for the test user");
+        let g = nix::unistd::Group::from_gid(nix::unistd::getgid())
+            .ok()
+            .flatten()
+            .expect("group entry for the test user");
+        format!("{}:{}", u.name, g.name)
+    }
+
+    // Installing over an existing binary replaces it in one step and leaves no
+    // staging file behind. The old code did `remove_file` then `fs::copy`, so an
+    // interruption left the host with NO `agentlinux` binary at all.
+    #[test]
+    fn install_file_replaces_atomically_and_leaves_no_residue() {
+        let d = tempdir().unwrap();
+        let src = d.path().join("new-bin");
+        let dst = d.path().join("agentlinux");
+        fs::write(&src, b"#!/bin/sh\nnew\n").unwrap();
+        fs::write(&dst, b"#!/bin/sh\nold\n").unwrap();
+
+        install_file(&src, &dst, 0o755, &self_owner()).unwrap();
+
+        assert_eq!(fs::read(&dst).unwrap(), b"#!/bin/sh\nnew\n");
+        assert_eq!(fs::symlink_metadata(&dst).unwrap().permissions().mode() & 0o777, 0o755);
+        // Only src + dst remain: no `.agentlinux.<pid>.…` staging file survived.
+        let names: Vec<String> = fs::read_dir(d.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names.len(), 2, "residual staging file: {names:?}");
+    }
+
+    // A failed install leaves the PREVIOUS binary intact — the property the
+    // rename buys. A missing source fails before anything is published.
+    #[test]
+    fn a_failed_install_leaves_the_previous_binary_in_place() {
+        let d = tempdir().unwrap();
+        let dst = d.path().join("agentlinux");
+        fs::write(&dst, b"old-but-working\n").unwrap();
+
+        let err = install_file(&d.path().join("no-such-src"), &dst, 0o755, &self_owner());
+        assert!(err.is_err());
+        assert_eq!(fs::read(&dst).unwrap(), b"old-but-working\n");
+        let names: Vec<String> = fs::read_dir(d.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(names, vec!["agentlinux".to_string()], "residue: {names:?}");
+    }
+
+    // Re-pointing the PATH symlink never leaves the link absent, and re-running
+    // with the same target is idempotent (INST-02).
+    #[test]
+    fn ln_sfn_repoints_without_a_missing_link_window() {
+        let d = tempdir().unwrap();
+        let old_target = d.path().join("bin-a");
+        let new_target = d.path().join("bin-b");
+        fs::write(&old_target, b"a").unwrap();
+        fs::write(&new_target, b"b").unwrap();
+        let link = d.path().join("agentlinux");
+
+        ln_sfn(&old_target, &link).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), old_target);
+
+        ln_sfn(&new_target, &link).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), new_target);
+        // Idempotent re-run.
+        ln_sfn(&new_target, &link).unwrap();
+        assert_eq!(fs::read_link(&link).unwrap(), new_target);
+        assert_eq!(fs::read(&link).unwrap(), b"b");
+
+        // No staging entries left over across three calls.
+        let extra: Vec<String> = fs::read_dir(d.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with('.'))
+            .collect();
+        assert!(extra.is_empty(), "residual staging links: {extra:?}");
+    }
+
+    // `-n`: an existing symlink to a DIRECTORY is replaced itself, never
+    // followed into. Without that, re-pointing would create a link INSIDE the
+    // old target directory.
+    #[test]
+    fn ln_sfn_replaces_a_dir_symlink_without_descending_into_it() {
+        let d = tempdir().unwrap();
+        let dir_target = d.path().join("some-dir");
+        fs::create_dir(&dir_target).unwrap();
+        let link = d.path().join("link");
+        std::os::unix::fs::symlink(&dir_target, &link).unwrap();
+
+        let file_target = d.path().join("bin");
+        fs::write(&file_target, b"x").unwrap();
+        ln_sfn(&file_target, &link).unwrap();
+
+        assert_eq!(fs::read_link(&link).unwrap(), file_target);
+        assert_eq!(
+            fs::read_dir(&dir_target).unwrap().count(),
+            0,
+            "descended into the old target instead of replacing the link"
+        );
+    }
 
     #[test]
     fn src_root_honors_env_else_default() {

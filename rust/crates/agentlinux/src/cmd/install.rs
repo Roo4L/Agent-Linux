@@ -48,7 +48,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     // --dry-run + --yes is contradictory (dry-run never mutates; --yes is a
     // mutation gate). Reject upfront with exit 64.
     if opts.dry_run && opts.yes {
-        eprintln!(
+        crate::plog!(
             "agentlinux install: contradictory flags — --dry-run forbids --yes (dry-run never mutates; --yes is a mutation gate)"
         );
         return ExitCode::from(EX_USAGE);
@@ -59,7 +59,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Required) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            crate::plog!("{e}");
             return ExitCode::from(1);
         }
     };
@@ -70,14 +70,14 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
 
     // test_only entries are refused unless --include-test.
     if entry.test_only && !opts.include_test {
-        eprintln!("agentlinux: {name} is a test-only entry; pass --include-test to install");
+        crate::plog!("agentlinux: {name} is a test-only entry; pass --include-test to install");
         return ExitCode::from(EX_USAGE);
     }
 
     // --version present but not valid semver → 64.
     if let Some(v) = opts.version.as_deref() {
         if semver_shim::valid(v).is_none() {
-            eprintln!("agentlinux: --version '{v}' is not a valid semver");
+            crate::plog!("agentlinux: --version '{v}' is not a valid semver");
             return ExitCode::from(EX_USAGE);
         }
     }
@@ -85,7 +85,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     let existing = match sentinel::read_sentinel(&entry.id) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("agentlinux: failed to read sentinel for {}: {e}", entry.id);
+            crate::plog!("agentlinux: failed to read sentinel for {}: {e}", entry.id);
             return ExitCode::from(1);
         }
     };
@@ -167,7 +167,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         s.reused_at = Some(now);
         s.compatibility_window_at_reuse = entry.compatibility_window.clone();
         if let Err(e) = sentinel::write_sentinel(&s) {
-            eprintln!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
+            crate::plog!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
             return ExitCode::from(1);
         }
         println!(
@@ -213,16 +213,16 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         // auto-passes.
         let is_tty = std::io::stdin().is_terminal();
         if !opts.yes && !is_tty {
-            eprintln!(
+            crate::plog!(
                 "Refusing to proceed — 1 component needs Remediate (run with --yes to apply, or --dry-run to preview):\n"
             );
-            eprintln!(
+            crate::plog!(
                 "[BAIL] component={} reason={} hint=run with --yes to {}",
                 entry.id,
                 rem.reason.as_str(),
                 if is_migration { "migrate" } else { "reinstall" }
             );
-            eprintln!(
+            crate::plog!(
                 "\nExit code 65 (EX_DATAERR — incompatible host state). See agentlinux install --help."
             );
             return ExitCode::from(EX_DATAERR);
@@ -253,12 +253,12 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         let uninstall_env = recipe_child_env(entry, &uninstall_version, &catalog_dir, &user);
         let uninstall_result = dispatch(&user, &uninstall_path, &uninstall_env, Capture::Buffered);
         if uninstall_result.exit_code != 0 {
-            eprintln!(
+            crate::plog!(
                 "[REMEDIATE-04:uninstall-fail] {} uninstall.sh exited {}",
                 entry.id, uninstall_result.exit_code
             );
             if !uninstall_result.stderr.is_empty() {
-                eprintln!("{}", uninstall_result.stderr);
+                crate::plog!("{}", uninstall_result.stderr);
             }
             return ExitCode::from(1);
         }
@@ -268,7 +268,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         let canonical_present = std::path::Path::new(&rem.canonical_path).exists();
         let detected_present = std::path::Path::new(&rem.detected_path).exists();
         if canonical_present || detected_present {
-            eprintln!(
+            crate::plog!(
                 "[REMEDIATE-04:uninstall-incomplete] {} uninstall.sh exited 0 but binary still present (canonical={canonical_present} detected={detected_present})",
                 entry.id
             );
@@ -293,12 +293,12 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
             s.remediated_at = Some(now);
             s.remediate_failure_reason = Some("install-failed-post-uninstall".to_string());
             let _ = sentinel::write_sentinel(&s);
-            eprintln!(
+            crate::plog!(
                 "[REMEDIATE-04:half-uninstalled] {} install.sh exited {} after uninstall succeeded — manual recovery needed (run agentlinux remove {} then agentlinux install {})",
                 entry.id, install_result.exit_code, entry.id, entry.id
             );
             if !install_result.stderr.is_empty() {
-                eprintln!("{}", install_result.stderr);
+                crate::plog!("{}", install_result.stderr);
             }
             return ExitCode::from(1);
         }
@@ -315,7 +315,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         s.status = Some("installed".to_string());
         s.remediated_at = Some(now);
         if let Err(e) = sentinel::write_sentinel(&s) {
-            eprintln!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
+            crate::plog!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
             return ExitCode::from(1);
         }
         println!(
@@ -360,12 +360,12 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     let env = recipe_child_env(entry, &decision.version, &catalog_dir, &user);
     let result = dispatch(&user, &install_path, &env, Capture::Streamed);
     if result.exit_code != 0 {
-        eprintln!(
+        crate::plog!(
             "{}: install.sh failed (exit {})",
             entry.id, result.exit_code
         );
         if !result.stderr.is_empty() {
-            eprintln!("{}", result.stderr);
+            crate::plog!("{}", result.stderr);
         }
         // Propagate the recipe exit code.
         return exit_from_code(result.exit_code);
@@ -381,7 +381,7 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     s.installed_at = Some(now);
     s.status = Some("installed".to_string());
     if let Err(e) = sentinel::write_sentinel(&s) {
-        eprintln!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
+        crate::plog!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
         return ExitCode::from(1);
     }
     println!(
@@ -468,6 +468,7 @@ mod install_tests {
             include_test,
             yes,
             dry_run,
+            wait_lock: false,
         }
     }
 

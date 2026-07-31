@@ -71,8 +71,20 @@ pub fn reconcile_cross_wiring_with(
     // The ids the host currently has a sentinel for.
     let installed_ids: HashSet<String> = match sentinel::list_sentinels() {
         Ok(list) => list.into_iter().map(|s| s.id).collect(),
-        // A sentinel-list failure is non-fatal (best-effort) — skip the reconcile.
-        Err(_) => return,
+        // Still non-fatal — the agent we just installed works fine without the
+        // cross-wiring — but no longer SILENT. This used to `return` with no
+        // output, so an unreadable install-record directory meant rtk and the MCP
+        // servers were never wired into the new agent and nothing anywhere said
+        // so; the install printed success and the operator found the gap later.
+        Err(e) => {
+            crate::plog!(
+                "agentlinux: cannot read the install records ({e}) — skipping \
+                 cross-agent wiring for `{installed_id}`. Already-installed tools \
+                 will not be wired into it; re-run `agentlinux install {installed_id}` \
+                 once the records are readable."
+            );
+            return;
+        }
     };
 
     // Providers = installed entries declaring a rewire recipe, excluding the agent
@@ -118,7 +130,7 @@ pub fn reconcile_cross_wiring_with(
         if result.exit_code == 0 {
             println!("↻ re-wired {} into {installed_id}", provider.id);
         } else {
-            eprintln!(
+            crate::plog!(
                 "↻ note: re-wiring {} into {installed_id} exited {} (install still OK; run `agentlinux install {}` to re-wire)",
                 provider.id, result.exit_code, provider.id
             );

@@ -31,7 +31,7 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Required) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            crate::plog!("{e}");
             return ExitCode::from(1);
         }
     };
@@ -43,7 +43,7 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     let sentinel = match sentinel::read_sentinel(&entry.id) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("agentlinux: failed to read sentinel for {}: {e}", entry.id);
+            crate::plog!("agentlinux: failed to read sentinel for {}: {e}", entry.id);
             return ExitCode::from(1);
         }
     };
@@ -51,7 +51,7 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     let Some(sentinel) = sentinel else {
         // Not installed. Without --force → exit 1; with --force → no-op exit 0.
         if !opts.force {
-            eprintln!(
+            crate::plog!(
                 "agentlinux: {} is not installed (pass --force for no-op)",
                 entry.id
             );
@@ -67,7 +67,7 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
         if let Some(bin) = sentinel.binary_path.as_deref() {
             if !std::path::Path::new(bin).exists() {
                 if let Err(e) = sentinel::delete_sentinel(&entry.id) {
-                    eprintln!(
+                    crate::plog!(
                         "agentlinux: failed to delete sentinel for {}: {e}",
                         entry.id
                     );
@@ -88,19 +88,19 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     let env = recipe_child_env(entry, &sentinel.version, &catalog_dir, &user);
     let result = dispatch(&user, &recipe, &env, Capture::Streamed);
     if result.exit_code != 0 {
-        eprintln!(
+        crate::plog!(
             "{}: uninstall.sh failed (exit {})",
             entry.id, result.exit_code
         );
         if !result.stderr.is_empty() {
-            eprintln!("{}", result.stderr);
+            crate::plog!("{}", result.stderr);
         }
         // Propagate the recipe exit code.
         return ExitCode::from(u8::try_from(result.exit_code).unwrap_or(1));
     }
 
     if let Err(e) = sentinel::delete_sentinel(&entry.id) {
-        eprintln!(
+        crate::plog!(
             "agentlinux: failed to delete sentinel for {}: {e}",
             entry.id
         );
@@ -167,7 +167,8 @@ mod remove_tests {
                 "ghost",
                 &RemoveArgs {
                     name: "ghost".into(),
-                    force: false
+                    force: false,
+                    wait_lock: false,
                 },
                 ok_dispatch
             ),
@@ -188,7 +189,8 @@ mod remove_tests {
                 "test-dummy",
                 &RemoveArgs {
                     name: "test-dummy".into(),
-                    force: false
+                    force: false,
+                    wait_lock: false,
                 },
                 ok_dispatch
             ),
@@ -209,7 +211,8 @@ mod remove_tests {
                 "test-dummy",
                 &RemoveArgs {
                     name: "test-dummy".into(),
-                    force: true
+                    force: true,
+                    wait_lock: false,
                 },
                 ok_dispatch
             ),
@@ -237,7 +240,8 @@ mod remove_tests {
                 "test-dummy",
                 &RemoveArgs {
                     name: "test-dummy".into(),
-                    force: false
+                    force: false,
+                    wait_lock: false,
                 },
                 ok_dispatch
             ),
@@ -267,7 +271,8 @@ mod remove_tests {
                 "test-dummy",
                 &RemoveArgs {
                     name: "test-dummy".into(),
-                    force: false
+                    force: false,
+                    wait_lock: false,
                 },
                 fail_dispatch
             ),

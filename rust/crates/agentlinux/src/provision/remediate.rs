@@ -141,8 +141,8 @@ pub fn decide_core(
         probe::UserState::Absent => res.user = Resolution::Create,
         probe::UserState::Conforming => res.user = Resolution::Reuse,
         probe::UserState::WrongShell => {
-            eprintln!("agentlinux: existing user \"{user}\" is incompatible (wrong-shell).");
-            eprintln!(
+            crate::plog!("agentlinux: existing user \"{user}\" is incompatible (wrong-shell).");
+            crate::plog!(
                 "Re-run with --user=NAME using a compatible user, or fix the shell of the \
                  existing user."
             );
@@ -195,7 +195,7 @@ fn prompt_component(component: &str, marker: &str, description: &str) -> Resolut
     if crate::provision::wizard::confirm_remediate(component, description) {
         Resolution::Remediate
     } else {
-        eprintln!(
+        crate::plog!(
             "[{marker}] DECLINED by user — skipping {component}; install continues \
              (state will be marked reused-with-warning)"
         );
@@ -212,12 +212,12 @@ pub fn flush_or_exit(bails: &[Bail]) {
         return;
     }
     for b in bails {
-        eprintln!(
+        crate::plog!(
             "[BAIL] component={} reason={} hint={}",
             b.component, b.reason, b.hint
         );
     }
-    eprintln!(
+    crate::plog!(
         "Exit code 65 (EX_DATAERR — incompatible host state). Re-run with --yes to remediate, \
          or see agentlinux provision --help."
     );

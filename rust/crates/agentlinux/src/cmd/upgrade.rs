@@ -156,14 +156,14 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Required) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            crate::plog!("{e}");
             return ExitCode::from(1);
         }
     };
     let sentinels = match sentinel::list_sentinels() {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("agentlinux: failed to list sentinels: {e}");
+            crate::plog!("agentlinux: failed to list sentinels: {e}");
             return ExitCode::from(1);
         }
     };
@@ -200,7 +200,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         if will_touch_upstream(opts) && entry.source_kind.as_deref() == Some("npm") {
             match (deps.query_npm_view_latest)(entry) {
                 Ok(v) => latest = v,
-                Err(msg) => eprintln!("  ! {}: could not resolve latest — {msg}", entry.id),
+                Err(msg) => crate::plog!("  ! {}: could not resolve latest — {msg}", entry.id),
             }
         }
 
@@ -285,7 +285,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
             match row.report.latest_version.as_deref() {
                 Some(v) => (v.to_string(), "latest"),
                 None => {
-                    eprintln!("{id}: skipping (no upstream latest resolved)");
+                    crate::plog!("{id}: skipping (no upstream latest resolved)");
                     continue;
                 }
             }
@@ -302,9 +302,9 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         // TTY prompts) would target these stream=false calls.
         let result = (deps.dispatch)(&user, &recipe, &env, Capture::Buffered);
         if result.exit_code != 0 {
-            eprintln!("{id}: recipe failed (exit {})", result.exit_code);
+            crate::plog!("{id}: recipe failed (exit {})", result.exit_code);
             if !result.stderr.is_empty() {
-                eprintln!("{}", result.stderr);
+                crate::plog!("{}", result.stderr);
             }
             // Preserve the pre-upgrade sentinel — never mark "installed" on failure.
             // continue — NEVER abort the whole run.
@@ -325,7 +325,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         s.installed_at = Some(sentinel::now_iso8601());
         s.status = Some("installed".to_string());
         if let Err(e) = sentinel::write_sentinel(&s) {
-            eprintln!("agentlinux: failed to write sentinel for {id}: {e}");
+            crate::plog!("agentlinux: failed to write sentinel for {id}: {e}");
             // Non-fatal for the run (a single write failure shouldn't abort the
             // sweep) — continue like a per-entry recipe failure.
             continue;
@@ -395,7 +395,7 @@ fn render_json(rows: &[Row]) {
         .collect();
     match serde_json::to_string_pretty(&arr) {
         Ok(s) => println!("{s}"),
-        Err(e) => eprintln!("agentlinux: failed to serialize upgrade JSON: {e}"),
+        Err(e) => crate::plog!("agentlinux: failed to serialize upgrade JSON: {e}"),
     }
 }
 
@@ -422,6 +422,7 @@ mod upgrade_tests {
             all_latest,
             check_upstream,
             json,
+            wait_lock: false,
         }
     }
 

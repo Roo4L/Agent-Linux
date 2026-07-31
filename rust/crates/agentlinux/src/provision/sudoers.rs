@@ -62,14 +62,14 @@ fn sudoers_content(user: &str) -> String {
 /// cloud/Docker images ship without it), re-asserts `/etc/sudoers.d` at
 /// `0755 root:root`, then dispatches on the resolution token.
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
-    eprintln!("20-sudoers: starting");
+    crate::plog!("20-sudoers: starting");
 
     // Minimal images ship without the `sudo` package (which provides both `sudo`
     // and `visudo`); we need `visudo` to validate the drop-in. Install BEFORE the
     // dispatch so even REUSE/REMEDIATE arms have visudo for validation. Routes
     // through the family-correct pkg verb (apt on debian, dnf on rhel).
     if sysio::which("visudo").is_none() {
-        eprintln!("20-sudoers: visudo not found; installing 'sudo' package");
+        crate::plog!("20-sudoers: visudo not found; installing 'sudo' package");
         pkg::pkg_install(ctx.family, &["sudo"])?;
     }
 
@@ -79,40 +79,40 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
 
     match ctx.resolutions.sudoers {
         StepResolution::Reuse => {
-            eprintln!(
+            crate::plog!(
                 "20-sudoers: [REUSE] sudoers: {SUDOERS_FILE} already canonical (ADR-012 line present)"
             );
-            eprintln!("20-sudoers: done");
+            crate::plog!("20-sudoers: done");
             Ok(())
         }
         StepResolution::Create => {
             install_or_overwrite(ctx, "install")?;
-            eprintln!(
+            crate::plog!(
                 "20-sudoers: install user '{}' now has passwordless sudo (scope: ALL commands) — INST-06",
                 ctx.install_user
             );
-            eprintln!("20-sudoers: done");
+            crate::plog!("20-sudoers: done");
             Ok(())
         }
         StepResolution::Remediate => {
             // The consent gate already passed upstream (a bail would have exited
             // 65 before the step loop if --yes were missing).
             install_or_overwrite(ctx, "overwrite")?;
-            eprintln!(
+            crate::plog!(
                 "20-sudoers: install user '{}' now has passwordless sudo (scope: ALL commands — drift remediated) — INST-06",
                 ctx.install_user
             );
-            eprintln!("20-sudoers: done");
+            crate::plog!("20-sudoers: done");
             Ok(())
         }
         StepResolution::ReuseWithWarning => {
             // Operator declined the drift overwrite; leave the file as-is. The
             // operator now owns ensuring the grant works.
-            eprintln!(
+            crate::plog!(
                 "20-sudoers: [REUSE-WARN] component=sudoers — skipped (user declined remediation; \
                  manual fix needed). {SUDOERS_FILE} unchanged."
             );
-            eprintln!("20-sudoers: done");
+            crate::plog!("20-sudoers: done");
             Ok(())
         }
     }
@@ -150,7 +150,7 @@ fn install_or_overwrite(ctx: &ProvisionCtx, action: &str) -> io::Result<()> {
     // Pre-install gate (TOCTOU belt, part 1): refuse to install a syntactically
     // invalid sudoers.
     if let Err(e) = sysio::visudo_validate(&tmp) {
-        eprintln!(
+        crate::plog!(
             "20-sudoers: [REMEDIATE-03:visudo-fail] tmpfile syntax check failed; refusing to install {SUDOERS_FILE}"
         );
         return Err(e);
@@ -169,13 +169,13 @@ fn install_or_overwrite(ctx: &ProvisionCtx, action: &str) -> io::Result<()> {
     // Post-install verify (TOCTOU belt, part 2): catches any corruption between
     // the rename and here — a post-install failure is a hard error.
     if let Err(e) = sysio::visudo_validate(dest) {
-        eprintln!(
+        crate::plog!(
             "20-sudoers: [REMEDIATE-03:visudo-fail] post-install verify failed for {SUDOERS_FILE}"
         );
         return Err(e);
     }
 
-    eprintln!(
+    crate::plog!(
         "20-sudoers: [REMEDIATE-03] component=sudoers action={action} path={SUDOERS_FILE} (mode 0440 root:root — ADR-012)"
     );
     Ok(())

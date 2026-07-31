@@ -44,20 +44,20 @@ use std::process::Command;
 /// path; the npm-prefix REMEDIATE-01 dispatch (`ctx.resolutions.npm_prefix`) runs
 /// unconditionally afterward.
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
-    eprintln!("30-nodejs: starting");
+    crate::plog!("30-nodejs: starting");
 
     // Dispatch on RESOLUTIONS[node]. Two real tokens
     // (reuse|create); remediate/bail are defensive (no node token at this layer).
     let node_reused = match ctx.resolutions.node {
         StepResolution::Reuse => {
-            eprintln!(
+            crate::plog!(
                 "30-nodejs: REUSE branch — skipping the NodeSource nodejs install + .npmrc bootstrap"
             );
             // The active npm prefix may still diverge from the reused Node's
             // prefix; the npm-prefix dispatch below (REMEDIATE-01) handles it —
             // warn for transcript visibility.
             if !npm_prefix_writable_by_install_user(ctx) {
-                eprintln!(
+                crate::plog!(
                     "30-nodejs: REUSE-02 succeeded but the npm prefix is not writable by \
                      the install user — REMEDIATE-01 npm-prefix dispatch follows"
                 );
@@ -88,7 +88,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // reused or freshly installed.
     match ctx.resolutions.npm_prefix {
         StepResolution::Reuse => {
-            eprintln!("30-nodejs: [REUSE] npm-prefix: writable by the install user; nothing to do");
+            crate::plog!("30-nodejs: [REUSE] npm-prefix: writable by the install user; nothing to do");
         }
         StepResolution::Create => {
             // The CREATE path above bootstrapped the prefix (or no-op).
@@ -99,14 +99,14 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
         }
         StepResolution::ReuseWithWarning => {
             // TTY operator declined chown/rebase; leave ownership as-is + a marker.
-            eprintln!(
+            crate::plog!(
                 "30-nodejs: [REUSE-WARN] component=npm-prefix — skipped (user declined \
                  remediation; manual fix needed). npm-global ownership unchanged."
             );
         }
     }
 
-    eprintln!("30-nodejs: done");
+    crate::plog!("30-nodejs: done");
     Ok(())
 }
 
@@ -132,9 +132,9 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
         .iter()
         .any(|p| p.exists());
     if repo_present {
-        eprintln!("30-nodejs: NodeSource repo already configured (gate: nodesource_repo_paths)");
+        crate::plog!("30-nodejs: NodeSource repo already configured (gate: nodesource_repo_paths)");
     } else {
-        eprintln!("30-nodejs: NodeSource repo absent — running setup_22.x");
+        crate::plog!("30-nodejs: NodeSource repo absent — running setup_22.x");
         // Security: curl-pipe-bash from the pinned ADR-005 upstream; HTTPS +
         // `curl -fsSL` cert-verify is the integrity control.
         pkg::nodesource_setup(ctx.family)?;
@@ -155,7 +155,7 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
             "30-nodejs: node v{major} installed but v22 LTS required (RT-01)"
         )));
     }
-    eprintln!("30-nodejs: Node.js v{major} installed (RT-01 — v22 LTS)");
+    crate::plog!("30-nodejs: Node.js v{major} installed (RT-01 — v22 LTS)");
 
     // Step 5: per-user npm prefix layout (RT-04). bin/ and lib/ are created
     // proactively agent-owned so `npm install -g` never races to create them as
@@ -170,7 +170,7 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
         sysio::ensure_dir(Path::new(&format!("{npm_global}/bin")), 0o755, &owner)?;
         sysio::ensure_dir(Path::new(&format!("{npm_global}/lib")), 0o755, &owner)?;
     } else {
-        eprintln!(
+        crate::plog!(
             "30-nodejs: SKIPPING ensure_dir on {npm_global} \
              (RESOLUTIONS[npm-prefix]=reuse-with-warning; user declined REMEDIATE-01)"
         );
@@ -186,7 +186,7 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
     sysio::ensure_line_in_file(&format!("prefix={npm_global}"), npmrc_path)?;
     std::fs::set_permissions(npmrc_path, std::fs::Permissions::from_mode(0o644))?;
     sysio::chown_by_name(npmrc_path, &owner)?;
-    eprintln!("30-nodejs: wrote {npmrc} (prefix={npm_global} — RT-04)");
+    crate::plog!("30-nodejs: wrote {npmrc} (prefix={npm_global} — RT-04)");
 
     Ok(())
 }

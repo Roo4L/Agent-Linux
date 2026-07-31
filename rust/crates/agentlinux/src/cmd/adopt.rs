@@ -118,7 +118,7 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
     if let Err(e) = sentinel::write_sentinel(&s) {
         // A write failure is a genuine error — surface, mark skipped so the run
         // continues for --all sweeps.
-        eprintln!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
+        crate::plog!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
         return AdoptResult {
             id: entry.id.clone(),
             action: "skipped".to_string(),
@@ -143,7 +143,7 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            crate::plog!("{e}");
             return ExitCode::from(1);
         }
     };
@@ -153,7 +153,7 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
             return ExitCode::from(EX_USAGE);
         };
         if entry.test_only && !opts.include_test {
-            eprintln!("agentlinux: {name} is a test-only entry; pass --include-test to adopt");
+            crate::plog!("agentlinux: {name} is a test-only entry; pass --include-test to adopt");
             return ExitCode::from(EX_USAGE);
         }
         vec![entry.clone()]
@@ -163,7 +163,7 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
             .filter(|a| opts.include_test || !a.test_only)
             .collect()
     } else {
-        eprintln!("agentlinux adopt: specify an agent name or --all");
+        crate::plog!("agentlinux adopt: specify an agent name or --all");
         return ExitCode::from(EX_USAGE);
     };
 
@@ -173,7 +173,7 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
         match serde_json::to_string_pretty(&results) {
             Ok(s) => println!("{s}"),
             Err(e) => {
-                eprintln!("agentlinux: failed to serialize adopt JSON: {e}");
+                crate::plog!("agentlinux: failed to serialize adopt JSON: {e}");
                 return ExitCode::from(1);
             }
         }
@@ -234,6 +234,7 @@ mod adopt_tests {
             all,
             include_test,
             json,
+            wait_lock: false,
         }
     }
 

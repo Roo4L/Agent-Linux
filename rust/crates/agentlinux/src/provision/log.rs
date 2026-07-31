@@ -40,14 +40,33 @@ pub fn log_path() -> PathBuf {
     }
 }
 
-/// Create/truncate the install log (0644) and install the global handle. Mirrors
-/// the Bash `install -m 0644 /dev/null "$LOG_FILE"` (a fresh transcript per run).
+/// The single-slot rotation suffix. `init` moves the previous transcript here
+/// before starting a fresh one.
+const PREV_SUFFIX: &str = ".prev";
+
+/// Create the install log (0644) and install the global handle, rotating any
+/// existing transcript to `<log>.prev` first.
+///
+/// Mirrors the Bash `install -m 0644 /dev/null "$LOG_FILE"` in giving each run a
+/// fresh transcript — every "the log contains no <bad string>" assertion depends
+/// on that. The rotation is what makes the fresh start non-destructive: the
+/// obvious response to a failed install is to run it again, and a plain truncate
+/// destroyed the failing run's evidence at exactly the moment someone went
+/// looking for it. One slot is enough — the run you want is the one before this.
+///
 /// A creation failure (not root / read-only fs) is non-fatal: `line` falls back
 /// to stderr-only, exactly like the Bash pre-tee diagnostics path. On failure it
-/// emits ONE loud stderr warning (M-3) so the degraded-logging mode is visible
-/// instead of silent. Returns the resolved path.
+/// emits ONE loud stderr warning so the degraded-logging mode is visible instead
+/// of silent. Returns the resolved path.
 pub fn init() -> PathBuf {
     let path = log_path();
+    // Best-effort rotation: a rename failure (no prior log, read-only dir) must
+    // not stop the run — the fresh-transcript open below is what matters.
+    if path.exists() {
+        let mut prev = path.clone().into_os_string();
+        prev.push(PREV_SUFFIX);
+        let _ = fs::rename(&path, PathBuf::from(prev));
+    }
     let handle = OpenOptions::new()
         .create(true)
         .write(true)
@@ -82,6 +101,25 @@ pub fn is_active() -> bool {
     LOG.get()
         .and_then(|cell| cell.lock().ok().map(|g| g.is_some()))
         .unwrap_or(false)
+}
+
+/// `eprintln!` that also reaches the install transcript.
+///
+/// Every provisioner diagnostic goes through this. The steps used to write with
+/// bare `eprintln!`, so `[REMEDIATE-01]`, `[REUSE-WARN]`, the chown decision and
+/// the purge removals reached the console and NOTHING reached the file — the
+/// transcript held about eight orchestrator lines and none of the detail an
+/// operator opens it for. Identical stderr behaviour to `eprintln!`, so the bats
+/// assertions that grep the command's output are unaffected.
+///
+/// Outside a provision run (the `install`/`upgrade` verbs) no log handle exists
+/// and this degrades to stderr-only on its own — no caller needs to know which
+/// context it is in.
+#[macro_export]
+macro_rules! plog {
+    ($($arg:tt)*) => {
+        $crate::provision::log::line(&std::format!($($arg)*))
+    };
 }
 
 /// Write one transcript line to stderr AND (best-effort) the log file. Poison on
@@ -133,6 +171,57 @@ mod log_tests {
             .unwrap();
         assert!(body.contains("agentlinux-install v0.3.6 starting"));
         assert!(body.contains("agentlinux-install complete"));
+
+        std::env::remove_var("AGENTLINUX_LOG");
+    }
+
+    // Re-running keeps the PREVIOUS transcript at `<log>.prev`. The obvious
+    // response to a failed install is to run it again, and a plain truncate
+    // destroyed the failing run's evidence exactly when it was wanted.
+    #[test]
+    fn init_rotates_the_previous_transcript_instead_of_destroying_it() {
+        let _g = crate::test_support::env_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("install.log");
+        std::env::set_var("AGENTLINUX_LOG", &path);
+
+        init();
+        line("run one: the failure worth keeping");
+        init();
+        line("run two");
+
+        let prev = path.with_extension("log.prev");
+        let prev_body = fs::read_to_string(&prev).unwrap();
+        assert!(
+            prev_body.contains("run one: the failure worth keeping"),
+            "previous transcript lost: {prev_body:?}"
+        );
+        // …and the current transcript is FRESH, so every "the log contains no
+        // <bad string>" assertion still describes this run only.
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(body.contains("run two"));
+        assert!(!body.contains("run one"), "current log not fresh: {body:?}");
+
+        std::env::remove_var("AGENTLINUX_LOG");
+    }
+
+    // `plog!` reaches the transcript, not just stderr. This is the whole point of
+    // the macro: the step markers an operator greps for used to exist only on the
+    // console.
+    #[test]
+    fn plog_writes_step_markers_to_the_transcript() {
+        let _g = crate::test_support::env_guard();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("install.log");
+        std::env::set_var("AGENTLINUX_LOG", &path);
+
+        init();
+        crate::plog!("[REMEDIATE-01] strategy={}", "chown");
+        crate::plog!("[REUSE-WARN] component=npm-prefix — skipped");
+
+        let body = fs::read_to_string(&path).unwrap();
+        assert!(body.contains("[REMEDIATE-01] strategy=chown"), "{body:?}");
+        assert!(body.contains("[REUSE-WARN] component=npm-prefix"), "{body:?}");
 
         std::env::remove_var("AGENTLINUX_LOG");
     }

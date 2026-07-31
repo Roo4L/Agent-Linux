@@ -158,8 +158,8 @@ pub fn find_entry<'a>(agents: &'a [FullCatalogEntry], name: &str) -> Option<&'a 
         .map(|a| a.id.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    eprintln!("agentlinux: no such agent in catalog: {name}");
-    eprintln!("  available: {available}");
+    crate::plog!("agentlinux: no such agent in catalog: {name}");
+    crate::plog!("  available: {available}");
     None
 }
 

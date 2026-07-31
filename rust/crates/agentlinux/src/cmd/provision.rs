@@ -102,7 +102,7 @@ fn resolve_provision_user(user_flag: Option<&str>) -> Result<String, ExitCode> {
     if validate_user_name(&name) {
         Ok(name)
     } else {
-        eprintln!(
+        crate::plog!(
             "agentlinux provision: invalid install-user name '{name}' — must match \
              ^[a-z][a-z0-9_-]*$ and must not be root or a reserved/system account"
         );
@@ -122,10 +122,10 @@ fn resolve_wrong_shell(user: &str) -> Result<String, ExitCode> {
     let suggested = provision::wizard::find_alt_user_name();
 
     if !provision::wizard::stdin_is_tty() {
-        eprintln!("agentlinux: existing user \"{user}\" is incompatible (wrong-shell).");
+        crate::plog!("agentlinux: existing user \"{user}\" is incompatible (wrong-shell).");
         match suggested.as_deref() {
-            Some(s) => eprintln!("Re-run with --user={s} or fix the existing user manually."),
-            None => eprintln!(
+            Some(s) => crate::plog!("Re-run with --user={s} or fix the existing user manually."),
+            None => crate::plog!(
                 "Re-run with --user=NAME (no auto-suggested name available — agent2..agent99 \
                  all taken) or fix the existing user manually."
             ),
@@ -133,27 +133,27 @@ fn resolve_wrong_shell(user: &str) -> Result<String, ExitCode> {
         return Err(ExitCode::from(EX_DATAERR));
     }
 
-    eprintln!(
+    crate::plog!(
         "pre-flight: existing user \"{user}\" has a wrong shell (DET-01 requires bash + a \
          writable home)."
     );
-    eprintln!("AgentLinux can create a new install user instead.");
+    crate::plog!("AgentLinux can create a new install user instead.");
     match suggested.as_deref() {
-        Some(s) => eprintln!("Suggested alternate name: {s}"),
-        None => eprintln!("No auto-suggested name available (agent2..agent99 all taken)."),
+        Some(s) => crate::plog!("Suggested alternate name: {s}"),
+        None => crate::plog!("No auto-suggested name available (agent2..agent99 all taken)."),
     }
 
     match provision::wizard::alt_user_prompt(suggested.as_deref(), &validate_user_name) {
         provision::wizard::AltUser::Chosen(name) => {
-            eprintln!("[ALT-USER] accepted: {name}");
+            crate::plog!("[ALT-USER] accepted: {name}");
             Ok(name)
         }
         provision::wizard::AltUser::DeclinedEof => {
-            eprintln!("[ALT-USER] declined — exiting 65 (EOF on prompt)");
+            crate::plog!("[ALT-USER] declined — exiting 65 (EOF on prompt)");
             Err(ExitCode::from(EX_DATAERR))
         }
         provision::wizard::AltUser::Exhausted => {
-            eprintln!("[ALT-USER] 3 invalid responses — exiting 64 EX_USAGE");
+            crate::plog!("[ALT-USER] 3 invalid responses — exiting 64 EX_USAGE");
             Err(ExitCode::from(EX_USAGE))
         }
     }
@@ -172,7 +172,7 @@ fn check_user_adoptable(install_user: &str) -> Result<(), ExitCode> {
     if provision::probe::user_adoptable(install_user) {
         return Ok(());
     }
-    eprintln!(
+    crate::plog!(
         "agentlinux provision: refusing to adopt existing system account \
          '{install_user}' (UID < 1000). Choose a name that is free or a regular \
          login (UID >= 1000)."
@@ -184,11 +184,11 @@ fn check_user_adoptable(install_user: &str) -> Result<(), ExitCode> {
 /// `--dry-run`×`--yes`. Returns the EX_USAGE exit on either, else `Ok(())`.
 fn check_flag_contradictions(args: &ProvisionArgs) -> Result<(), ExitCode> {
     if args.yes && args.no_yes {
-        eprintln!("agentlinux provision: contradictory flags — --yes and --no-yes");
+        crate::plog!("agentlinux provision: contradictory flags — --yes and --no-yes");
         return Err(ExitCode::from(EX_USAGE));
     }
     if args.dry_run && args.yes {
-        eprintln!(
+        crate::plog!(
             "agentlinux provision: contradictory flags — --dry-run forbids --yes \
              (dry-run never mutates; --yes is a mutation gate)"
         );
@@ -202,7 +202,7 @@ fn check_report_format(args: &ProvisionArgs) -> Result<(), ExitCode> {
     match args.report_format.as_deref() {
         None | Some("text") | Some("json") => Ok(()),
         Some(other) => {
-            eprintln!(
+            crate::plog!(
                 "agentlinux provision: --report-format must be 'text' or 'json' (got: {other})"
             );
             Err(ExitCode::from(EX_USAGE))
@@ -389,7 +389,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     let distro = match distro::detect_distro_from_env() {
         Ok(d) => d,
         Err(e) => {
-            eprintln!("agentlinux provision: {e}");
+            crate::plog!("agentlinux provision: {e}");
             return ExitCode::from(EX_SOFTWARE);
         }
     };
@@ -405,6 +405,30 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
             args.report_format.as_deref(),
         );
     }
+
+    // 5a. Open the install transcript (INST-01) — mirrors the Bash entrypoint's
+    //  `install -m 0644 /dev/null "$LOG_FILE"` + tee, with single-slot rotation so
+    //  a re-run does not destroy the failing run's evidence.
+    //
+    //  This runs BEFORE the gates below deliberately. It used to sit after the
+    //  DECIDE phase and after `flush_or_exit`, so the two outcomes most in need of
+    //  diagnosis — a wrong-shell host refused at 5b, a brownfield host that bails
+    //  at 7b — produced NO transcript at all (or worse, left the previous run's
+    //  file in place, to be read as this run's). Everything from here on is
+    //  recorded.
+    //
+    //  `--dry-run` is excluded: it is a zero-mutation preview and creating the
+    //  transcript would be a write. `--report-only` already returned above.
+    let log_path = if args.dry_run {
+        log::log_path()
+    } else {
+        let path = log::init();
+        log::line(&format!(
+            "agentlinux-install v{} starting",
+            crate::provision::registry_cli::agentlinux_version()
+        ));
+        path
+    };
 
     // 5b. UX-04 wrong-shell alt-user gate. An EXISTING install user with a non-bash
     //  shell cannot be adopted (no chsh handler). On the real path (not report /
@@ -465,7 +489,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
     let resolutions = match resolutions.into_step() {
         Ok(r) => r,
         Err(component) => {
-            eprintln!(
+            crate::plog!(
                 "agentlinux provision: internal error — RESOLUTIONS[{component}] is still \
                  'bail' after the bail flush; refusing to mutate the host"
             );
@@ -480,16 +504,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
         resolutions,
     };
 
-    // 8. Open the install transcript (INST-01) — mirrors the Bash entrypoint's
-    //  `install -m 0644 /dev/null "$LOG_FILE"` + tee. Best-effort: a create
-    //  failure degrades to stderr-only (like the Bash pre-tee path).
-    let log_path = log::init();
-    log::line(&format!(
-        "agentlinux-install v{} starting",
-        crate::provision::registry_cli::agentlinux_version()
-    ));
-
-    // 9. Run the fixed ordered step vec. On success emit the `agentlinux-install
+    // 8. Run the fixed ordered step vec. On success emit the `agentlinux-install
     //  complete` banner (INST-01) + run best-effort agent adoption.
     match run_steps(&ctx) {
         Ok(()) => {
@@ -539,7 +554,7 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
 /// (a tampered sentinel cannot pick scripts to run as agent). Always
 /// exits 0.
 fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
-    eprintln!("agentlinux provision: running --purge (destructive) — install user '{user}'");
+    crate::plog!("agentlinux provision: running --purge (destructive) — install user '{user}'");
 
     // Seed the family so the NodeSource-repo + pkg_remove steps dispatch correctly
     // (run_purge:375-377). Fall back to Debian if detection refuses so a teardown
@@ -565,7 +580,7 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
                 };
                 let recipe = format!("/opt/agentlinux/catalog/{version}/agents/{id}/uninstall.sh");
                 if std::path::Path::new(&recipe).is_file() {
-                    eprintln!("agentlinux provision: running uninstall.sh for {id}");
+                    crate::plog!("agentlinux provision: running uninstall.sh for {id}");
                     let argv: Vec<String> =
                         ["bash", &recipe].iter().map(|s| s.to_string()).collect();
                     // Recipes guard on ${AGENTLINUX_AGENT_HOME:?}; runner.ts is gone
@@ -579,12 +594,12 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
                         None,
                     );
                     if r.exit_code != 0 {
-                        eprintln!(
+                        crate::plog!(
                             "agentlinux provision: uninstall.sh for {id} failed (continuing)"
                         );
                     }
                 } else {
-                    eprintln!(
+                    crate::plog!(
                         "agentlinux provision: no uninstall.sh for {id} at {recipe}; skipping"
                     );
                 }
@@ -614,9 +629,9 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
 
     // Step 5: optionally remove nodejs (opt-in — other users may depend on it).
     if remove_nodejs {
-        eprintln!("agentlinux provision: removing nodejs package (family-correct purge)");
+        crate::plog!("agentlinux provision: removing nodejs package (family-correct purge)");
         if crate::pkg::pkg_remove(family, &["nodejs"]).is_err() {
-            eprintln!("agentlinux provision: purge nodejs failed");
+            crate::plog!("agentlinux provision: purge nodejs failed");
         }
         let _ = crate::pkg::pkg_autoremove(family);
     }
@@ -627,7 +642,7 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
 
     // Step 7: LAST — remove the install log (LITERAL path).
     let _ = std::fs::remove_file(log::log_path());
-    eprintln!("agentlinux provision: --purge complete");
+    crate::plog!("agentlinux provision: --purge complete");
     ExitCode::SUCCESS
 }
 
@@ -652,7 +667,7 @@ fn remove_install_user(user: &str) {
         .map(|s| s.success())
         .unwrap_or(false);
     if !ok {
-        eprintln!("agentlinux provision: userdel -r {user} failed; trying userdel -rf");
+        crate::plog!("agentlinux provision: userdel -r {user} failed; trying userdel -rf");
         let _ = std::process::Command::new("userdel")
             .arg("-rf")
             .arg(user)
@@ -695,16 +710,16 @@ fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&
 /// ZERO mutation. After the DECIDE phase so the report reflects every decision the
 /// real install would make.
 fn dry_run_report(user: &str, home: &str, distro: &distro::Distro) -> ExitCode {
-    eprintln!("agentlinux provision: [DRY-RUN] pre-flight report (no host mutation):");
+    crate::plog!("agentlinux provision: [DRY-RUN] pre-flight report (no host mutation):");
     // Refresh the detect cache (tmpfs, not host state) so the pre-flight report
     // reflects current host state. See report_only for the NO-MUTATION rationale.
     crate::detect::scan_and_write(user, home);
     emit_report(user, distro);
-    eprintln!(
+    crate::plog!(
         "agentlinux provision: [DRY-RUN] on apply, reuse-eligible agents are adopted \
          into managed sentinels (agentlinux adopt --all)"
     );
-    eprintln!(
+    crate::plog!(
         "agentlinux provision: [DRY-RUN] exit 0 (no mutation; re-run without --dry-run to apply)"
     );
     ExitCode::SUCCESS
@@ -715,9 +730,9 @@ fn dry_run_report(user: &str, home: &str, distro: &distro::Distro) -> ExitCode {
 /// the Rust `canonical_path` map, sourced from the same in-process probe+gate the
 /// install path uses. A report is read-only — NO mutation.
 fn emit_report(user: &str, distro: &distro::Distro) {
-    eprintln!("agentlinux provision: detection report");
-    eprintln!("  install-user: {user}");
-    eprintln!(
+    crate::plog!("agentlinux provision: detection report");
+    crate::plog!("  install-user: {user}");
+    crate::plog!(
         "  distro: version={} family={:?}",
         distro.version, distro.family
     );
@@ -734,7 +749,7 @@ fn emit_report(user: &str, distro: &distro::Distro) {
             crate::canonical_path(id),
             crate::GSD_SYSTEM_PATH,
         );
-        eprintln!(
+        crate::plog!(
             "  agent {id}: status={} decision={}",
             probe.status,
             decision.as_str()
@@ -757,6 +772,7 @@ mod provision_tests {
             remove_nodejs: false,
             report_format: None,
             verbose: false,
+            wait_lock: false,
         }
     }
 

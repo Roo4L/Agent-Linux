@@ -49,7 +49,7 @@ impl TmpGuard {
 
     /// Disarm the guard after the tmpfile has been renamed into place (the
     /// rename consumed the tmpfile, so there is nothing left to unlink).
-    fn disarm(&mut self) {
+    pub(crate) fn disarm(&mut self) {
         self.path = None;
     }
 }
@@ -102,56 +102,117 @@ pub(crate) fn mktemp_in(dir: &Path, base: &str) -> io::Result<(fs::File, PathBuf
 /// yields a byte-identical file with no residual tmpfile, and the body is
 /// preserved exactly including any trailing newline. The tmpfile is unlinked on
 /// every error path (the `TmpGuard`), mirroring the Bash RETURN trap.
+///
+/// # Errors name the file and the step
+/// Every failure is wrapped with the operation that failed and the path it failed
+/// on. A raw `io::Error` here surfaced four steps up as
+/// `40-path-wiring step failed: No such file or directory (os error 2)` — which of
+/// the four artefacts, on which operation, was not recoverable without `strace`.
 pub fn write_file_atomic(mode: u32, dest: &Path, body: &[u8]) -> io::Result<()> {
     let dir = dest.parent().unwrap_or_else(|| Path::new("."));
     let base = dest.file_name().and_then(|s| s.to_str()).ok_or_else(|| {
-        io::Error::new(io::ErrorKind::InvalidInput, "write_file_atomic: bad dest")
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("write_file_atomic: {} has no file name", dest.display()),
+        )
     })?;
 
-    let (mut file, tmp) = mktemp_in(dir, base)?;
+    let (mut file, tmp) = mktemp_in(dir, base)
+        .map_err(|e| context(&e, "create a tmpfile next to", dest, Some(dir)))?;
     let mut guard = TmpGuard::new(tmp.clone());
 
-    file.write_all(body)?;
-    file.flush()?;
-    // L-1: fsync the tmpfile BEFORE the rename so a power loss in the
-    // rename→commit window can't leave a zero-length / torn config (esp. the
-    // 0440 sudoers). Cheap — once per small config file.
-    file.sync_all()?;
+    file.write_all(body)
+        .and_then(|()| file.flush())
+        // fsync the tmpfile BEFORE the rename so a power loss in the
+        // rename→commit window can't leave a zero-length / torn config (esp. the
+        // 0440 sudoers). Cheap — once per small config file.
+        .and_then(|()| file.sync_all())
+        .map_err(|e| context(&e, "write", dest, Some(&tmp)))?;
     // Set mode on the tmpfile BEFORE the rename so the destination is never
     // briefly created with the umask-default mode (mirrors install -m).
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))?;
+    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))
+        .map_err(|e| context(&e, &format!("chmod {mode:04o}"), dest, Some(&tmp)))?;
     drop(file);
 
-    fs::rename(&tmp, dest)?;
+    fs::rename(&tmp, dest).map_err(|e| context(&e, "rename into place", dest, Some(&tmp)))?;
     // The rename consumed the tmpfile — disarm so Drop does not try to unlink a
     // now-nonexistent path.
     guard.disarm();
     Ok(())
 }
 
+/// Wrap an `io::Error` with the operation that failed and the path it failed on,
+/// preserving the original `ErrorKind` so callers can still match on it.
+///
+/// `via` names the intermediate path when the failure happened on a tmpfile
+/// rather than the destination — without it, an EACCES on the tmpfile reads as an
+/// EACCES on a destination the operator can see is writable.
+fn context(e: &io::Error, doing: &str, dest: &Path, via: Option<&Path>) -> io::Error {
+    let where_ = match via {
+        Some(v) if v != dest => format!("{} (via {})", dest.display(), v.display()),
+        _ => dest.display().to_string(),
+    };
+    io::Error::new(e.kind(), format!("failed to {doing} {where_}: {e}"))
+}
+
 /// `ensure_line_in_file <line> <file>` — append `line\n` iff no exact
 /// whole-line match already exists (`grep -Fxq` semantics: literal, whole-line).
 ///
-/// An absent/unreadable file is treated as "no match" (so the first call
-/// creates the file). The existing trailing bytes are preserved — a blind
-/// append after content with no trailing newline would glue the new line onto
-/// the last one, but the Bash `printf '%s\n' >>file` also appends unconditionally
-/// once the grep misses, so we match it exactly (append `line\n`).
+/// An ABSENT file is treated as "no match" (so the first call creates it). A file
+/// that exists but cannot be read is an ERROR, not a miss — see below.
+///
+/// The existing trailing bytes are preserved — a blind append after content with
+/// no trailing newline would glue the new line onto the last one, but the Bash
+/// `printf '%s\n' >>file` also appends unconditionally once the grep misses, so
+/// we match it exactly (append `line\n`).
+///
+/// # Why the read is byte-oriented
+/// Matching on BYTES rather than `read_to_string` is what makes the
+/// grep-before-mutate contract hold. `read_to_string` fails on any non-UTF-8
+/// byte, and the previous `if let Ok(existing)` swallowed that failure into "no
+/// match" — so a `~/.npmrc` carrying one Latin-1 byte in a proxy password got
+/// another `prefix=…` line appended on EVERY converge run. `grep -Fx`, the
+/// semantics this reproduces, compares bytes and does not care about encoding.
 pub fn ensure_line_in_file(line: &str, file: &Path) -> io::Result<()> {
-    if let Ok(existing) = fs::read_to_string(file) {
-        // `-x` = whole-line: split on '\n' and compare each line literally.
-        // `str::lines()` also strips a trailing '\r'; grep -Fx does not, so
-        // compare against the raw '\n'-split segments instead.
-        if existing.split('\n').any(|l| l == line) {
-            return Ok(());
+    match fs::read(file) {
+        Ok(existing) => {
+            // `-x` = whole-line: split on b'\n' and compare each segment
+            // literally. `str::lines()` also strips a trailing '\r'; grep -Fx
+            // does not, so compare against the raw '\n'-split segments instead.
+            if existing
+                .split(|b| *b == b'\n')
+                .any(|seg| seg == line.as_bytes())
+            {
+                return Ok(());
+            }
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        // Anything else (EACCES, EIO, a directory in the way) means we could not
+        // check. Appending blind would duplicate the line on every run; refusing
+        // makes the operator fix the real problem.
+        Err(e) => {
+            return Err(io::Error::new(
+                e.kind(),
+                format!(
+                    "ensure_line_in_file: cannot read {} to check for an existing \
+                     line (refusing to append blind): {e}",
+                    file.display()
+                ),
+            ))
         }
     }
     let mut f = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(file)?;
-    f.write_all(line.as_bytes())?;
-    f.write_all(b"\n")?;
+    // ONE write: `write_all(line)` followed by `write_all(b"\n")` is not an
+    // atomic append, and an ENOSPC between them leaves a newline-less partial
+    // line that the next whole-line match can never see — so the run after that
+    // appends a duplicate.
+    let mut record = Vec::with_capacity(line.len() + 1);
+    record.extend_from_slice(line.as_bytes());
+    record.push(b'\n');
+    f.write_all(&record)?;
     Ok(())
 }
 
@@ -168,7 +229,14 @@ pub fn ensure_line_in_file(line: &str, file: &Path) -> io::Result<()> {
 /// and, mirroring awk's record model, treat the content as newline-terminated
 /// records: a trailing empty segment (from a final '\n') is preserved so a file
 /// that ended in a newline keeps ending in one after filtering.
-fn strip_marker_block(existing: &str, begin: &str, end: &str) -> Vec<String> {
+///
+/// # Unterminated blocks are refused, not filtered
+/// The awk filter this ports has no end-of-input check: with `in_block` still set
+/// at EOF it drops every remaining line. So a user who hand-edits `~/.bashrc` and
+/// deletes only the end marker loses everything below it on the next converge
+/// run — data loss caused by the helper advertised as safe to re-run. We detect
+/// that state and return an `Err` instead, leaving the file untouched.
+fn strip_marker_block(existing: &str, begin: &str, end: &str) -> io::Result<Vec<String>> {
     let mut out = Vec::new();
     let mut in_block = false;
     // awk reads records split on '\n'; a trailing '\n' does NOT create a final
@@ -196,7 +264,18 @@ fn strip_marker_block(existing: &str, begin: &str, end: &str) -> Vec<String> {
             out.push(line.to_string());
         }
     }
-    out
+    if in_block {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "unterminated agentlinux block: found `{begin}` with no matching \
+                 `{end}`. Refusing to rewrite the file — continuing would delete \
+                 every line after the begin marker. Restore the end marker (or \
+                 delete the begin marker) and re-run."
+            ),
+        ));
+    }
+    Ok(out)
 }
 
 /// `ensure_marker_block <file> <tag> [--top|--bottom]` — replace the content
@@ -218,7 +297,9 @@ pub fn ensure_marker_block(file: &Path, tag: &str, body: &str) -> io::Result<()>
     let end = format!("# <<< {tag} end <<<");
 
     let existing = fs::read_to_string(file).unwrap_or_default();
-    let filtered = strip_marker_block(&existing, &begin, &end);
+    let filtered = strip_marker_block(&existing, &begin, &end).map_err(|e| {
+        io::Error::new(e.kind(), format!("{}: {e}", file.display()))
+    })?;
 
     // The block itself, printf '%s\n' three times → begin\n{body}\n{end}\n.
     let block = format!("{begin}\n{body}\n{end}\n");
@@ -266,13 +347,37 @@ pub fn ensure_user(name: &str) -> io::Result<()> {
         return Ok(());
     }
     let argv = useradd_argv(name);
-    let status = Command::new(&argv[0]).args(&argv[1..]).status()?;
-    if !status.success() {
+    let code = run_bounded(&argv)?;
+    if code != 0 {
         return Err(io::Error::other(format!(
-            "ensure_user: useradd failed for {name} (status={status})"
+            "ensure_user: useradd failed for {name} (exit {code})"
         )));
     }
     Ok(())
+}
+
+/// Wall-clock bound on the local admin tools this module spawns.
+///
+/// `useradd` and `visudo` are local and fast, but both take locks — `useradd`
+/// on `/etc/passwd`, `visudo` on `/etc/sudoers` — and a lock held by a stuck
+/// process makes them wait forever. Two minutes is far beyond any legitimate run
+/// and turns "the provision hangs with no output" into a named failure.
+const ADMIN_TOOL_TIMEOUT_MS: u64 = 120_000;
+
+/// Spawn a local admin tool bounded by `ADMIN_TOOL_TIMEOUT_MS`, in its own
+/// process group so the timeout can tear the whole thing down. Returns its exit
+/// code; a timeout surfaces as a non-zero code with the dispatcher's log line.
+fn run_bounded(argv: &[String]) -> io::Result<i32> {
+    let (program, args) = argv.split_first().ok_or_else(|| {
+        io::Error::new(io::ErrorKind::InvalidInput, "run_bounded: empty argv")
+    })?;
+    let mut cmd = Command::new(program);
+    cmd.args(args);
+    crate::dispatcher::own_process_group(&mut cmd);
+    let mut child = cmd.spawn()?;
+    let (code, _timed_out) =
+        crate::dispatcher::wait_with_timeout(&mut child, Some(ADMIN_TOOL_TIMEOUT_MS), &argv.join(" "));
+    Ok(code)
 }
 
 /// Whether a system user with `name` exists. Isolated so the exists-noop path is
@@ -294,12 +399,13 @@ fn user_exists(name: &str) -> io::Result<bool> {
 pub fn ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
     let (uid, gid) = resolve_owner(owner)?;
     if !path.is_dir() {
-        fs::create_dir_all(path)?;
+        fs::create_dir_all(path).map_err(|e| context(&e, "create directory", path, None))?;
     }
     // Re-assert mode + owner unconditionally on BOTH arms (create-then-set on the
     // absent arm equals `install -d -m -o -g`; the present arm is the Bash
     // chmod+chown drift-correction).
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(mode))
+        .map_err(|e| context(&e, &format!("chmod {mode:04o}"), path, None))?;
     // `std::os::unix::fs::chown` (the plan's sanctioned syscall alternative —
     // `nix::unistd::chown` is gated behind nix's `fs` feature which we do NOT
     // enable; only `user` is on for the name→uid/gid resolution).
@@ -359,8 +465,9 @@ pub fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
     if path.exists() {
         return Ok(());
     }
-    fs::File::create(path)?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o644))?;
+    fs::File::create(path).map_err(|e| context(&e, "create", path, None))?;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o644))
+        .map_err(|e| context(&e, "chmod 0644", path, None))?;
     chown_by_name(path, owner)
 }
 
@@ -381,8 +488,12 @@ pub fn which(name: &str) -> Option<PathBuf> {
 /// `visudo_validate <file>` — `visudo -cf <file>` safety check before installing
 /// a sudoers drop-in. A non-zero check maps to an `Err`.
 pub fn visudo_validate(file: &Path) -> io::Result<()> {
-    let status = Command::new("visudo").arg("-cf").arg(file).status()?;
-    if !status.success() {
+    let argv = vec![
+        "visudo".to_string(),
+        "-cf".to_string(),
+        file.display().to_string(),
+    ];
+    if run_bounded(&argv)? != 0 {
         return Err(io::Error::other(format!(
             "visudo_validate: sudoers syntax check failed for {} (visudo -cf rejected)",
             file.display()
@@ -504,6 +615,76 @@ mod sysio_tests {
         assert_eq!(fs::read_to_string(&f).unwrap(), "first\n");
     }
 
+    // A file with a non-UTF-8 byte still matches, so the line is appended ONCE.
+    // `read_to_string` fails on such a file, and swallowing that failure into
+    // "no match" appended a duplicate on every converge run — an `~/.npmrc`
+    // carrying a Latin-1 byte in a proxy password accumulated one `prefix=` line
+    // per provision.
+    #[test]
+    fn ensure_line_is_idempotent_on_a_non_utf8_file() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("npmrc");
+        // 0xFF is not valid UTF-8 anywhere.
+        fs::write(&f, b"//registry/:_authToken=\xffabc\nprefix=/home/agent/.npm-global\n").unwrap();
+
+        for _ in 0..3 {
+            ensure_line_in_file("prefix=/home/agent/.npm-global", &f).unwrap();
+        }
+
+        let raw = fs::read(&f).unwrap();
+        let occurrences = raw
+            .split(|b| *b == b'\n')
+            .filter(|seg| *seg == b"prefix=/home/agent/.npm-global")
+            .count();
+        assert_eq!(occurrences, 1, "duplicate appended on a non-UTF-8 file");
+        // The undecodable byte survives untouched.
+        assert!(raw.contains(&0xff), "existing bytes must be preserved");
+    }
+
+    // An unreadable EXISTING file is an error, not a silent "no match" — the
+    // append would duplicate on every run and nothing would say why.
+    #[test]
+    fn ensure_line_refuses_when_it_cannot_read_an_existing_file() {
+        let d = TempDir::new().unwrap();
+        // A directory where a file is expected: readable path, unreadable content.
+        let f = d.path().join("as-a-dir");
+        fs::create_dir(&f).unwrap();
+        let err = ensure_line_in_file("x", &f).unwrap_err();
+        assert!(
+            err.to_string().contains("refusing to append blind"),
+            "err={err}"
+        );
+    }
+
+    // A failed atomic write names the operation AND the file. The orchestrator
+    // adds only a step name, so a raw io::Error surfaced as
+    // "40-path-wiring step failed: No such file or directory (os error 2)" —
+    // which of four artefacts, on which operation, needed strace to answer.
+    #[test]
+    fn atomic_write_failure_names_the_operation_and_the_file() {
+        let missing = Path::new("/nonexistent-agentlinux-dir/artefact.conf");
+        let err = write_file_atomic(0o644, missing, b"x").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("artefact.conf"), "no file named: {msg}");
+        assert!(msg.contains("failed to"), "no operation named: {msg}");
+        // The original kind survives so callers can still match on it.
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+    }
+
+    // The same for a directory step.
+    #[test]
+    fn ensure_dir_failure_names_the_operation_and_the_path() {
+        let d = TempDir::new().unwrap();
+        // A FILE where a directory is expected: create_dir_all fails on it.
+        let f = d.path().join("not-a-dir");
+        fs::write(&f, b"").unwrap();
+        let nested = f.join("child");
+        let err = ensure_dir(&nested, 0o755, "root:root").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("child"), "no path named: {msg}");
+        assert!(msg.contains("create directory"), "no operation named: {msg}");
+    }
+
     // --- ensure_marker_block ---
 
     #[test]
@@ -521,6 +702,44 @@ mod sysio_tests {
                         # user line 2\n";
         assert_eq!(fs::read_to_string(&f).unwrap(), expected);
         assert_eq!(mode_of(&f), 0o644);
+    }
+
+    // A user who deletes the END marker while hand-editing must not lose the
+    // lines below it. The awk filter this ports would drop from the begin marker
+    // to EOF; we refuse and leave the file byte-identical.
+    #[test]
+    fn unterminated_block_refuses_instead_of_deleting_the_rest_of_the_file() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("bashrc");
+        let mangled = "# >>> agentlinux-path begin >>>\n\
+                       export PATH=/x\n\
+                       alias ll='ls -la'\n\
+                       alias gs='git status'\n";
+        fs::write(&f, mangled).unwrap();
+
+        let err = ensure_marker_block(&f, "agentlinux-path", "export PATH=/y").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidData);
+        assert!(err.to_string().contains("unterminated"), "err={err}");
+        // The message has to be actionable — it names the file and the way out.
+        assert!(err.to_string().contains("bashrc"), "err={err}");
+        assert!(err.to_string().contains("end marker"), "err={err}");
+        // And nothing was written.
+        assert_eq!(fs::read_to_string(&f).unwrap(), mangled);
+    }
+
+    // The refusal is specific to an UNTERMINATED block: a well-formed one still
+    // round-trips, so the guard cannot be blamed for a broken happy path.
+    #[test]
+    fn a_terminated_block_still_round_trips_after_the_guard() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("bashrc");
+        fs::write(&f, b"alias ll='ls -la'\n").unwrap();
+        ensure_marker_block(&f, "tag", "body").unwrap();
+        ensure_marker_block(&f, "tag", "body2").unwrap();
+        let content = fs::read_to_string(&f).unwrap();
+        assert_eq!(content.matches("# >>> tag begin >>>").count(), 1);
+        assert!(content.contains("body2"));
+        assert!(content.contains("alias ll='ls -la'"));
     }
 
     #[test]

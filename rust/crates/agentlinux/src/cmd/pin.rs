@@ -35,7 +35,7 @@ pub fn pin(spec: &str) -> ExitCode {
     let parsed = match parse_pin_spec(spec) {
         Ok(p) => p,
         Err(e) => {
-            eprintln!("{e}");
+            crate::plog!("{e}");
             return ExitCode::from(EX_USAGE);
         }
     };
@@ -45,7 +45,7 @@ pub fn pin(spec: &str) -> ExitCode {
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Required) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            crate::plog!("{e}");
             return ExitCode::from(1);
         }
     };
@@ -59,7 +59,7 @@ pub fn pin(spec: &str) -> ExitCode {
         Ok(Some(s)) => s,
         Ok(None) => return pin_not_installed(entry),
         Err(e) => {
-            eprintln!("agentlinux: failed to read sentinel for {}: {e}", entry.id);
+            crate::plog!("agentlinux: failed to read sentinel for {}: {e}", entry.id);
             return ExitCode::from(1);
         }
     };
@@ -90,7 +90,7 @@ pub fn pin(spec: &str) -> ExitCode {
     }
 
     if let Err(e) = sentinel::write_sentinel(&next) {
-        eprintln!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
+        crate::plog!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
         return ExitCode::from(1);
     }
     ExitCode::SUCCESS
@@ -110,25 +110,25 @@ fn pin_not_installed(entry: &FullCatalogEntry) -> ExitCode {
     });
     match present {
         Some(hit) if hit.adoptable => {
-            eprintln!(
+            crate::plog!(
                 "agentlinux: {} is present but not managed — run 'agentlinux adopt {}' first, then pin",
                 entry.id, entry.id
             );
         }
         Some(hit) if hit.canonical => {
-            eprintln!(
+            crate::plog!(
                 "agentlinux: {} is present but out of the compatibility window — run 'agentlinux install {}' to bring it under management, then pin",
                 entry.id, entry.id
             );
         }
         Some(hit) => {
-            eprintln!(
+            crate::plog!(
                 "agentlinux: {} is present at {} (not the managed path) — run 'agentlinux install {}' to migrate it under management, then pin",
                 entry.id, hit.path, entry.id
             );
         }
         None => {
-            eprintln!(
+            crate::plog!(
                 "agentlinux: {} is not installed — run 'agentlinux install {}' first",
                 entry.id, entry.id
             );

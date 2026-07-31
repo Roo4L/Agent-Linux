@@ -15,12 +15,17 @@
 //! - **streaming tee via thread-per-pipe**: two blocking pipe reads in one thread
 //!   deadlock; one reader thread per pipe forwards each chunk live AND
 //!   accumulates it, so the returned strings match the buffered contract.
-//! - **timeout escalation SIGTERM→(2000ms)→SIGKILL**: `Child::kill()` is
-//!   SIGKILL-only, so we send SIGTERM via `nix::sys::signal::kill`, wait a 2000ms
-//!   grace, then SIGKILL if still alive. Both paths honor a timeout, but their
-//!   exit codes differ: the STREAMING path maps a timeout to 124 (the GNU
-//!   `timeout` convention) and the BUFFERED path maps it to 1. The split is
+//! - **timeout escalation SIGTERM→(2000ms)→SIGKILL, group-wide**: every child
+//!   gets its own process group (`process_group(0)`) and the escalation signals
+//!   the negated PGID, so a recipe's npm/apt/git grandchildren die with it rather
+//!   than reparenting to init and racing the retry. Both paths honor a timeout,
+//!   but their exit codes differ: the STREAMING path maps a timeout to 124 (the
+//!   GNU `timeout` convention) and the BUFFERED path maps it to 1. The split is
 //!   deliberate — see `Capture::timeout_exit`.
+//! - **every dispatch is bounded**: `dispatch_recipe` carries
+//!   `recipe_timeout_ms()`, and output collection gives up after
+//!   `READER_DRAIN_GRACE`. A leaked background job holding the pipe open can
+//!   truncate a capture; it can no longer hang the process.
 //!
 //! # Where the invoker check lives
 //! `as_user` almost always hits the invoker==target short-circuit *because* the
@@ -32,12 +37,37 @@
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::{getuid, Pid, User};
 use std::io::Read;
+use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 /// The grace period between SIGTERM and the SIGKILL escalation.
 const KILL_GRACE: Duration = Duration::from_millis(2000);
+
+/// How long to wait for a reader thread to hand back its accumulated output
+/// after the child has been reaped.
+///
+/// A pipe closes only when EVERY holder of the write end closes it, and a recipe
+/// can leave a background grandchild holding one (`( sleep 300 & )`). The
+/// process-group teardown in `escalate_kill` reaps those on the timeout path, but
+/// a child that exits 0 while leaking a background job is not a timeout at all —
+/// nothing signals it. Without this bound `recv()` would block for as long as the
+/// orphan lives, turning a successful dispatch into an unbounded hang.
+const READER_DRAIN_GRACE: Duration = Duration::from_secs(5);
+
+/// Default wall-clock bound on one recipe run (`dispatch_recipe`), overridable
+/// via `AGENTLINUX_RECIPE_TIMEOUT_MS`.
+///
+/// 30 minutes is chosen to sit well above the slowest legitimate recipe — the
+/// Playwright entry downloads browser bundles — while still bounding the
+/// wedged-forever cases (a held dpkg lock, a black-holed npm socket) that an
+/// unattended `upgrade` timer would otherwise sit in until someone noticed.
+const DEFAULT_RECIPE_TIMEOUT_MS: u64 = 30 * 60 * 1000;
+
+/// Env override for `DEFAULT_RECIPE_TIMEOUT_MS`. `0` disables the bound, which is
+/// the escape hatch for an operator whose recipe legitimately runs longer.
+const RECIPE_TIMEOUT_ENV: &str = "AGENTLINUX_RECIPE_TIMEOUT_MS";
 
 /// Cap on captured child output. Without it a runaway recipe (a looping installer, npm
 /// debug spew, a recipe catting a large file) grows the parent heap until the
@@ -135,8 +165,37 @@ fn resolve_argv(user: &str, argv: &[String]) -> Vec<String> {
     }
 }
 
+/// One dispatch's inputs, resolved: the concrete argv to spawn plus the operator-
+/// facing label and bound that every diagnostic on this path reports.
+///
+/// A struct rather than five positional parameters because `label` and `cmd` are
+/// both strings that must not be confused: `cmd` is what we exec (often literally
+/// `"sudo"`), `label` is what a human needs to see in a timeout line.
+struct Spawn<'a> {
+    /// argv[0] — the program to exec. `"sudo"` whenever the hop is taken.
+    cmd: String,
+    /// argv[1..].
+    rest: Vec<String>,
+    env: &'a [(String, String)],
+    timeout_ms: Option<u64>,
+    /// What the operator called for — the PRE-sudo argv, so a timeout names the
+    /// recipe or the npm probe rather than the `sudo` wrapper around it.
+    label: String,
+}
+
+/// Render the caller's argv as a single-line operator-facing label, bounded so a
+/// recipe invoked with a long argument list cannot produce an unreadable log line.
+fn describe(argv: &[String]) -> String {
+    const MAX_LABEL: usize = 200;
+    let joined = argv.join(" ");
+    match joined.char_indices().nth(MAX_LABEL) {
+        Some((byte_idx, _)) => format!("{}…", &joined[..byte_idx]),
+        None => joined,
+    }
+}
+
 /// Run `argv` as `user` under `capture`, honoring an optional `timeout_ms` that
-/// escalates SIGTERM→(2000ms)→SIGKILL.
+/// escalates SIGTERM→(2000ms)→SIGKILL across the child's whole process group.
 pub fn as_user(
     user: &str,
     argv: &[String],
@@ -147,32 +206,47 @@ pub fn as_user(
     let full = resolve_argv(user, argv);
     // resolve_argv always yields ≥1 element (argv is non-empty at call sites),
     // but guard defensively so an empty argv is a clean error not a panic.
-    let (cmd, rest) = match full.split_first() {
-        Some((c, r)) => (c.clone(), r.to_vec()),
-        None => {
-            return DispatchResult {
-                exit_code: 1,
-                stdout: String::new(),
-                stderr: "empty argv".to_string(),
-                streamed: capture.is_streamed(),
-            }
-        }
+    let Some((cmd, rest)) = full.split_first() else {
+        return DispatchResult {
+            exit_code: 1,
+            stdout: String::new(),
+            stderr: "empty argv".to_string(),
+            streamed: capture.is_streamed(),
+        };
+    };
+    let spawn = Spawn {
+        cmd: cmd.clone(),
+        rest: rest.to_vec(),
+        env,
+        timeout_ms,
+        // Label from the ORIGINAL argv, not `full` — `full[0]` is `sudo` on the
+        // drop path, which told the operator nothing about what actually hung.
+        label: describe(argv),
     };
 
     match capture {
-        Capture::Streamed => stream_tee(&cmd, &rest, env, timeout_ms),
-        Capture::Buffered => buffered(&cmd, &rest, env, timeout_ms),
+        Capture::Streamed => stream_tee(&spawn),
+        Capture::Buffered => buffered(&spawn),
     }
 }
 
-/// A `Command` with the child env set explicitly (`env_clear` + `envs`) and
-/// stdin nulled — shared by both paths.
-fn base_command(cmd: &str, rest: &[String], env: &[(String, String)]) -> Command {
-    let mut c = Command::new(cmd);
-    c.args(rest)
+/// A `Command` with the child env set explicitly (`env_clear` + `envs`), stdin
+/// nulled, and its OWN process group — shared by both paths.
+///
+/// `process_group(0)` is what makes the timeout enforceable. Without it a kill
+/// reaches only the direct child (`bash <recipe>` or `sudo`) while the npm/apt
+/// grandchildren doing the actual work reparent to init and keep running, so a
+/// retry would race an orphan over the same npm prefix and the pipe would stay
+/// open. With it, `escalate_kill` signals the negated PGID and the whole tree
+/// goes down together. Safe with `stdin(Stdio::null())`: a background process
+/// group only takes SIGTTIN from a terminal read, which a null stdin never does.
+fn base_command(spawn: &Spawn) -> Command {
+    let mut c = Command::new(&spawn.cmd);
+    c.args(&spawn.rest)
         .env_clear()
-        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+        .envs(spawn.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
         .stdin(Stdio::null());
+    own_process_group(&mut c);
     c
 }
 
@@ -184,114 +258,91 @@ fn status_to_code(status: std::process::ExitStatus) -> i32 {
 
 /// `Capture::Buffered`: capture stdout/stderr, honor an optional timeout, never
 /// throw on a non-zero exit.
-fn buffered(
-    cmd: &str,
-    rest: &[String],
-    env: &[(String, String)],
-    timeout_ms: Option<u64>,
-) -> DispatchResult {
-    let mut command = base_command(cmd, rest, env);
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-    let mut child = match command.spawn() {
-        Ok(c) => c,
-        // Spawn failure (ENOENT) → the shape with exit_code 1 (mirrors the
-        // execFile catch), NOT an Err.
-        Err(e) => {
-            return DispatchResult {
-                exit_code: 1,
-                stdout: String::new(),
-                stderr: e.to_string(),
-                streamed: false,
-            }
-        }
-    };
-
-    // Drain the pipes on reader threads so a chatty child can't fill a pipe
-    // buffer and deadlock while we wait — that applies to the buffered capture
-    // too, not only the tee.
-    let out_rx = spawn_reader(child.stdout.take(), None);
-    let err_rx = spawn_reader(child.stderr.take(), None);
-
-    let (exit_code, timed_out) = wait_with_timeout(&mut child, timeout_ms);
-    if timed_out {
-        // Log the timed-out command; on the unattended `upgrade` path this line
-        // is the only evidence the probe was killed rather than failing on its own.
-        eprintln!(
-            "agentlinux: recipe `{}` timed out after {}ms; sent SIGTERM…SIGKILL",
-            cmd,
-            timeout_ms.unwrap_or(0)
-        );
-    }
-    let exit_code = if timed_out {
-        Capture::Buffered.timeout_exit()
-    } else {
-        exit_code
-    };
-
-    let stdout = out_rx.recv().unwrap_or_default();
-    let stderr = err_rx.recv().unwrap_or_default();
-    DispatchResult {
-        exit_code,
-        stdout,
-        stderr,
-        streamed: false,
-    }
+fn buffered(spawn: &Spawn) -> DispatchResult {
+    run(spawn, None, None)
 }
 
 /// `Capture::Streamed`: tee each chunk live to this process's stdout/stderr AS
 /// it arrives, accumulate into the returned strings, and run a timeout watchdog.
 /// Always `streamed: true`.
-fn stream_tee(
-    cmd: &str,
-    rest: &[String],
-    env: &[(String, String)],
-    timeout_ms: Option<u64>,
-) -> DispatchResult {
-    let mut command = base_command(cmd, rest, env);
+fn stream_tee(spawn: &Spawn) -> DispatchResult {
+    run(spawn, Some(TeeSink::Stdout), Some(TeeSink::Stderr))
+}
+
+/// The one spawn-wait-collect body. `out_sink`/`err_sink` are `None` on the
+/// buffered path and `Some` on the streaming path — the ONLY difference between
+/// the two, which is why there is one implementation and not two near-copies.
+fn run(spawn: &Spawn, out_sink: Option<TeeSink>, err_sink: Option<TeeSink>) -> DispatchResult {
+    let streamed = out_sink.is_some();
+    let mut command = base_command(spawn);
     command.stdout(Stdio::piped()).stderr(Stdio::piped());
 
     let mut child = match command.spawn() {
         Ok(c) => c,
-        // Spawn failure (ENOENT) → exit_code 1, not an Err.
+        // Spawn failure (ENOENT) → the shape with exit_code 1 (mirrors the
+        // execFile catch), NOT an Err. Name what we failed to exec: a bare
+        // "No such file or directory (os error 2)" left the operator guessing
+        // WHICH binary was missing.
         Err(e) => {
             return DispatchResult {
                 exit_code: 1,
                 stdout: String::new(),
-                stderr: e.to_string(),
-                streamed: true,
+                stderr: format!("failed to spawn `{}` ({}): {e}", spawn.cmd, spawn.label),
+                streamed,
             }
         }
     };
 
-    // One reader thread per pipe, each teeing live + accumulating. Two blocking
-    // pipe reads in a single thread would deadlock.
-    let out_rx = spawn_reader(child.stdout.take(), Some(TeeSink::Stdout));
-    let err_rx = spawn_reader(child.stderr.take(), Some(TeeSink::Stderr));
+    // One reader thread per pipe, each optionally teeing live + accumulating.
+    // Two blocking pipe reads in a single thread would deadlock, and draining to
+    // EOF is what keeps a chatty child from filling a pipe buffer and wedging.
+    let out_rx = spawn_reader(child.stdout.take(), out_sink);
+    let err_rx = spawn_reader(child.stderr.take(), err_sink);
 
-    // Timeout watchdog by polling try_wait so we can escalate SIGTERM→SIGKILL
-    // even against a child that ignores SIGTERM.
-    let (exit_code, timed_out) = wait_with_timeout(&mut child, timeout_ms);
-    if timed_out {
-        eprintln!(
-            "agentlinux: recipe `{}` timed out after {}ms; sent SIGTERM…SIGKILL",
-            cmd,
-            timeout_ms.unwrap_or(0)
-        );
-    }
+    let (exit_code, timed_out) = wait_with_timeout(&mut child, spawn.timeout_ms, &spawn.label);
 
-    let stdout = out_rx.recv().unwrap_or_default();
-    let stderr = err_rx.recv().unwrap_or_default();
+    // ONE deadline shared by both pipes: the bound belongs to the dispatch, not
+    // to each reader. Draining them with a grace apiece would let a single leaked
+    // process hold the call for twice as long as the constant advertises.
+    let drain_deadline = Instant::now() + READER_DRAIN_GRACE;
+    let stdout = collect(out_rx, drain_deadline, &spawn.label, "stdout");
+    let stderr = collect(err_rx, drain_deadline, &spawn.label, "stderr");
 
     DispatchResult {
         exit_code: if timed_out {
-            Capture::Streamed.timeout_exit()
+            if streamed {
+                Capture::Streamed.timeout_exit()
+            } else {
+                Capture::Buffered.timeout_exit()
+            }
         } else {
             exit_code
         },
         stdout,
         stderr,
-        streamed: true,
+        streamed,
+    }
+}
+
+/// Take a reader thread's accumulated output, giving up at `deadline` rather
+/// than blocking forever on a leaked pipe holder.
+///
+/// Returning partial output beats hanging: the exit status is already known by
+/// the time this runs, so the caller can still act. The give-up is logged because
+/// a truncated capture would otherwise look like a child that simply said
+/// nothing — and for a parsed probe (`npm ls --json`) that difference matters.
+fn collect(rx: mpsc::Receiver<String>, deadline: Instant, label: &str, stream: &str) -> String {
+    let remaining = deadline.saturating_duration_since(Instant::now());
+    match rx.recv_timeout(remaining) {
+        Ok(s) => s,
+        Err(_) => {
+            crate::plog!(
+                "agentlinux: `{label}` exited but its {stream} pipe is still held by a background \
+                 process after {}s; captured output may be truncated",
+                READER_DRAIN_GRACE.as_secs()
+            );
+            String::new()
+        }
     }
 }
 
@@ -323,9 +374,21 @@ fn poll_until(child: &mut std::process::Child, deadline: Instant) -> Option<i32>
 }
 
 /// Wait for `child`, honoring an optional `timeout_ms`; on expiry escalate
-/// SIGTERM→(2000ms)→SIGKILL. Returns `(exit_code, timed_out)`; on a timeout the
-/// caller substitutes its own `Capture::timeout_exit()`.
-fn wait_with_timeout(child: &mut std::process::Child, timeout_ms: Option<u64>) -> (i32, bool) {
+/// SIGTERM→(2000ms)→SIGKILL across its process group. Returns
+/// `(exit_code, timed_out)`; on a timeout the caller substitutes its own code.
+///
+/// `label` names the operation in the timeout line — on the unattended `upgrade`
+/// path that line is the only evidence the work was killed rather than failing on
+/// its own.
+///
+/// Crate-visible because `pkg.rs` needs the same bound for apt/dnf, which cannot
+/// go through `as_user` (it `env_clear`s, and the package managers need the
+/// inherited environment).
+pub(crate) fn wait_with_timeout(
+    child: &mut std::process::Child,
+    timeout_ms: Option<u64>,
+    label: &str,
+) -> (i32, bool) {
     let Some(ms) = timeout_ms else {
         return match child.wait() {
             Ok(status) => (status_to_code(status), false),
@@ -337,30 +400,46 @@ fn wait_with_timeout(child: &mut std::process::Child, timeout_ms: Option<u64>) -
         None => {
             escalate_kill(child);
             let _ = child.wait();
+            crate::plog!(
+                "agentlinux: `{label}` timed out after {ms}ms; \
+                 sent SIGTERM…SIGKILL to the process group"
+            );
             (1, true)
         }
     }
 }
 
-/// SIGTERM, wait up to `KILL_GRACE` for the child to die, then SIGKILL if it
-/// hasn't. Uses `nix::kill` rather than std's `Child::kill`, which is
-/// SIGKILL-only and gives the child no chance to clean up.
+/// Put `cmd`'s child in its own process group so a timeout can tear down the
+/// whole tree. See `base_command` for why this is the load-bearing half of the
+/// timeout contract.
+pub(crate) fn own_process_group(cmd: &mut Command) {
+    cmd.process_group(0);
+}
+
+/// SIGTERM the child's whole process group, wait up to `KILL_GRACE`, then
+/// SIGKILL the group if anything is still alive.
 ///
-/// KNOWN LIMITATION: this signals only the DIRECT child PID (`bash <recipe>` or
-/// `sudo`), not its process group. A recipe's own grandchildren (npm/apt/git)
-/// are NOT torn down and reparent to init. Two consequences worth knowing:
-/// a timeout stops the *wait*, not the *work*, so a retry can race the orphan
-/// over the same npm prefix; and the reader threads stay blocked in `recv()`
-/// until every holder of the pipe closes it, so the advertised bound is
-/// "timeout + however long the orphan lives". Fixing it means spawning in a new
-/// process group and signalling the negated PGID.
+/// Signalling the negated PGID (the POSIX "whole group" form) rather than the
+/// bare PID is what makes the timeout mean "the work stopped" instead of "we
+/// stopped waiting". `base_command` puts every child in its own group via
+/// `process_group(0)`, so the negated PID *is* the group and no unrelated process
+/// can be caught by it. Without this the recipe's npm/apt/git grandchildren
+/// survived the kill, reparented to init, and kept mutating the same npm prefix
+/// a retry was about to use.
+///
+/// `nix::kill` rather than std's `Child::kill`, which is SIGKILL-only on the
+/// direct child and gives the tree no chance to clean up.
 fn escalate_kill(child: &mut std::process::Child) {
-    let pid = Pid::from_raw(child.id() as i32);
-    let _ = kill(pid, Signal::SIGTERM);
+    let group = Pid::from_raw(-(child.id() as i32));
+    let _ = kill(group, Signal::SIGTERM);
     if poll_until(child, Instant::now() + KILL_GRACE).is_none() {
         // Still alive after the grace period — it ignored SIGTERM.
-        let _ = kill(pid, Signal::SIGKILL);
+        let _ = kill(group, Signal::SIGKILL);
     }
+    // The direct child is reaped by the caller's `wait()`. Sweep the group once
+    // more so a grandchild that outlived its parent — the leak that kept the
+    // pipe open and the prefix contended — does not survive the dispatch.
+    let _ = kill(group, Signal::SIGKILL);
 }
 
 /// Which parent stream a reader tees to, or `None` to capture silently.
@@ -394,8 +473,7 @@ impl TeeSink {
 /// child cannot fill the buffer and deadlock waiting for us. What IS bounded is
 /// how much we KEEP — past `MAX_CAPTURE` we stop growing the `String` while
 /// still draining, so a runaway recipe cannot OOM the parent. The cap is checked
-/// per chunk rather than mid-string, so growth is bounded to at most one extra
-/// chunk (a mid-char `truncate` would panic).
+/// per chunk, so growth is bounded to at most one extra chunk past it.
 ///
 /// `sink` is `None` on the buffered path and `Some` on the streaming path — the
 /// only difference between them, which is why there is one reader and not two.
@@ -405,7 +483,13 @@ fn spawn_reader<R: Read + Send + 'static>(
 ) -> mpsc::Receiver<String> {
     let (tx, rx) = mpsc::channel();
     std::thread::spawn(move || {
-        let mut acc = String::new();
+        // Accumulate BYTES and decode once at EOF. Decoding per chunk with
+        // `from_utf8_lossy` corrupts any multi-byte sequence that straddles a
+        // chunk boundary — each half becomes U+FFFD. For `npm ls -g --json`
+        // larger than one chunk with any non-ASCII byte in it, that turned valid
+        // JSON into a parse failure whose appearance depended on where the 8 KiB
+        // boundary happened to land: size-dependent and intermittent.
+        let mut acc: Vec<u8> = Vec::new();
         if let Some(mut r) = pipe {
             let mut buf = [0u8; 8192];
             loop {
@@ -413,7 +497,7 @@ fn spawn_reader<R: Read + Send + 'static>(
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
                         if acc.len() < MAX_CAPTURE {
-                            acc.push_str(&String::from_utf8_lossy(&buf[..n]));
+                            acc.extend_from_slice(&buf[..n]);
                         }
                         if let Some(sink) = sink {
                             sink.write(&buf[..n]);
@@ -422,7 +506,7 @@ fn spawn_reader<R: Read + Send + 'static>(
                 }
             }
         }
-        let _ = tx.send(acc);
+        let _ = tx.send(String::from_utf8_lossy(&acc).into_owned());
     });
     rx
 }
@@ -436,11 +520,36 @@ fn spawn_reader<R: Read + Send + 'static>(
 pub type RecipeDispatcher =
     fn(user: &str, recipe_path: &str, env: &[(String, String)], capture: Capture) -> DispatchResult;
 
+/// The wall-clock bound one recipe run gets: `AGENTLINUX_RECIPE_TIMEOUT_MS` when
+/// set to a parseable value, else `DEFAULT_RECIPE_TIMEOUT_MS`. An explicit `0`
+/// means unbounded.
+///
+/// An unparseable value falls back to the default rather than failing the
+/// install: a typo in an env var should not be the reason a provision aborts, and
+/// the warning says which value was ignored.
+fn recipe_timeout_ms() -> Option<u64> {
+    let configured = match std::env::var(RECIPE_TIMEOUT_ENV) {
+        Err(_) => DEFAULT_RECIPE_TIMEOUT_MS,
+        Ok(raw) => match raw.trim().parse::<u64>() {
+            Ok(ms) => ms,
+            Err(_) => {
+                crate::plog!(
+                    "agentlinux: ignoring unparseable {RECIPE_TIMEOUT_ENV}={raw:?}; \
+                     using {DEFAULT_RECIPE_TIMEOUT_MS}ms"
+                );
+                DEFAULT_RECIPE_TIMEOUT_MS
+            }
+        },
+    };
+    (configured > 0).then_some(configured)
+}
+
 /// The verb-layer entry: build the argv `["bash", recipe_path]` and delegate to
 /// `as_user`. Callers build `env` via `recipe_env::full_child_env`.
 ///
-/// NOTE: `timeout_ms` is `None` — a recipe run is unbounded. An install that
-/// wedges (a dnf lock, a black-holed npm socket) hangs here indefinitely.
+/// Bounded by `recipe_timeout_ms`. A recipe that wedges — a held dpkg lock, a
+/// black-holed npm socket — is killed with its whole process group and reported
+/// as 124 rather than hanging an unattended `upgrade` timer forever.
 pub fn dispatch_recipe(
     user: &str,
     recipe_path: &str,
@@ -448,7 +557,7 @@ pub fn dispatch_recipe(
     capture: Capture,
 ) -> DispatchResult {
     let argv = vec!["bash".to_string(), recipe_path.to_string()];
-    as_user(user, &argv, env, capture, None)
+    as_user(user, &argv, env, capture, recipe_timeout_ms())
 }
 
 #[cfg(test)]
@@ -602,6 +711,139 @@ mod dispatcher_tests {
             "buffered timeout maps to 1 (TS execFile parity)"
         );
         assert!(!r.streamed);
+    }
+
+    // A recipe that leaks a background grandchild holding the stdout pipe must
+    // not hang the dispatch. The child exits immediately; the orphan holds the
+    // pipe well past READER_DRAIN_GRACE. Before the bounded `collect`, `recv()`
+    // blocked for the orphan's full lifetime — a successful run that never
+    // returned. This is the empirical check the review asked for.
+    #[test]
+    fn leaked_background_child_cannot_hang_the_dispatch() {
+        let start = Instant::now();
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", "( sleep 120 ) & echo done"]),
+            &[],
+            Capture::Buffered,
+            None,
+        );
+        assert_eq!(r.exit_code, 0, "the direct child exited cleanly");
+        // The grace is shared across BOTH pipes, so the whole dispatch is bounded
+        // by one READER_DRAIN_GRACE — not one per reader.
+        assert!(
+            start.elapsed() < READER_DRAIN_GRACE + Duration::from_secs(2),
+            "dispatch must return on the drain grace, not the orphan's lifetime \
+             (took {:?})",
+            start.elapsed()
+        );
+    }
+
+    // The timeout tears down the whole process group, not just the direct child.
+    // The recipe spawns a grandchild that writes a marker file after a delay; if
+    // the group kill works, the marker never appears. Before this, the grandchild
+    // reparented to init and kept running — "a timeout stops the wait, not the
+    // work".
+    #[test]
+    fn timeout_kills_grandchildren_not_just_the_direct_child() {
+        let marker = std::env::temp_dir().join(format!("al-pgid-{}.marker", std::process::id()));
+        let _ = std::fs::remove_file(&marker);
+        let script = format!(
+            "( sleep 2; touch {} ) & sleep 30",
+            marker.to_str().unwrap()
+        );
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", &script]),
+            &[],
+            Capture::Streamed,
+            Some(200),
+        );
+        assert_eq!(r.exit_code, 124, "timed-out run maps to 124");
+        // Outlive the grandchild's own sleep: if it survived the group kill it
+        // would have written the marker by now.
+        std::thread::sleep(Duration::from_secs(4));
+        let survived = marker.exists();
+        let _ = std::fs::remove_file(&marker);
+        assert!(
+            !survived,
+            "grandchild survived the timeout and kept working"
+        );
+    }
+
+    // The timeout line names what the OPERATOR asked for, not `sudo`. `describe`
+    // is what carries that, so assert it directly: on the drop path argv[0] of
+    // the spawned command is literally "sudo" and the recipe path is the only
+    // thing that identifies the run.
+    #[test]
+    fn describe_labels_the_callers_argv_not_the_sudo_wrapper() {
+        let label = describe(&argv(&["bash", "/opt/agentlinux/catalog/agents/gsd/install.sh"]));
+        assert!(label.contains("gsd/install.sh"), "label={label}");
+        assert!(!label.starts_with("sudo"), "label={label}");
+        // The sudo hop is what gets EXECUTED for a non-self target …
+        let full = resolve_argv("someone-else", &argv(&["bash", "recipe.sh"]));
+        assert_eq!(full[0], "sudo");
+        // … while the label the operator reads stays the recipe.
+        assert_eq!(describe(&argv(&["bash", "recipe.sh"])), "bash recipe.sh");
+    }
+
+    // A long argv is truncated so one dispatch cannot emit an unreadable log line.
+    #[test]
+    fn describe_bounds_label_length() {
+        let long = argv(&["bash", &"x".repeat(500)]);
+        let label = describe(&long);
+        assert!(label.len() < 260, "label not bounded: {} chars", label.len());
+        assert!(label.ends_with('…'));
+    }
+
+    // The recipe bound is on by default, overridable, and disengaged by an
+    // explicit 0. An unparseable value falls back rather than failing the run.
+    #[test]
+    fn recipe_timeout_reads_env_with_a_safe_default() {
+        let _g = crate::test_support::env_guard();
+        std::env::remove_var(RECIPE_TIMEOUT_ENV);
+        assert_eq!(recipe_timeout_ms(), Some(DEFAULT_RECIPE_TIMEOUT_MS));
+
+        std::env::set_var(RECIPE_TIMEOUT_ENV, "5000");
+        assert_eq!(recipe_timeout_ms(), Some(5000));
+
+        // Explicit 0 = opt out of the bound entirely.
+        std::env::set_var(RECIPE_TIMEOUT_ENV, "0");
+        assert_eq!(recipe_timeout_ms(), None);
+
+        // Garbage must not become "unbounded" by accident.
+        std::env::set_var(RECIPE_TIMEOUT_ENV, "not-a-number");
+        assert_eq!(recipe_timeout_ms(), Some(DEFAULT_RECIPE_TIMEOUT_MS));
+
+        std::env::remove_var(RECIPE_TIMEOUT_ENV);
+    }
+
+    // A multi-byte UTF-8 sequence straddling the 8 KiB read boundary must survive
+    // capture intact. Decoding per chunk replaced each half with U+FFFD, which
+    // corrupted `npm ls -g --json` output larger than one chunk — intermittently,
+    // depending on where the boundary landed.
+    #[test]
+    fn multibyte_output_survives_a_read_boundary() {
+        // Pad with ASCII so the multi-byte char lands mid-buffer, then emit a
+        // 3-byte char (é is 2 bytes, → is 3) many times across the boundary.
+        let script = "printf 'a%.0s' $(seq 1 8190); printf '→%.0s' $(seq 1 100)";
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", script]),
+            &[],
+            Capture::Buffered,
+            None,
+        );
+        assert_eq!(r.exit_code, 0);
+        assert_eq!(
+            r.stdout.matches('→').count(),
+            100,
+            "multi-byte chars corrupted at the chunk boundary"
+        );
+        assert!(
+            !r.stdout.contains('\u{FFFD}'),
+            "replacement char present — a sequence was split"
+        );
     }
 
     // dispatch_recipe builds ["bash", <recipe>] and runs it.

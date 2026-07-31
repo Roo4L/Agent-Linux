@@ -22,8 +22,53 @@
 use crate::distro::Family;
 use crate::sysio;
 use std::io;
+use std::io::Read;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
+use std::time::Duration;
+
+/// Wall-clock bound on one package-manager invocation, overridable via
+/// `AGENTLINUX_PKG_TIMEOUT_MS` (`0` disables it).
+///
+/// 20 minutes clears the slowest legitimate case — a cold `apt-get update` plus a
+/// Node install over a slow mirror — while bounding the one that motivated it:
+/// `dnf` against a mirror that completes the TCP handshake and then stalls has no
+/// internal timeout of its own and will sit in "waiting for metadata"
+/// indefinitely.
+const DEFAULT_PKG_TIMEOUT_MS: u64 = 20 * 60 * 1000;
+
+/// Env override for `DEFAULT_PKG_TIMEOUT_MS`.
+const PKG_TIMEOUT_ENV: &str = "AGENTLINUX_PKG_TIMEOUT_MS";
+
+/// How many times a retryable package command is attempted in total.
+const PKG_ATTEMPTS: u32 = 3;
+
+/// Base backoff between attempts; attempt N waits `PKG_RETRY_BACKOFF * 2^(N-1)`.
+const PKG_RETRY_BACKOFF: Duration = Duration::from_secs(5);
+
+/// How much of a failing child's stderr is kept for the error message.
+const STDERR_TAIL: usize = 4096;
+
+/// How long apt waits for the dpkg lock instead of failing outright.
+///
+/// A fresh cloud image runs `apt-daily`/`unattended-upgrades` from cloud-init, so
+/// an install racing first boot finds `/var/lib/dpkg/lock-frontend` held. Without
+/// this, apt exits 100 immediately and the provision aborts half-done; with it,
+/// apt blocks until the background job finishes — which is what an operator would
+/// do by hand.
+const DPKG_LOCK_TIMEOUT: [&str; 2] = ["-o", "DPkg::Lock::Timeout=300"];
+
+/// Build an `apt-get` argv with the dpkg-lock wait applied.
+///
+/// Every debian-arm command goes through here so the wait cannot be forgotten at
+/// one call site — the failure it prevents (racing cloud-init's unattended
+/// upgrade on first boot) shows up on whichever command happens to run first.
+fn apt_get<'a>(args: &[&'a str]) -> Vec<&'a str> {
+    std::iter::once("apt-get")
+        .chain(DPKG_LOCK_TIMEOUT)
+        .chain(args.iter().copied())
+        .collect()
+}
 
 /// A command to run: `env` pairs prepended (the Bash `VAR=val cmd …` form) plus
 /// the argv. Returned by every `*_argv` builder so a unit test asserts the exact
@@ -37,6 +82,51 @@ pub struct PkgCmd {
     pub argv: Vec<String>,
 }
 
+/// One finished package-manager attempt: the exit code plus whatever the child
+/// said on stderr, which is where apt and dnf explain themselves.
+struct PkgOutcome {
+    exit_code: i32,
+    timed_out: bool,
+    stderr: String,
+}
+
+impl PkgOutcome {
+    const fn success(&self) -> bool {
+        self.exit_code == 0 && !self.timed_out
+    }
+
+    /// The operator-facing reason this attempt failed, stderr included.
+    fn failure_reason(&self, argv: &[String]) -> String {
+        let what = if self.timed_out {
+            format!("timed out after {}ms", pkg_timeout_ms().unwrap_or(0))
+        } else {
+            format!("exited {}", self.exit_code)
+        };
+        let tail = self.stderr.trim();
+        if tail.is_empty() {
+            format!("pkg verb failed: {argv:?} ({what}; no stderr)")
+        } else {
+            format!("pkg verb failed: {argv:?} ({what}): {tail}")
+        }
+    }
+}
+
+/// The bound one package-manager invocation gets. An unparseable override falls
+/// back to the default rather than aborting the provision.
+fn pkg_timeout_ms() -> Option<u64> {
+    let configured = match std::env::var(PKG_TIMEOUT_ENV) {
+        Err(_) => DEFAULT_PKG_TIMEOUT_MS,
+        Ok(raw) => raw.trim().parse::<u64>().unwrap_or_else(|_| {
+            crate::plog!(
+                "agentlinux: ignoring unparseable {PKG_TIMEOUT_ENV}={raw:?}; \
+                 using {DEFAULT_PKG_TIMEOUT_MS}ms"
+            );
+            DEFAULT_PKG_TIMEOUT_MS
+        }),
+    };
+    (configured > 0).then_some(configured)
+}
+
 impl PkgCmd {
     fn new(env: &[(&str, &str)], argv: &[&str]) -> Self {
         Self {
@@ -48,17 +138,101 @@ impl PkgCmd {
         }
     }
 
-    /// Spawn this command, inheriting stdio, returning the exit status as an
-    /// `io::Result` (a non-zero exit is a non-fatal `Ok(status)` — the caller
-    /// decides fatality, matching the individual Bash verbs' `|| true` sites).
-    fn run(&self) -> io::Result<std::process::ExitStatus> {
-        let mut cmd = Command::new(&self.argv[0]);
-        cmd.args(&self.argv[1..]);
+    /// Spawn this command once and wait for it, bounded by `pkg_timeout_ms`.
+    ///
+    /// stdout stays inherited so the operator watches apt/dnf work in real time.
+    /// stderr is teed AND kept (bounded to `STDERR_TAIL`) so a failure can quote
+    /// the package manager's own explanation instead of just the argv. stdin is
+    /// `/dev/null`: under `curl … | sudo bash` the installer's stdin is the
+    /// SCRIPT, and an apt prompt that reads it consumes the rest of the installer.
+    fn run_once(&self) -> io::Result<PkgOutcome> {
+        // Every `PkgCmd` in this module is built from a literal argv, so this is
+        // unreachable today — but indexing `[0]` on an empty argv would PANIC,
+        // and a panic inside a privileged provisioner is the one failure mode
+        // with no diagnostic at all. A clean error costs one line.
+        let (program, args) = self.argv.split_first().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "pkg command has an empty argv")
+        })?;
+        let mut cmd = Command::new(program);
+        cmd.args(args)
+            .stdin(Stdio::null())
+            .stderr(Stdio::piped());
         for (k, v) in &self.env {
             cmd.env(k, v);
         }
-        cmd.status()
+        crate::dispatcher::own_process_group(&mut cmd);
+
+        let mut child = cmd.spawn()?;
+        let label = self.argv.join(" ");
+        // Drain stderr on a thread: a package manager that fills the pipe buffer
+        // while we sit in wait() would deadlock against us.
+        let stderr_pipe = child.stderr.take();
+        let reader = std::thread::spawn(move || tee_and_keep_tail(stderr_pipe));
+        let (exit_code, timed_out) =
+            crate::dispatcher::wait_with_timeout(&mut child, pkg_timeout_ms(), &label);
+        let stderr = reader.join().unwrap_or_default();
+        Ok(PkgOutcome {
+            exit_code,
+            timed_out,
+            stderr,
+        })
     }
+
+    /// Spawn this command, retrying a failure up to `PKG_ATTEMPTS` times with
+    /// exponential backoff.
+    ///
+    /// Every command here is idempotent — `apt-get update`, `install -y`, `dnf
+    /// remove -y` all converge on re-run — so a retry cannot corrupt state, and
+    /// the failures that motivated it are overwhelmingly transient: a DNS blip, a
+    /// mirror 503, a lock held a moment longer than `DPKG_LOCK_TIMEOUT`. A
+    /// genuinely broken command still fails, three attempts later, with the same
+    /// error the first attempt produced.
+    fn run(&self) -> io::Result<PkgOutcome> {
+        let mut last = self.run_once()?;
+        for attempt in 2..=PKG_ATTEMPTS {
+            if last.success() {
+                return Ok(last);
+            }
+            let backoff = PKG_RETRY_BACKOFF * 2u32.pow(attempt - 2);
+            crate::plog!(
+                "agentlinux: {} — retrying in {}s (attempt {attempt}/{PKG_ATTEMPTS})",
+                last.failure_reason(&self.argv),
+                backoff.as_secs()
+            );
+            std::thread::sleep(backoff);
+            last = self.run_once()?;
+        }
+        Ok(last)
+    }
+}
+
+/// Read a child's stderr to EOF, forwarding every byte to our own stderr and
+/// keeping the last `STDERR_TAIL` bytes for the error message.
+///
+/// The TAIL rather than the head: apt and dnf print progress first and the actual
+/// diagnosis last, so a head-bounded capture would keep the least useful half.
+fn tee_and_keep_tail(pipe: Option<std::process::ChildStderr>) -> String {
+    use std::io::Write;
+    let Some(mut pipe) = pipe else {
+        return String::new();
+    };
+    let mut kept: Vec<u8> = Vec::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        match pipe.read(&mut buf) {
+            Ok(0) | Err(_) => break,
+            Ok(n) => {
+                let _ = std::io::stderr().write_all(&buf[..n]);
+                let _ = std::io::stderr().flush();
+                kept.extend_from_slice(&buf[..n]);
+                if kept.len() > STDERR_TAIL {
+                    // Drop from the front, keeping the most recent bytes.
+                    kept.drain(..kept.len() - STDERR_TAIL);
+                }
+            }
+        }
+    }
+    String::from_utf8_lossy(&kept).into_owned()
 }
 
 const DEB_FRONTEND: (&str, &str) = ("DEBIAN_FRONTEND", "noninteractive");
@@ -73,11 +247,11 @@ const DEB_FRONTEND: (&str, &str) = ("DEBIAN_FRONTEND", "noninteractive");
 pub fn install_cmds(family: Family, pkgs: &[&str]) -> Vec<PkgCmd> {
     match family {
         Family::Debian => {
-            let mut install = vec!["apt-get", "install", "-y", "--no-install-recommends"];
+            let mut install = vec!["install", "-y", "--no-install-recommends"];
             install.extend_from_slice(pkgs);
             vec![
-                PkgCmd::new(&[DEB_FRONTEND], &["apt-get", "update"]),
-                PkgCmd::new(&[DEB_FRONTEND], &install),
+                PkgCmd::new(&[DEB_FRONTEND], &apt_get(&["update"])),
+                PkgCmd::new(&[DEB_FRONTEND], &apt_get(&install)),
             ]
         }
         Family::Rhel => {
@@ -97,9 +271,9 @@ pub fn pkg_install(family: Family, pkgs: &[&str]) -> io::Result<()> {
 pub fn remove_cmd(family: Family, pkgs: &[&str]) -> PkgCmd {
     match family {
         Family::Debian => {
-            let mut argv = vec!["apt-get", "purge", "-y"];
+            let mut argv = vec!["purge", "-y"];
             argv.extend_from_slice(pkgs);
-            PkgCmd::new(&[DEB_FRONTEND], &argv)
+            PkgCmd::new(&[DEB_FRONTEND], &apt_get(&argv))
         }
         Family::Rhel => {
             let mut argv = vec!["dnf", "remove", "-y"];
@@ -117,7 +291,7 @@ pub fn pkg_remove(family: Family, pkgs: &[&str]) -> io::Result<()> {
 /// The command `pkg_autoremove` runs.
 pub fn autoremove_cmd(family: Family) -> PkgCmd {
     match family {
-        Family::Debian => PkgCmd::new(&[DEB_FRONTEND], &["apt-get", "autoremove", "-y"]),
+        Family::Debian => PkgCmd::new(&[DEB_FRONTEND], &apt_get(&["autoremove", "-y"])),
         Family::Rhel => PkgCmd::new(&[], &["dnf", "autoremove", "-y"]),
     }
 }
@@ -137,11 +311,10 @@ pub fn pkg_autoremove(family: Family) -> io::Result<()> {
 pub fn nodesource_prereqs_cmds(family: Family) -> Vec<PkgCmd> {
     match family {
         Family::Debian => vec![
-            PkgCmd::new(&[DEB_FRONTEND], &["apt-get", "update"]),
+            PkgCmd::new(&[DEB_FRONTEND], &apt_get(&["update"])),
             PkgCmd::new(
                 &[DEB_FRONTEND],
-                &[
-                    "apt-get",
+                &apt_get(&[
                     "install",
                     "-y",
                     "--no-install-recommends",
@@ -149,7 +322,7 @@ pub fn nodesource_prereqs_cmds(family: Family) -> Vec<PkgCmd> {
                     "gnupg",
                     "ca-certificates",
                     "apt-transport-https",
-                ],
+                ]),
             ),
         ],
         Family::Rhel => vec![PkgCmd::new(
@@ -187,9 +360,14 @@ pub fn nodesource_setup_url(family: Family) -> &'static str {
 /// that constraint is load-bearing. HTTPS + `curl -fsSL` cert verification is the
 /// fetch-integrity control (ADR-005).
 fn nodesource_setup_script(url: &str) -> String {
-    // `--connect-timeout 30 --max-time 300` (M-1/M-3): a DNS/TLS stall or a slow
-    // hang can't wedge provisioning forever — success behavior is byte-identical.
-    format!("curl -fsSL --connect-timeout 30 --max-time 300 {url} | bash -")
+    // `--connect-timeout 30 --max-time 300`: a DNS/TLS stall or a slow hang can't
+    // wedge provisioning forever. `--retry 3 --retry-connrefused` absorbs the
+    // transient half of that — a DNS blip or a mirror 503 that one retry fixes,
+    // which previously killed the whole provision. Success behavior is unchanged.
+    format!(
+        "curl -fsSL --connect-timeout 30 --max-time 300 --retry 3 --retry-delay 5 \
+         --retry-connrefused {url} | bash -"
+    )
 }
 
 /// `nodesource_setup` — run the pinned NodeSource setup_22.x script
@@ -202,15 +380,16 @@ fn nodesource_setup_script(url: &str) -> String {
 pub fn nodesource_setup(family: Family) -> io::Result<()> {
     let url = nodesource_setup_url(family);
     let script = nodesource_setup_script(url);
-    let status = Command::new("bash")
-        .arg("-o")
-        .arg("pipefail")
-        .arg("-c")
-        .arg(&script)
-        .status()?;
-    if !status.success() {
+    // Through `PkgCmd` so the setup script inherits the same bound, stdin-null
+    // and stderr capture as every other package operation. curl's `--max-time`
+    // covers only the FETCH; the `| bash -` leg runs `apt-get update`/`dnf
+    // makecache` internally, so the smaller half was the only bounded one.
+    let cmd = PkgCmd::new(&[], &["bash", "-o", "pipefail", "-c", &script]);
+    let outcome = cmd.run()?;
+    if !outcome.success() {
         return Err(io::Error::other(format!(
-            "nodesource_setup: setup script failed ({status})"
+            "nodesource_setup: setup script failed — {}",
+            outcome.failure_reason(&cmd.argv)
         )));
     }
     Ok(())
@@ -249,8 +428,17 @@ pub fn nodesource_module_reset_cmd(family: Family) -> Option<PkgCmd> {
 /// non-fatal); a no-op on debian.
 pub fn nodesource_module_reset(family: Family) -> io::Result<()> {
     if let Some(cmd) = nodesource_module_reset_cmd(family) {
-        // Non-fatal: swallow a non-zero exit (Bash `|| true`).
-        let _ = cmd.run()?;
+        // Non-fatal (Bash `|| true`) — a host with no `nodejs` module to reset is
+        // the normal case. `run_once` rather than `run`: retrying a command whose
+        // failure we are about to ignore only costs backoff. Reported, not
+        // swallowed: if the Node install later loses to AppStream, this says why.
+        let outcome = cmd.run_once()?;
+        if !outcome.success() {
+            crate::plog!(
+                "agentlinux: {} (non-fatal; no AppStream nodejs module to reset)",
+                outcome.failure_reason(&cmd.argv)
+            );
+        }
     }
     Ok(())
 }
@@ -293,15 +481,22 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
             if sysio::which("locale-gen").is_none() {
                 run_all(&install_cmds(Family::Debian, &["locales"]))?;
             }
-            // locale-gen C.UTF-8 (non-fatal, Bash `|| true`).
-            let _ = Command::new("locale-gen").arg("C.UTF-8").status();
-            let status = Command::new("update-locale")
-                .arg("LANG=C.UTF-8")
-                .arg("LC_ALL=C.UTF-8")
-                .status()?;
-            if !status.success() {
-                return Err(io::Error::other("locale_ensure: update-locale failed"));
+            // locale-gen C.UTF-8 stays non-fatal (the Bash verb's `|| true`) —
+            // on 24.04 C.UTF-8 is built in and locale-gen has nothing to do. But
+            // a failure is no longer DISCARDED: if the gate below then fails,
+            // this line is the only thing that says why.
+            let locale_gen = PkgCmd::new(&[], &["locale-gen", "C.UTF-8"]).run_once()?;
+            if !locale_gen.success() {
+                crate::plog!(
+                    "agentlinux: locale-gen C.UTF-8 {} (non-fatal; \
+                     the `locale -a` gate below is authoritative)",
+                    locale_gen.failure_reason(&["locale-gen".into(), "C.UTF-8".into()])
+                );
             }
+            run_one(&PkgCmd::new(
+                &[],
+                &["update-locale", "LANG=C.UTF-8", "LC_ALL=C.UTF-8"],
+            ))?;
             require_locale_available()
         }
         Family::Rhel => {
@@ -317,11 +512,15 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
 }
 
 /// Run the `locale -a` availability gate, mapping a miss to an `Err`.
+///
+/// Deliberately `run_once`, not `run`: this is a read-only probe of state the
+/// caller just finished writing. Retrying it three times with backoff would add
+/// 15 seconds to every failure without changing the answer.
 fn require_locale_available() -> io::Result<()> {
-    let status = locale_available_cmd().run()?;
-    if !status.success() {
+    if !locale_available_cmd().run_once()?.success() {
         return Err(io::Error::other(
-            "locale_ensure: C.UTF-8 locale not available after enforcement",
+            "locale_ensure: C.UTF-8 locale not available after enforcement \
+             (checked with `locale -a`)",
         ));
     }
     Ok(())
@@ -342,14 +541,11 @@ fn run_all(cmds: &[PkgCmd]) -> io::Result<()> {
 
 /// Run one command, mapping a non-zero exit to an `Err` (the `set -e` default
 /// for a verb whose failure IS fatal — the individual `|| true` sites handle
-/// their own non-fatality inline).
+/// their own non-fatality inline). The error quotes the child's stderr.
 fn run_one(cmd: &PkgCmd) -> io::Result<()> {
-    let status = cmd.run()?;
-    if !status.success() {
-        return Err(io::Error::other(format!(
-            "pkg verb failed: {:?} ({status})",
-            cmd.argv
-        )));
+    let outcome = cmd.run()?;
+    if !outcome.success() {
+        return Err(io::Error::other(outcome.failure_reason(&cmd.argv)));
     }
     Ok(())
 }
@@ -358,11 +554,28 @@ fn run_one(cmd: &PkgCmd) -> io::Result<()> {
 mod pkg_tests {
     use super::*;
 
+    /// Every debian argv carries the dpkg-lock wait — asserted once here and
+    /// reused by each apt case so the option cannot be dropped from one site.
+    fn assert_waits_for_dpkg_lock(argv: &[String]) {
+        let pos = argv
+            .iter()
+            .position(|a| a == "-o")
+            .unwrap_or_else(|| panic!("no -o option in {argv:?}"));
+        assert_eq!(
+            argv[pos + 1],
+            "DPkg::Lock::Timeout=300",
+            "apt must wait for the dpkg lock, not fail on it: {argv:?}"
+        );
+    }
+
     #[test]
     fn install_cmds_debian_updates_then_installs_noninteractive() {
         let cmds = install_cmds(Family::Debian, &["nodejs"]);
         assert_eq!(cmds.len(), 2);
-        assert_eq!(cmds[0].argv, vec!["apt-get", "update"]);
+        assert_eq!(
+            cmds[0].argv,
+            vec!["apt-get", "-o", "DPkg::Lock::Timeout=300", "update"]
+        );
         assert_eq!(
             cmds[0].env,
             vec![("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string())]
@@ -371,6 +584,8 @@ mod pkg_tests {
             cmds[1].argv,
             vec![
                 "apt-get",
+                "-o",
+                "DPkg::Lock::Timeout=300",
                 "install",
                 "-y",
                 "--no-install-recommends",
@@ -381,6 +596,33 @@ mod pkg_tests {
             cmds[1].env,
             vec![("DEBIAN_FRONTEND".to_string(), "noninteractive".to_string())]
         );
+    }
+
+    // The lock wait is on EVERY debian command, not just install. Whichever one
+    // happens to run first is the one that races cloud-init's unattended upgrade.
+    #[test]
+    fn every_debian_command_waits_for_the_dpkg_lock() {
+        for cmd in install_cmds(Family::Debian, &["nodejs"]) {
+            assert_waits_for_dpkg_lock(&cmd.argv);
+        }
+        for cmd in nodesource_prereqs_cmds(Family::Debian) {
+            assert_waits_for_dpkg_lock(&cmd.argv);
+        }
+        assert_waits_for_dpkg_lock(&remove_cmd(Family::Debian, &["nodejs"]).argv);
+        assert_waits_for_dpkg_lock(&autoremove_cmd(Family::Debian).argv);
+    }
+
+    // …and NOT on the rhel arm, where the option does not exist and would make
+    // dnf reject the command outright.
+    #[test]
+    fn rhel_commands_carry_no_apt_options() {
+        for cmd in install_cmds(Family::Rhel, &["nodejs"]) {
+            assert!(
+                !cmd.argv.iter().any(|a| a.starts_with("DPkg::")),
+                "apt option leaked into a dnf argv: {:?}",
+                cmd.argv
+            );
+        }
     }
 
     #[test]
@@ -404,7 +646,14 @@ mod pkg_tests {
     fn remove_cmd_per_family() {
         assert_eq!(
             remove_cmd(Family::Debian, &["nodejs"]).argv,
-            vec!["apt-get", "purge", "-y", "nodejs"]
+            vec![
+                "apt-get",
+                "-o",
+                "DPkg::Lock::Timeout=300",
+                "purge",
+                "-y",
+                "nodejs"
+            ]
         );
         assert_eq!(
             remove_cmd(Family::Rhel, &["nodejs"]).argv,
@@ -416,7 +665,7 @@ mod pkg_tests {
     fn autoremove_cmd_per_family() {
         assert_eq!(
             autoremove_cmd(Family::Debian).argv,
-            vec!["apt-get", "autoremove", "-y"]
+            vec!["apt-get", "-o", "DPkg::Lock::Timeout=300", "autoremove", "-y"]
         );
         assert_eq!(
             autoremove_cmd(Family::Rhel).argv,
@@ -443,7 +692,10 @@ mod pkg_tests {
     fn nodesource_prereqs_debian_installs_the_four_apt_prereqs() {
         let cmds = nodesource_prereqs_cmds(Family::Debian);
         assert_eq!(cmds.len(), 2);
-        assert_eq!(cmds[0].argv, vec!["apt-get", "update"]);
+        assert_eq!(
+            cmds[0].argv,
+            vec!["apt-get", "-o", "DPkg::Lock::Timeout=300", "update"]
+        );
         for pkg in ["curl", "gnupg", "ca-certificates", "apt-transport-https"] {
             assert!(
                 cmds[1].argv.iter().any(|a| a == pkg),
@@ -465,12 +717,105 @@ mod pkg_tests {
     }
 
     #[test]
-    fn nodesource_setup_script_carries_curl_timeouts() {
-        // M-3: the curl leg is bounded so a network stall can't hang forever.
+    fn nodesource_setup_script_carries_curl_timeouts_and_retries() {
+        // The curl leg is bounded so a network stall can't hang forever, AND
+        // retried so a DNS blip doesn't abort a whole provision.
         let s = nodesource_setup_script("https://example.test/setup_22.x");
         assert!(s.contains("--connect-timeout 30"), "script: {s}");
         assert!(s.contains("--max-time 300"), "script: {s}");
+        assert!(s.contains("--retry 3"), "script: {s}");
+        assert!(s.contains("--retry-connrefused"), "script: {s}");
         assert!(s.contains("| bash -"), "script: {s}");
+    }
+
+    // The package bound is on by default, overridable, and disengaged by an
+    // explicit 0 — the same contract as the recipe bound.
+    #[test]
+    fn pkg_timeout_reads_env_with_a_safe_default() {
+        let _g = crate::test_support::env_guard();
+        std::env::remove_var(PKG_TIMEOUT_ENV);
+        assert_eq!(pkg_timeout_ms(), Some(DEFAULT_PKG_TIMEOUT_MS));
+
+        std::env::set_var(PKG_TIMEOUT_ENV, "1000");
+        assert_eq!(pkg_timeout_ms(), Some(1000));
+
+        std::env::set_var(PKG_TIMEOUT_ENV, "0");
+        assert_eq!(pkg_timeout_ms(), None);
+
+        std::env::set_var(PKG_TIMEOUT_ENV, "twenty minutes");
+        assert_eq!(pkg_timeout_ms(), Some(DEFAULT_PKG_TIMEOUT_MS));
+
+        std::env::remove_var(PKG_TIMEOUT_ENV);
+    }
+
+    // A failing command's stderr reaches the error message. Previously the error
+    // carried only the argv, so `apt-get update` failing on an expired mirror key
+    // read as "pkg verb failed" with the explanation discarded.
+    #[test]
+    fn failure_reason_quotes_the_childs_stderr() {
+        let cmd = PkgCmd::new(&[], &["bash", "-c", "echo 'E: mirror is unreachable' >&2; exit 100"]);
+        let outcome = cmd.run_once().unwrap();
+        assert!(!outcome.success());
+        assert_eq!(outcome.exit_code, 100);
+        let reason = outcome.failure_reason(&cmd.argv);
+        assert!(
+            reason.contains("mirror is unreachable"),
+            "stderr must reach the operator: {reason}"
+        );
+        assert!(reason.contains("exited 100"), "reason: {reason}");
+    }
+
+    // Only the LAST STDERR_TAIL bytes are kept: apt prints progress first and the
+    // diagnosis last, so a head-bounded capture would keep the wrong half.
+    #[test]
+    fn stderr_capture_keeps_the_tail_not_the_head() {
+        let script = format!(
+            "head -c {} /dev/zero | tr '\\0' 'a' >&2; echo 'THE-REAL-ERROR' >&2; exit 1",
+            STDERR_TAIL * 2
+        );
+        let cmd = PkgCmd::new(&[], &["bash", "-c", &script]);
+        let outcome = cmd.run_once().unwrap();
+        assert!(
+            outcome.stderr.contains("THE-REAL-ERROR"),
+            "the tail must survive the cap"
+        );
+        assert!(
+            outcome.stderr.len() <= STDERR_TAIL + 1,
+            "capture not bounded: {} bytes",
+            outcome.stderr.len()
+        );
+    }
+
+    // A package command is bounded: a wedged child is killed rather than hanging
+    // the provision. `run_once` so the retry backoff doesn't lengthen the test.
+    #[test]
+    fn a_wedged_package_command_is_killed_not_awaited() {
+        let _g = crate::test_support::env_guard();
+        std::env::set_var(PKG_TIMEOUT_ENV, "200");
+        let start = std::time::Instant::now();
+        let outcome = PkgCmd::new(&[], &["bash", "-c", "sleep 60"]).run_once().unwrap();
+        std::env::remove_var(PKG_TIMEOUT_ENV);
+        assert!(outcome.timed_out, "must report the timeout");
+        assert!(!outcome.success());
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "took {:?}",
+            start.elapsed()
+        );
+    }
+
+    // A package command does NOT inherit the installer's stdin. Under
+    // `curl … | sudo bash` that stdin is the installer SCRIPT, so a child that
+    // reads it consumes the rest of the install. `read` must see EOF instantly.
+    #[test]
+    fn package_commands_get_no_stdin() {
+        let outcome = PkgCmd::new(&[], &["bash", "-c", "read line && echo got: $line"])
+            .run_once()
+            .unwrap();
+        assert_eq!(
+            outcome.exit_code, 1,
+            "read must hit EOF on /dev/null, not consume the parent's stdin"
+        );
     }
 
     #[test]

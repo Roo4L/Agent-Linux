@@ -48,7 +48,7 @@ pub fn require_root(euid: Option<u32>) -> ExitCode {
         ExitCode::SUCCESS
     } else {
         // Byte-for-byte with agentlinux-install:307.
-        eprintln!("agentlinux provision must run as root (EUID != 0). Re-run under sudo.");
+        crate::plog!("agentlinux provision must run as root (EUID != 0). Re-run under sudo.");
         ExitCode::from(EX_USAGE)
     }
 }
@@ -96,10 +96,10 @@ pub fn guard_agent_user(subcommand: &str, invoker: Option<&str>) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err((install_user, invoker)) => {
             // Byte-for-byte with guard/user.ts:19-22 — two eprintln lines.
-            eprintln!(
+            crate::plog!(
                 "agentlinux: {subcommand} must run as user '{install_user}' (invoker: '{invoker}')"
             );
-            eprintln!("  try: sudo -u {install_user} -H agentlinux {subcommand}");
+            crate::plog!("  try: sudo -u {install_user} -H agentlinux {subcommand}");
             ExitCode::from(EX_USAGE)
         }
     }

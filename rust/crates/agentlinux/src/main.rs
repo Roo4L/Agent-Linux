@@ -23,6 +23,7 @@ mod provision;
 mod recipe_env;
 mod rewire;
 mod sentinel;
+mod statelock;
 mod sysio;
 
 use clap::Parser;
@@ -136,6 +137,42 @@ fn verb_name(command: &Command) -> &'static str {
 ///
 /// All seven verbs are wired. `provision` takes the root-guarded arm below;
 /// the other six run behind the CLI-05 invoker guard.
+/// `EX_TEMPFAIL` — "try again later", the sysexits code for a contended lock.
+/// Distinct from the usage/data/software codes so a wrapper script can retry on
+/// this one alone.
+const EX_TEMPFAIL: u8 = 75;
+
+/// Take the host state lock for a mutating verb, or `None` after printing why.
+///
+/// `list` is deliberately absent: it only reads, so serializing it would block
+/// the one command an operator runs to find out what the busy run is doing.
+fn hold_state_lock(command: &Command) -> Option<Option<statelock::HostLock>> {
+    let (needs_lock, wait) = match command {
+        Command::List(_) => (false, false),
+        Command::Provision(a) => (true, a.wait_lock),
+        Command::Adopt(a) => (true, a.wait_lock),
+        Command::Pin(a) => (true, a.wait_lock),
+        Command::Install(a) => (true, a.wait_lock),
+        Command::Remove(a) => (true, a.wait_lock),
+        Command::Upgrade(a) => (true, a.wait_lock),
+    };
+    if !needs_lock {
+        return Some(None);
+    }
+    let on_contention = if wait {
+        statelock::OnContention::Wait
+    } else {
+        statelock::OnContention::Fail
+    };
+    match statelock::acquire(verb_name(command), on_contention) {
+        Ok(lock) => Some(Some(lock)),
+        Err(e) => {
+            crate::plog!("agentlinux: {e}");
+            None
+        }
+    }
+}
+
 fn dispatch(command: Command) -> ExitCode {
     // `provision` is the PRE-Node provisioner entrypoint: it runs privileged
     // systems I/O BEFORE any agent user exists, so it dispatches through
@@ -149,6 +186,9 @@ fn dispatch(command: Command) -> ExitCode {
         if guard != ExitCode::SUCCESS {
             return guard;
         }
+        let Some(_lock) = hold_state_lock(&command) else {
+            return ExitCode::from(EX_TEMPFAIL);
+        };
         return cmd::provision::provision(args);
     }
 
@@ -158,6 +198,13 @@ fn dispatch(command: Command) -> ExitCode {
     if guard != ExitCode::SUCCESS {
         return guard;
     }
+
+    // Serialize the mutating verbs against each other (see `statelock`). Held for
+    // the whole verb: binding it to `_lock` rather than `_` matters, because `_`
+    // drops immediately and would release the lock before the work starts.
+    let Some(_lock) = hold_state_lock(&command) else {
+        return ExitCode::from(EX_TEMPFAIL);
+    };
 
     match command {
         Command::List(args) => cmd::list::list(&args),

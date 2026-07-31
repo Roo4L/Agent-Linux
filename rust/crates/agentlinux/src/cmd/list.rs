@@ -288,11 +288,25 @@ pub fn list(opts: &ListArgs) -> ExitCode {
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            crate::plog!("{e}");
             return ExitCode::from(1);
         }
     };
-    let sentinels = sentinel::list_sentinels().unwrap_or_default();
+    // A listing that cannot read the install records must not render every agent
+    // as "not installed" — that is a wrong answer presented as a confident one,
+    // and the operator's next move (re-installing what is already there) is worse
+    // than being told nothing.
+    let sentinels = match sentinel::list_sentinels() {
+        Ok(s) => s,
+        Err(e) => {
+            crate::plog!(
+                "agentlinux: cannot read the install records ({e}) — refusing to \
+                 report every agent as not-installed. Check {}.",
+                sentinel::installed_dir().display()
+            );
+            return ExitCode::from(1);
+        }
+    };
 
     let visible: Vec<FullCatalogEntry> = agents
         .into_iter()
@@ -305,7 +319,7 @@ pub fn list(opts: &ListArgs) -> ExitCode {
         match serde_json::to_string_pretty(&rows) {
             Ok(s) => println!("{s}"),
             Err(e) => {
-                eprintln!("agentlinux: failed to serialize list JSON: {e}");
+                crate::plog!("agentlinux: failed to serialize list JSON: {e}");
                 return ExitCode::from(1);
             }
         }

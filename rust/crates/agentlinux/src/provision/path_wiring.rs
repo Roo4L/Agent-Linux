@@ -41,7 +41,7 @@ use std::path::Path;
 /// writes the four artefacts unconditionally (additive), emitting the
 /// `[REMEDIATE-02]` marker when the user was reused.
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
-    eprintln!("40-path-wiring: starting");
+    crate::plog!("40-path-wiring: starting");
 
     // Resolved install user + home — derived from ctx,
     // never re-resolved. AL-59: every per-user path below interpolates these so an
@@ -54,7 +54,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // identical for CREATE and REUSE; the marker only distinguishes re-attaching
     // PATH wiring from creating it in the transcript.
     if is_reused(ctx.resolutions.user) {
-        eprintln!(
+        crate::plog!(
             "40-path-wiring: [REMEDIATE-02] component=user action=path-wiring-additive \
              user={user} (ensure_marker_block + write_file_atomic; user content outside \
              markers preserved)"
@@ -78,7 +78,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
         Path::new("/etc/profile.d/agentlinux.sh"),
         profile.as_bytes(),
     )?;
-    eprintln!("40-path-wiring: wrote /etc/profile.d/agentlinux.sh");
+    crate::plog!("40-path-wiring: wrote /etc/profile.d/agentlinux.sh");
 
     // Artefact 2: <home>/.bashrc marker block at TOP (0644 user:user).
     let bashrc = format!("{home}/.bashrc");
@@ -92,21 +92,21 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // block.
     std::fs::set_permissions(bashrc_path, std::fs::Permissions::from_mode(0o644))?;
     sysio::chown_by_name(bashrc_path, &owner)?;
-    eprintln!("40-path-wiring: wrote agentlinux-path marker block to {bashrc} (--top)");
+    crate::plog!("40-path-wiring: wrote agentlinux-path marker block to {bashrc} (--top)");
 
     // Artefact 3: /etc/agentlinux.env (0644 root:root) — literal KEY=VALUE.
     let env_file = agentlinux_env_content(user, home, &canonical_path);
     sysio::write_file_atomic(0o644, Path::new("/etc/agentlinux.env"), env_file.as_bytes())?;
-    eprintln!("40-path-wiring: wrote /etc/agentlinux.env (systemd EnvironmentFile + cron header template)");
+    crate::plog!("40-path-wiring: wrote /etc/agentlinux.env (systemd EnvironmentFile + cron header template)");
 
     // Artefact 4: /etc/cron.d/agentlinux (0644 root:root) — same PATH literal.
     let cron = cron_d_content(user, &canonical_path);
     sysio::write_file_atomic(0o644, Path::new("/etc/cron.d/agentlinux"), cron.as_bytes())?;
-    eprintln!(
+    crate::plog!(
         "40-path-wiring: wrote /etc/cron.d/agentlinux (PATH + locale header; no default jobs)"
     );
 
-    eprintln!("40-path-wiring: done (four artefacts written)");
+    crate::plog!("40-path-wiring: done (four artefacts written)");
     Ok(())
 }
 

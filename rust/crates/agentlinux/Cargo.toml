@@ -24,7 +24,7 @@ clap = { version = "4.6", features = ["derive"] }
 # nix 0.31 (signal + process) — SIGTERM-then-SIGKILL escalation that std's
 # Child::kill() (SIGKILL-only) cannot express, plus getuid/User for the
 # invoker==target short-circuit. Package Legitimacy Gate: verdict OK.
-nix = { version = "0.31", features = ["signal", "process", "user"] }
+nix = { version = "0.31", features = ["signal", "process", "user", "fs"] }
 # serde/serde_json — the Wave-1 file adapters (catalog/sentinel/cache) deserialize
 # the SAME catalog.json / installed.d/<id>.json / detect-cache JSON the TS reads,
 # and the list/adopt verbs serialize the Row/AdoptResult arrays (`--json`).

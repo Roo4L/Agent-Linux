@@ -60,14 +60,42 @@ pub fn detect_cache_path() -> PathBuf {
 /// Read + parse the detect cache into the agents list, or `None` on
 /// absent/unparseable. Accepts BOTH `.agents` and `.components.agents` shapes.
 /// Port of `readCacheAgents`.
+/// # An absent cache is normal; a BROKEN one is reported
+/// A missing cache is the ordinary greenfield case and stays silent. A cache that
+/// exists but cannot be read or parsed is not: per `detect.rs`, no cache means the
+/// REMEDIATE-04 gate never fires and `install` falls through to a plain install
+/// that writes over whatever the operator already had. The writer logs when it
+/// cannot persist; the reader used to swallow every failure into `None`, so a
+/// truncated cache (a full `/run` tmpfs on a minimal image) silently disabled the
+/// whole remediation path with nothing to explain why.
 #[must_use]
 pub fn read_cache_agents() -> Option<Vec<DetectedAgent>> {
     let path = detect_cache_path();
-    // existsSync guard: absent cache → None (not an error).
-    let body = std::fs::read_to_string(&path).ok()?;
-    // Unparseable → None (mirrors the TS try/catch returning null).
-    let doc: CacheDoc = serde_json::from_str(&body).ok()?;
-    doc.agents.or_else(|| doc.components.and_then(|c| c.agents))
+    let body = match std::fs::read_to_string(&path) {
+        Ok(b) => b,
+        // Absent cache → None, not an error (the existsSync guard).
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
+        Err(e) => {
+            crate::plog!(
+                "agentlinux: detect cache {} is unreadable ({e}) — treating the host \
+                 as undetected. Brownfield remediation will not fire this run.",
+                path.display()
+            );
+            return None;
+        }
+    };
+    match serde_json::from_str::<CacheDoc>(&body) {
+        Ok(doc) => doc.agents.or_else(|| doc.components.and_then(|c| c.agents)),
+        Err(e) => {
+            crate::plog!(
+                "agentlinux: detect cache {} is corrupt ({e}) — treating the host as \
+                 undetected. Brownfield remediation will not fire this run; delete \
+                 the file and re-run to rebuild it.",
+                path.display()
+            );
+            None
+        }
+    }
 }
 
 /// Find a cached agent by id — NO canonical requirement, because the list
