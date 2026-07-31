@@ -345,6 +345,13 @@ pub struct ProvisionDeps {
     pub report_only: fn(&str, &str, &distro::Distro, Option<&str>) -> ExitCode,
     pub dry_run_report: fn(&str, &str, &distro::Distro) -> ExitCode,
     pub log_init: fn() -> std::path::PathBuf,
+    /// Whether the transcript is actually open. A dep alongside `log_init`
+    /// because it reads the same process-global `OnceLock` the fake `log_init`
+    /// never sets — so which completion banner ran was a function of whether
+    /// some EARLIER test in the binary had called `log::init`, making the
+    /// "transcript unavailable" arm unreachable by fixture and any assertion on
+    /// the banner order-dependent.
+    pub log_active: fn() -> bool,
     pub run_steps: fn(&ProvisionCtx) -> Result<(), ExitCode>,
     pub scan_and_write: fn(&str, &str),
     pub adopt: fn(&str, &str),
@@ -365,6 +372,7 @@ impl Default for ProvisionDeps {
             report_only,
             dry_run_report,
             log_init: log::init,
+            log_active: log::is_active,
             run_steps,
             scan_and_write: crate::detect::scan_and_write,
             adopt: run_agent_adoption,
@@ -373,6 +381,11 @@ impl Default for ProvisionDeps {
 }
 
 /// The production install-user wizard, as a plain fn pointer.
+///
+/// Its mutants ARE killed, by `a_wizard_answer_that_is_not_a_legal_user_is_refused`
+/// — the caller re-validates whatever comes back, so `String::new()` and
+/// `"xyzzy".into()` both fail. That is the preferable shape: an adapter whose
+/// output the caller checks needs no skip.
 fn real_choose_user(default_user: &str) -> String {
     provision::wizard::choose_install_user(default_user, &validate_user_name)
 }
@@ -396,8 +409,8 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
     //  AL-50 AC3: when no --user is given AND we are on an interactive terminal
     //  AND the host is greenfield, prompt for the install user (ported from the
     //  Bash prompt::choose_install_user). The curl-installer path passes --user
-    //  (or is non-TTY), so it never prompts. The wizard's result is already
-    //  validated; a bare Enter / EOF / 3 invalid tries fall back to the default.
+    //  (or is non-TTY), so it never prompts. A bare Enter / EOF / 3 invalid
+    //  tries fall back to the default.
     let default_user = resolve_install_user();
     let default_home = format!("/home/{default_user}");
     let install_user = if args.user.is_none()
@@ -405,7 +418,18 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
         && (deps.is_tty)()
         && (deps.should_prompt_user)(&default_user, &default_home)
     {
-        (deps.choose_user)(&default_user)
+        // Re-validate on THIS side of the seam. The production wizard validates
+        // internally, but making it a dep moved that guarantee outside the
+        // function: `--user` is charset- and denylist-checked here, while the
+        // wizard's answer previously flowed straight into `check_adoptable`,
+        // `ProvisionCtx::new` and `useradd`. An empty or reserved name would
+        // reach `useradd ""` / `/home/`. Trusting a seam to uphold an invariant
+        // the caller depends on is how the two username validators drifted.
+        let chosen = (deps.choose_user)(&default_user);
+        match resolve_provision_user(Some(&chosen)) {
+            Ok(u) => u,
+            Err(code) => return code,
+        }
     } else {
         match resolve_provision_user(args.user.as_deref()) {
             Ok(u) => u,
@@ -548,7 +572,7 @@ pub fn provision_with(args: &ProvisionArgs, deps: &ProvisionDeps) -> ExitCode {
             // M-3: only name the transcript path when it was actually persisted;
             // if log::init could not open the file, the banner must not assert a
             // file that does not exist.
-            if log::is_active() {
+            if (deps.log_active)() {
                 log::line(&format!(
                     "agentlinux-install complete (transcript: {})",
                     log_path.display()
@@ -1036,6 +1060,9 @@ mod provision_tests {
             record("log_init");
             std::path::PathBuf::from("/dev/null")
         }
+        fn log_active() -> bool {
+            true
+        }
         fn steps(_c: &ProvisionCtx) -> Result<(), ExitCode> {
             record("run_steps");
             Ok(())
@@ -1083,6 +1110,7 @@ mod provision_tests {
             report_only: report,
             dry_run_report: dry,
             log_init,
+            log_active,
             run_steps: steps,
             scan_and_write: scan,
             adopt,
@@ -1188,6 +1216,58 @@ mod provision_tests {
                 < seq.iter().position(|p| *p == "detect_distro"),
             "the user must be settled before anything else, seq={seq:?}"
         );
+    }
+
+    #[test]
+    fn a_wizard_answer_that_is_not_a_legal_user_is_refused() {
+        // The seam moved the wizard's internal validation outside this function,
+        // so the caller re-checks. Without that, an empty or reserved name flows
+        // into check_adoptable, ProvisionCtx and `useradd ""`.
+        let _lock = crate::test_support::EnvScope::new();
+        for bad in ["", "root", "Bad User!"] {
+            let _ = taken();
+            fn empty(_d: &str) -> String {
+                record("choose_user");
+                String::new()
+            }
+            fn reserved(_d: &str) -> String {
+                record("choose_user");
+                "root".to_string()
+            }
+            fn malformed(_d: &str) -> String {
+                record("choose_user");
+                "Bad User!".to_string()
+            }
+            fn yes_tty() -> bool {
+                true
+            }
+            fn wants_prompt(_u: &str, _h: &str) -> bool {
+                true
+            }
+            let mut deps = recording_deps();
+            deps.is_tty = yes_tty;
+            deps.should_prompt_user = wants_prompt;
+            deps.choose_user = match bad {
+                "" => empty,
+                "root" => reserved,
+                _ => malformed,
+            };
+            let mut args = base_args();
+            args.user = None;
+
+            let code = provision_with(&args, &deps);
+
+            assert_eq!(
+                code,
+                ExitCode::from(EX_USAGE),
+                "wizard answered {bad:?}; it must be refused, not provisioned"
+            );
+            let seq = taken();
+            assert!(
+                !seq.contains(&"detect_distro"),
+                "nothing may proceed on an illegal user, seq={seq:?}"
+            );
+        }
     }
 
     #[test]

@@ -128,6 +128,20 @@ the NodeSource script and `node --version` with no injection point, and no test
 drives their `run`. `cmd/provision::run_purge` spawns `pkill`/`userdel`
 unconditionally.
 
+**Production wiring adapters.** Pushing an ambient read behind a seam leaves a
+one-line adapter that performs it — `cmd/install::real_is_tty`, and the
+`ProvisionDeps::default` field initialisers. Those lines are unkillable by
+construction: observing them requires reasserting the very coupling the seam
+removed (attaching a real pty, a real passwd DB). They carry
+`#[cfg_attr(test, mutants::skip)]` with a back-reference here, per ADR-020 §4.
+
+This is a real cost of the design and is stated so it is not rediscovered: every
+seam of this kind trades a testable branch for an untestable adapter. The trade
+is worth it because the adapter is one line with no logic, while the branch it
+freed carries the decision. Prefer the shape that needs NO skip where it exists —
+`real_choose_user` has none, because the caller re-validates whatever the wizard
+returns, which kills both of its mutants and closes a trust gap at the same time.
+
 `pkg.rs`'s executor half — `pkg_install`, `pkg_remove`, `nodesource_setup` — is
 part of the SAME gap and is named here explicitly, because this list is read by
 people triaging a red mutation gate and that gate matches changed *lines in

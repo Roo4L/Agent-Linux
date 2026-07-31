@@ -83,6 +83,17 @@ fn real_path_exists(p: &std::path::Path) -> bool {
 pub type IsTty = fn() -> bool;
 
 /// The production check.
+///
+/// Not mutation-tested — ADR-019 §5, "production wiring adapters". This is the
+/// one line that reads the ambient terminal, and it exists precisely so nothing
+/// else does; a test that could observe it would have to attach or detach a real
+/// pty around the process, which is the coupling the seam removes. Both mutants
+/// (`-> true`, `-> false`) are therefore unkillable HERE while being observable
+/// in production — `-> false` turns an interactive install's REMEDIATE-04
+/// auto-pass into an exit-65 bail — so the behaviour they change is asserted
+/// through the seam instead: `install_into` takes `IsTty`, and the consent arms
+/// are covered from literals on both settings.
+#[cfg_attr(test, mutants::skip)]
 fn real_is_tty() -> bool {
     std::io::stdin().is_terminal()
 }
