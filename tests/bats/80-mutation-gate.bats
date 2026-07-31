@@ -1945,6 +1945,47 @@ EOF
   [[ "$output" != *"PASS"* ]]
 }
 
+@test "MUT-56: die renders as ONE markdown list item, not a run-on paragraph" {
+  # `die`'s `${1%%$'\n'*}` truncation carries a three-line comment explaining why
+  # it exists and had no case behind it — the one place in this file where a
+  # stated design decision was argued in a comment rather than asserted. The die
+  # messages are multi-line explanations; a summary line that swallowed the rest
+  # renders the whole thing as a single run-on bullet.
+  export GITHUB_STEP_SUMMARY="$WORK/summary.md"
+  : >"$GITHUB_STEP_SUMMARY"
+  mk_cargo list_n=5 total=5 caught=5 baseline=missing
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  # The gate's own message spans several lines; the summary must carry one.
+  [ "$(grep -c . "$GITHUB_STEP_SUMMARY")" -eq 1 ] || {
+    echo "the FAIL verdict spans $(grep -c . "$GITHUB_STEP_SUMMARY") summary lines:"
+    cat "$GITHUB_STEP_SUMMARY"
+    return 1
+  }
+  [[ "$(cat "$GITHUB_STEP_SUMMARY")" == *"**FAIL**"* ]]
+}
+
+@test "MUT-56b: the detail block starts at the first NAME, not at a count" {
+  # `${verdict[@]:2}` — the first two lines are the two counts. `:1` prepends a
+  # bare number as though it were a mutant name, and MUT-45b only asserts the
+  # `unexpected: NAME` substring is present, so it could not see that.
+  mk_cargo list_n=3 total=3 caught=3 planned=2 "extra=src/OTHER.rs:9:1: injected"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  # Every non-empty detail line names a mutant; none is a bare count.
+  local first
+  first="$(printf '%s\n' "$output" | grep -E '^  (unscored|unexpected): ' | head -1)"
+  [ -n "$first" ] || {
+    echo "no named detail line at all: $output"
+    return 1
+  }
+  printf '%s\n' "$output" | grep -qE '^[0-9]+$' && {
+    echo "a bare count leaked into the detail block: $output"
+    return 1
+  }
+  return 0
+}
+
 @test "MUT-52: the accounting identity holds in ADVISORY too" {
   # MUT-05b is enforce-only. In advisory the identity is the ONLY thing between a
   # --check-shaped run (total > 0, all four buckets 0) and a green nightly:
