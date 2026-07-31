@@ -43,6 +43,13 @@ use std::process::Command;
 /// `run` — the 30-nodejs.sh port. `ctx.resolutions.node` selects the CREATE/REUSE
 /// path; the npm-prefix REMEDIATE-01 dispatch (`ctx.resolutions.npm_prefix`) runs
 /// unconditionally afterward.
+///
+/// Not mutation-tested: an ADR-019 §5 seam gap. Reaches the NodeSource script,
+/// `apt-get`/`dnf` and `node --version` with no injection point. Skipped with a
+/// back-reference rather than left to redden the enforcing gate (ADR-020 §4,
+/// third case). The REMEDIATE-01 dispatch it makes IS observed, through
+/// `remediate_npm_prefix::chown_or_rebase_with`.
+#[cfg_attr(test, mutants::skip)]
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     eprintln!("30-nodejs: starting");
 

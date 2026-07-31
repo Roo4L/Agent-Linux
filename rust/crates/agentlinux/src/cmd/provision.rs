@@ -86,13 +86,23 @@ fn resolve_provision_user(user_flag: Option<&str>, default_user: &str) -> Result
 /// operator-chosen alternate on a TTY; else an `Err(exit)` — 65 for a non-TTY
 /// bail-with-hint or an EOF decline, 64 for 3 invalid names. On a TTY the accepted
 /// alternate is a fresh user provisioned via the normal Create path.
-/// Not mutation-tested: a production wiring adapter (ADR-019 §5). Reaching its
-/// two mutants needs a real passwd DB, a real terminal and a real stdin — the
-/// exact coupling the seam removed. Every decision it composes is asserted from
-/// literals through [`resolve_wrong_shell_with`], and — unlike the other
-/// adapters — its RETURN is re-validated by the caller, because an
-/// operator-typed name flows into `install_home` and `useradd`.
-#[cfg_attr(test, mutants::skip)]
+/// A production wiring adapter (ADR-019 §5) whose PASS-THROUGH is nonetheless
+/// assertable, so it carries no blanket skip.
+///
+/// An earlier revision skipped it claiming both its `Ok` mutants "need a real
+/// passwd DB, a real terminal and a real stdin". That is false for the dominant
+/// path: `resolve_wrong_shell_with` returns before consulting `is_tty` or the
+/// prompt whenever the state is not `WrongShell`, and a name no passwd DB holds
+/// resolves to `Absent` on every host, root or not, tty or not. One line kills
+/// both — the same fabricate-a-user-nobody-has technique this tree already uses
+/// as `FIXTURE_USER`. ADR-020 §4 forbids a skip that hides a killable mutant,
+/// and a wrong justification is worse than none: it is the paragraph a triager
+/// reads instead of writing the test.
+///
+/// The `Err` arms genuinely do need a terminal and are covered from literals
+/// through [`resolve_wrong_shell_with`]. Its RETURN is re-validated by the
+/// caller, because an operator-typed name flows into `install_home` and
+/// `useradd`.
 fn resolve_wrong_shell(user: &str) -> Result<String, ExitCode> {
     resolve_wrong_shell_with(
         user,
@@ -914,10 +924,21 @@ fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&
         distro,
         format,
         crate::detect::scan_and_write,
+        crate::detect::scan_persist_report_json,
     )
 }
 
-/// [`report_only`] over an injected sink and an injected re-scan.
+/// [`report_only`] over an injected sink and BOTH injected re-scans.
+///
+/// Two seams, not one, because the JSON arm reached `scan_persist_report_json`
+/// directly while the text arm went through `rescan` — so the test that passes a
+/// no-op `rescan` and reads as hermetic was not. That arm runs the real
+/// `detect::scan`, which dispatches `sudo -u <user> bash --login -c` once per
+/// catalog row, and the real `detect::persist`, which writes
+/// `/run/agentlinux-detect.json`. Unprivileged that fails with EACCES and the
+/// test still passed; as ROOT — which is how the Docker and QEMU harnesses run
+/// the suite — it succeeds and truncates live host state mid-`cargo test`, state
+/// that `agentlinux list`/`adopt`/`upgrade` read back. ADR-019 §3.
 ///
 /// The format choice IS the contract: DET-04 pipes the whole of stdout to `jq`,
 /// so a `text` run must put nothing there and a `json` run must put nothing
@@ -933,9 +954,10 @@ fn report_only_to(
     distro: &distro::Distro,
     format: Option<&str>,
     rescan: fn(&str, &str),
+    rescan_json: fn(&str, &str) -> serde_json::Value,
 ) -> ExitCode {
     if format == Some("json") {
-        let report = crate::detect::scan_persist_report_json(user, home);
+        let report = rescan_json(user, home);
         // STDOUT only, nothing else — the DET-04 tests pipe the whole output to jq.
         outln!(
             o,
@@ -1673,6 +1695,16 @@ mod provision_tests {
         // report_only` survived: the human report goes to stdout and breaks every
         // DET-04 test, while --report-format=json prints prose.
         fn no_rescan(_u: &str, _h: &str) {}
+        // A report body no real scan would produce, so the assertions below
+        // cannot be satisfied by an EMPTY one. `{"components":{"agents":[]}}` is
+        // exactly what an unreadable catalog yields, so asserting merely that
+        // stdout contained "agents" passed on a host where the scan had failed —
+        // while still shelling out per catalog row and writing /run.
+        fn fake_json(_u: &str, _h: &str) -> serde_json::Value {
+            serde_json::json!({
+                "components": { "agents": [{ "id": "claude-code", "status": "healthy" }] }
+            })
+        }
         let d = fake_distro();
 
         let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -1681,17 +1713,24 @@ mod provision_tests {
             err: &mut err,
         };
         assert_eq!(
-            report_only_to(&mut o, "agent", "/home/agent", &d, Some("json"), no_rescan),
+            report_only_to(
+                &mut o,
+                "agent",
+                "/home/agent",
+                &d,
+                Some("json"),
+                no_rescan,
+                fake_json
+            ),
             ExitCode::SUCCESS
         );
         let (o_json, e_json) = (
             String::from_utf8(out).unwrap(),
             String::from_utf8(err).unwrap(),
         );
-        assert!(
-            o_json.contains("\"agents\""),
-            "json goes to stdout: {o_json}"
-        );
+        // The BODY, not merely the word "agents": DET-04 pipes this to jq.
+        let parsed: serde_json::Value = serde_json::from_str(&o_json).expect("stdout must be JSON");
+        assert_eq!(parsed["components"]["agents"][0]["id"], "claude-code");
         assert!(e_json.is_empty(), "json mode must print nothing to stderr");
 
         let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -1700,7 +1739,15 @@ mod provision_tests {
             err: &mut err,
         };
         assert_eq!(
-            report_only_to(&mut o, "agent", "/home/agent", &d, None, no_rescan),
+            report_only_to(
+                &mut o,
+                "agent",
+                "/home/agent",
+                &d,
+                None,
+                no_rescan,
+                fake_json
+            ),
             ExitCode::SUCCESS
         );
         let (o_text, e_text) = (
@@ -1710,6 +1757,10 @@ mod provision_tests {
         assert!(
             o_text.is_empty(),
             "text mode must leave stdout empty for the jq pipe, got {o_text}"
+        );
+        assert!(
+            !o_text.contains("agents"),
+            "the json body must not leak into the text arm"
         );
         assert!(e_text.contains("detection report"), "{e_text}");
         assert!(e_text.contains("install-user: agent"));
@@ -1903,6 +1954,16 @@ mod provision_tests {
             ExitCode::from(EX_SOFTWARE)
         );
         assert_eq!(ctx_users(), vec!["agent".to_string()]);
+    }
+
+    #[test]
+    fn the_wrong_shell_adapter_passes_an_unaffected_user_straight_through() {
+        // Deterministic on every host: a name no passwd DB holds probes as
+        // `Absent`, which returns before `is_tty` or the prompt is consulted.
+        // Kills both `Ok(String::new())` and `Ok("xyzzy".into())` on the adapter
+        // the skip used to claim was unreachable.
+        let user = "agentlinux-no-such-user-xyzzy";
+        assert_eq!(resolve_wrong_shell(user).unwrap(), user);
     }
 
     #[test]

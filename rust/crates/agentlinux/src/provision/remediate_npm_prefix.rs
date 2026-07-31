@@ -60,29 +60,49 @@ enum Strategy {
 /// `chown_or_rebase` — the REMEDIATE-01 entry point dispatched from
 /// `provision::nodejs::run`. Runs the strategy selector, then chowns or rebases so
 /// the prefix is writable by the install user and `npm install -g` never races root
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) that binds the
+/// two real host reads — the `.npmrc` prefix line and the prefix's on-disk owner
+/// — to the decision. Both arms, the empty-prefix refusal and the
+/// strategy-to-verb wiring are asserted from literals through
+/// [`chown_or_rebase_with`].
+#[cfg_attr(test, mutants::skip)]
 pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
-    let user = &ctx.install_user;
     let user_home = &ctx.install_home;
     // The EFFECTIVE prefix — the `.npmrc` `prefix=` line if the brownfield host
     // points npm at a foreign location (a root-owned `/usr/local/...` that must
     // rebase), else the canonical `<home>/.npm-global` (an under-home wrong-owner
     // that chowns). Matches the `npm_prefix_state` probe that drove this dispatch.
+    //
+    // The OLD owner is the sudo target for `npm ls -g` — its npm view of the OLD
+    // prefix is canonical. Falls back to root when unknown/absent (rebase still
+    // works against an empty manifest).
     let prefix = crate::provision::probe::effective_npm_prefix(user_home);
+    let old_owner = prefix_owner_user(Path::new(&prefix)).unwrap_or_else(|| "root".to_string());
+    chown_or_rebase_with(ctx, &prefix, &old_owner)
+}
 
+/// [`chown_or_rebase`] over the two host facts it reads.
+///
+/// Split for the reason its siblings are (`resolve_wrong_shell_with`,
+/// `decide_core_with`, `should_prompt_from`): both reads sat between the `ctx`
+/// seam and the decision, so `chown_or_rebase -> Ok(())` survived — REMEDIATE-01
+/// dispatched, nothing happened, the prefix stayed root-owned, and
+/// `agentlinux provision` printed "complete" and exited 0. That is byte-for-byte
+/// the observable an earlier commit claimed to have eliminated; it had killed it
+/// on `apply_chown` and left it alive on the only caller.
+///
+/// Nothing else here could be stated either: which strategy is wired to which
+/// verb. Swapping the two match arms sends `chown -R` at `/usr/local`.
+fn chown_or_rebase_with(ctx: &ProvisionCtx, prefix: &str, old_owner: &str) -> io::Result<()> {
     if prefix.is_empty() {
         return Err(io::Error::other(
             "[REMEDIATE-01:fail] reason=detect-cache-missing-prefix-path",
         ));
     }
 
-    // The OLD owner (the sudo target for `npm ls -g` — its npm view of the OLD
-    // prefix is canonical). Fall back to root when unknown/absent (rebase still
-    // works against an empty manifest).
-    let old_owner = prefix_owner_user(Path::new(&prefix)).unwrap_or_else(|| "root".to_string());
-
-    match strategy_for(Path::new(&prefix), user_home) {
-        Strategy::Chown => apply_chown(ctx, &prefix, user),
-        Strategy::Rebase => apply_rebase(ctx, &prefix, &old_owner),
+    match strategy_for(Path::new(prefix), &ctx.install_home) {
+        Strategy::Chown => apply_chown(ctx, prefix, &ctx.install_user),
+        Strategy::Rebase => apply_rebase(ctx, prefix, old_owner),
     }
 }
 
@@ -211,11 +231,14 @@ fn apply_rebase(ctx: &ProvisionCtx, old_prefix: &str, old_owner: &str) -> io::Re
     // ensure_line_in_file, then re-assert ownership+mode.
     let npmrc = format!("{user_home}/.npmrc");
     let npmrc_path = Path::new(&npmrc);
-    if !npmrc_path.exists() {
-        if let Err(e) = sysio::create_if_absent_0644(npmrc_path, &owner, ctx.fx.chown) {
-            eprintln!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
-            return Err(e);
-        }
+    // No outer `if !exists()`: `create_if_absent_0644` returns early when the
+    // path is present, and the mode and owner are re-asserted unconditionally
+    // below either way — so the guard changed nothing observable and its mutant
+    // (`delete !`) was equivalent by construction. Deleting the branch removes
+    // the mutant rather than annotating it, which is the better of the two.
+    if let Err(e) = sysio::create_if_absent_0644(npmrc_path, &owner, ctx.fx.chown) {
+        eprintln!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
+        return Err(e);
     }
     // REPLACE any existing `prefix=` line rather than appending a second one.
     // npm honours the LAST prefix line while `probe::effective_npm_prefix` reads
@@ -239,24 +262,9 @@ fn apply_rebase(ctx: &ProvisionCtx, old_prefix: &str, old_owner: &str) -> io::Re
             "[REMEDIATE-01] migrating {} modules from {old_prefix}",
             modules.len()
         );
-        for pkg_at_ver in &modules {
-            // The npm-level `--` stops a `-flag@1` package name being reparsed as an
-            // npm flag.
-            let argv: Vec<String> = ["npm", "install", "-g", "--", pkg_at_ver]
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
-            // M-2: bound the npm install (300s, the dispatcher's buffered-npm
-            // convention) so a wedged/slow registry can't hang provisioning.
-            let r = (ctx.fx.as_user)(user, &argv, &[], Capture::Buffered, Some(300_000));
-            if r.exit_code == 0 {
-                eprintln!("[REMEDIATE-01:migrated] module={pkg_at_ver}");
-                migrated += 1;
-            } else {
-                eprintln!("[REMEDIATE-01:partial] module={pkg_at_ver} reason=npm-install-failed");
-                failed += 1;
-            }
-        }
+        let tally = migrate_modules(ctx, user, &modules, &mut |m| eprintln!("{m}"));
+        migrated = tally.0;
+        failed = tally.1;
     }
 
     eprintln!(
@@ -264,6 +272,45 @@ fn apply_rebase(ctx: &ProvisionCtx, old_prefix: &str, old_owner: &str) -> io::Re
          old_prefix={old_prefix} (NOT deleted; user cleanup)"
     );
     Ok(())
+}
+
+/// Install each module as the install user, returning `(migrated, failed)`.
+///
+/// Split out because the counters and the operator-facing markers are the only
+/// record of what a rebase actually moved, and both went to a global `eprintln!`
+/// where nothing could read them back. Three mutants survived: `== -> !=`, which
+/// logs a SUCCESSFUL install as `[REMEDIATE-01:partial] reason=npm-install-failed`
+/// and a failed one as `[REMEDIATE-01:migrated]`; and `+= -> *=` on each counter,
+/// which — since both start at 0 — makes the summary read `migrated=0 failed=0`
+/// however the run went.
+fn migrate_modules(
+    ctx: &ProvisionCtx,
+    user: &str,
+    modules: &[String],
+    log: &mut dyn FnMut(&str),
+) -> (u32, u32) {
+    let (mut migrated, mut failed) = (0u32, 0u32);
+    for pkg_at_ver in modules {
+        // The npm-level `--` stops a `-flag@1` package name being reparsed as an
+        // npm flag.
+        let argv: Vec<String> = ["npm", "install", "-g", "--", pkg_at_ver]
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        // M-2: bound the npm install (300s, the dispatcher's buffered-npm
+        // convention) so a wedged/slow registry can't hang provisioning.
+        let r = (ctx.fx.as_user)(user, &argv, &[], Capture::Buffered, Some(300_000));
+        if r.exit_code == 0 {
+            log(&format!("[REMEDIATE-01:migrated] module={pkg_at_ver}"));
+            migrated += 1;
+        } else {
+            log(&format!(
+                "[REMEDIATE-01:partial] module={pkg_at_ver} reason=npm-install-failed"
+            ));
+            failed += 1;
+        }
+    }
+    (migrated, failed)
 }
 
 /// `remediate::nodejs::_enumerate_modules` port.
@@ -278,12 +325,22 @@ fn enumerate_modules(ctx: &ProvisionCtx, old_owner: &str, old_prefix: &str) -> V
     let env = vec![("NPM_CONFIG_PREFIX".to_string(), old_prefix.to_string())];
     // M-2: bound the npm enumeration (300s) so a wedged registry can't hang.
     let r = (ctx.fx.as_user)(old_owner, &argv, &env, Capture::Buffered, Some(300_000));
-    let raw = if r.exit_code == 0 && !r.stdout.trim().is_empty() {
-        r.stdout
+    parse_module_manifest(&manifest_or_empty(r.exit_code, &r.stdout))
+}
+
+/// The raw manifest to parse: `npm ls`'s stdout only when it BOTH succeeded and
+/// produced something, else the empty object (the Bash `|| printf '{}'`).
+///
+/// Both conditions, not either: `&& -> ||` survived because the one fixture for
+/// this returned exit 1 AND empty stdout, satisfying neither disjunct. Under the
+/// mutant a failed or timed-out `npm ls` whose stdout carries a truncated JSON
+/// prefix gets parsed as if it were a complete manifest.
+fn manifest_or_empty(exit_code: i32, stdout: &str) -> String {
+    if exit_code == 0 && !stdout.trim().is_empty() {
+        stdout.to_string()
     } else {
         "{}".to_string()
-    };
-    parse_module_manifest(&raw)
+    }
 }
 
 /// Parse the `npm ls -g --json` output into `pkg@version` lines, excluding the
@@ -313,6 +370,13 @@ fn parse_module_manifest(raw: &str) -> Vec<String> {
 /// The on-disk owner USER of `path` (the LHS of the Bash `user:group`), resolved
 /// from the metadata uid → the passwd name. `None` if the path is absent or the uid
 /// has no passwd entry.
+/// Not mutation-tested: a real `stat` plus a real passwd lookup, with no
+/// injection point — an ADR-019 §5 seam gap, not an adapter over tested halves.
+/// Its three mutants matter (`Some("xyzzy")` enumerates as a user nobody holds,
+/// so the manifest comes back empty and a rebase migrates NOTHING while
+/// reporting success), so this is debt, not a decision: closing it means giving
+/// `chown_or_rebase` the owner as a parameter all the way from the caller.
+#[cfg_attr(test, mutants::skip)]
 fn prefix_owner_user(path: &Path) -> Option<String> {
     let uid = std::fs::metadata(path).ok()?.uid();
     nix::unistd::User::from_uid(nix::unistd::Uid::from_raw(uid))
@@ -336,6 +400,12 @@ pub fn chown_recursive_by_name(path: &Path, owner: &str) -> io::Result<()> {
 /// `lchown` (the link itself, NOT its target) and are NOT recursed into. This is
 /// the security-load-bearing behavior — a symlink under the prefix pointing at a
 /// system tree must never cause that tree to be chowned to the install user.
+/// Not mutation-tested: this binds the real `lchown` to the walk and does
+/// nothing else (ADR-019 §5). The WALK — the security-load-bearing half, which
+/// must not follow a symlink out of the prefix — is asserted through
+/// [`chown_recursive_with`] with a recording chown; observing this one would
+/// need a real foreign uid, i.e. root.
+#[cfg_attr(test, mutants::skip)]
 fn chown_recursive(path: &Path, uid: u32, gid: u32) -> io::Result<()> {
     chown_recursive_with(path, uid, gid, &|p, u, g| {
         // lchown the entry itself (never dereference a symlink) — `chown -RP`.
@@ -747,6 +817,133 @@ mod remediate_npm_prefix_tests {
     // `resolve_user_group -> Ok((0, 0))` (`chown -R 0:0` over the agent's own npm
     // prefix — the EACCES bug AgentLinux exists to eliminate, handed back as a
     // completed remediation) both survived a full mutation run.
+
+    #[test]
+    fn the_selector_wires_each_strategy_to_its_own_verb() {
+        // `strategy_for` is exhaustively tested and both verbs are driven, but
+        // nothing observed that the selector connects the right one to the right
+        // verdict — `chown_or_rebase -> Ok(())` survived, i.e. REMEDIATE-01
+        // dispatches, nothing happens, and provision reports success. And
+        // swapping the two match arms sends `chown -R` at /usr/local.
+        let d = TempDir::new().unwrap();
+        let home = d.path().to_string_lossy().into_owned();
+
+        // Under home and trivially salvageable -> CHOWN, and the rebase verb's
+        // npm dispatch must not fire.
+        let under = d.path().join(".npm-global");
+        std::fs::create_dir_all(&under).unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+        chown_or_rebase_with(&ctx, &under.to_string_lossy(), "root").unwrap();
+        assert_eq!(
+            chowns(),
+            vec![(
+                under.display().to_string(),
+                format!("{FIXTURE_USER}:{FIXTURE_USER}")
+            )],
+            "the chown arm must chown the prefix"
+        );
+        assert!(
+            npm_calls().is_empty(),
+            "the chown arm must not migrate modules"
+        );
+
+        // A system path OUTSIDE home always rebases — never chowned.
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+        apply_rebase(&ctx, "/usr/local", "root").unwrap();
+        let rebase_calls = npm_calls();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+        chown_or_rebase_with(&ctx, "/usr/local", "root").unwrap();
+        assert_eq!(
+            npm_calls(),
+            rebase_calls,
+            "a prefix outside {home} must take the rebase arm"
+        );
+        assert!(
+            !chowns().iter().any(|(p, _)| p == "/usr/local"),
+            "a system prefix must NEVER be chowned"
+        );
+    }
+
+    #[test]
+    fn each_module_outcome_is_counted_and_named_correctly() {
+        // The counters and markers are the only record of what a rebase moved,
+        // and they went to a global eprintln! where nothing read them back:
+        // `== -> !=` logged a SUCCESSFUL install as `[REMEDIATE-01:partial]
+        // reason=npm-install-failed`, and `+= -> *=` pinned both counters at 0.
+        fn one_fails(
+            _u: &str,
+            argv: &[String],
+            _e: &[(String, String)],
+            _c: Capture,
+            _t: Option<u64>,
+        ) -> DispatchResult {
+            record_npm(argv);
+            DispatchResult {
+                // The `--` is argv[3], so the package is argv[4].
+                exit_code: i32::from(argv[4].starts_with("bad")),
+                stdout: String::new(),
+                stderr: String::new(),
+                streamed: false,
+            }
+        }
+        let d = TempDir::new().unwrap();
+        let mut ctx = rebase_ctx(d.path(), one_fails);
+        ctx.fx.as_user = one_fails;
+
+        let modules = vec![
+            "good-a@1.0.0".to_string(),
+            "bad-b@2.0.0".to_string(),
+            "good-c@3.0.0".to_string(),
+        ];
+        let mut lines = Vec::new();
+        let (migrated, failed) = migrate_modules(&ctx, FIXTURE_USER, &modules, &mut |m| {
+            lines.push(m.to_string())
+        });
+
+        assert_eq!((migrated, failed), (2, 1));
+        assert_eq!(
+            lines,
+            vec![
+                "[REMEDIATE-01:migrated] module=good-a@1.0.0".to_string(),
+                "[REMEDIATE-01:partial] module=bad-b@2.0.0 reason=npm-install-failed".to_string(),
+                "[REMEDIATE-01:migrated] module=good-c@3.0.0".to_string(),
+            ],
+            "the marker must name what actually happened to each module"
+        );
+    }
+
+    #[test]
+    fn the_manifest_is_used_only_when_npm_ls_both_succeeded_and_spoke() {
+        // BOTH conditions. The single fixture for this returned exit 1 AND empty
+        // stdout, satisfying neither disjunct, so `&& -> ||` survived — and under
+        // it a failed or timed-out `npm ls` whose stdout carries a truncated JSON
+        // prefix is parsed as though it were a complete manifest.
+        let body = r#"{"dependencies":{"x":{"version":"1.0.0"}}}"#;
+        assert_eq!(
+            manifest_or_empty(0, body),
+            body,
+            "a clean run is the manifest"
+        );
+        // Failed but talkative — the case the mutant lets through.
+        assert_eq!(manifest_or_empty(1, body), "{}");
+        // Succeeded but silent.
+        assert_eq!(manifest_or_empty(0, "   \n "), "{}");
+        assert_eq!(manifest_or_empty(1, ""), "{}");
+    }
+
+    #[test]
+    fn an_empty_effective_prefix_is_refused_rather_than_acted_on() {
+        // The detect cache had no prefix path. Acting on "" would mean
+        // `chown -R` or a rebase rooted at the empty string.
+        let d = TempDir::new().unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+        let err = chown_or_rebase_with(&ctx, "", "root").unwrap_err();
+        assert!(err.to_string().contains("detect-cache-missing-prefix-path"));
+        assert!(
+            chowns().is_empty() && npm_calls().is_empty(),
+            "nothing may run"
+        );
+    }
 
     #[test]
     fn chown_retargets_the_prefix_at_the_install_user_recursively() {
