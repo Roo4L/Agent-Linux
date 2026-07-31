@@ -113,14 +113,12 @@ is precisely what failed.
 
 **And the suite is measured the same way it measures everything else.** A case
 count says nothing — an early revision had 29 cases and, when 21 single-token
-mutations were applied to the gate, killed 6. The whole advisory reporting path,
-one of the two "independent completeness checks", and `--no-config` (the flag the
-entire redesign rests on) were asserted by nothing. The number to report when
-changing this gate is **its own mutation score**, produced by mutating
-`scripts/mutation-gate.sh` and running its suite. It currently stands at 32/32.
+mutations were applied to the gate, killed 6. The number to report when changing
+this gate is **its own mutation score**, produced by mutating
+`scripts/mutation-gate.sh` and running its suite. It currently stands at 58/58.
 
-Two patterns caused most of those survivors, and both are worth naming because
-they recur:
+Four patterns produced almost every survivor across the rounds it took to get
+there. They recur, so they are named:
 
 - **stubs co-blind with the code.** Every stub answered `--list` by matching the
   flag alone and recorded nothing about the rest of argv, so no case could see
@@ -131,6 +129,18 @@ they recur:
   null AND sized `mutants.json` by the reached count, so the one case covering
   "the run did not finish" held with either check deleted — the independence the
   script claims was asserted by nothing. Each now has a case that isolates it.
+- **every threshold tested far from its boundary.** The unscored fixtures used
+  5, 5 and 6; the viable one used 39. So `-gt 0` → `-gt 1` on the merge gate's
+  central comparison passed the whole suite while letting a one-mutant narrowing
+  through — and one `exclude_re` line matching one function produces exactly
+  that. Each threshold now has a fixture AT the boundary, on both sides where
+  both sides are meaningful.
+- **a mutation list co-blind with the test list.** The most useful correction
+  came from outside: a reviewer's own list, weighted toward boundaries, wrong
+  headers, wrong variable and dropped normalisation, scored 27/56 against a
+  suite that had just scored 32/32 on the author's list. Mutating what you
+  already tested measures nothing. When re-running this experiment, write the
+  mutations against the SCRIPT, function by function, not against the cases.
 
 ### 3. `--in-place` is required, and therefore `--shard`, not `--jobs`
 

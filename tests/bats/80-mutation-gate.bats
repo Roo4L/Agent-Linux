@@ -1149,8 +1149,16 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
 
   # Both invocations wrap over a backslash continuation, so join those first —
   # grepping the raw line sees the mode and none of the flags.
+  #
+  # And anchor on the INVOCATION, not on any line mentioning the script: both
+  # workflows also discuss it in prose (test.yml's step comment,
+  # nightly-mutation.yml's job header). Matching those too meant the assertions
+  # ran over a concatenation that happened to contain the right words — so a
+  # future comment reading "run `mutation-gate.sh enforce` locally" would keep
+  # this case green through the exact one-word change it exists to catch.
   gate_call() {
-    sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$1" | grep -h 'mutation-gate\.sh'
+    sed -e ':a' -e '/\\$/{N;s/\\\n//;ba' -e '}' "$1" |
+      grep -hE '^[[:space:]]*(run:[[:space:]]*)?[./A-Za-z_-]*scripts/mutation-gate\.sh[[:space:]]'
   }
   local pr_call nightly_call
   pr_call="$(gate_call "$pr")"
@@ -1182,4 +1190,348 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
   # The flag that made the false green reproducible.
   [[ "$pr_call" != *"--baseline"* ]]
   [[ "$nightly_call" != *"--baseline"* ]]
+
+  # Exactly one invocation each — a second, unasserted call would be scored by
+  # none of the above.
+  [ "$(printf '%s\n' "$pr_call" | grep -c .)" -eq 1 ]
+  [ "$(printf '%s\n' "$nightly_call" | grep -c .)" -eq 1 ]
+}
+
+@test "MUT-34b: both jobs pin the SAME cargo-mutants version" {
+  # ADR-020 §1 has the two gates sharing one mutant set: the nightly re-scores
+  # what the per-PR gate never revisits. That only holds if both run the same
+  # tool. Nothing compared the two pins, and MUT-14 validates the schema against
+  # whatever is on PATH — which in the nightly job no test ever exercises.
+  local root="${BATS_TEST_DIRNAME}/../.."
+  local pr nightly
+  pr="$(grep -hoE 'cargo-mutants@[0-9.]+|cargo-mutants --version [0-9.]+|--version [0-9.]+' \
+    "$root/.github/workflows/test.yml" | head -1)"
+  nightly="$(grep -hoE 'cargo-mutants@[0-9.]+|cargo-mutants --version [0-9.]+|--version [0-9.]+' \
+    "$root/.github/workflows/nightly-mutation.yml" | head -1)"
+  [ -n "$pr" ] || { echo "no cargo-mutants pin found in test.yml"; return 1; }
+  [ -n "$nightly" ] || { echo "no cargo-mutants pin found in nightly-mutation.yml"; return 1; }
+  [ "$pr" = "$nightly" ] || {
+    echo "the two jobs pin different cargo-mutants versions: '$pr' vs '$nightly';"
+    echo "ADR-020 section 1 has them sharing one mutant set"
+    return 1
+  }
+}
+
+@test "MUT-34c: CI runs this whole suite, not a filtered slice of it" {
+  # This file is the only thing asserting the gate works. A `--filter` on the CI
+  # invocation would leave most of it unrun with the job still green.
+  local root="${BATS_TEST_DIRNAME}/../.."
+  local call
+  call="$(grep -h '80-mutation-gate.bats' "$root/.github/workflows/test.yml")"
+  [ -n "$call" ] || { echo "test.yml no longer runs the gate's own suite"; return 1; }
+  [[ "$call" != *"--filter"* && "$call" != *" -f "* ]] || {
+    echo "the gate suite is run filtered in CI: $call"
+    return 1
+  }
+}
+
+# ---------------------------------------------------------------------------
+# Boundary cases. Round 11 mutated every threshold in the script by one and the
+# suite killed none of them: MUT-05 uses 5 unscored, MUT-26 uses 5, MUT-27 uses
+# 6, MUT-13 uses 39 viable. `-gt 0 -> -gt 1` on the merge gate's central
+# comparison passed 46 cases while letting a one-mutant narrowing through — and
+# one `exclude_re` line in .cargo/mutants.toml matching one function produces
+# exactly that.
+
+@test "MUT-35: ONE unscored mutant already fails the merge gate" {
+  mk_cargo list_n=4 total=3 caught=3 planned=3
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"1 mutant(s) in scope were never scored"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-35b: ONE unexpected mutant already fails, in both modes" {
+  mk_cargo list_n=3 total=4 caught=4 planned=3 "extra=src/OTHER.rs:9:1: injected"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"scored 1 mutant(s) this scope does not contain"* ]]
+  run "$GATE" advisory
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-35c: exactly ONE viable mutant is a legitimate run, not a failure" {
+  # The other side of the boundary: `-le 0 -> -le 1` hard-fails a diff whose one
+  # mutable line happens to sit among unviable ones — a false RED the
+  # contributor cannot act on.
+  mk_cargo list_n=4 total=4 caught=1 unviable=3
+  run "$GATE" enforce
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
+@test "MUT-35d: FEWER planned than scored is a partial run too" {
+  # `-ne -> -gt` survived because every fixture had planned > total. A truncated
+  # mutants.json, or an outcomes file padded past it, walks through `-gt`.
+  mk_cargo list_n=5 total=5 caught=5 planned=4
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"did not finish"* ]]
+}
+
+@test "MUT-36: -D FILE, the fourth spelling, is checked like the other three" {
+  # `--in-diff F`, `--in-diff=F`, `-DF` and `-D F` are one option to clap.
+  # MUT-29 covered three; deleting `-D` from the case arm left `-D bad.diff`
+  # skipping BOTH the path check and the skip policy, and the gate printed PASS.
+  mk_cargo list_n=4 total=4 caught=4
+  printf 'diff --git a/rust/nope.rs b/rust/nope.rs\n--- a/rust/nope.rs\n+++ b/rust/nope.rs\n@@ -1 +1 @@\n-a\n+b\n' >bad.diff
+  run "$GATE" enforce -D bad.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"path that does not exist relative"* ]]
+}
+
+@test "MUT-36b: when the option repeats, the file the RUN uses is the one checked" {
+  # clap takes the last occurrence. A gate that inspected the first would verify
+  # `good.diff` while cargo-mutants scored `bad.diff` — the check and the run
+  # looking at different files, which is a green gate over an unverified diff.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src && : >src/good.rs
+  printf 'diff --git a/src/good.rs b/src/good.rs\n--- a/src/good.rs\n+++ b/src/good.rs\n@@ -1 +1 @@\n-a\n+b\n' >good.diff
+  printf 'diff --git a/rust/nope.rs b/rust/nope.rs\n--- a/rust/nope.rs\n+++ b/rust/nope.rs\n@@ -1 +1 @@\n-a\n+b\n' >bad.diff
+  run "$GATE" enforce --in-diff good.diff --in-diff bad.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"nope.rs"* ]]
+}
+
+@test "MUT-37: EVERY path in a multi-file diff must resolve, not just the first" {
+  # Every diff fixture named exactly one .rs path, so the loop was
+  # indistinguishable from a first-element check and `paths[:1]` survived.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src && : >src/first.rs
+  {
+    printf 'diff --git a/src/first.rs b/src/first.rs\n--- a/src/first.rs\n+++ b/src/first.rs\n@@ -1 +1 @@\n-a\n+b\n'
+    printf 'diff --git a/src/second.rs b/src/second.rs\n--- a/src/second.rs\n+++ b/src/second.rs\n@@ -1 +1 @@\n-a\n+b\n'
+  } >two.diff
+  run "$GATE" enforce --in-diff two.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"second.rs"* ]]
+}
+
+@test "MUT-37b: a path containing spaces is read whole" {
+  # `+++ b/src/my file.rs` — the tab-terminated field, not the first
+  # whitespace-delimited word. `.split("\t")` -> `.split()` truncates it to
+  # `b/src/my`, which then does not end in .rs and is silently skipped: an
+  # unverified path waved through as "nothing to check".
+  mk_cargo list_n=4 total=4 caught=4
+  printf 'diff --git a/src/my file.rs b/src/my file.rs\n--- a/src/my file.rs\n+++ b/src/my file.rs\n@@ -1 +1 @@\n-a\n+b\n' >spaced.diff
+  run "$GATE" enforce --in-diff spaced.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"my file.rs"* ]]
+}
+
+@test "MUT-38: an INDENTED skip with an indented comment is accepted" {
+  # The shape of this repo's own source: sysio.rs's skips sit inside an `impl`,
+  # indented, under an indented `///`. Dropping `.strip()` from the window
+  # refuses every one of them — a false RED on the only real example there is,
+  # and every skip fixture in this file writes at column 0.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  cat >src/x.rs <<'RS'
+struct TmpGuard;
+impl TmpGuard {
+    /// Not mutation-tested: skipping the disarm makes Drop unlink a path the
+    /// rename already consumed — a no-op no test can distinguish.
+    #[cfg_attr(test, mutants::skip)]
+    fn disarm(&self) {}
+}
+RS
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,7 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+}
+
+@test "MUT-38b: the window is exactly three lines, pinned from both sides" {
+  # `i - 3 -> i - 1` and `i - 3 -> i - 4` both survived: every fixture put the
+  # comment either immediately above or five lines up, so the rule ADR-020 states
+  # was only constrained to 1..4. Under `i - 1` an ordinary
+  # `// reason` / `#[cfg(unix)]` / `#[mutants::skip]` becomes unmergeable.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+
+  # Comment exactly 3 above: ACCEPTED.
+  cat >src/x.rs <<'RS'
+// Not mutation-tested: unobservable through the seam.
+#[cfg(unix)]
+#[allow(dead_code)]
+#[mutants::skip]
+fn adapter() {}
+RS
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,5 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -eq 0 ]
+
+  # Comment 4 above: REFUSED. The reason is too far to be read as one.
+  cat >src/x.rs <<'RS'
+// Not mutation-tested: unobservable through the seam.
+#[cfg(unix)]
+#[allow(dead_code)]
+#[allow(unused)]
+#[mutants::skip]
+fn adapter() {}
+RS
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,6 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/x.rs:5"* ]]
+}
+
+@test "MUT-38c: a URL in the line above does not count as a comment" {
+  # `x.startswith("//")` -> `"//" in x` survived. Any preceding line containing
+  # `http://` — a doc link, a URL in a string literal — then licenses an
+  # unannotated skip.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  cat >src/x.rs <<'RS'
+const DOCS: &str = "https://example.invalid/mutants";
+#[mutants::skip]
+fn adapter() {}
+RS
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,3 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"src/x.rs:2"* ]]
+}
+
+@test "MUT-38d: a block comment inside the attribute does not evade the policy" {
+  # The normalisation drops /* … */ before matching, and MUT-30 only exercised
+  # whitespace spellings, so removing that survived.
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p src
+  printf 'use std::fmt;\n#[cfg_attr(test, mutants /*why*/ :: skip)]\nfn adapter() {}\n' >src/x.rs
+  {
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- /dev/null'
+    echo '+++ b/src/x.rs'
+    echo '@@ -0,0 +1,3 @@'
+    sed 's/^/+/' src/x.rs
+  } >skip.diff
+  run "$GATE" enforce --in-diff skip.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"ADR-020"* ]]
+}
+
+@test "MUT-38e: a NON-Rust file that quotes the attribute is not a skip site" {
+  # ADR-020 itself quotes `#[mutants::skip]` a dozen times. Dropping the
+  # `cur and` guard makes a docs-only PR crash the gate with a Python TypeError
+  # reported as "could not read the --in-diff file".
+  mk_cargo list_n=4 total=4 caught=4
+  mkdir -p docs/decisions src && : >src/x.rs
+  # The added line must BE the attribute, not merely mention it — a fenced code
+  # block in the ADR, which is how that document actually shows one. Prose with
+  # the attribute quoted mid-sentence does not start with `#[`, so the recogniser
+  # skips it and the fixture never reaches the guard it is named for.
+  {
+    echo 'diff --git a/docs/decisions/020-mutation-testing-policy.md b/docs/decisions/020-mutation-testing-policy.md'
+    echo '--- a/docs/decisions/020-mutation-testing-policy.md'
+    echo '+++ b/docs/decisions/020-mutation-testing-policy.md'
+    echo '@@ -1 +1,4 @@'
+    echo '+A skip is written:'
+    echo '+```rust'
+    echo '+#[cfg_attr(test, mutants::skip)]'
+    echo '+```'
+    echo 'diff --git a/src/x.rs b/src/x.rs'
+    echo '--- a/src/x.rs'
+    echo '+++ b/src/x.rs'
+    echo '@@ -1 +1 @@'
+    echo '-a'
+    echo '+b'
+  } >docs.diff
+  run "$GATE" enforce --in-diff docs.diff
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+  [[ "$output" != *"could not read"* ]]
+}
+
+@test "MUT-36c: --in-diff with no file argument is refused" {
+  # The dangling-option case. Left unguarded, `diff_file` stays empty, so the
+  # whole diff half of the gate — path resolution AND the skip policy — is
+  # skipped, and the expectation query silently widens to the entire workspace.
+  mk_cargo list_n=4 total=4 caught=4
+  run "$GATE" enforce --in-place --in-diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"--in-diff given with no file argument"* ]]
+}
+
+@test "MUT-39: ADVISORY is no more tolerant of a missing end_time" {
+  # MUT-11a isolates end_time in ENFORCE only, and MUT-11's advisory half is
+  # caught by the planned-vs-total check instead — so `finished` could be made
+  # enforce-only and the suite stayed green. The nightly is the mode that
+  # actually runs long enough to be OOM-killed between the last scenario and the
+  # summary flush.
+  mk_cargo list_n=13 total=13 caught=13 planned=13 end_time=null exit=137
+  run "$GATE" advisory
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"interrupted"* ]]
+  [[ "$output" != *"PASS"* ]]
+}
+
+@test "MUT-40: a MISSING mutants.json names the missing file, not a partial run" {
+  # The third sentinel arm. MUT-22 covers unparseable and MUT-23 covers the
+  # wrong shape; with NO_FILE untested, replacing its die with a warning left the
+  # gate reporting "planned -1 mutant(s) but outcomes.json records only 1 — the
+  # run did not finish", which is the misdiagnosis MUT-23 exists to prevent.
+  cat >"$BIN/cargo" <<'EOF'
+#!/usr/bin/env bash
+for a in "$@"; do
+  if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
+done
+mkdir -p mutants.out
+cat >mutants.out/outcomes.json <<'JSON'
+{"total_mutants": 1, "missed": 0, "caught": 1, "timeout": 0,
+ "unviable": 0, "end_time": "2026-07-31T00:00:00Z",
+ "outcomes": [{"scenario": "Baseline", "summary": "Success"}]}
+JSON
+exit 0
+EOF
+  chmod +x "$BIN/cargo"
+  run "$GATE" enforce
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"left no"* && "$output" == *"mutants.json"* ]]
+  [[ "$output" != *"did not finish"* ]]
+  [[ "$output" != *"-1"* ]]
+}
+
+@test "MUT-41: an ADDED file with a quoted path is refused, not reported missing" {
+  # MUT-33's fixture is a MODIFIED file, so both headers are quoted and the
+  # detector's `+++` anchor is unpinned — anchored on `---` instead, the case
+  # still passes. For an ADDED file the `---` header is /dev/null, so only the
+  # `+++` anchor sees the escape, and without it the gate says "path does not
+  # exist" about a path that is really just mis-encoded.
+  mk_cargo list_n=4 total=4 caught=4
+  printf 'diff --git a/dev/null "b/src/caf\\303\\251.rs"\n--- /dev/null\n+++ "b/src/caf\\303\\251.rs"\n@@ -0,0 +1 @@\n+a\n' >added.diff
+  run "$GATE" enforce --in-diff added.diff
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"core.quotePath"* ]]
+  [[ "$output" != *"does not exist"* ]]
 }

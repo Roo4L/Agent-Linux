@@ -158,7 +158,12 @@ for line in open(sys.argv[1], encoding="utf-8", errors="replace"):
     line = line.rstrip("\n").rstrip("\r")
     if line.startswith("+++ "):
         p = re.sub(r"^[a-z]/", "", line[4:].split("\t")[0].strip().strip("\""))
-        cur = p if p.endswith(".rs") and p != "dev/null" else None
+        # No dev/null special case: a deletion header names /dev/null, whose
+        # leading slash the prefix strip above does not touch, and which does
+        # not end in .rs either way. The conjunct that used to be here was
+        # unreachable — and an unreachable check is worse than none, because a
+        # case can be written that appears to cover it.
+        cur = p if p.endswith(".rs") else None
         if cur:
             paths.append(cur)
     elif cur and line.startswith("+") and is_skip_attr(line[1:]):
