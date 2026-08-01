@@ -82,6 +82,38 @@ const fn uninstall_left_something_behind(canonical: bool, detected: bool) -> boo
     canonical || detected
 }
 
+/// Echo a recipe's stderr, when it has any.
+///
+/// One helper rather than three copies of the same `if !…is_empty()`. Each copy
+/// carried its own surviving `delete !`, which drops a failing recipe's stderr —
+/// the only diagnosis of WHY an install or a REMEDIATE-04 teardown failed — and
+/// prints a blank line after every success instead.
+fn echo_stderr_if_any(o: &mut Out<'_>, stderr: &str) {
+    if !stderr.is_empty() {
+        errln!(o, "{stderr}");
+    }
+}
+
+/// Which version a REMEDIATE-04 run should install.
+///
+/// A MIGRATION (same version, wrong path) keeps the detected version when it is
+/// inside the declared window — moving a binary must not silently upgrade it.
+/// Every other remediation reason, and any version outside the window, takes the
+/// curated pin. `replace == with !=` survived on the reason test, which swaps
+/// the two: a genuine out-of-window remediation would preserve the very version
+/// it was supposed to replace.
+fn preserve_version_for<'a>(
+    reason: RemediateReason,
+    detected_version: Option<&'a str>,
+    window: Option<&str>,
+) -> Option<&'a str> {
+    if reason == RemediateReason::PathMismatch && version_in_window(detected_version, window) {
+        detected_version
+    } else {
+        None
+    }
+}
+
 /// The `[DRY-RUN] would:` line for a decision.
 ///
 /// Extracted because deleting either the `"reuse"` or the `"remediate"` arm
@@ -366,13 +398,11 @@ pub fn install_into(
     // REMEDIATE-04.
     if let Some(rem) = remediate_hit {
         let is_migration = rem.reason == RemediateReason::PathMismatch;
-        let dv = rem.detected_version.as_deref();
-        let dv_in_window = version_in_window(dv, entry.compatibility_window.as_deref());
-        let preserve_version = if is_migration && dv_in_window {
-            dv
-        } else {
-            None
-        };
+        let preserve_version = preserve_version_for(
+            rem.reason,
+            rem.detected_version.as_deref(),
+            entry.compatibility_window.as_deref(),
+        );
         let install_version = preserve_version
             .map(str::to_string)
             .unwrap_or_else(|| entry.pinned_version.clone());
@@ -441,9 +471,7 @@ pub fn install_into(
                 entry.id,
                 uninstall_result.exit_code
             );
-            if !uninstall_result.stderr.is_empty() {
-                errln!(o, "{}", uninstall_result.stderr);
-            }
+            echo_stderr_if_any(o, &uninstall_result.stderr);
             return ExitCode::from(1);
         }
 
@@ -483,9 +511,7 @@ pub fn install_into(
                 "[REMEDIATE-04:half-uninstalled] {} install.sh exited {} after uninstall succeeded — manual recovery needed (run agentlinux remove {} then agentlinux install {})",
                 entry.id, install_result.exit_code, entry.id, entry.id
             );
-            if !install_result.stderr.is_empty() {
-                errln!(o, "{}", install_result.stderr);
-            }
+            echo_stderr_if_any(o, &install_result.stderr);
             return ExitCode::from(1);
         }
 
@@ -560,9 +586,7 @@ pub fn install_into(
             entry.id,
             result.exit_code
         );
-        if !result.stderr.is_empty() {
-            errln!(o, "{}", result.stderr);
-        }
+        echo_stderr_if_any(o, &result.stderr);
         // Propagate the recipe exit code.
         return exit_from_code(result.exit_code);
     }
@@ -659,6 +683,72 @@ mod install_tests {
             "so is the detected copy surviving on its own"
         );
         assert!(uninstall_left_something_behind(true, true));
+    }
+
+    /// A failing recipe's stderr is the only diagnosis of WHY it failed, and it
+    /// must not be replaced by a blank line on every success. One `delete !`
+    /// survived in each of the three places this used to be written out.
+    #[test]
+    fn a_failing_recipe_echoes_its_stderr_and_a_quiet_one_stays_quiet() {
+        let (mut o, mut e) = (Vec::new(), Vec::new());
+        echo_stderr_if_any(
+            &mut Out {
+                out: &mut o,
+                err: &mut e,
+            },
+            "npm ERR! EACCES /home/agent/.npm-global",
+        );
+        assert!(
+            String::from_utf8(e).unwrap().contains("EACCES"),
+            "the cause must reach the operator"
+        );
+
+        let (mut o, mut e) = (Vec::new(), Vec::new());
+        echo_stderr_if_any(
+            &mut Out {
+                out: &mut o,
+                err: &mut e,
+            },
+            "",
+        );
+        assert!(
+            String::from_utf8(e).unwrap().is_empty(),
+            "an empty stderr must print NOTHING — not a blank line after every success"
+        );
+    }
+
+    /// A MIGRATION (same version, wrong path) keeps the detected version when it
+    /// is inside the declared window: moving a binary must not silently upgrade
+    /// it. Every other reason, and any version outside the window, takes the
+    /// curated pin. `replace == with !=` survived, which swaps the two — an
+    /// out-of-window remediation would preserve the very version it exists to
+    /// replace.
+    #[test]
+    fn only_an_in_window_migration_preserves_the_detected_version() {
+        use agentlinux_core::detect_gates::RemediateReason;
+        let window = Some(">=2.0.0 <3.0.0");
+
+        assert_eq!(
+            preserve_version_for(RemediateReason::PathMismatch, Some("2.1.0"), window),
+            Some("2.1.0"),
+            "a migration inside the window keeps what is installed"
+        );
+        assert_eq!(
+            preserve_version_for(RemediateReason::PathMismatch, Some("9.9.9"), window),
+            None,
+            "…but not one outside it"
+        );
+        assert_eq!(
+            preserve_version_for(RemediateReason::Broken, Some("2.1.0"), window),
+            None,
+            "a BROKEN install takes the curated pin — preserving the version that \
+             is broken would defeat the remediation entirely"
+        );
+        assert_eq!(
+            preserve_version_for(RemediateReason::PathMismatch, None, window),
+            None,
+            "nothing detected, nothing to preserve"
+        );
     }
 
     /// A dry run exists to be believed. Deleting either named arm survived, and
