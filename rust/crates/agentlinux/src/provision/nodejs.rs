@@ -51,6 +51,16 @@ use std::path::Path;
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     crate::plog!("30-nodejs: starting");
 
+    // The npm prefix as this run FOUND it, captured before `create_path` writes
+    // anything. `create_path`'s step 6 appends `prefix=<home>/.npm-global` to
+    // `~/.npmrc`, and npm's ini parser is last-wins — so re-probing after that
+    // point reports the canonical prefix on a brownfield host whose real prefix
+    // is `/usr/local`, and REMEDIATE-01 takes the chown arm over a directory it
+    // just created instead of rebasing the foreign one. The observation has to
+    // predate the mutation; this is the same value the DECIDE probe judged, which
+    // is what `chown_or_rebase` claims to act on.
+    let observed_prefix = crate::provision::probe::effective_npm_prefix(&ctx.install_home);
+
     // Dispatch on RESOLUTIONS[node]. Two real tokens
     // (reuse|create); remediate/bail are defensive (no node token at this layer).
     let node_reused = match ctx.resolutions.node {
@@ -102,7 +112,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
         }
         StepResolution::Remediate => {
             // The consent gate already passed upstream (--yes confirmed).
-            remediate_npm_prefix::chown_or_rebase(ctx)?;
+            remediate_npm_prefix::chown_or_rebase(ctx, &observed_prefix)?;
         }
         StepResolution::ReuseWithWarning => {
             // TTY operator declined chown/rebase; leave ownership as-is + a marker.

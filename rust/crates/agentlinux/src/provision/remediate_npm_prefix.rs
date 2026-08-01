@@ -86,19 +86,24 @@ enum Strategy {
 /// vs this function: killed one frame down, excused one frame up. ADR-020 §4
 /// forbids a skip that hides a killable mutant precisely because it makes the
 /// enforcing gate lie about itself.
-pub fn chown_or_rebase(ctx: &ProvisionCtx) -> io::Result<()> {
-    let user_home = &ctx.install_home;
-    // The EFFECTIVE prefix — the `.npmrc` `prefix=` line if the brownfield host
-    // points npm at a foreign location (a root-owned `/usr/local/...` that must
-    // rebase), else the canonical `<home>/.npm-global` (an under-home wrong-owner
-    // that chowns). Matches the `npm_prefix_state` probe that drove this dispatch.
+pub fn chown_or_rebase(ctx: &ProvisionCtx, prefix: &str) -> io::Result<()> {
+    // `prefix` is the EFFECTIVE prefix as step 30 FOUND it — the `.npmrc`
+    // `prefix=` line when the brownfield host points npm at a foreign location (a
+    // root-owned `/usr/local/...` that must rebase), else the canonical
+    // `<home>/.npm-global` (an under-home wrong-owner that chowns).
+    //
+    // Passed in rather than re-probed here, and that is load-bearing: by the time
+    // this runs, step 30 has already appended the canonical `prefix=` line to
+    // `~/.npmrc`, and the probe is last-wins like npm itself. Re-probing would
+    // read back what this same step just wrote and send every brownfield host
+    // down the chown arm. It also restores the property this function's contract
+    // asserts — that it acts on the prefix the `npm_prefix_state` probe judged.
     //
     // The OLD owner is the sudo target for `npm ls -g` — its npm view of the OLD
     // prefix is canonical. Falls back to root when unknown/absent (rebase still
     // works against an empty manifest).
-    let prefix = crate::provision::probe::effective_npm_prefix(user_home);
-    let old_owner = prefix_owner_user(Path::new(&prefix)).unwrap_or_else(|| "root".to_string());
-    chown_or_rebase_with(ctx, &prefix, &old_owner)
+    let old_owner = prefix_owner_user(Path::new(prefix)).unwrap_or_else(|| "root".to_string());
+    chown_or_rebase_with(ctx, prefix, &old_owner)
 }
 
 /// [`chown_or_rebase`] over the two host facts it reads.
@@ -1044,15 +1049,15 @@ mod remediate_npm_prefix_tests {
         // `chown_or_rebase` is what `nodejs::run` calls; `chown_or_rebase_with`
         // has no production caller. Driving only the latter left the observable
         // that matters — dispatch, do nothing, report success — reachable by a
-        // wrong edit to the four lines that compute `prefix` and `old_owner`.
+        // wrong edit to the lines that resolve `old_owner` and route the arm.
         let d = TempDir::new().unwrap();
         let prefix = d.path().join(".npm-global");
         std::fs::create_dir_all(&prefix).unwrap();
         let ctx = rebase_ctx(d.path(), npm_two_modules);
 
-        chown_or_rebase(&ctx).unwrap();
+        chown_or_rebase(&ctx, &prefix.to_string_lossy()).unwrap();
 
-        // It resolved the canonical under-home prefix and took the chown arm.
+        // An under-home prefix takes the chown arm.
         assert_eq!(
             chowns(),
             vec![(
@@ -1060,6 +1065,43 @@ mod remediate_npm_prefix_tests {
                 format!("{FIXTURE_USER}:{FIXTURE_USER}")
             )],
             "the entry point must reach the prefix, not merely return Ok"
+        );
+    }
+
+    /// The regression that made the whole brownfield rebase path unreachable on a
+    /// real host: step 30 appends `prefix=<home>/.npm-global` to `~/.npmrc` before
+    /// REMEDIATE-01 dispatches, and the probe is last-wins like npm. An entry
+    /// point that re-probed read back what its own step had just written, saw an
+    /// under-home prefix, and chowned a directory it had itself created — while
+    /// the foreign `/usr/local` prefix it was invoked to migrate went untouched
+    /// and no module was moved. Every arm reported success.
+    #[test]
+    fn the_entry_point_acts_on_the_prefix_it_was_given_not_on_a_re_probe() {
+        let d = TempDir::new().unwrap();
+        // Exactly the post-step-6 file: the brownfield record first, ours last.
+        std::fs::write(
+            d.path().join(".npmrc"),
+            format!(
+                "prefix=/usr/local\nprefix={}/.npm-global\n",
+                d.path().display()
+            ),
+        )
+        .unwrap();
+        let ctx = rebase_ctx(d.path(), npm_two_modules);
+
+        chown_or_rebase(&ctx, "/usr/local").unwrap();
+
+        assert!(
+            !chowns().iter().any(|(p, _)| p == "/usr/local"),
+            "a system prefix must never be chowned, got {:?}",
+            chowns()
+        );
+        assert!(
+            npm_calls()
+                .iter()
+                .any(|a| a.get(1).is_some_and(|x| x == "ls")),
+            "the rebase arm must enumerate the OLD prefix, got {:?}",
+            npm_calls()
         );
     }
 
