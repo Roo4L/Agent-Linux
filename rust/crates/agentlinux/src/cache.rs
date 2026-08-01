@@ -94,6 +94,37 @@ mod cache_tests {
         dir
     }
 
+    /// `AGENTLINUX_DETECT_CACHE` is the bats seam, but an EMPTY value is not a
+    /// path — it must fall back, not resolve to `PathBuf::from("")`.
+    /// `replace match guard !v.is_empty() with true` survived: with it, an empty
+    /// or blanked-out seam silently redirects every cache read and write to the
+    /// current working directory instead of `/run`.
+    #[test]
+    fn an_empty_cache_seam_falls_back_instead_of_resolving_to_nothing() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/tmp/somewhere-else.json");
+        assert_eq!(
+            detect_cache_path(),
+            std::path::PathBuf::from("/tmp/somewhere-else.json"),
+            "a non-empty seam must be honoured"
+        );
+
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "");
+        assert_eq!(
+            detect_cache_path(),
+            std::path::PathBuf::from(DEFAULT_CACHE_PATH),
+            "an EMPTY seam must fall back to the default, not to an empty path"
+        );
+
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
+        assert_eq!(
+            detect_cache_path(),
+            std::path::PathBuf::from(DEFAULT_CACHE_PATH),
+            "an unset seam must fall back to the default"
+        );
+    }
+
     #[test]
     fn parses_top_level_agents_shape() {
         let mut env_scope = crate::test_support::EnvScope::new();
