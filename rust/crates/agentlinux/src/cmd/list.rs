@@ -282,6 +282,11 @@ fn pad_end(s: &str, width: usize) -> String {
 /// `agentlinux list` body. Loads catalog + sentinels, builds rows, renders. Always
 /// exits 0. Port of `listCmd`.
 #[must_use]
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it resolves
+/// the ambient catalog dir, reads the real sentinel store and writes real
+/// stdout. Everything it decides is asserted directly: [`visible_entries`],
+/// [`build_rows`], [`render_by_category`] and [`render_table`].
+#[cfg_attr(test, mutants::skip)]
 pub fn list(opts: &ListArgs) -> ExitCode {
     let catalog_dir = catalog::resolve_catalog_dir();
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
@@ -429,6 +434,71 @@ mod list_tests {
             tags: Vec::new(),
             test_only,
         }
+    }
+
+    fn sentinel_for(id: &str, version: &str, source: &str, status: Option<&str>) -> Sentinel {
+        let mut s = Sentinel::new(
+            id.to_string(),
+            version.to_string(),
+            source.to_string(),
+            false,
+        );
+        s.status = status.map(str::to_string);
+        s
+    }
+
+    /// `build_rows` is where a catalog entry and its sentinel become the row the
+    /// table and the JSON both render. Five mutants survived in it: the whole
+    /// function replaced by an empty vec, and four `==` comparisons inverted —
+    /// the sentinel lookup, the presence-overlay gate, the reuse flag and the
+    /// drift flag.
+    ///
+    /// Inverting the sentinel lookup is the worst of them: every row then reads
+    /// SOME OTHER agent's sentinel, so versions, sources and reuse state are
+    /// attributed to the wrong tool throughout the list.
+    #[test]
+    fn a_row_carries_its_own_sentinel_and_its_own_flags() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        // No detect cache → the presence overlay cannot fire, so these
+        // assertions are about the sentinel path alone.
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_AGENT_HOME", "/home/agent");
+
+        let entries = vec![entry("claude-code", false), entry("gsd", false)];
+        // Deliberately in the OPPOSITE order to the entries, and with different
+        // versions, so a mismatched lookup is visible rather than coincidental.
+        let sentinels = vec![
+            sentinel_for("gsd", "1.7.0", "override", Some("reused")),
+            sentinel_for("claude-code", "1.0.0", "curated", Some("installed")),
+        ];
+
+        let rows = build_rows(&entries, &sentinels);
+        assert_eq!(rows.len(), 2, "one row per visible entry");
+        let by_id = |id: &str| rows.iter().find(|r| r.id == id).expect("row present");
+
+        let claude = by_id("claude-code");
+        assert_eq!(
+            claude.sentinel_version.as_deref(),
+            Some("1.0.0"),
+            "each row must read ITS OWN sentinel, not the other one's"
+        );
+        assert_eq!(claude.source, "curated");
+        assert!(!claude.reused, "status=installed is not a reuse");
+
+        let gsd = by_id("gsd");
+        assert_eq!(gsd.sentinel_version.as_deref(), Some("1.7.0"));
+        assert_eq!(gsd.source, "override");
+        assert!(gsd.reused, "status=reused sets the reuse flag");
+
+        // An entry with NO sentinel is not-installed: no version, no source, and
+        // the presence overlay left it alone because the cache is absent.
+        let rows = build_rows(&[entry("rtk", false)], &sentinels);
+        let rtk = &rows[0];
+        assert_eq!(rtk.sentinel_version, None);
+        assert_eq!(rtk.source, "-");
+        assert_eq!(rtk.installed, "-");
+        assert!(!rtk.present, "no cache entry means no presence overlay");
+        assert!(!rtk.reused);
     }
 
     /// `test_only` fixtures are hidden by default and shown on --include-test.

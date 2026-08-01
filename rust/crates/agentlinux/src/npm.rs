@@ -115,6 +115,12 @@ pub fn query_global_npm_with(
 }
 
 /// Production entry point — the real buffered dispatcher.
+///
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5). It binds
+/// `real_dispatch` — a `sudo -u` hop running `npm ls -g --json` — to
+/// [`query_global_npm_with`], which owns the parsing and is driven from tests
+/// with a fake dispatcher.
+#[cfg_attr(test, mutants::skip)]
 pub fn query_global_npm() -> Result<BTreeMap<String, String>, String> {
     query_global_npm_with(real_dispatch)
 }
@@ -177,6 +183,12 @@ pub fn query_npm_view_latest_with(
 }
 
 /// Production entry point — the real buffered dispatcher.
+///
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5), the network
+/// half of the pair above. `npm view <pkg> versions --json` is a real registry
+/// round trip; [`query_npm_view_latest_with`] carries the constraint resolution
+/// and is driven from tests with a fake dispatcher.
+#[cfg_attr(test, mutants::skip)]
 pub fn query_npm_view_latest(entry: &FullCatalogEntry) -> Result<Option<String>, String> {
     query_npm_view_latest_with(entry, real_dispatch)
 }
@@ -184,6 +196,40 @@ pub fn query_npm_view_latest(entry: &FullCatalogEntry) -> Result<Option<String>,
 #[cfg(test)]
 mod npm_tests {
     use super::*;
+
+    /// The npm probes run as the install user and need `npm` to resolve to that
+    /// user's own `~/.npm-global/bin` — `sudo -E` alone drops PATH to Ubuntu's
+    /// `secure_path`, where the global npm prefix does not appear.
+    ///
+    /// Five mutants replaced this vector wholesale. Empty, the probe child gets
+    /// no PATH at all and every `npm ls` fails, which the caller degrades to
+    /// "nothing installed" — so a fully-populated host reports as empty.
+    #[test]
+    fn the_npm_probe_child_resolves_npm_under_the_users_own_prefix() {
+        let env = npm_env_for_user("bob");
+        let get = |k: &str| {
+            env.iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| panic!("{k} missing from the npm child env"))
+        };
+
+        assert_eq!(get("HOME"), "/home/bob", "the home follows the probed user");
+        let path = get("PATH");
+        assert!(
+            path.contains("/home/bob/.npm-global/bin"),
+            "npm must resolve under the probed user's own prefix, got {path:?}"
+        );
+        assert!(
+            !path.contains("/home/agent/"),
+            "no other user's home may leak into the probe PATH, got {path:?}"
+        );
+        // The AGENTLINUX_* half belongs to recipes, not to a read-only probe.
+        assert!(
+            !env.iter().any(|(k, _)| k.starts_with("AGENTLINUX_")),
+            "the npm probes take the non-AGENTLINUX_ half of a recipe env"
+        );
+    }
 
     fn ok_result(stdout: &str, exit_code: i32) -> DispatchResult {
         DispatchResult {

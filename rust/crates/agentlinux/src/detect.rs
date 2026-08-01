@@ -448,6 +448,9 @@ fn persist(records: &[AgentRecord]) {
 /// real work must not fail because detection could not persist), but the common
 /// path leaves `/run/agentlinux-detect.json` populated so REUSE-03 / REMEDIATE-04
 /// can fire on the next `agentlinux install`.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) binding the
+/// real login-shell scan to [`persist`], which is asserted directly.
+#[cfg_attr(test, mutants::skip)]
 pub fn scan_and_write(user: &str, home: &str) {
     persist(&scan(user, home));
 }
@@ -460,9 +463,24 @@ pub fn scan_and_write(user: &str, home: &str) {
 /// absent agents included), which `agentlinux list`/`adopt`/`upgrade` then read
 /// back from the cache. Wrapped under `.components.agents` to match the Bash
 /// report shape (the cache adapter accepts both `.agents` and `.components.agents`).
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) binding the
+/// real login-shell scan. The persisted bytes are asserted through
+/// [`write_cache`] and the returned shape through [`report_body`].
+#[cfg_attr(test, mutants::skip)]
 pub fn scan_persist_report_json(user: &str, home: &str) -> serde_json::Value {
     let records = scan(user, home);
     persist(&records);
+    report_body(&records)
+}
+
+/// The `--report-format=json` body: the records wrapped under
+/// `.components.agents`, matching the Bash report shape the DET-04 suite pipes
+/// to `jq`. (The cache adapter accepts both that and a bare `.agents`.)
+///
+/// Split from the scan because the wrapper is the part a test can pin without a
+/// login shell — replacing the whole function with `Default::default()` survived,
+/// which hands DET-04 a JSON `null` where it expects an agents array.
+fn report_body(records: &[AgentRecord]) -> serde_json::Value {
     let agents: Vec<serde_json::Value> = records.iter().map(record_value).collect();
     serde_json::json!({ "components": { "agents": agents } })
 }
@@ -563,6 +581,69 @@ mod detect_tests {
                 ("claude-code".to_string(), "claude".to_string()),
                 ("gitleaks".to_string(), "gitleaks".to_string()),
             ]
+        );
+    }
+
+    fn record(id: &str, status: &str) -> AgentRecord {
+        AgentRecord {
+            id: id.to_string(),
+            binary: format!("{id}-bin"),
+            path: format!("/home/agent/.local/bin/{id}"),
+            version: "1.2.3".to_string(),
+            status: status.to_string(),
+        }
+    }
+
+    /// The detect cache is what REUSE-03 and REMEDIATE-04 read on the next
+    /// `agentlinux install`. `write_cache` could be replaced by `Ok(())` — a
+    /// silent no-op leaving an absent cache, which is exactly the bug this
+    /// module was written to fix — and `persist` by `()`.
+    ///
+    /// Also pins the 0o644 mode: root writes this file and the unprivileged
+    /// install user must read it, so relying on the ambient umask would be a
+    /// coin flip.
+    #[test]
+    fn the_cache_is_written_where_the_seam_points_and_is_world_readable() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("detect.json");
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
+
+        write_cache(&[record("claude-code", "healthy"), record("gsd", "absent")])
+            .expect("the cache must be writable");
+
+        let body = std::fs::read_to_string(&cache).expect("the cache file must exist");
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        assert_eq!(v["agents"][0]["id"], "claude-code");
+        assert_eq!(v["agents"][0]["status"], "healthy");
+        assert_eq!(v["agents"][1]["id"], "gsd");
+        assert_eq!(
+            v["agents"].as_array().map(Vec::len),
+            Some(2),
+            "every record reaches the cache, including absent ones"
+        );
+
+        let mode = std::fs::metadata(&cache).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644, "the install user has to be able to read it");
+
+        // `persist` is the best-effort wrapper the scan paths share: it must
+        // actually write, not merely not-panic.
+        std::fs::remove_file(&cache).unwrap();
+        persist(&[record("rtk", "healthy")]);
+        let body = std::fs::read_to_string(&cache).expect("persist must write the cache");
+        assert!(body.contains("rtk"));
+    }
+
+    /// The DET-04 report shape: agents under `.components.agents`, which the
+    /// bats suite pipes to `jq`.
+    #[test]
+    fn the_report_body_wraps_agents_under_components() {
+        let v = report_body(&[record("claude-code", "healthy")]);
+        assert_eq!(v["components"]["agents"][0]["id"], "claude-code");
+        assert!(
+            v["components"]["agents"].is_array(),
+            "DET-04 indexes this as an array"
         );
     }
 
