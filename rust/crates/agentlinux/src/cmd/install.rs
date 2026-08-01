@@ -71,6 +71,56 @@ pub(crate) use {errln, outln};
 /// host-coupling as reading the real /etc/sudoers.d.
 pub type PathExists = fn(&std::path::Path) -> bool;
 
+/// After a REMEDIATE-04 uninstall, the binary must be gone from BOTH the
+/// canonical and the detected path.
+///
+/// `replace || with &&` survived, which only aborts when the binary survives in
+/// *both* places — so the ordinary half-failure, where one copy is removed and
+/// the other is not, sails through and the reinstall lands on top of a binary
+/// the uninstall was supposed to have taken away.
+const fn uninstall_left_something_behind(canonical: bool, detected: bool) -> bool {
+    canonical || detected
+}
+
+/// The `[DRY-RUN] would:` line for a decision.
+///
+/// Extracted because deleting either the `"reuse"` or the `"remediate"` arm
+/// survived, and each deletion silently demotes its case to the catch-all
+/// "dispatch install.sh" — telling an operator that a run which would have
+/// short-circuited, or torn down and reinstalled, is going to do a plain
+/// install. A dry run exists to be believed.
+fn dry_run_would_action(
+    decision: &str,
+    reuse_binary: Option<&str>,
+    remediate: Option<&agentlinux_core::detect_gates::RemediateHit>,
+    pinned_version: &str,
+) -> String {
+    match decision {
+        "reuse" => format!("short-circuit (binary at {})", reuse_binary.unwrap_or("?")),
+        "remediate" => match remediate {
+            Some(r) => format!(
+                "uninstall + reinstall (reason: {}; detected at {}; canonical at {})",
+                r.reason.as_str(),
+                r.detected_path,
+                r.canonical_path
+            ),
+            None => format!("dispatch install.sh at version {pinned_version}"),
+        },
+        _ => format!("dispatch install.sh at version {pinned_version}"),
+    }
+}
+
+/// Whether a detected version sits inside an entry's declared compatibility
+/// window — with an ABSENT or EMPTY window meaning "no", never "anything goes".
+///
+/// `delete !` and `replace && with ||` both survived here. Either one makes an
+/// empty `compatibility_window` string satisfy every version, so a migration
+/// preserves whatever version happened to be on the host instead of installing
+/// the curated pin.
+fn version_in_window(detected: Option<&str>, window: Option<&str>) -> bool {
+    detected.is_some_and(|d| window.is_some_and(|w| !w.is_empty() && semver_shim::satisfies(d, w)))
+}
+
 /// Whether the REUSE-03 gate may run at all.
 ///
 /// Three separate reasons to skip it, and each is a different intent:
@@ -97,6 +147,13 @@ const fn remediate_is_eligible(force: bool, explicit_version: bool) -> bool {
 }
 
 /// The production check.
+///
+/// Not mutation-tested: it asks the real filesystem (ADR-019 §5). Every caller
+/// takes [`PathExists`] as an injected dep for exactly that reason — the
+/// REMEDIATE-04 canonical path comes from a hardcoded map a fixture cannot
+/// move, so an inline `p.exists()` made the verb's verdict a property of the
+/// host the suite ran on.
+#[cfg_attr(test, mutants::skip)]
 fn real_path_exists(p: &std::path::Path) -> bool {
     p.exists()
 }
@@ -129,6 +186,9 @@ fn real_is_tty() -> bool {
 
 /// `agentlinux install <name>` body.
 #[must_use]
+/// Not mutation-tested: binds the real streams, dispatcher, path check and
+/// consent surface (ADR-019 §5). Every decision lives in [`install_into`].
+#[cfg_attr(test, mutants::skip)]
 pub fn install(name: &str, opts: &InstallArgs) -> ExitCode {
     install_with(name, opts, dispatcher::dispatch_recipe)
 }
@@ -252,22 +312,12 @@ pub fn install_into(
         } else {
             "create"
         };
-        let would_action = match decision {
-            "reuse" => format!(
-                "short-circuit (binary at {})",
-                reuse_hit.as_ref().map_or("?", |h| h.binary_path.as_str())
-            ),
-            "remediate" => {
-                let r = remediate_for_dry.unwrap();
-                format!(
-                    "uninstall + reinstall (reason: {}; detected at {}; canonical at {})",
-                    r.reason.as_str(),
-                    r.detected_path,
-                    r.canonical_path
-                )
-            }
-            _ => format!("dispatch install.sh at version {}", entry.pinned_version),
-        };
+        let would_action = dry_run_would_action(
+            decision,
+            reuse_hit.as_ref().map(|h| h.binary_path.as_str()),
+            remediate_for_dry,
+            &entry.pinned_version,
+        );
         // The Commander install command exposes no `--json` flag,
         // so install.ts's `opts.json` dry-run branch is unreachable in practice —
         // the CLI always prints the `[DRY-RUN]` text line. Match that behavior.
@@ -317,12 +367,7 @@ pub fn install_into(
     if let Some(rem) = remediate_hit {
         let is_migration = rem.reason == RemediateReason::PathMismatch;
         let dv = rem.detected_version.as_deref();
-        let dv_in_window = dv.is_some_and(|d| {
-            entry
-                .compatibility_window
-                .as_deref()
-                .is_some_and(|w| !w.is_empty() && semver_shim::satisfies(d, w))
-        });
+        let dv_in_window = version_in_window(dv, entry.compatibility_window.as_deref());
         let preserve_version = if is_migration && dv_in_window {
             dv
         } else {
@@ -406,7 +451,7 @@ pub fn install_into(
         // at BOTH the canonical + detected path, else abort (exit 1). ADAPTER I/O.
         let canonical_present = path_exists(std::path::Path::new(&rem.canonical_path));
         let detected_present = path_exists(std::path::Path::new(&rem.detected_path));
-        if canonical_present || detected_present {
+        if uninstall_left_something_behind(canonical_present, detected_present) {
             errln!(
                     o,
                 "[REMEDIATE-04:uninstall-incomplete] {} uninstall.sh exited 0 but binary still present (canonical={canonical_present} detected={detected_present})",
@@ -594,6 +639,98 @@ mod install_tests {
     use super::*;
     use crate::dispatcher::DispatchResult;
     use tempfile::tempdir;
+
+    /// A REMEDIATE-04 uninstall must leave NEITHER copy behind. `replace || with
+    /// &&` survived, which only aborts when the binary survives in both places —
+    /// so the ordinary half-failure, one copy removed and one not, sails through
+    /// and the reinstall lands on top of what the uninstall should have removed.
+    #[test]
+    fn a_half_completed_uninstall_is_not_a_completed_one() {
+        assert!(
+            !uninstall_left_something_behind(false, false),
+            "both gone is the only clean outcome"
+        );
+        assert!(
+            uninstall_left_something_behind(true, false),
+            "the canonical copy surviving is a failure on its own"
+        );
+        assert!(
+            uninstall_left_something_behind(false, true),
+            "so is the detected copy surviving on its own"
+        );
+        assert!(uninstall_left_something_behind(true, true));
+    }
+
+    /// A dry run exists to be believed. Deleting either named arm survived, and
+    /// each demotes its case to the catch-all "dispatch install.sh" — telling
+    /// the operator a run that would short-circuit, or tear down and reinstall,
+    /// is going to do a plain install instead.
+    #[test]
+    fn each_dry_run_decision_describes_what_it_would_actually_do() {
+        use agentlinux_core::detect_gates::{RemediateHit, RemediateReason};
+
+        let hit = RemediateHit {
+            reason: RemediateReason::PathMismatch,
+            detected_path: "/usr/local/bin/claude".to_string(),
+            canonical_path: "/home/agent/.local/bin/claude".to_string(),
+            detected_version: Some("2.1.0".to_string()),
+        };
+
+        let reuse = dry_run_would_action(
+            "reuse",
+            Some("/home/agent/.local/bin/claude"),
+            None,
+            "2.1.98",
+        );
+        assert!(
+            reuse.contains("short-circuit") && reuse.contains("/home/agent/.local/bin/claude"),
+            "a reuse says it will NOT install, and names the binary: {reuse:?}"
+        );
+
+        let remediate = dry_run_would_action("remediate", None, Some(&hit), "2.1.98");
+        assert!(
+            remediate.contains("uninstall + reinstall")
+                && remediate.contains("/usr/local/bin/claude")
+                && remediate.contains("/home/agent/.local/bin/claude"),
+            "a remediation names both paths it will move between: {remediate:?}"
+        );
+
+        let create = dry_run_would_action("create", None, None, "2.1.98");
+        assert!(
+            create.contains("dispatch install.sh") && create.contains("2.1.98"),
+            "a plain install names the version: {create:?}"
+        );
+
+        // The three must not collapse into one another — which is exactly what a
+        // deleted arm does.
+        assert_ne!(reuse, create);
+        assert_ne!(remediate, create);
+        assert_ne!(reuse, remediate);
+    }
+
+    /// An ABSENT or EMPTY compatibility window means "not in window", never
+    /// "anything goes". `delete !` and `replace && with ||` both survived, and
+    /// either makes an empty window satisfy every version — so a migration
+    /// preserves whatever happened to be on the host instead of installing the
+    /// curated pin.
+    #[test]
+    fn an_empty_compatibility_window_admits_nothing() {
+        assert!(version_in_window(Some("2.1.0"), Some(">=2.0.0 <3.0.0")));
+        assert!(!version_in_window(Some("1.0.0"), Some(">=2.0.0 <3.0.0")));
+
+        assert!(
+            !version_in_window(Some("2.1.0"), Some("")),
+            "an EMPTY window admits nothing — it is not a wildcard"
+        );
+        assert!(
+            !version_in_window(Some("2.1.0"), None),
+            "an absent window admits nothing either"
+        );
+        assert!(
+            !version_in_window(None, Some(">=2.0.0 <3.0.0")),
+            "no detected version cannot be in any window"
+        );
+    }
 
     /// REUSE-03 adopts a pre-existing binary — but only one that is actually
     /// THERE. `delete !` on the regular-file check survived, which inverts it:
