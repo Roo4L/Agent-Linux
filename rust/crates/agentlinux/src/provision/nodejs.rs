@@ -201,12 +201,52 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
 /// root — unlike anything under the install user's home.
 const SYSTEM_NODE_PATHS: [&str; 2] = ["/usr/bin/node", "/usr/local/bin/node"];
 
-/// The first existing entry of `candidates`, or `None`.
-fn first_existing(candidates: &[&str]) -> Option<String> {
-    candidates
-        .iter()
-        .find(|p| Path::new(p).is_file())
-        .map(|p| (*p).to_string())
+/// The first candidate that is a plain, ROOT-OWNED, non-group/other-writable
+/// regular file, resolved without following a symlink at the final component.
+///
+/// The path allowlist alone only constrains the NAME. This binary is executed as
+/// root, so the guard has to be on the inode:
+///
+/// - `/usr/local/bin` is `root:staff` mode 2775 — group-writable — under Debian
+///   policy on some systems, and `/usr/local/bin/node` is exactly the
+///   hand-installed-tarball case the candidate list invites.
+/// - Brownfield hosts that installed node via `n` or a system-wide nvm commonly
+///   have `/usr/local/bin/node` as a SYMLINK into `/usr/local/n/versions/...`;
+///   an `is_file()` check follows it and we would exec whatever is at the far end.
+///
+/// A candidate that fails these checks is skipped rather than fatal — the next
+/// candidate, or ultimately major 0 and the RT-01 hard-fail, is the right outcome.
+fn trusted_system_node_in(candidates: &[&str]) -> Option<String> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    candidates.iter().find_map(|p| {
+        let handle = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags((nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK).bits())
+            .open(p)
+            .ok()?;
+        let md = handle.metadata().ok()?;
+        if !md.is_file() {
+            return None;
+        }
+        if md.uid() != 0 {
+            crate::plog!(
+                "30-nodejs: skipping RT-01 candidate {p} — owned by uid {} not root; \
+                 refusing to execute it as root",
+                md.uid()
+            );
+            return None;
+        }
+        if md.mode() & 0o022 != 0 {
+            crate::plog!(
+                "30-nodejs: skipping RT-01 candidate {p} — mode {:04o} is group- or \
+                 world-writable; refusing to execute it as root",
+                md.mode() & 0o7777
+            );
+            return None;
+        }
+        Some((*p).to_string())
+    })
 }
 
 /// `node --version` → the parsed MAJOR version. Runs the freshly-installed `node`
@@ -215,14 +255,21 @@ fn first_existing(candidates: &[&str]) -> Option<String> {
 /// an unparsable version maps to major 0 (→ the RT-01 hard-fail), mirroring the
 /// Bash `${node_major:-0}` default.
 fn node_major_version() -> io::Result<u32> {
-    node_major_version_in(&SYSTEM_NODE_PATHS)
+    match trusted_system_node_in(&SYSTEM_NODE_PATHS) {
+        Some(p) => node_major_version_at(&p),
+        // No trustworthy candidate → major 0, the RT-01 hard-fail, without
+        // spawning anything.
+        None => Ok(0),
+    }
 }
 
-/// `node_major_version` with the candidate locations injected, so a test can point
-/// it at a stub instead of depending on whichever `node` the build host happens to
-/// have installed — and on where. The production caller passes
-/// `SYSTEM_NODE_PATHS`; nothing else may.
-fn node_major_version_in(candidates: &[&str]) -> io::Result<u32> {
+/// Spawn `path --version` and parse the major.
+///
+/// Split from the trust check above so each is testable on its own: a test stub
+/// cannot be root-owned, so a combined function could only be exercised by
+/// weakening the very check that matters. `trusted_system_node_in` is tested
+/// against ownership and mode; this is tested against parsing and the spawn.
+fn node_major_version_at(node: &str) -> io::Result<u32> {
     // Bounded and process-grouped like every other spawn in the crate. `node
     // --version` is instant in every healthy case, but "instant in every healthy
     // case" is exactly what the unbounded calls this crate spent a release fixing
@@ -254,14 +301,9 @@ fn node_major_version_in(candidates: &[&str]) -> io::Result<u32> {
     //
     // `provision` is `guard::require_root`-gated, so the invoker is root and this is
     // the direct branch in practice.
-    let Some(node) = first_existing(candidates) else {
-        // Absent from every system location → major 0, the RT-01 hard-fail. Same
-        // outcome as a non-zero exit below, reached without spawning anything.
-        return Ok(0);
-    };
     let r = crate::dispatcher::as_user(
         &crate::dispatcher::invoker_username(),
-        &[node, "--version".to_string()],
+        &[node.to_string(), "--version".to_string()],
         &[],
         crate::dispatcher::Capture::Buffered,
         Some(30_000),
@@ -369,7 +411,7 @@ mod nodejs_tests {
         let node = stub_node(d.path(), "v22.11.0");
 
         std::env::set_var("AGENTLINUX_USER", "no-such-user-cf19a4");
-        let major = node_major_version_in(&[&node]).unwrap();
+        let major = node_major_version_at(&node).unwrap();
         std::env::remove_var("AGENTLINUX_USER");
 
         assert_eq!(
@@ -377,6 +419,45 @@ mod nodejs_tests {
             "RT-01 probe resolved through AGENTLINUX_USER instead of running the \
              binary it was given — the greenfield --user brick is back"
         );
+    }
+
+    /// The candidate list is an allowlist of NAMES; the trust decision is about the
+    /// INODE. This binary is executed as root, and `/usr/local/bin` is `root:staff`
+    /// mode 2775 — group-writable — under Debian policy on some systems, which is
+    /// exactly where the "hand-installed tarball" candidate lives.
+    ///
+    /// Tests run unprivileged, so a stub is owned by the test user rather than root:
+    /// that makes it the non-root case directly, and it must be refused.
+    #[test]
+    fn rt01_refuses_a_candidate_it_does_not_own_the_trust_chain_for() {
+        let d = tempfile::TempDir::new().unwrap();
+        let stub = stub_node(d.path(), "v22.11.0");
+        assert_eq!(
+            trusted_system_node_in(&[&stub]),
+            None,
+            "accepted a non-root-owned binary as the RT-01 system node — as root \
+             that executes a binary root does not control"
+        );
+    }
+
+    /// A group- or world-writable candidate is refused even when root owns it:
+    /// ownership and writability are separate questions, and either one lets
+    /// somebody other than root decide what runs.
+    #[test]
+    fn rt01_refuses_a_group_or_world_writable_candidate() {
+        let d = tempfile::TempDir::new().unwrap();
+        let stub = stub_node(d.path(), "v22.11.0");
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o777)).unwrap();
+        assert_eq!(trusted_system_node_in(&[&stub]), None);
+    }
+
+    /// And the absent case: no candidate at all resolves to None, so
+    /// `node_major_version` reports major 0 without spawning anything.
+    #[test]
+    fn rt01_absent_candidate_resolves_to_none() {
+        let d = tempfile::TempDir::new().unwrap();
+        let missing = d.path().join("nope").to_string_lossy().into_owned();
+        assert_eq!(trusted_system_node_in(&[&missing]), None);
     }
 
     /// The RT-01 gate boundary, through the real function rather than a re-typed
@@ -387,7 +468,7 @@ mod nodejs_tests {
         let _g = crate::test_support::env_guard();
         let d = tempfile::TempDir::new().unwrap();
         let node = stub_node(d.path(), "v18.19.0");
-        assert_eq!(node_major_version_in(&[&node]).unwrap(), 18);
+        assert_eq!(node_major_version_at(&node).unwrap(), 18);
     }
 
     /// No candidate exists → major 0, which is the RT-01 hard-fail. Pins that the
@@ -402,7 +483,7 @@ mod nodejs_tests {
         stub_node(d.path(), "v22.11.0"); // on PATH below, but not a candidate
         let old = std::env::var("PATH").unwrap_or_default();
         std::env::set_var("PATH", format!("{}:{old}", d.path().display()));
-        let major = node_major_version_in(&[&d.path().join("absent").to_string_lossy()]).unwrap();
+        let major = node_major_version_at(&d.path().join("absent").to_string_lossy()).unwrap();
         std::env::set_var("PATH", old);
         assert_eq!(
             major, 0,

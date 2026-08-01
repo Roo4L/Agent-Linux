@@ -371,6 +371,57 @@ fn nodesource_setup_script(url: &str) -> String {
     )
 }
 
+/// A temporary `apt.conf` fragment, unlinked on drop.
+///
+/// Deliberately NOT `/etc/apt/apt.conf.d/`: that is a persistent host mutation the
+/// purge would then owe a cleanup, for a setting we only need for the duration of
+/// one command.
+struct AptConfGuard {
+    path: std::path::PathBuf,
+    as_str: String,
+}
+
+impl AptConfGuard {
+    fn path_str(&self) -> &str {
+        &self.as_str
+    }
+}
+
+impl Drop for AptConfGuard {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Stage an `apt.conf` carrying only the dpkg lock timeout, for `APT_CONFIG`.
+///
+/// `Ok(None)` when the path is unusable — the setup script still runs, just without
+/// the extended wait, which is strictly what happened before this existed. A
+/// staging failure must not be why a provision aborts.
+fn write_apt_lock_conf() -> io::Result<Option<AptConfGuard>> {
+    let dir = std::path::Path::new("/run");
+    if !dir.is_dir() {
+        return Ok(None);
+    }
+    let (mut file, path) = match crate::sysio::mktemp_in(dir, "agentlinux-apt.conf") {
+        Ok(v) => v,
+        Err(_) => return Ok(None),
+    };
+    use std::io::Write;
+    // Same value the argv-level `-o` carries for every command we DO construct, so
+    // the pipe and the direct calls wait the same amount.
+    if file
+        .write_all(b"DPkg::Lock::Timeout \"300\";\n")
+        .and_then(|()| file.flush())
+        .is_err()
+    {
+        let _ = std::fs::remove_file(&path);
+        return Ok(None);
+    }
+    let as_str = path.to_string_lossy().into_owned();
+    Ok(Some(AptConfGuard { path, as_str }))
+}
+
 /// `nodesource_setup` — run the pinned NodeSource setup_22.x script
 /// (`curl -fsSL <url> | bash -`). The pipe runs under `bash -o pipefail -c` so a
 /// curl 404/DNS/TLS failure propagates through the pipe as a non-zero status
@@ -385,7 +436,37 @@ pub fn nodesource_setup(family: Family) -> io::Result<()> {
     // and stderr capture as every other package operation. curl's `--max-time`
     // covers only the FETCH; the `| bash -` leg runs `apt-get update`/`dnf
     // makecache` internally, so the smaller half was the only bounded one.
-    let cmd = PkgCmd::new(&[], &["bash", "-o", "pipefail", "-c", &script]);
+    // The `| bash -` leg is setup_22.x, which runs its OWN `apt-get update` and
+    // `apt-get install` — commands we never see and therefore cannot route through
+    // `apt_get()`. `DPkg::Lock::Timeout` is set here as an env var so it reaches
+    // those nested invocations, extending the mitigation across the pipe. Without
+    // it, `pkg.rs`'s stated invariant ("every debian-arm command goes through
+    // apt_get so the wait cannot be forgotten at one call site") is false for the
+    // command MOST likely to hit the race: `nodesource_prereqs` runs just before and
+    // does carry the wait, but apt-daily/unattended-upgrades can reacquire the lock
+    // in between, and the failure is a cloud-init-timed `Could not get lock` that
+    // aborts step 30 at exit 70 on a half-provisioned host.
+    //
+    // `DEBIAN_FRONTEND` likewise — the nested installs must not open a dialog on a
+    // provisioner with no controlling terminal. Both are inert on the rhel arm.
+    // `APT_CONFIG` (apt.conf(5)) is the only mechanism that reaches an apt
+    // invocation we do not construct — there is no env var named after an option,
+    // and `-o` needs an argv we do not own here. A guard keeps the file's lifetime
+    // tied to this call.
+    let apt_conf = match family {
+        Family::Debian => write_apt_lock_conf().map_err(|e| {
+            io::Error::other(format!(
+                "nodesource_setup: could not stage the apt lock-timeout config: {e}"
+            ))
+        })?,
+        Family::Rhel => None,
+    };
+    let env: Vec<(&str, &str)> = match (family, apt_conf.as_ref()) {
+        (Family::Debian, Some(g)) => vec![DEB_FRONTEND, ("APT_CONFIG", g.path_str())],
+        (Family::Debian, None) => vec![DEB_FRONTEND],
+        (Family::Rhel, _) => vec![],
+    };
+    let cmd = PkgCmd::new(&env, &["bash", "-o", "pipefail", "-c", &script]);
     let outcome = cmd.run()?;
     if !outcome.success() {
         return Err(io::Error::other(format!(

@@ -223,6 +223,15 @@ fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
 /// trimming that tail (absent agents fail `command -v` fast and skip the rest).
 const PROBE_TIMEOUT_MS: u64 = 5_000;
 
+/// Aggregate ceiling for the whole detect scan, independent of catalog size.
+///
+/// `PROBE_TIMEOUT_MS` bounds one shell-out; nothing bounded the loop, and the loop
+/// length is catalog data. Three minutes is far past a healthy scan (a greenfield
+/// host answers in seconds because absent agents fail `command -v` immediately)
+/// while capping the pathological case at a duration an operator will sit through
+/// rather than assume is a hang.
+const SCAN_BUDGET: std::time::Duration = std::time::Duration::from_secs(180);
+
 /// Probe an agent's version via its id-specific flag(s). The legacy three parse
 /// `--version` (gsd: `--help`, no `--version` flag); the rest try
 /// `--version`/`version`/`--help` in turn. First semver wins. `binary` is the ONLY
@@ -356,10 +365,42 @@ fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
             return Vec::new();
         }
     };
-    agent_rows(&entries)
-        .into_iter()
-        .map(|(id, binary)| probe_one(user, home, &id, &binary))
-        .collect()
+    // A per-probe bound is not a bound on the scan. Each `probe_one` shells out up
+    // to five times at PROBE_TIMEOUT_MS each, and the row count comes from the
+    // catalog — 17 shipped entries is up to ~85 `sudo -u <user> bash --login -c`
+    // hops, every one of them sourcing /etc/profile and the user's own profile. On
+    // an NFS-backed or otherwise stalled home each burns its full timeout and the
+    // scan occupies minutes AFTER `50-registry-cli: done` has printed, with nothing
+    // between entries. That silence is indistinguishable from a hang, which is the
+    // operability failure, not the elapsed time.
+    //
+    // Same treatment as the npm-prefix migration loop: an aggregate budget, and the
+    // skipped remainder NAMED. A silent cap reads as "everything was probed", and a
+    // probe that never ran must not be recorded as `absent` — that is the
+    // difference between "the tool is not installed" and "we did not look", and
+    // REUSE-03 acts on it.
+    let deadline = std::time::Instant::now() + SCAN_BUDGET;
+    let rows = agent_rows(&entries);
+    let total = rows.len();
+    let mut records = Vec::with_capacity(total);
+    let mut skipped = 0usize;
+    for (id, binary) in rows {
+        if std::time::Instant::now() >= deadline {
+            skipped += 1;
+            continue;
+        }
+        records.push(probe_one(user, home, &id, &binary));
+    }
+    if skipped > 0 {
+        crate::provision::log::line(&format!(
+            "agentlinux provision: detect scan budget ({}s) expired — {skipped} of \
+             {total} agents NOT probed. They are absent from the cache rather than \
+             recorded as not-installed, so REUSE-03 will not act on a guess. Re-run \
+             `agentlinux provision --report-only` once the host settles.",
+            SCAN_BUDGET.as_secs()
+        ));
+    }
+    records
 }
 
 /// Serialize the records into the `{agents: [...]}` cache doc + write it to the

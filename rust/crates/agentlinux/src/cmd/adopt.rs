@@ -116,12 +116,18 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
     s.reused_at = Some(now);
     s.compatibility_window_at_reuse = entry.compatibility_window.clone();
     if let Err(e) = sentinel::write_sentinel(&s) {
-        // A write failure is a genuine error — surface, mark skipped so the run
-        // continues for --all sweeps.
+        // A write failure is a genuine error. It continues the sweep — one
+        // unwritable sentinel should not strand the other entries — but it is
+        // reported as `failed`, NOT `skipped`. "Skipped" is the benign verdict
+        // ("nothing to adopt here"), and collapsing the two is what let a wholly
+        // failed `adopt --all` exit 0: `/opt/agentlinux/state/installed.d`
+        // unwritable is exactly the state a half-completed provision leaves, and
+        // every pre-existing agent then stayed unmanaged forever with `provision`
+        // printing `complete` over it.
         crate::plog!("agentlinux: failed to write sentinel for {}: {e}", entry.id);
         return AdoptResult {
             id: entry.id.clone(),
-            action: "skipped".to_string(),
+            action: "failed".to_string(),
             version: None,
             reason: Some(format!("sentinel write failed: {e}")),
         };
@@ -197,12 +203,32 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
                 r.id,
                 r.reason.as_deref().unwrap_or("")
             ),
+            "failed" => println!(
+                "[ADOPT:fail] {}: {}",
+                r.id,
+                r.reason.as_deref().unwrap_or("")
+            ),
             _ => println!(
                 "{}: nothing to adopt — {}",
                 r.id,
                 r.reason.as_deref().unwrap_or("")
             ),
         }
+    }
+
+    // An unattended caller reads the exit code and nothing else. `provision`
+    // dispatches `adopt --all` and only reacts to a non-zero status, so returning
+    // SUCCESS unconditionally meant a run in which every adoption failed still
+    // printed `agentlinux-install complete`.
+    let failed = results.iter().filter(|r| r.action == "failed").count();
+    if failed > 0 {
+        crate::plog!(
+            "agentlinux adopt: {failed} of {} entr{} failed — see the [ADOPT:fail] \
+             lines above",
+            results.len(),
+            if failed == 1 { "y" } else { "ies" }
+        );
+        return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
 }

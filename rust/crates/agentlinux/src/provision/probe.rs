@@ -192,8 +192,7 @@ pub fn effective_npm_prefix(home: &str) -> String {
         // `reason=wrong-owner` — forever, on a host the previous run had
         // already fixed. A gate whose probe cannot observe what the action
         // wrote is the one failure ADR-019 says is still a finding.
-        .filter(|(k, _)| k.trim() == "prefix")
-        .next_back()
+        .rfind(|(k, _)| k.trim() == "prefix")
         .map(|(_, v)| v.trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or(default)

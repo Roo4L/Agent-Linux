@@ -29,6 +29,16 @@ convenient but re-runs a command that may have partially applied.
 ## Decision
 
 **Every wait in this codebase has a bound, and expiry is reported, never silent.**
+
+One carve-out, stated here so the rule above is literally true rather than
+approximately true. The TTY prompts — `wizard::confirm_remediate`,
+`choose_install_user`, `alt_user_prompt` — are unbounded blocking reads on stdin,
+deliberately: waiting for a human who is sitting there is the entire point, and a
+timeout would turn a considered answer into a default. They are safe because they
+are TTY-gated (a non-TTY run takes the bail path instead of blocking) and because
+`--dry-run` returns before the DECIDE phase can reach one. Any OTHER unbounded
+wait is a defect, including a new prompt that is not TTY-gated.
+
 The specific resolutions:
 
 1. **Kill the process group, not the child.** Every spawn this crate makes goes

@@ -170,9 +170,34 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
     let by_sentinel: BTreeMap<String, Sentinel> =
         sentinels.into_iter().map(|s| (s.id.clone(), s)).collect();
 
-    // queryGlobalNpm once (npm INSTALLED column). A failure degrades to empty
-    // (report still renders installed=None for npm entries).
-    let npm_ls = (deps.query_global_npm)().unwrap_or_default();
+    // queryGlobalNpm once (npm INSTALLED column).
+    //
+    // Degrading a FAILURE to an empty map silently is not safe on the reconcile
+    // path. `npm.rs` returns Err on a 30s timeout, on a drain-grace expiry that
+    // yields an empty capture, or on unparseable output — all transient. An empty
+    // map makes every npm entry read installed=None, so `compute_divergence` calls
+    // it non-Synced, and under `--reset-all-curated` that reinstalls EVERY npm
+    // agent on the host. A blip in the registry became a host-wide mutation with
+    // nothing in the output saying why.
+    //
+    // Report-only runs still degrade (an unknown INSTALLED column is honest and
+    // mutates nothing); a reconcile refuses, because it cannot tell "not installed"
+    // from "could not ask".
+    let npm_query_failed;
+    let npm_ls = match (deps.query_global_npm)() {
+        Ok(map) => {
+            npm_query_failed = false;
+            map
+        }
+        Err(e) => {
+            npm_query_failed = true;
+            crate::plog!(
+                "agentlinux upgrade: could not read global npm state ({e}); the \
+                 INSTALLED column for npm entries is unknown, not empty"
+            );
+            NpmMap::new()
+        }
+    };
 
     let home = agent_home();
     let mut rows: Vec<Row> = Vec::new();
@@ -240,6 +265,25 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
     let is_report_only = !opts.reset_all_curated && !opts.respect_overrides && !opts.all_latest;
     if is_report_only {
         return ExitCode::SUCCESS;
+    }
+
+    // Refuse to reconcile on an unknown installed-state. Past this point every
+    // npm-kind entry that reads installed=None is a reinstall candidate, and the
+    // failed query above cannot distinguish "not installed" from "could not ask".
+    // Reinstalling the host's entire npm agent set because the registry was slow
+    // for 30 seconds is a far worse outcome than declining and being re-run.
+    let any_npm_entry = agents
+        .iter()
+        .any(|e| !e.test_only && e.source_kind.as_deref() == Some("npm"));
+    if npm_query_failed && any_npm_entry {
+        crate::plog!(
+            "agentlinux upgrade: refusing to reconcile — the global npm query failed, \
+             so every npm entry's installed version is unknown and would be treated \
+             as a reinstall candidate. The report above is still valid. Re-run once \
+             `npm ls -g` works, or use --reset-all-curated on a specific host where \
+             you know that is intended."
+        );
+        return ExitCode::from(crate::EX_TEMPFAIL);
     }
 
     // Reconcile loop. Sequential for deterministic log ordering.

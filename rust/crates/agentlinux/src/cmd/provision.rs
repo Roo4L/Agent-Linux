@@ -411,9 +411,10 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
         return exit;
     }
 
-    // 3. --purge (Q3). Ordered 7-step teardown — runs BEFORE the log-file tee (the
-    //  Bash purge removes the log LAST) and before distro detect (it seeds the
-    //  family itself, like run_purge:375). Always exits 0. require_root is the
+    // 3. --purge (Q3). Ordered 7-step teardown — runs AFTER `log::init` (so the
+    //  teardown is itself transcribed; the purge then removes the log LAST, as the
+    //  Bash did) and before distro detect (it seeds the family itself). Exits 0 only
+    //  when nothing it targeted survives — see `run_purge`. require_root is the
     //  caller's contract (main::dispatch); a non-root purge fails on the mutating
     //  syscalls, which is the correct surface.
     if args.purge {
@@ -689,6 +690,19 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
 
     // Step 6: remove the install user + its home. The name is charset-validated
     // upstream, so it is safe as a `userdel -r` argument (NEVER `rm -rf $VAR`).
+    //
+    // Capture the REAL home from the passwd entry BEFORE the delete. The `home`
+    // parameter is the derived default `/home/<user>`, but AgentLinux deliberately
+    // adopts pre-existing uid>=1000 accounts (`check_user_adoptable`), and an
+    // adopted account's home can be anywhere — /var/lib/agent, /srv/agent, a bind
+    // mount. Probing the derived path there stats something that never existed,
+    // finds nothing, and reports a clean purge over a directory still holding the
+    // agent's credentials.
+    let real_home = nix::unistd::User::from_name(user)
+        .ok()
+        .flatten()
+        .map(|u| u.dir)
+        .filter(|d| !d.as_os_str().is_empty());
     remove_install_user(user);
     // Re-probe rather than trusting the exit code: `userdel -rf` can report failure
     // while having removed the account, and can report success on some paths while
@@ -703,8 +717,17 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
     // success over a directory still holding ~/.claude/.credentials.json,
     // ~/.config/gh/hosts.yml and ~/.npmrc. Worse, the uid is now unallocated, so the
     // next useradd that recycles it silently inherits ownership of those secrets.
-    if !home.is_empty() && std::path::Path::new(home).exists() {
-        leftovers.push(format!("home '{home}' (may hold credentials)"));
+    // `symlink_metadata`, not `exists()`: the latter follows, so a dangling symlink
+    // left where the home was reports false — understating on exactly the case this
+    // check exists for.
+    let home_path = real_home
+        .clone()
+        .unwrap_or_else(|| std::path::PathBuf::from(home));
+    if !home_path.as_os_str().is_empty() && std::fs::symlink_metadata(&home_path).is_ok() {
+        leftovers.push(format!(
+            "home '{}' (may hold credentials)",
+            home_path.display()
+        ));
     }
 
     // Step 7: LAST — remove the install log (LITERAL path). Note this unlinks the
