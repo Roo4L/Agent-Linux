@@ -170,7 +170,7 @@ pub fn write_file_atomic(mode: u32, dest: &Path, body: &[u8]) -> io::Result<()> 
     // the provisioner printed "complete". (An overwrite degrades more gently: the
     // old entry survives.) Narrow on ext4's default data=ordered, wide open on XFS
     // and on data=writeback.
-    sync_parent_dir(dest);
+    let _ = sync_parent_dir(dest);
     Ok(())
 }
 
@@ -179,7 +179,13 @@ pub fn write_file_atomic(mode: u32, dest: &Path, body: &[u8]) -> io::Result<()> 
 /// a directory, and a provisioner must not abort a correct write because the kernel
 /// declined a durability hint. Failures are silent because the caller has already
 /// succeeded at the part that matters — this only narrows a crash window.
-pub(crate) fn sync_parent_dir(dest: &Path) {
+///
+/// Returns the directory it actually synced, or `None` if it could not open one.
+/// Production ignores it; nothing else can observe an `fsync`, and without a
+/// return value `replace sync_parent_dir with ()` and both arms of the
+/// parent-selection guard were unkillable — the durability step could be deleted
+/// outright with the suite green.
+pub(crate) fn sync_parent_dir(dest: &Path) -> Option<PathBuf> {
     use std::os::unix::fs::OpenOptionsExt;
     // `Path::new("f").parent()` is Some("") — not None — so the `"."` fallback only
     // fires for a path with no parent component at all. Map the empty case too, or
@@ -195,11 +201,18 @@ pub(crate) fn sync_parent_dir(dest: &Path) {
     // is not a reason to leave an unbounded open in the write path.
     if let Ok(handle) = fs::OpenOptions::new()
         .read(true)
-        .custom_flags((nix::fcntl::OFlag::O_DIRECTORY | nix::fcntl::OFlag::O_NONBLOCK).bits())
+        // `.union()` rather than `|` — see `statelock::lock_open_flags`.
+        .custom_flags(
+            nix::fcntl::OFlag::O_DIRECTORY
+                .union(nix::fcntl::OFlag::O_NONBLOCK)
+                .bits(),
+        )
         .open(dir)
     {
         let _ = handle.sync_all();
+        return Some(dir.to_path_buf());
     }
+    None
 }
 
 /// Wrap an `io::Error` with the operation that failed and the path it failed on,
@@ -903,7 +916,7 @@ pub fn create_if_absent_0644(
     let file = match fs::OpenOptions::new()
         .write(true)
         .create_new(true) // O_CREAT | O_EXCL
-        .custom_flags(libc_o_nofollow())
+        .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits())
         .open(path)
     {
         Ok(f) => f,
@@ -937,11 +950,6 @@ pub fn create_if_absent_0644(
     nix::sys::stat::fchmod(&file, nix::sys::stat::Mode::from_bits_truncate(0o644))
         .map_err(|e| context(&io::Error::from(e), "chmod 0644", path, None))?;
     chown(path, owner)
-}
-
-/// `O_NOFOLLOW` as a raw flag for `custom_flags`.
-fn libc_o_nofollow() -> i32 {
-    nix::fcntl::OFlag::O_NOFOLLOW.bits()
 }
 
 /// `command -v <name>` — resolve a program on PATH, `None` if absent.
@@ -997,6 +1005,127 @@ pub fn visudo_validate_with(program: &str, file: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod sysio_tests {
     use super::*;
+
+    /// `sync_parent_dir` picks the RIGHT directory, and says so.
+    ///
+    /// Nothing else can observe an fsync, so before it reported which directory it
+    /// opened, `replace sync_parent_dir with ()` and both arms of the
+    /// parent-selection guard survived: the durability step behind every atomic
+    /// write could be deleted with the suite green.
+    #[test]
+    fn sync_parent_dir_syncs_the_files_own_directory() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("published");
+        fs::write(&f, b"x").unwrap();
+        assert_eq!(
+            sync_parent_dir(&f).as_deref(),
+            Some(d.path()),
+            "must sync the file's own parent, not the cwd"
+        );
+
+        // `Path::new("f").parent()` is Some("") — not None. Treating that empty
+        // component as a directory opens "" and silently syncs nothing, so it has
+        // to fall back to ".".
+        assert_eq!(
+            sync_parent_dir(Path::new("bare-name")).as_deref(),
+            Some(Path::new(".")),
+            "a bare filename must fall back to the current directory"
+        );
+
+        // A parent that does not exist cannot be synced, and must say so rather
+        // than silently reporting success.
+        assert_eq!(sync_parent_dir(&d.path().join("gone/f")), None);
+    }
+
+    /// The `via` clause appears only when the tmpfile differs from the
+    /// destination. An EACCES on a staging file reported against a destination the
+    /// operator can see is writable sends them looking in the wrong place.
+    #[test]
+    fn context_names_the_intermediate_path_only_when_there_is_one() {
+        let dest = Path::new("/etc/agentlinux.env");
+        let via = Path::new("/etc/.agentlinux.env.tmp");
+        let e = || io::Error::new(io::ErrorKind::PermissionDenied, "denied");
+
+        let with_via = context(&e(), "write", dest, Some(via)).to_string();
+        assert!(
+            with_via.contains("(via /etc/.agentlinux.env.tmp)"),
+            "got {with_via:?}"
+        );
+
+        // Same path on both sides: no redundant "(via X)" naming X twice.
+        let same = context(&e(), "write", dest, Some(dest)).to_string();
+        assert!(!same.contains("(via"), "got {same:?}");
+        let none = context(&e(), "write", dest, None).to_string();
+        assert!(!none.contains("(via"), "got {none:?}");
+        assert_eq!(
+            context(&e(), "write", dest, None).kind(),
+            io::ErrorKind::PermissionDenied,
+            "the original kind must survive so callers can still match on it"
+        );
+    }
+
+    /// The bounded admin-tool runner returns the CHILD's exit code. Pinned against
+    /// two real programs because a constant return (`Ok(0)`) makes every
+    /// `userdel`/`visudo` failure read as success.
+    #[test]
+    fn run_bounded_argv_reports_the_childs_own_exit_code() {
+        assert_eq!(run_bounded_argv(&["true"]).unwrap(), 0);
+        assert_eq!(run_bounded_argv(&["false"]).unwrap(), 1);
+    }
+
+    /// The read cap is 8 MiB, and the digits matter: this is what stops a sparse
+    /// `~/.npmrc` the install user can create at zero cost from being read whole
+    /// into a root process.
+    #[test]
+    fn the_config_read_cap_is_eight_mebibytes() {
+        assert_eq!(MAX_CONFIG_BYTES, 8_388_608, "8 MiB, not 8 KiB and not 8");
+    }
+
+    /// The size boundary is EXCLUSIVE: exactly the cap is fine, one byte over is
+    /// refused. `>` mutated to `>=` rejects a legitimate file; mutated to `==`
+    /// accepts every oversized one, which is the OOM this cap exists to prevent.
+    #[test]
+    fn the_size_cap_admits_exactly_the_limit_and_refuses_one_byte_more() {
+        let d = TempDir::new().unwrap();
+
+        let at_limit = d.path().join("at-limit");
+        fs::File::create(&at_limit)
+            .unwrap()
+            .set_len(MAX_CONFIG_BYTES)
+            .unwrap();
+        assert!(
+            read_regular_file(&at_limit).is_ok(),
+            "a file exactly at the cap must be readable"
+        );
+
+        let over = d.path().join("over-limit");
+        fs::File::create(&over)
+            .unwrap()
+            .set_len(MAX_CONFIG_BYTES + 1)
+            .unwrap();
+        let err = read_regular_file(&over).expect_err("one byte over must be refused");
+        assert!(err.to_string().contains("exceeds"), "err={err}");
+    }
+
+    /// A hardlink is a regular file and passes every other check, so `ln
+    /// /etc/shadow ~/.npmrc` would otherwise be read and chowned as though it were
+    /// the agent's own file. The `nlink > 1` comparison is the only thing between
+    /// those two cases, and a single-link file must still be accepted.
+    #[test]
+    fn a_hardlinked_config_is_refused_and_a_singly_linked_one_is_not() {
+        let d = TempDir::new().unwrap();
+        let plain = d.path().join("plain");
+        fs::write(&plain, b"prefix=/x\n").unwrap();
+        assert!(
+            read_regular_file(&plain).is_ok(),
+            "an ordinary single-link file must be readable"
+        );
+
+        let linked = d.path().join("linked");
+        fs::hard_link(&plain, &linked).unwrap();
+        let err = read_regular_file(&linked).expect_err("a hardlink must be refused");
+        assert!(err.to_string().contains("hard link"), "err={err}");
+    }
     use std::os::unix::fs::{MetadataExt, PermissionsExt};
     use tempfile::TempDir;
 

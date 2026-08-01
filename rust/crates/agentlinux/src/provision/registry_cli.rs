@@ -359,7 +359,7 @@ fn install_file(
     // created is not until the directory itself is synced. Without this, a power
     // loss can leave the staged `agentlinux` binary absent on the next boot even
     // though provisioning reported success.
-    crate::sysio::sync_parent_dir(dst);
+    let _ = crate::sysio::sync_parent_dir(dst);
     Ok(())
 }
 
@@ -428,7 +428,7 @@ fn ln_sfn(target: &Path, link: &Path) -> io::Result<()> {
     // A symlink has no content to sync — the entry IS the object, so the directory
     // fsync is the only thing that makes it durable. Losing it drops `agentlinux`
     // off the install user's PATH on the next boot.
-    crate::sysio::sync_parent_dir(link);
+    let _ = crate::sysio::sync_parent_dir(link);
     Ok(())
 }
 
