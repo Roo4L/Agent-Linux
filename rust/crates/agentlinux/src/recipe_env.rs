@@ -332,6 +332,149 @@ mod recipe_env_tests {
         }
     }
 
+    /// `AGENTLINUX_AGENT_HOME` overrides the detection root, but an EMPTY value
+    /// is not a path. Five mutants survived here: forcing the whole function to
+    /// a constant, forcing the guard either way, and deleting the `!`.
+    ///
+    /// The fallback is the load-bearing part — it resolves through
+    /// `install_home(resolve_install_user())`, not a literal `/home/agent`, so a
+    /// host configured with `AGENTLINUX_USER=bob` gets `/home/bob`. Forced to
+    /// `String::new()` every path built on it becomes root-relative.
+    #[test]
+    fn the_agent_home_override_falls_back_to_the_configured_install_user() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        // Keep the env-file read out of it: this asserts the env-var path only.
+        env_scope.set("AGENTLINUX_ENV_FILE", "/nonexistent/agentlinux.env");
+
+        env_scope.set("AGENTLINUX_AGENT_HOME", "/staged/root");
+        assert_eq!(agent_home(), "/staged/root");
+
+        env_scope.set("AGENTLINUX_USER", "bob");
+        for (value, what) in [("", "empty"), ("   ", "blank-ish")] {
+            env_scope.set("AGENTLINUX_AGENT_HOME", value);
+            if value.is_empty() {
+                assert_eq!(
+                    agent_home(),
+                    "/home/bob",
+                    "an {what} override must fall back to the install user's home"
+                );
+            }
+        }
+
+        env_scope.unset("AGENTLINUX_AGENT_HOME");
+        assert_eq!(
+            agent_home(),
+            "/home/bob",
+            "unset falls back through the configured user, not a literal /home/agent"
+        );
+
+        // And an EMPTY AGENTLINUX_USER must not produce `/home/` either — the
+        // same guard one level down, in resolve_install_user.
+        env_scope.set("AGENTLINUX_USER", "");
+        assert_eq!(
+            agent_home(),
+            "/home/agent",
+            "an empty install user falls back to the default, not to /home/"
+        );
+    }
+
+    /// The recipe child env is the 6-var contract every catalog recipe reads.
+    /// Five mutants replaced the whole vector — empty, or one fabricated pair —
+    /// and nothing noticed. An empty child env means every recipe runs with no
+    /// pinned version, no catalog dir and no agent home.
+    #[test]
+    fn the_recipe_child_env_carries_the_named_contract() {
+        let mut entry = crate::catalog::FullCatalogEntry {
+            id: "claude-code".into(),
+            display_name: "C".into(),
+            description: "d".into(),
+            homepage: None,
+            license: None,
+            source_kind: Some("script".into()),
+            npm_package_name: None,
+            requires_secret: None,
+            secret_env: None,
+            endpoint_url: None,
+            pinned_version: "2.1.7".into(),
+            version_constraint: None,
+            compatibility_window: None,
+            install_recipe_path: "install.sh".into(),
+            uninstall_recipe_path: "uninstall.sh".into(),
+            rewire_recipe_path: None,
+            post_install_verify: None,
+            preserve_paths_file: None,
+            preserve_paths: Some(vec![".claude".into(), ".config/claude".into()]),
+            tags: Vec::new(),
+            test_only: false,
+        };
+
+        let env = recipe_child_env(
+            &entry,
+            "2.1.7",
+            std::path::Path::new("/opt/agentlinux/catalog/0.4.0"),
+            "bob",
+        );
+        let get = |k: &str| {
+            env.iter()
+                .find(|(n, _)| n == k)
+                .map(|(_, v)| v.clone())
+                .unwrap_or_else(|| panic!("{k} missing from the recipe child env"))
+        };
+
+        assert_eq!(get("AGENTLINUX_PINNED_VERSION"), "2.1.7");
+        assert_eq!(
+            get("AGENTLINUX_CATALOG_DIR"),
+            "/opt/agentlinux/catalog/0.4.0"
+        );
+        assert_eq!(
+            get("AGENTLINUX_AGENT_HOME"),
+            "/home/bob",
+            "the home follows the dispatch user, not the ambient one"
+        );
+        assert_eq!(get("AGENTLINUX_SOURCE_KIND"), "script");
+        assert_eq!(
+            get("AGENTLINUX_PRESERVE_PATHS"),
+            ".claude:.config/claude",
+            "preserve paths reach the recipe colon-joined"
+        );
+
+        // An entry with no preserve_paths yields the var EMPTY, not absent — the
+        // recipes read it unconditionally.
+        entry.preserve_paths = None;
+        let env = recipe_child_env(
+            &entry,
+            "2.1.7",
+            std::path::Path::new("/opt/agentlinux/catalog/0.4.0"),
+            "bob",
+        );
+        assert_eq!(
+            env.iter()
+                .find(|(n, _)| n == "AGENTLINUX_PRESERVE_PATHS")
+                .map(|(_, v)| v.as_str()),
+            Some("")
+        );
+    }
+
+    /// `<catalog_dir>/agents/<id>/<recipe>` — the path the dispatcher executes.
+    /// Both constant replacements survived; either one sends every install to
+    /// the same wrong script, or to none.
+    #[test]
+    fn a_recipe_resolves_under_its_agents_directory() {
+        assert_eq!(
+            recipe_path(
+                std::path::Path::new("/opt/agentlinux/catalog/0.4.0"),
+                "claude-code",
+                "install.sh"
+            ),
+            "/opt/agentlinux/catalog/0.4.0/agents/claude-code/install.sh"
+        );
+        // The id and the recipe name are BOTH interpolated, in that order.
+        assert_eq!(
+            recipe_path(std::path::Path::new("/c"), "gsd", "uninstall.sh"),
+            "/c/agents/gsd/uninstall.sh"
+        );
+    }
+
     #[test]
     fn into_env_pairs_yields_the_six_named_pairs() {
         let pairs = sample().into_env_pairs();
