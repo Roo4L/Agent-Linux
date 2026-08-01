@@ -17,6 +17,9 @@ jobs:
   # re-scored.
   rust-mutants:
     runs-on: ubuntu-24.04
+    # A shard is ~296 mutants at ~8s each — roughly 45 minutes. 120 caps the job
+    # above that with headroom, matching test.yml's rust job.
+    timeout-minutes: 120
     # NOT continue-on-error. Advisory means "a surviving mutant warns"; it does
     # NOT mean "a broken gate is fine". The previous version combined
     # continue-on-error with `|| echo "::warning::"`, so an invalid flag pair
@@ -61,9 +64,20 @@ jobs:
       # under plugin/catalog/, outside the rust/ workspace, so cargo-mutants'
       # default copy-tree isolation fails the baseline. Safe here — the runner
       # checkout is disposable and cargo-mutants restores each mutation.
+      # MUTATION_GATE_TIMEOUT is REQUIRED here, not optional. The gate defaults to
+      # 600s, which is a per-PR `--in-diff` figure — a full-workspace shard needs
+      # ~45 minutes, so every shard was killed mid-run and reported
+      # "a timed-out run is not a pass". That went unnoticed because this job had
+      # never executed: the schedule fires on master, master predates the Rust
+      # cutover, and the `rust/` guard above skipped the step every night. The
+      # first manual dispatch against a branch that HAS the Rust tree failed all
+      # four shards. Kept below the job cap so the gate's own SIGTERM wins and
+      # renders a verdict, rather than the runner killing the job silently.
       - name: Full-workspace mutation score (shard ${{ matrix.shard }}/4)
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
+        env:
+          MUTATION_GATE_TIMEOUT: 6600
         run: |
           ../scripts/mutation-gate.sh advisory \
             --in-place --shard ${{ matrix.shard }}/4 --minimum-test-timeout 20
