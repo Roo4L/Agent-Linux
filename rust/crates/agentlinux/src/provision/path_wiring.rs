@@ -61,9 +61,9 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     }
 
     // Ensure <home>/.local{,/bin} exist so the PATH prefix isn't a dangling
-    // reference. ensure_dir re-asserts mode+ownership.
-    sysio::ensure_dir(Path::new(&format!("{home}/.local")), 0o755, &owner)?;
-    sysio::ensure_dir(Path::new(&format!("{home}/.local/bin")), 0o755, &owner)?;
+    // reference (40-path-wiring.sh:49-52). ensure_dir re-asserts mode+ownership.
+    (ctx.fx.ensure_dir)(Path::new(&format!("{home}/.local")), 0o755, &owner)?;
+    (ctx.fx.ensure_dir)(Path::new(&format!("{home}/.local/bin")), 0o755, &owner)?;
 
     // The ONE canonical PATH string — reused for artefacts 3 AND 4 so the two
     // lines are byte-identical to each other AND to the recipe env
@@ -74,7 +74,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let profile = profile_d_content(user, home);
     sysio::write_file_atomic(
         0o644,
-        Path::new("/etc/profile.d/agentlinux.sh"),
+        &ctx.sys("/etc/profile.d/agentlinux.sh"),
         profile.as_bytes(),
     )?;
     crate::plog!("40-path-wiring: wrote /etc/profile.d/agentlinux.sh");
@@ -84,25 +84,25 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let bashrc_path = Path::new(&bashrc);
     // Create an empty user-owned file first if absent (minimal container with no
     // skel copy) so ensure_marker_block has a target.
-    sysio::create_if_absent_0644(bashrc_path, &owner)?;
+    sysio::create_if_absent_0644(bashrc_path, &owner, ctx.fx.chown)?;
     sysio::ensure_marker_block(bashrc_path, "agentlinux-path", BASHRC_BODY)?;
     // `ensure_marker_block` publishes through `write_file_atomic`, which sets 0644
     // on the tmpfile BEFORE the rename — so the mode is already correct and a
     // path-based `set_permissions` here would only re-open a name the install user
     // controls the directory of. Ownership still has to be re-asserted (the atomic
-    // write leaves the new inode root-owned), and it goes through an O_NOFOLLOW
-    // handle so a symlink swapped in after the rename cannot redirect the chown.
-    sysio::chown_by_name_nofollow(bashrc_path, &owner)?;
+    // write leaves the new inode root-owned), and the injected chown is the
+    // O_NOFOLLOW one, so a symlink swapped in after the rename cannot redirect it.
+    (ctx.fx.chown)(bashrc_path, &owner)?;
     crate::plog!("40-path-wiring: wrote agentlinux-path marker block to {bashrc} (--top)");
 
     // Artefact 3: /etc/agentlinux.env (0644 root:root) — literal KEY=VALUE.
     let env_file = agentlinux_env_content(user, home, &canonical_path);
-    sysio::write_file_atomic(0o644, Path::new("/etc/agentlinux.env"), env_file.as_bytes())?;
+    sysio::write_file_atomic(0o644, &ctx.sys("/etc/agentlinux.env"), env_file.as_bytes())?;
     crate::plog!("40-path-wiring: wrote /etc/agentlinux.env (systemd EnvironmentFile + cron header template)");
 
     // Artefact 4: /etc/cron.d/agentlinux (0644 root:root) — same PATH literal.
     let cron = cron_d_content(user, &canonical_path);
-    sysio::write_file_atomic(0o644, Path::new("/etc/cron.d/agentlinux"), cron.as_bytes())?;
+    sysio::write_file_atomic(0o644, &ctx.sys("/etc/cron.d/agentlinux"), cron.as_bytes())?;
     crate::plog!(
         "40-path-wiring: wrote /etc/cron.d/agentlinux (PATH + locale header; no default jobs)"
     );
@@ -436,5 +436,231 @@ fi"
         assert!(is_reused(StepResolution::ReuseWithWarning));
         assert!(is_reused(StepResolution::Remediate));
         assert!(!is_reused(StepResolution::Create));
+    }
+
+    // --- `run` itself, under a test root ---
+    //
+    // Ten content tests and none of them called `run`, so the wiring between the
+    // generators and the disk was unasserted: an artefact written 0755 instead of
+    // 0644, or a dropped `chown` after `ensure_marker_block` leaving `.bashrc`
+    // root-owned (the re-assert this file's own comment calls load-bearing), was
+    // invisible to `cargo test`.
+
+    use crate::provision::{Effects, StepResolution, StepResolutions};
+    use std::cell::RefCell;
+    use std::os::unix::fs::PermissionsExt;
+    use std::path::PathBuf;
+
+    thread_local! {
+        static CHOWNS: RefCell<Vec<(PathBuf, String)>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn fake_chown(path: &Path, owner: &str) -> io::Result<()> {
+        CHOWNS.with(|c| c.borrow_mut().push((path.to_path_buf(), owner.to_string())));
+        Ok(())
+    }
+
+    fn fake_ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
+        std::fs::create_dir_all(path)?;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+        fake_chown(path, owner)
+    }
+
+    fn chowns() -> Vec<(PathBuf, String)> {
+        CHOWNS.with(|c| c.borrow().clone())
+    }
+
+    /// A ctx rooted at `root` with `<root>/home/agent` as the install home and
+    /// the two system dirs the artefacts land in pre-created (they exist on
+    /// every real host).
+    fn ctx_at(root: &Path, user_resolution: StepResolution) -> ProvisionCtx {
+        CHOWNS.with(|c| c.borrow_mut().clear());
+        for dir in ["etc/profile.d", "etc/cron.d"] {
+            std::fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        let home = root.join("home/agent");
+        std::fs::create_dir_all(&home).unwrap();
+        ProvisionCtx {
+            root: root.to_path_buf(),
+            fx: Effects {
+                chown: fake_chown,
+                ensure_dir: fake_ensure_dir,
+                ..Effects::default()
+            },
+            install_user: "agent".into(),
+            install_home: home.to_string_lossy().into_owned(),
+            family: crate::distro::Family::Debian,
+            resolutions: StepResolutions {
+                user: user_resolution,
+                sudoers: StepResolution::Create,
+                node: StepResolution::Create,
+                npm_prefix: StepResolution::Create,
+            },
+        }
+    }
+
+    fn mode_of(path: &Path) -> u32 {
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o7777
+    }
+
+    #[test]
+    fn run_writes_all_four_artefacts_with_the_generated_bytes() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), StepResolution::Create);
+        run(&ctx).unwrap();
+
+        let home = &ctx.install_home;
+        let canonical = recipe_env::canonical_path(home);
+        let read = |p: PathBuf| std::fs::read_to_string(p).unwrap();
+
+        assert_eq!(
+            read(d.path().join("etc/profile.d/agentlinux.sh")),
+            profile_d_content("agent", home)
+        );
+        assert_eq!(
+            read(d.path().join("etc/agentlinux.env")),
+            agentlinux_env_content("agent", home, &canonical)
+        );
+        assert_eq!(
+            read(d.path().join("etc/cron.d/agentlinux")),
+            cron_d_content("agent", &canonical)
+        );
+        assert!(read(PathBuf::from(format!("{home}/.bashrc"))).contains(BASHRC_BODY));
+    }
+
+    #[test]
+    fn every_artefact_lands_at_0644() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), StepResolution::Create);
+        run(&ctx).unwrap();
+
+        for p in [
+            d.path().join("etc/profile.d/agentlinux.sh"),
+            d.path().join("etc/agentlinux.env"),
+            d.path().join("etc/cron.d/agentlinux"),
+            PathBuf::from(format!("{}/.bashrc", ctx.install_home)),
+        ] {
+            assert_eq!(mode_of(&p), 0o644, "{}", p.display());
+        }
+    }
+
+    #[test]
+    fn bashrc_ownership_is_reasserted_after_the_marker_block() {
+        // ensure_marker_block rewrites through write_file_atomic, which leaves
+        // the file owned by the writer (root). Without the re-assert the user
+        // cannot edit their own .bashrc outside our block.
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), StepResolution::Create);
+        run(&ctx).unwrap();
+
+        let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
+        assert!(
+            chowns().contains(&(bashrc, "agent:agent".to_string())),
+            "chowns={:?}",
+            chowns()
+        );
+    }
+
+    #[test]
+    fn the_local_bin_prefixes_are_created_owned_by_the_user() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), StepResolution::Create);
+        run(&ctx).unwrap();
+
+        for suffix in [".local", ".local/bin"] {
+            let p = PathBuf::from(format!("{}/{suffix}", ctx.install_home));
+            assert!(p.is_dir(), "{} must exist", p.display());
+            assert_eq!(mode_of(&p), 0o755);
+            assert!(chowns().contains(&(p.clone(), "agent:agent".to_string())));
+        }
+    }
+
+    #[test]
+    fn run_preserves_user_content_outside_the_marker_block() {
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), StepResolution::Create);
+        let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
+        std::fs::write(
+            &bashrc,
+            "case $- in *i*) ;; *) return;; esac\nalias ll='ls -l'\n",
+        )
+        .unwrap();
+
+        run(&ctx).unwrap();
+
+        let out = std::fs::read_to_string(&bashrc).unwrap();
+        assert!(out.contains("alias ll='ls -l'\n"), "user content survives");
+        let begin = out.find("# >>> agentlinux-path begin >>>").unwrap();
+        let skel = out.find("case $- in *i*)").unwrap();
+        assert!(begin < skel, "the block must precede the skel early-return");
+    }
+
+    #[test]
+    fn run_is_idempotent_across_repeated_provisions() {
+        // The whole step is advertised as safe to re-run; the classic failure is
+        // a second marker block (or a second PATH prepend) on the second pass.
+        let d = tempfile::TempDir::new().unwrap();
+        let ctx = ctx_at(d.path(), StepResolution::Create);
+        run(&ctx).unwrap();
+        let after_first: Vec<String> = [
+            "etc/profile.d/agentlinux.sh",
+            "etc/agentlinux.env",
+            "etc/cron.d/agentlinux",
+        ]
+        .iter()
+        .map(|p| std::fs::read_to_string(d.path().join(p)).unwrap())
+        .collect();
+        let bashrc = PathBuf::from(format!("{}/.bashrc", ctx.install_home));
+        let bashrc_first = std::fs::read_to_string(&bashrc).unwrap();
+
+        run(&ctx).unwrap();
+
+        for (i, p) in [
+            "etc/profile.d/agentlinux.sh",
+            "etc/agentlinux.env",
+            "etc/cron.d/agentlinux",
+        ]
+        .iter()
+        .enumerate()
+        {
+            assert_eq!(
+                std::fs::read_to_string(d.path().join(p)).unwrap(),
+                after_first[i],
+                "{p}"
+            );
+        }
+        let bashrc_second = std::fs::read_to_string(&bashrc).unwrap();
+        assert_eq!(bashrc_first, bashrc_second);
+        assert_eq!(
+            bashrc_second
+                .matches("# >>> agentlinux-path begin >>>")
+                .count(),
+            1
+        );
+    }
+
+    #[test]
+    fn run_wires_an_alternate_install_user_everywhere() {
+        // AL-59: every per-user path must interpolate the resolved user, and the
+        // three-way PATH equality must hold for that user's home too.
+        let d = tempfile::TempDir::new().unwrap();
+        let mut ctx = ctx_at(d.path(), StepResolution::Create);
+        let home = d.path().join("home/claude");
+        std::fs::create_dir_all(&home).unwrap();
+        ctx.install_user = "claude".into();
+        ctx.install_home = home.to_string_lossy().into_owned();
+
+        run(&ctx).unwrap();
+
+        let env3 = std::fs::read_to_string(d.path().join("etc/agentlinux.env")).unwrap();
+        let cron4 = std::fs::read_to_string(d.path().join("etc/cron.d/agentlinux")).unwrap();
+        assert!(env3.contains("AGENTLINUX_USER=claude\n"));
+        assert!(env3.contains(&format!("AGENTLINUX_AGENT_HOME={}\n", ctx.install_home)));
+        assert_eq!(path_line(&env3), path_line(&cron4));
+        assert_eq!(
+            path_line(&env3),
+            recipe_env::canonical_path(&ctx.install_home)
+        );
+        assert!(home.join(".bashrc").exists());
     }
 }

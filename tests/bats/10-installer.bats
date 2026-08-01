@@ -15,7 +15,6 @@ load 'helpers/assertions'
 load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 @test "INST-01: installer log file exists after initial run" {
   # The harness (tests/docker/run.sh) runs the installer BEFORE bats, so the
@@ -72,27 +71,18 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
   #     now the static musl bin (plugin/bin/agentlinux) with no shebang, so we
   #     hash the ENTIRE staged bin (equal-or-stronger than the old first-line
   #     shebang hash: whole-artifact byte-stability across a re-run, not just the
-  #     shebang). Under the AGENTLINUX_LEGACY_TS=1 rollback the staged artifact is
-  #     still the dist/index.js Node script, so we hash its shebang first line
-  #     as before. The regime is detected by which CLI file the provisioner
-  #     staged (bin/agentlinux vs dist/index.js).
+  #     shebang).
   local version
   version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)}
 
-  # Detect the shipped-artifact regime: the Rust provisioner (DIST-01, default)
-  # stages /opt/agentlinux/cli/<ver>/bin/agentlinux; the legacy TS provisioner
-  # stages /opt/agentlinux/cli/<ver>/dist/index.js. The INST-02 re-run below must
-  # invoke the SAME provisioner that produced the state, else idempotency crosses
-  # artifact regimes (a Rust-staged host re-run through the Bash entrypoint would
-  # flip the symlink from bin/agentlinux to dist/index.js and false-fail).
+  # The staged CLI is the musl bin (DIST-01). The legacy-TS regime it used to
+  # fall back to was deleted with plugin/cli/, and the fallback was worse than
+  # useless: with no staged bin, cli_pre and cli_post both became the sha256 of
+  # EMPTY STDIN, so the INST-02 idempotency assertion below passed vacuously on
+  # exactly the failure it exists to catch.
   local staged_bin="/opt/agentlinux/cli/${version}/bin/agentlinux"
-  local staged_ts="/opt/agentlinux/cli/${version}/dist/index.js"
-  local cli_regime
-  if [[ -f "$staged_bin" ]]; then
-    cli_regime=musl
-  else
-    cli_regime=ts
-  fi
+  [[ -f "$staged_bin" ]] \
+    || __fail "INST-02" "provisioner staged the CLI bin at ${staged_bin}" "not found" "$LOG"
   # distro_nodesource_repo_paths emits one path PER LINE (the rhel arm now emits
   # both nodesource-nodejs.repo AND nodesource-nsolid.repo, mirroring the product
   # nodesource_repo_paths). Read into an array so each path is a SEPARATE find
@@ -123,21 +113,13 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
   # the re-run (an idempotency break). ts regime (legacy rollback): sha256 of
   # the dist/index.js shebang first line, as before.
   local cli_pre
-  if [[ "$cli_regime" == musl ]]; then
-    cli_pre=$(sha256sum "$staged_bin" 2>/dev/null)
-  else
-    cli_pre=$(head -1 "$staged_ts" 2>/dev/null | sha256sum)
-  fi
+  cli_pre=$(sha256sum "$staged_bin")
 
   # Re-run the SAME provisioner that produced the state (regime-matched). musl:
   # the staged musl bin's `provision` verb (the DIST-01 default install path);
   # ts: the Bash agentlinux-install entrypoint (the legacy rollback path). Both
   # are idempotent — the second run must be byte-stable against the first.
-  if [[ "$cli_regime" == musl ]]; then
-    run "$staged_bin" provision --user agent --yes
-  else
-    run "$INSTALLER" provision
-  fi
+  run "$staged_bin" provision --user agent --yes
   assert_exit_zero "INST-02"
 
   find \
@@ -154,11 +136,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
   local sym_post cli_post
   sym_post=$(readlink /home/agent/.npm-global/bin/agentlinux 2>/dev/null || echo MISSING)
-  if [[ "$cli_regime" == musl ]]; then
-    cli_post=$(sha256sum "$staged_bin" 2>/dev/null)
-  else
-    cli_post=$(head -1 "$staged_ts" 2>/dev/null | sha256sum)
-  fi
+  cli_post=$(sha256sum "$staged_bin")
 
   if ! diff -q "$pre" "$post" >/dev/null 2>&1; then
     local delta
@@ -173,7 +151,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
          "before=${sym_pre} after=${sym_post}" "$LOG"
 
   [[ "$cli_pre" == "$cli_post" ]] \
-    || __fail "INST-02" "staged CLI entrypoint (${cli_regime}) byte-stable across re-run" \
+    || __fail "INST-02" "staged CLI bin byte-stable across re-run" \
          "before=${cli_pre} after=${cli_post}" "$LOG"
 }
 

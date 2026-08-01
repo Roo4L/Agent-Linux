@@ -162,6 +162,14 @@ pub fn reuse_gate(
         agent_home,
     } = paths;
     // Gate 1: window present (Pitfall 4 — empty string is absent).
+    //
+    // Deliberately redundant with gate 5, and not test-killable because of it:
+    // `satisfies(v, "")` is already false for every `v` (an empty range fails
+    // `VersionReq::parse`), so deleting this filter changes no verdict — an
+    // empty window still yields `None`, two gates later. Kept because it states
+    // the rule where a reader looks for it, and because gate 5 rejecting the
+    // empty range is an accident of the parser rather than a decision anyone
+    // wrote down.
     let window = entry
         .compatibility_window
         .as_deref()
@@ -722,17 +730,187 @@ mod proptests {
             canonical in proptest::option::of("[a-z/.0-9-]{0,30}"),
             gsd_system_path in "[a-z/.0-9-]{0,30}",
             agent_home in "[a-z/.0-9-]{0,20}",
+            // `canonical` and `det.path` drawn independently essentially never
+            // coincide, and EVERY reuse verdict is behind "the binary is where
+            // the catalog says it is". Without these two the reuse block below
+            // ran zero times in 20_000 cases — the assertions existed but were
+            // unreachable, so dropping a gate from `reuse_gate` still passed.
+            align_path in proptest::bool::weighted(0.5),
+            force_healthy in proptest::bool::weighted(0.5),
         ) {
-            // Each call returning without unwinding IS the totality proof.
+            let mut det = det;
+            if align_path {
+                if let Some(c) = canonical.as_deref() {
+                    det.path = c.to_string();
+                }
+            }
+            if force_healthy {
+                det.status = "healthy".to_string();
+            }
+
+            // Totality is the floor — `let _ = f(x)` on its own cannot fail for
+            // any implementation that returns. These are the postconditions that
+            // make each gate's OWN preconditions load-bearing.
             let hp = HostPaths {
                 canonical: canonical.as_deref(),
                 gsd_system_path: &gsd_system_path,
                 agent_home: &agent_home,
             };
-            let _ = reuse_gate(&entry, &det, hp);
-            let _ = remediate_gate(&entry, &det, hp);
-            let _ = presence_gate(&entry, &det, hp);
-            let _ = is_at_managed_path(&entry, &det.path, canonical.as_deref(), &gsd_system_path, &agent_home);
+            let reuse = reuse_gate(&entry, &det, hp);
+            let remediate = remediate_gate(&entry, &det, hp);
+            let presence = presence_gate(&entry, &det, hp);
+            let managed = is_at_managed_path(&entry, &det.path, canonical.as_deref(), &gsd_system_path, &agent_home);
+
+            if let Some(hit) = &reuse {
+                // A reuse candidate is ALWAYS a healthy binary at a managed path
+                // whose version parses and lies inside a declared window. Each of
+                // these is a separate early-return in the gate; dropping any one
+                // of them (e.g. reusing an unhealthy binary, or reusing with no
+                // compatibility_window) shows up here.
+                prop_assert_eq!(&det.status, "healthy");
+                prop_assert!(managed, "reuse candidate is not at a managed path");
+                prop_assert!(entry.compatibility_window.as_deref().is_some_and(|w| !w.is_empty()));
+                prop_assert!(semver_shim::valid(&hit.version).is_some());
+                prop_assert!(semver_shim::satisfies(
+                    &hit.version,
+                    entry.compatibility_window.as_deref().unwrap()
+                ));
+            }
+
+            if let Some(hit) = &remediate {
+                // A remediate hit is canonical-gated and carries the canonical
+                // path it will reinstall to, plus the path it actually found.
+                prop_assert_eq!(Some(hit.canonical_path.as_str()), canonical.as_deref());
+                prop_assert_eq!(&hit.detected_path, &det.path);
+                match hit.reason {
+                    RemediateReason::Broken => prop_assert_eq!(&det.status, "broken"),
+                    // The other reasons only fire for a healthy binary that is
+                    // NOT where the catalog says it should be.
+                    _ => prop_assert_eq!(&det.status, "healthy"),
+                }
+            }
+
+            // The two gates are mutually exclusive: a binary cannot both be
+            // reusable where it stands and need reinstalling elsewhere.
+            prop_assert!(
+                !(reuse.is_some() && remediate.is_some()),
+                "reuse and remediate both fired for {:?}", det
+            );
+
+            // Presence implies the binary was actually detected somewhere.
+            if presence.is_some() {
+                prop_assert_ne!(&det.status, "absent");
+            }
+        }
+    }
+
+    /// Build a `CatalogEntry` with a chosen id + compatibility window, the two
+    /// fields `reuse_gate` reads.
+    fn entry_with(id: &str, window: &str) -> CatalogEntry {
+        let mut json = serde_json::json!({ "id": id, "pinned_version": "1.0.0" });
+        if !window.is_empty() {
+            json["compatibility_window"] = serde_json::json!(window);
+        }
+        serde_json::from_value(json).expect("prop entry deserializes")
+    }
+
+    proptest! {
+        /// `reuse_gate`'s five gates, from a generator that can actually REACH a
+        /// reuse verdict.
+        ///
+        /// `all_gates_total` above cannot: its fields are drawn independently, so
+        /// the five preconditions never coincide. Instrumented over 256 cases it
+        /// hit managed-path 70 times, a non-empty window 91, healthy 164 and a
+        /// parseable version 112 — and a reuse candidate ZERO times, because the
+        /// version also has to satisfy the window. Removing the healthy gate from
+        /// `reuse_gate` entirely left it green.
+        ///
+        /// Here the four inputs are drawn from small aligned domains so every
+        /// combination is common, and the assertions run both ways: whatever
+        /// `reuse_gate` accepts must satisfy all five gates, and whatever
+        /// satisfies all five must be accepted.
+        #[test]
+        fn a_reuse_verdict_satisfies_every_gate_and_vice_versa(
+            id in "[a-z][a-z-]{0,7}",
+            canonical in "/[a-z]{1,8}/[a-z]{1,8}",
+            major in 0u32..3,
+            minor in 0u32..4,
+            patch in 0u32..4,
+            window in prop_oneof![
+                Just(">=1.0.0 <2.0.0"),
+                Just("^1.0"),
+                Just(">=9.0.0"),
+                Just(""),
+            ],
+            status in prop_oneof![
+                Just("healthy"),
+                Just("broken"),
+                Just("absent"),
+                Just("degraded"),
+            ],
+            at_canonical in proptest::bool::ANY,
+            // Gate 4 rejects a version that does not parse. Without a source of
+            // unparseable versions that gate is never exercised negatively, and
+            // replacing `semver_shim::valid(..)?` with a plain clone survives.
+            version_is_junk in proptest::bool::weighted(0.25),
+        ) {
+            let entry = entry_with(&id, window);
+            let version = if version_is_junk {
+                "not-a-version".to_string()
+            } else {
+                format!("{major}.{minor}.{patch}")
+            };
+            let path = if at_canonical {
+                canonical.clone()
+            } else {
+                format!("{canonical}/somewhere-else")
+            };
+            let det = DetectedAgent {
+                id: id.clone(),
+                status: status.to_string(),
+                path,
+                version: version.clone(),
+            };
+            let hp = HostPaths {
+                canonical: Some(&canonical),
+                // `id` is drawn from a charset that can produce "gsd", which has a
+                // second valid presence; keep that path unreachable here so
+                // `at_canonical` is the only way to be at a managed path.
+                gsd_system_path: "/no/such/gsd/system/path",
+                agent_home: "/home/agent",
+            };
+
+            let reuse = reuse_gate(&entry, &det, hp);
+
+            // Forward: nothing is reused unless EVERY gate passed. Deleting any
+            // one of them from `reuse_gate` fails here.
+            if let Some(hit) = &reuse {
+                prop_assert_eq!(&det.status, "healthy", "reused a non-healthy binary");
+                prop_assert!(at_canonical, "reused a binary off its canonical path");
+                prop_assert!(!window.is_empty(), "reused with no compatibility window");
+                prop_assert!(
+                    semver_shim::valid(&det.version).is_some(),
+                    "reused an unparseable version {}", det.version
+                );
+                prop_assert!(
+                    semver_shim::satisfies(&hit.version, window),
+                    "reused {} outside window {}", hit.version, window
+                );
+            }
+
+            // Converse: everything that passes all five gates IS reused. Adding a
+            // spurious extra condition — or tightening one — fails here.
+            let eligible = status == "healthy"
+                && at_canonical
+                && !window.is_empty()
+                && semver_shim::valid(&version).is_some()
+                && semver_shim::satisfies(&version, window);
+            if eligible {
+                prop_assert!(
+                    reuse.is_some(),
+                    "refused a reuse-eligible binary: v{} window {}", version, window
+                );
+            }
         }
     }
 }

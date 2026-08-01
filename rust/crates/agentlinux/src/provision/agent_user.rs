@@ -90,6 +90,12 @@ precisely the bug class AgentLinux exists to prevent.";
 /// `run` — the 10-agent-user.sh port. `ctx.resolutions.user` selects the path;
 /// the CREATE steps run only for `Create`, the DOC-02 block runs unconditionally
 /// (except `Bail`, which is a defensive error).
+///
+/// Not mutation-tested: an ADR-019 §5 seam gap. Reaches `useradd` with no
+/// injection point, so its mutants are unreachable until `Effects` covers the
+/// user-creation path. Skipped with a back-reference rather than left to redden
+/// the enforcing gate for whoever's diff lands here (ADR-020 §4, third case).
+#[cfg_attr(test, mutants::skip)]
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     let reused = match ctx.resolutions.user {
         StepResolution::Create => false,
@@ -155,7 +161,7 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // Without the create-if-absent guard, a pre-planted `~/CLAUDE.md -> /etc/shadow`
     // had root read the target, preserve every line of it through the marker strip,
     // and publish it back as a 0644 file chowned to the agent. No race required.
-    sysio::create_if_absent_0644(&claude_md, &owner)?;
+    sysio::create_if_absent_0644(&claude_md, &owner, ctx.fx.chown)?;
     sysio::ensure_marker_block(&claude_md, "agentlinux-doc-02", DOC02_BODY)?;
 
     // `write_file_atomic` already set 0644 on the tmpfile before the rename, so the

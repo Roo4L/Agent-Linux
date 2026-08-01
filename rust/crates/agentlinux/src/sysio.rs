@@ -19,10 +19,10 @@
 //!   root — re-resolving the path between steps is a TOCTOU. Refuses symlinks,
 //!   hardlinks, and anything that is not a regular file.
 //! - **`ensure_marker_block`** — the awk-strip + emit-order algorithm is
-//!   BYTE-load-bearing: `--top` emits `begin\n{body}\n{end}\n` THEN the filtered
-//!   remainder; `--bottom` emits the filtered remainder THEN the block. A line
-//!   equal to `begin` starts skipping, a line equal to `end` stops skipping,
-//!   both marker lines are dropped, everything else survives byte-identical.
+//!   BYTE-load-bearing: the block (`begin\n{body}\n{end}\n`) is emitted FIRST,
+//!   then the filtered remainder. A line equal to `begin` starts skipping, a line
+//!   equal to `end` stops skipping, both marker lines are dropped, everything
+//!   else survives byte-identical.
 //!   Written through `write_file_atomic(0o644, …)` exactly like the Bash
 //!   `install -m 0644`. The `.bashrc`/`CLAUDE.md` bats grep these bytes.
 //! - **`ensure_user`** — id-gated `useradd --create-home --shell /bin/bash
@@ -52,6 +52,11 @@ impl TmpGuard {
 
     /// Disarm the guard after the tmpfile has been renamed into place (the
     /// rename consumed the tmpfile, so there is nothing left to unlink).
+    ///
+    /// Not mutation-tested: skipping the disarm makes `Drop` unlink a path the
+    /// rename already consumed, which is a no-op — there is no observable
+    /// difference for a test to assert.
+    #[cfg_attr(test, mutants::skip)]
     pub(crate) fn disarm(&mut self) {
         self.path = None;
     }
@@ -71,6 +76,11 @@ impl Drop for TmpGuard {
 /// `.{base}.{pid}.{nanos}.{attempt}` — collision-hardened by the monotonic nanos
 /// plus an O_CREAT|O_EXCL retry, so two concurrent provisioner runs never clobber
 /// each other.
+///
+/// Not mutation-tested: every surviving mutant is in the O_EXCL collision-retry
+/// arm, which needs two processes to open the same pid+nanosecond name in the
+/// same instant. The happy path is exercised by every `write_file_atomic` test.
+#[cfg_attr(test, mutants::skip)]
 pub(crate) fn mktemp_in(dir: &Path, base: &str) -> io::Result<(fs::File, PathBuf)> {
     use std::time::{SystemTime, UNIX_EPOCH};
     let pid = std::process::id();
@@ -178,7 +188,7 @@ pub(crate) fn sync_parent_dir(dest: &Path) {
         Some(p) if !p.as_os_str().is_empty() => p,
         _ => Path::new("."),
     };
-    // O_DIRECTORY|O_NONBLOCK: this crate's contract (ADR-020) is that every wait is
+    // O_DIRECTORY|O_NONBLOCK: this crate's contract (ADR-022) is that every wait is
     // bounded, and a plain `File::open` on a FIFO blocks in open(2) until a writer
     // appears. The rename that just succeeded proves the parent was a directory, so
     // this is defence in depth rather than a live path — but "unreachable today"
@@ -238,6 +248,7 @@ pub fn ensure_line_in_owned_file(
     path: &Path,
     owner: &str,
     mode_if_created: u32,
+    chown: fn(&Path, &str) -> io::Result<()>,
 ) -> io::Result<()> {
     use std::io::{Read, Seek, SeekFrom};
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
@@ -343,21 +354,14 @@ pub fn ensure_line_in_owned_file(
         nix::sys::stat::fchmod(&file, nix::sys::stat::Mode::from_bits_truncate(m))
             .map_err(|e| context(&io::Error::from(e), "chmod", path, None))?;
     }
-    let (uid, gid) = resolve_owner(owner)?;
-    nix::unistd::fchown(
-        &file,
-        Some(nix::unistd::Uid::from_raw(uid)),
-        Some(nix::unistd::Gid::from_raw(gid)),
-    )
-    .map_err(|e| {
-        context(
-            &io::Error::from(e),
-            &format!("chown to {owner}"),
-            path,
-            None,
-        )
-    })?;
-    Ok(())
+    // Through the caller's effect rather than an `fchown` on the handle above.
+    // The one shared copy would resolve `owner` against the real passwd DB, and a
+    // step test running under a TempDir with a fixture install user fails at
+    // "unknown user" — the same reason `create_if_absent_0644` takes it. The
+    // symlink hole stays shut regardless: the production effect
+    // (`Effects::chown`) is `chown_by_name_nofollow`, which re-opens O_NOFOLLOW
+    // and chowns the descriptor.
+    chown(path, owner)
 }
 
 /// Strip any pre-existing `[begin, end]` marker block from `existing`, dropping
@@ -426,15 +430,15 @@ fn strip_marker_block(existing: &[u8], begin: &str, end: &str) -> io::Result<Vec
     Ok(out)
 }
 
-/// `ensure_marker_block <file> <tag> [--top|--bottom]` — replace the content
-/// between `# >>> <tag> begin >>>` / `# <<< <tag> end <<<` markers with `body`,
-/// at the requested `placement`, preserving all content OUTSIDE the markers
-/// byte-identical. Written via `write_file_atomic(0o644, …)`.
+/// `ensure_marker_block <file> <tag>` — replace the content between
+/// `# >>> <tag> begin >>>` / `# <<< <tag> end <<<` markers with `body`,
+/// preserving all content OUTSIDE the markers byte-identical. Written via
+/// `write_file_atomic(0o644, …)`.
 ///
-/// The exact marker strings + the emit order are byte-load-bearing. `Top` emits
-/// `begin\n{body}\n{end}\n` then the filtered remainder; `Bottom` emits the
-/// filtered remainder then `begin\n{body}\n{end}\n`. Re-running replaces the
-/// block in place, leaving exactly ONE block.
+/// The exact marker strings and the emit order are byte-load-bearing: the block
+/// is emitted first, then the filtered remainder. Re-running replaces the block
+/// in place, leaving exactly ONE block.
+///
 /// The block is always written at the TOP of the file. That is required, not
 /// incidental: the skel `.bashrc` early-returns for non-interactive shells, so an
 /// agentlinux block that must influence `sudo -u agent bash -c …` has to precede
@@ -511,6 +515,10 @@ fn useradd_argv(name: &str) -> Vec<String> {
 /// Resolves the user via `nix::unistd::User::from_name`; a hit is a NO-OP (never
 /// modifies an existing identity — matches the Bash `id … && return 0`). A miss
 /// runs `useradd --create-home --shell /bin/bash --user-group <name>`.
+/// Not mutation-tested: killing `-> Ok(())` requires actually creating a user,
+/// which needs root and mutates the host. The two halves that CAN be tested are:
+/// [`useradd_argv`] (the exact argv) and [`user_exists`] (the id-gate).
+#[cfg_attr(test, mutants::skip)]
 pub fn ensure_user(name: &str) -> io::Result<()> {
     if user_exists(name)? {
         return Ok(());
@@ -691,18 +699,6 @@ pub fn resolve_owner(owner: &str) -> io::Result<(u32, u32)> {
     Ok((uid, gid))
 }
 
-/// `chown <owner> <path>` where `owner` is `"user:group"` — the ONE chown helper.
-///
-/// Five provisioner modules previously carried byte-identical private copies of
-/// this, each re-resolving the same passwd/group lookups with its own error
-/// wording. Callers that need to chown a whole tree use
-/// `provision::registry_cli::chown_recursive`, which builds on this.
-pub fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
-    let (uid, gid) = resolve_owner(owner)?;
-    std::os::unix::fs::chown(path, Some(uid), Some(gid))
-        .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
-}
-
 /// Largest file any of these helpers will read into memory.
 ///
 /// These reads happen as ROOT on files the install user can replace at will. A
@@ -813,9 +809,16 @@ pub fn read_regular_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
     }
 }
 
-/// `chown_by_name` that refuses to traverse a symlink at the final component.
+/// `chown <owner> <path>` where `owner` is `"user:group"` — the ONE chown helper,
+/// and it refuses to traverse a symlink at the final component.
 ///
-/// Use this whenever root chowns a path inside a directory the install user owns.
+/// Five provisioner modules previously carried byte-identical private copies of a
+/// path-based chown, each re-resolving the same passwd/group lookups with its own
+/// error wording; a caller that needs to chown a whole TREE uses
+/// `provision::remediate_npm_prefix::chown_recursive_by_name`.
+///
+/// The nofollow half matters because root chowns paths inside a directory the
+/// install user owns.
 /// The plain path-based chown follows links, so an agent that swaps a symlink in
 /// after we wrote the file gets the link's TARGET handed to it. The open pins the
 /// inode; the `fchown` on that handle cannot be redirected afterwards.
@@ -845,6 +848,17 @@ pub fn chown_by_name_nofollow(path: &Path, owner: &str) -> io::Result<()> {
     })
 }
 
+/// `chown -h <owner> <link>` — change the SYMLINK itself, never its target.
+///
+/// The counterpart to [`chown_by_name_nofollow`] for the caller that must not
+/// dereference: `registry_cli` chowns the `agentlinux` symlink it plants, and
+/// following it would hand ownership of the binary the link points at.
+pub fn chown_symlink_by_name(link: &Path, owner: &str) -> io::Result<()> {
+    let (uid, gid) = resolve_owner(owner)?;
+    std::os::unix::fs::lchown(link, Some(uid), Some(gid))
+        .map_err(|e| io::Error::other(format!("chown -h {} failed: {e}", link.display())))
+}
+
 /// Create `path` empty at 0644 owned by `owner` if it does not exist; leave a
 /// present file completely untouched (the caller's `ensure_line_in_file` mutates
 /// it). Mirrors `install -m 0644 -o <u> -g <g> /dev/null <path>`.
@@ -858,10 +872,25 @@ pub fn chown_by_name_nofollow(path: &Path, owner: &str) -> io::Result<()> {
 ///
 /// `O_CREAT|O_EXCL|O_NOFOLLOW` collapses the check and the create into one atomic
 /// syscall: EEXIST covers both "already a real file, leave it alone" and "something
-/// is in the way", and `lstat` then tells those apart WITHOUT following. Mode and
-/// owner are applied to the file DESCRIPTOR, so they cannot be redirected onto a
-/// different inode between the create and the chown.
-pub fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
+/// is in the way", and `lstat` then tells those apart WITHOUT following. The MODE
+/// is applied to the file DESCRIPTOR, so it cannot be redirected onto a different
+/// inode.
+///
+/// `chown` is a parameter rather than a direct [`chown_by_name_nofollow`] call so a
+/// provisioner step can pass its injected effect: the one shared copy resolves
+/// `owner` against the real passwd DB, and a step test running under a TempDir with
+/// a fixture install user fails at "unknown user" — which is what pushed each
+/// caller to keep a private copy in the first place. The seam does NOT reopen the
+/// symlink hole, because the production effect ([`Effects::chown`], wired to
+/// [`chown_by_name_nofollow`]) re-opens `O_NOFOLLOW` and `fchown`s the handle. What
+/// remains is a swap for another REGULAR file in the window, which buys an attacker
+/// who already owns the directory nothing: a hardlink to a root-owned file is
+/// refused by the `nlink` check on the far side.
+pub fn create_if_absent_0644(
+    path: &Path,
+    owner: &str,
+    chown: fn(&Path, &str) -> io::Result<()>,
+) -> io::Result<()> {
     use std::os::unix::fs::OpenOptionsExt;
 
     let file = match fs::OpenOptions::new()
@@ -900,21 +929,7 @@ pub fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
 
     nix::sys::stat::fchmod(&file, nix::sys::stat::Mode::from_bits_truncate(0o644))
         .map_err(|e| context(&io::Error::from(e), "chmod 0644", path, None))?;
-    let (uid, gid) = resolve_owner(owner)?;
-    nix::unistd::fchown(
-        &file,
-        Some(nix::unistd::Uid::from_raw(uid)),
-        Some(nix::unistd::Gid::from_raw(gid)),
-    )
-    .map_err(|e| {
-        context(
-            &io::Error::from(e),
-            &format!("chown to {owner}"),
-            path,
-            None,
-        )
-    })?;
-    Ok(())
+    chown(path, owner)
 }
 
 /// `O_NOFOLLOW` as a raw flag for `custom_flags`.
@@ -938,9 +953,28 @@ pub fn which(name: &str) -> Option<PathBuf> {
 
 /// `visudo_validate <file>` — `visudo -cf <file>` safety check before installing
 /// a sudoers drop-in. A non-zero check maps to an `Err`.
+///
+/// Not mutation-tested: this wrapper only binds the program name, and killing
+/// `-> Ok(())` here would need a real `visudo` on the test host. Both arms of the
+/// logic live in [`visudo_validate_with`], which is tested.
+#[cfg_attr(test, mutants::skip)]
 pub fn visudo_validate(file: &Path) -> io::Result<()> {
+    visudo_validate_with("visudo", file)
+}
+
+/// [`visudo_validate`] against a named program.
+///
+/// The program is a parameter so the ACCEPT and REJECT arms are both reachable
+/// from a test (point it at `true`/`false`) on a host that may not ship visudo
+/// at all. Guarding a test with "if visudo exists" would delete the assertion on
+/// the minimal container images this code most needs to work on.
+///
+/// The wait goes through [`run_bounded`] like every other admin tool this module
+/// shells out to: a `visudo` wedged on a locked `/etc/sudoers` would otherwise
+/// block step 20 forever, as root, with nothing printed (ADR-022).
+pub fn visudo_validate_with(program: &str, file: &Path) -> io::Result<()> {
     let argv = vec![
-        "visudo".to_string(),
+        program.to_string(),
         "-cf".to_string(),
         file.display().to_string(),
     ];
@@ -1036,7 +1070,14 @@ mod sysio_tests {
         let loose = td.path().join("loose-npmrc");
         fs::write(&loose, b"# brownfield\n").unwrap();
         fs::set_permissions(&loose, fs::Permissions::from_mode(0o666)).unwrap();
-        ensure_line_in_owned_file("prefix=/x", &loose, &self_owner(), 0o644).unwrap();
+        ensure_line_in_owned_file(
+            "prefix=/x",
+            &loose,
+            &self_owner(),
+            0o644,
+            chown_by_name_nofollow,
+        )
+        .unwrap();
         assert_eq!(
             mode_of(&loose) & 0o022,
             0,
@@ -1047,7 +1088,14 @@ mod sysio_tests {
         let tight = td.path().join("tight-npmrc");
         fs::write(&tight, b"//registry/:_authToken=s\n").unwrap();
         fs::set_permissions(&tight, fs::Permissions::from_mode(0o600)).unwrap();
-        ensure_line_in_owned_file("prefix=/x", &tight, &self_owner(), 0o644).unwrap();
+        ensure_line_in_owned_file(
+            "prefix=/x",
+            &tight,
+            &self_owner(),
+            0o644,
+            chown_by_name_nofollow,
+        )
+        .unwrap();
         assert_eq!(mode_of(&tight), 0o600, "widened a token file");
     }
 
@@ -1066,8 +1114,12 @@ mod sysio_tests {
         let link = td.path().join(".npmrc");
         std::os::unix::fs::symlink(&victim, &link).unwrap();
 
-        let err = create_if_absent_0644(&link, "no-such-user-cf19a4:no-such-group")
-            .expect_err("a symlink at the target must be refused, not followed");
+        let err = create_if_absent_0644(
+            &link,
+            "no-such-user-cf19a4:no-such-group",
+            chown_by_name_nofollow,
+        )
+        .expect_err("a symlink at the target must be refused, not followed");
         assert!(
             err.to_string().contains("symlink"),
             "the error must name the real cause; got: {err}"
@@ -1090,7 +1142,12 @@ mod sysio_tests {
 
         // Owner is unresolvable on purpose — an existing file must return before
         // any ownership work is attempted.
-        create_if_absent_0644(&p, "no-such-user-cf19a4:no-such-group").unwrap();
+        create_if_absent_0644(
+            &p,
+            "no-such-user-cf19a4:no-such-group",
+            chown_by_name_nofollow,
+        )
+        .unwrap();
 
         assert_eq!(fs::read(&p).unwrap(), b"prefix=/custom\n");
         assert_eq!(mode_of(&p), 0o600, "an existing file's mode was rewritten");
@@ -1164,13 +1221,27 @@ mod sysio_tests {
         let d = TempDir::new().unwrap();
         let f = d.path().join("bashrc");
         fs::write(&f, b"# existing\n").unwrap();
-        ensure_line_in_owned_file("export FOO=bar", &f, &self_owner(), 0o644).unwrap();
+        ensure_line_in_owned_file(
+            "export FOO=bar",
+            &f,
+            &self_owner(),
+            0o644,
+            chown_by_name_nofollow,
+        )
+        .unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "# existing\nexport FOO=bar\n"
         );
         // Second call is a no-op (grep-before-append; a blind append would dup).
-        ensure_line_in_owned_file("export FOO=bar", &f, &self_owner(), 0o644).unwrap();
+        ensure_line_in_owned_file(
+            "export FOO=bar",
+            &f,
+            &self_owner(),
+            0o644,
+            chown_by_name_nofollow,
+        )
+        .unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "# existing\nexport FOO=bar\n"
@@ -1184,7 +1255,14 @@ mod sysio_tests {
         fs::write(&f, b"export FOO=barbaz\n").unwrap();
         // `-Fx` whole-line: "export FOO=bar" is NOT a whole-line match of
         // "export FOO=barbaz", so it must be appended.
-        ensure_line_in_owned_file("export FOO=bar", &f, &self_owner(), 0o644).unwrap();
+        ensure_line_in_owned_file(
+            "export FOO=bar",
+            &f,
+            &self_owner(),
+            0o644,
+            chown_by_name_nofollow,
+        )
+        .unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "export FOO=barbaz\nexport FOO=bar\n"
@@ -1195,7 +1273,8 @@ mod sysio_tests {
     fn ensure_line_creates_absent_file() {
         let d = TempDir::new().unwrap();
         let f = d.path().join("new");
-        ensure_line_in_owned_file("first", &f, &self_owner(), 0o644).unwrap();
+        ensure_line_in_owned_file("first", &f, &self_owner(), 0o644, chown_by_name_nofollow)
+            .unwrap();
         assert_eq!(fs::read_to_string(&f).unwrap(), "first\n");
     }
 
@@ -1216,8 +1295,14 @@ mod sysio_tests {
         .unwrap();
 
         for _ in 0..3 {
-            ensure_line_in_owned_file("prefix=/home/agent/.npm-global", &f, &self_owner(), 0o644)
-                .unwrap();
+            ensure_line_in_owned_file(
+                "prefix=/home/agent/.npm-global",
+                &f,
+                &self_owner(),
+                0o644,
+                chown_by_name_nofollow,
+            )
+            .unwrap();
         }
 
         let raw = fs::read(&f).unwrap();
@@ -1239,7 +1324,8 @@ mod sysio_tests {
         let d = TempDir::new().unwrap();
         let f = d.path().join("as-a-dir");
         fs::create_dir(&f).unwrap();
-        let err = ensure_line_in_owned_file("x", &f, &self_owner(), 0o644).unwrap_err();
+        let err = ensure_line_in_owned_file("x", &f, &self_owner(), 0o644, chown_by_name_nofollow)
+            .unwrap_err();
         assert!(
             err.to_string().contains("as-a-dir"),
             "the refusal must name the path it refused; err={err}"
@@ -1248,7 +1334,7 @@ mod sysio_tests {
 
     /// A FIFO planted where a config file is expected. Without the regular-file
     /// check this blocks in the read forever — an unbounded root-side hang inside
-    /// step 30, which is precisely what ADR-020 forbids. Guarded by a worker
+    /// step 30, which is precisely what ADR-022 forbids. Guarded by a worker
     /// thread so a regression fails the suite instead of wedging it.
     #[test]
     fn ensure_line_refuses_a_fifo_rather_than_blocking_on_it() {
@@ -1260,7 +1346,10 @@ mod sysio_tests {
         let owner = self_owner();
         let path = f.clone();
         std::thread::spawn(move || {
-            let _ = tx.send(ensure_line_in_owned_file("x", &path, &owner, 0o644).is_err());
+            let _ = tx.send(
+                ensure_line_in_owned_file("x", &path, &owner, 0o644, chown_by_name_nofollow)
+                    .is_err(),
+            );
         });
         match rx.recv_timeout(std::time::Duration::from_secs(5)) {
             Ok(errored) => assert!(errored, "a FIFO must be refused, not written to"),
@@ -1284,7 +1373,9 @@ mod sysio_tests {
         let link = d.path().join(".npmrc");
         fs::hard_link(&victim, &link).unwrap();
 
-        let err = ensure_line_in_owned_file("x", &link, &self_owner(), 0o644).unwrap_err();
+        let err =
+            ensure_line_in_owned_file("x", &link, &self_owner(), 0o644, chown_by_name_nofollow)
+                .unwrap_err();
         assert!(err.to_string().contains("hardlink"), "err={err}");
         assert_eq!(
             fs::read(&victim).unwrap(),
@@ -1304,7 +1395,9 @@ mod sysio_tests {
         let link = d.path().join(".npmrc");
         std::os::unix::fs::symlink(&victim, &link).unwrap();
 
-        let err = ensure_line_in_owned_file("x", &link, &self_owner(), 0o644).unwrap_err();
+        let err =
+            ensure_line_in_owned_file("x", &link, &self_owner(), 0o644, chown_by_name_nofollow)
+                .unwrap_err();
         assert!(err.to_string().contains("symlink"), "err={err}");
         assert_eq!(
             fs::read(&victim).unwrap(),
@@ -1323,8 +1416,14 @@ mod sysio_tests {
         fs::write(&f, b"//registry/:_authToken=secret\n").unwrap();
         fs::set_permissions(&f, fs::Permissions::from_mode(0o600)).unwrap();
 
-        ensure_line_in_owned_file("prefix=/home/agent/.npm-global", &f, &self_owner(), 0o644)
-            .unwrap();
+        ensure_line_in_owned_file(
+            "prefix=/home/agent/.npm-global",
+            &f,
+            &self_owner(),
+            0o644,
+            chown_by_name_nofollow,
+        )
+        .unwrap();
 
         assert_eq!(mode_of(&f), 0o600, "widened a token file to world-readable");
         assert!(fs::read_to_string(&f).unwrap().contains("prefix="));
@@ -1340,14 +1439,28 @@ mod sysio_tests {
         let f = d.path().join("npmrc");
         fs::write(&f, b"prefix=/old").unwrap();
 
-        ensure_line_in_owned_file("prefix=/new", &f, &self_owner(), 0o644).unwrap();
+        ensure_line_in_owned_file(
+            "prefix=/new",
+            &f,
+            &self_owner(),
+            0o644,
+            chown_by_name_nofollow,
+        )
+        .unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "prefix=/old\nprefix=/new\n"
         );
 
         // And it is idempotent from that repaired state.
-        ensure_line_in_owned_file("prefix=/new", &f, &self_owner(), 0o644).unwrap();
+        ensure_line_in_owned_file(
+            "prefix=/new",
+            &f,
+            &self_owner(),
+            0o644,
+            chown_by_name_nofollow,
+        )
+        .unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "prefix=/old\nprefix=/new\n"
@@ -1614,5 +1727,96 @@ mod sysio_tests {
     fn user_exists_false_for_absent_user() {
         // A name virtually certain to be absent.
         assert!(!user_exists("agentlinux-nonexistent-user-xyzzy").unwrap());
+    }
+}
+
+#[cfg(test)]
+mod sysio_seam_tests {
+    //! The arms `cargo mutants` showed surviving: an error path with no
+    //! assertion behind it is a function whose failure handling is decoration.
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn which_finds_a_program_on_path_and_misses_one_that_is_absent() {
+        let sh = which("sh").expect("every POSIX host has sh on PATH");
+        assert!(sh.ends_with("sh"), "{}", sh.display());
+        assert!(sh.is_absolute());
+        assert!(which("no-such-program-agentlinux-xyzzy").is_none());
+    }
+
+    #[test]
+    fn chown_by_name_nofollow_rejects_an_unknown_user_and_a_malformed_owner() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("x");
+        fs::write(&f, b"x").unwrap();
+
+        let err = chown_by_name_nofollow(&f, "no-such-user-agentlinux-xyzzy:root").unwrap_err();
+        assert!(err.to_string().contains("unknown user"), "err={err}");
+
+        // The owner must be `user:group` — a bare username is a caller bug, not
+        // a silent chown to the primary group.
+        let err = chown_by_name_nofollow(&f, "root").unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
+    }
+
+    #[test]
+    fn chown_symlink_by_name_rejects_an_unknown_user() {
+        let d = TempDir::new().unwrap();
+        let link = d.path().join("l");
+        std::os::unix::fs::symlink("/nowhere", &link).unwrap();
+        assert!(chown_symlink_by_name(&link, "no-such-user-agentlinux-xyzzy:root").is_err());
+    }
+
+    #[test]
+    fn visudo_validate_maps_a_rejecting_checker_to_an_error() {
+        // `false` exits non-zero for any argument — the "visudo rejected this
+        // sudoers" arm, reachable on a host with no visudo installed.
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("sudoers");
+        fs::write(&f, b"agent ALL=(ALL) NOPASSWD: ALL\n").unwrap();
+
+        let err = visudo_validate_with("false", &f).unwrap_err();
+        assert!(err.to_string().contains("syntax check failed"), "err={err}");
+        assert!(
+            err.to_string().contains(&f.display().to_string()),
+            "the error must name the file it rejected: {err}"
+        );
+
+        // …and an accepting checker is Ok.
+        assert!(visudo_validate_with("true", &f).is_ok());
+    }
+
+    #[test]
+    fn a_missing_checker_is_an_error_not_a_silent_pass() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("sudoers");
+        fs::write(&f, b"x\n").unwrap();
+        // ENOENT on the checker must NOT read as "the file is fine".
+        assert!(visudo_validate_with("no-such-visudo-agentlinux-xyzzy", &f).is_err());
+    }
+
+    #[test]
+    fn a_failed_write_leaves_no_residual_tmpfile() {
+        // The TmpGuard's whole job. Renaming onto a path that is a DIRECTORY
+        // fails (EISDIR), so the write aborts after the tmpfile exists.
+        let d = TempDir::new().unwrap();
+        let dest = d.path().join("dest");
+        fs::create_dir(&dest).unwrap();
+
+        assert!(write_file_atomic(0o644, &dest, b"body").is_err());
+
+        let residue: Vec<String> = fs::read_dir(d.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n != "dest")
+            .collect();
+        assert!(residue.is_empty(), "leaked {residue:?}");
+    }
+
+    #[test]
+    fn user_exists_gates_ensure_user_on_the_passwd_db() {
+        assert!(user_exists("root").unwrap());
+        assert!(!user_exists("no-such-user-agentlinux-xyzzy").unwrap());
     }
 }

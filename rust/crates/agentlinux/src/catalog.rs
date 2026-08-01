@@ -148,7 +148,15 @@ pub struct FullCatalogEntry {
 /// accept one (you have to be able to remove what you installed). That is a real
 /// per-verb difference, so it stays at the call sites that have it.
 #[must_use]
-pub fn find_entry<'a>(agents: &'a [FullCatalogEntry], name: &str) -> Option<&'a FullCatalogEntry> {
+///
+/// The not-found diagnostic goes to `err` rather than straight to stderr: those
+/// two lines are an acceptance contract the bats suite greps, and a verb that
+/// prints them through its own sink can assert them.
+pub fn find_entry<'a>(
+    agents: &'a [FullCatalogEntry],
+    name: &str,
+    err: &mut dyn std::io::Write,
+) -> Option<&'a FullCatalogEntry> {
     if let Some(entry) = agents.iter().find(|a| a.id == name) {
         return Some(entry);
     }
@@ -158,8 +166,8 @@ pub fn find_entry<'a>(agents: &'a [FullCatalogEntry], name: &str) -> Option<&'a 
         .map(|a| a.id.as_str())
         .collect::<Vec<_>>()
         .join(", ");
-    crate::plog!("agentlinux: no such agent in catalog: {name}");
-    crate::plog!("  available: {available}");
+    let _ = writeln!(err, "agentlinux: no such agent in catalog: {name}");
+    let _ = writeln!(err, "  available: {available}");
     None
 }
 
@@ -518,11 +526,149 @@ mod catalog_tests {
         );
     }
 
+    /// A preserve-paths sibling the entry DECLARES but that is not there gets
+    /// its own diagnostic naming the entry and the file. Every other read error
+    /// is a plain read failure carrying the OS error.
+    ///
+    /// Three mutants survived on that one match guard — forcing it true, false,
+    /// and inverting the `==`. Each collapses the two diagnoses into one, so a
+    /// permission or I/O fault is reported as "you forgot to ship this file",
+    /// or a genuinely absent file is reported as an unexplained read error.
+    #[test]
+    fn a_missing_preserve_paths_sibling_is_diagnosed_apart_from_a_read_fault() {
+        let dir = tempdir().unwrap();
+        write_catalog(
+            dir.path(),
+            r#"{"version":"0.3.6","agents":[
+                {"id":"claude-code","display_name":"C","description":"d","source_kind":"script",
+                 "pinned_version":"2.1.98","install_recipe_path":"install.sh",
+                 "uninstall_recipe_path":"uninstall.sh","preserve_paths_file":"preserve_paths.json"}
+            ]}"#,
+        );
+        let agent_dir = dir.path().join("agents").join("claude-code");
+        fs::create_dir_all(&agent_dir).unwrap();
+
+        // Declared, absent → PreservePathsMissing, and it names both the entry
+        // and the file so the operator knows what to ship.
+        let err = load_catalog(dir.path(), Validate::Skip).unwrap_err();
+        match &err {
+            CatalogError::PreservePathsMissing { id, file, .. } => {
+                assert_eq!(id, "claude-code");
+                assert_eq!(file, "preserve_paths.json");
+            }
+            other => panic!("an absent sibling must be PreservePathsMissing, got {other:?}"),
+        }
+
+        // Present but unreadable as a file — a directory stands in for any
+        // non-NotFound fault, and unlike a chmod it behaves the same for root,
+        // which is how the Docker suite runs.
+        fs::create_dir(agent_dir.join("preserve_paths.json")).unwrap();
+        let err = load_catalog(dir.path(), Validate::Skip).unwrap_err();
+        assert!(
+            matches!(err, CatalogError::Read { .. }),
+            "a non-NotFound fault must stay a read error, got {err:?}"
+        );
+    }
+
+    /// The `available:` line is what an operator reads after a typo, and it must
+    /// list the agents they can actually install — `delete !` survived, which
+    /// inverts the filter into listing ONLY the hidden test fixtures.
+    #[test]
+    fn the_available_list_names_real_agents_and_hides_test_only_ones() {
+        let dir = tempdir().unwrap();
+        write_catalog(
+            dir.path(),
+            r#"{"version":"0.3.6","agents":[
+                {"id":"claude-code","display_name":"C","description":"d","source_kind":"script",
+                 "pinned_version":"2.1.98","install_recipe_path":"install.sh",
+                 "uninstall_recipe_path":"uninstall.sh"},
+                {"id":"test-dummy","display_name":"T","description":"d","source_kind":"script",
+                 "pinned_version":"0.0.1","install_recipe_path":"install.sh",
+                 "uninstall_recipe_path":"uninstall.sh","test_only":true}
+            ]}"#,
+        );
+        let agents = load_catalog(dir.path(), Validate::Skip).unwrap();
+
+        let mut err = Vec::new();
+        assert!(
+            find_entry(&agents, "nosuch", &mut err).is_none(),
+            "an unknown id must not resolve"
+        );
+        let msg = String::from_utf8(err).unwrap();
+        assert!(
+            msg.contains("available: claude-code"),
+            "the installable agent must be listed, got {msg:?}"
+        );
+        assert!(
+            !msg.contains("test-dummy"),
+            "a test_only agent must NOT be offered, got {msg:?}"
+        );
+
+        // And a test_only entry is still FINDABLE by name — remove/pin must be
+        // able to reach what install refused to offer.
+        let mut sink = Vec::new();
+        assert!(
+            find_entry(&agents, "test-dummy", &mut sink).is_some(),
+            "hidden from the list is not the same as unreachable by name"
+        );
+    }
+
     #[test]
     fn resolve_catalog_dir_honors_env_seam() {
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", "/tmp/fixture-catalog");
+        // Under the env lock: five cmd/* modules point this same variable at a
+        // TempDir while holding it, and cargo runs them as threads in ONE
+        // process — an unlocked write here could repoint the catalog dir out
+        // from under a test that is mid-`load_catalog`.
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_CATALOG_DIR", "/tmp/fixture-catalog");
         assert_eq!(resolve_catalog_dir(), PathBuf::from("/tmp/fixture-catalog"));
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+
+        // An EMPTY seam is not a directory. `replace match guard !v.is_empty()
+        // with true` survived: with it, `AGENTLINUX_CATALOG_DIR=` resolves the
+        // catalog to `PathBuf::from("")` — a relative lookup in the process's
+        // cwd — instead of falling back to the staged /opt directory.
+        env_scope.set("AGENTLINUX_CATALOG_DIR", "");
+        assert_eq!(
+            resolve_catalog_dir(),
+            default_catalog_dir(),
+            "an EMPTY seam must fall back to the default catalog dir"
+        );
+
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        assert_eq!(
+            resolve_catalog_dir(),
+            default_catalog_dir(),
+            "an unset seam must fall back to the default catalog dir"
+        );
+    }
+
+    /// The default catalog dir is the OBS-05 contract: it must be the SAME
+    /// string the provisioner staged at, which means the normalized version —
+    /// a tag like `v0.4.0-rc1` staged at `/opt/agentlinux/catalog/0.4.0/` has to
+    /// be found here too. `replace default_catalog_dir -> PathBuf with
+    /// Default::default()` survived, and an empty path means every catalog
+    /// lookup silently misses.
+    #[test]
+    fn the_default_catalog_dir_carries_the_normalized_version() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+
+        env_scope.set("AGENTLINUX_VERSION", "v9.9.9-rc1");
+        assert_eq!(
+            default_catalog_dir(),
+            PathBuf::from("/opt/agentlinux/catalog/9.9.9"),
+            "the tag's `v` prefix and `-rc1` suffix must be normalized away, \
+             so runtime looks where the provisioner staged"
+        );
+
+        // No env override: the compiled CLI-01 version, never an empty segment.
+        env_scope.unset("AGENTLINUX_VERSION");
+        assert_eq!(
+            default_catalog_dir(),
+            PathBuf::from(format!(
+                "/opt/agentlinux/catalog/{}",
+                env!("CARGO_PKG_VERSION")
+            ))
+        );
     }
 
     /// The SHIPPED catalog must load, and must satisfy the constraints

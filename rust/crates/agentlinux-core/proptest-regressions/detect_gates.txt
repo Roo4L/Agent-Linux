@@ -1,0 +1,10 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc fd544dabee5733971b470e9cdf6285e0b89f2f2adb4d9f167a513a57ae7bfb8b # shrinks to id = "a", canonical = "/a/a", major = 1, minor = 0, patch = 0, window = ">=1.0.0 <2.0.0", status = "broken", at_canonical = true
+cc 319f8e1aa327d66e90105cd0d8b000f60ac30457ac35acff4960b49ba410d747 # shrinks to id = "a", canonical = "/a/a", major = 0, minor = 0, patch = 0, window = "", status = "healthy", at_canonical = true
+cc d6480290b664a907a050ee878be5c595886914cec3e4da7c26baa2b35c40e655 # shrinks to id = "a", canonical = "/a/a", major = 1, minor = 0, patch = 0, window = ">=1.0.0 <2.0.0", status = "healthy", at_canonical = false
+cc 1b0c79623e91bbbf16af335ea43e578256fd3ea6c0709d5d160935fe8f7062ef # shrinks to id = "a", canonical = "/a/a", major = 0, minor = 0, patch = 0, window = ">=1.0.0 <2.0.0", status = "healthy", at_canonical = true

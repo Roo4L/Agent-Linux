@@ -139,7 +139,7 @@ what the host actually looks like and repairs the difference, rather than
 recording that it once ran. A host left half-provisioned by an interrupted run is
 brought the rest of the way by re-running the same command, with no flag and no
 cleanup step. (See
-[the convergence decision record](../decisions/019-idempotent-convergence-over-completion-markers.md)
+[the convergence decision record](../decisions/021-idempotent-convergence-over-completion-markers.md)
 for why this is preferred to tracking completion.)
 
 **The previous transcript is kept.** The install log at

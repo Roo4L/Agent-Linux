@@ -16,6 +16,10 @@ use std::io::{BufRead, IsTerminal, Write};
 /// True when stdin is an interactive terminal (the wizard's guard). The
 /// curl-installer pipes the installer over stdin → not a TTY → no prompt.
 #[must_use]
+/// Not mutation-tested: it asks the real process stdin whether it is a terminal
+/// (ADR-019 §5). Every caller takes it as an injected `is_tty` dep precisely so
+/// the branches behind it are reachable without one.
+#[cfg_attr(test, mutants::skip)]
 pub fn stdin_is_tty() -> bool {
     std::io::stdin().is_terminal()
 }
@@ -30,14 +34,39 @@ pub fn stdin_is_tty() -> bool {
 /// brownfield fixtures purge `/etc/agentlinux.env` but keep a pre-existing agent
 /// user in a REMEDIATE/wrong-shell state, so the extra state checks are load-bearing.
 #[must_use]
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it reads the
+/// real env-file path and the three live host probes. The decision it hands them
+/// to is [`should_prompt_from`], which is pure and asserted directly.
+#[cfg_attr(test, mutants::skip)]
 pub fn should_prompt_install_user(user: &str, home: &str) -> bool {
-    use crate::provision::probe::{
-        npm_prefix_state, sudoers_state, user_state, NpmPrefixState, SudoersState, UserState,
-    };
-    !std::path::Path::new("/etc/agentlinux.env").exists()
-        && user_state(user) != UserState::WrongShell
-        && sudoers_state(user) != SudoersState::Drifted
-        && npm_prefix_state(user, home) != NpmPrefixState::WrongOwner
+    use crate::provision::probe::{npm_prefix_state, sudoers_state, user_state};
+    should_prompt_from(
+        std::path::Path::new(&crate::recipe_env::env_file_path()).exists(),
+        user_state(user),
+        sudoers_state(user),
+        npm_prefix_state(user, home),
+    )
+}
+
+/// The pure predicate behind [`should_prompt_install_user`] — the four host facts
+/// in, the decision out. The mis-fire this replaced (keying on the env-file alone)
+/// is a one-line test here instead of a fixture that has to manufacture a
+/// brownfield host.
+#[must_use]
+pub fn should_prompt_from(
+    env_file_exists: bool,
+    user: crate::provision::probe::UserState,
+    sudoers: crate::provision::probe::SudoersState,
+    npm_prefix: crate::provision::probe::NpmPrefixState,
+) -> bool {
+    use crate::provision::probe::{NpmPrefixState, SudoersState, UserState};
+    !env_file_exists
+        // Both irreconcilable user states have their own flow (the alt-user gate
+        // / the home-not-writable bail); prompting first would swallow their
+        // answers.
+        && matches!(user, UserState::Absent | UserState::Conforming)
+        && sudoers != SudoersState::Drifted
+        && npm_prefix != NpmPrefixState::WrongOwner
 }
 
 /// Testable core of the install-user prompt: render the context + prompt to
@@ -100,12 +129,15 @@ pub fn choose_install_user_io<R: BufRead, W: Write>(
 /// Prompt on stderr / read from stdin (stdout is reserved), returning the chosen
 /// install user. Callers gate this behind `stdin_is_tty()` + `is_greenfield()` +
 /// an absent `--user`.
+/// Not mutation-tested: binds the real stdin/stderr (ADR-019 §5). The prompt
+/// loop is [`choose_install_user_io`].
+#[cfg_attr(test, mutants::skip)]
 pub fn choose_install_user(default_user: &str, validate: &dyn Fn(&str) -> bool) -> String {
     let stdin = std::io::stdin();
     choose_install_user_io(default_user, validate, stdin.lock(), std::io::stderr())
 }
 
-// --- UX-02: per-component REMEDIATE consent prompt (prompt::confirm_remediate) ---
+// --- UX-02: per-component REMEDIATE consent prompt ---
 
 /// Testable core of the remediation consent prompt. Renders
 /// `Proceed with this remediation? [Y/n] (<component> — <description>) ` (the
@@ -165,18 +197,59 @@ pub fn confirm_remediate_io<R: BufRead, W: Write>(
     false
 }
 
-/// Prompt on stderr / read from stdin for a state-overwriting remediation.
-/// `true` = proceed, `false` = decline. Gate behind TTY + no `--yes`.
+/// The consent surface the DECIDE phase talks to: is this a terminal, and does
+/// the operator accept this remediation?
 ///
-/// INVARIANT: reads directly from the process-global `std::io::Stdin` buffer.
-/// Each component (npm-prefix, then sudoers) calls this fresh, and the read-ahead
-/// held in that shared buffer is what carries a trailing `\n` from one answer over
-/// to the next prompt (the positional-answer contract). Never wrap `stdin.lock()`
-/// in a private `BufReader` here — that read-ahead would land in the throwaway
-/// wrapper and be lost between components, desyncing the consent loop.
-pub fn confirm_remediate(component: &str, description: &str) -> bool {
-    let stdin = std::io::stdin();
-    confirm_remediate_io(component, description, stdin.lock(), std::io::stderr())
+/// A trait rather than two free functions because the invariant between the
+/// prompts is a SHARED READ BUFFER. Each prompt reads a line; the answer to the
+/// first carries its trailing newline through the same buffer into the second,
+/// which is why the npm-prefix-before-sudoers order is load-bearing. With
+/// `std::io::stdin()` re-locked per call that invariant was documented in two
+/// comments and enforced by nothing — and a desync test (feed `n\nY\n`, expect
+/// decline-then-accept) could not be written at all. The production `Stdio`
+/// holds ONE reader for its lifetime, so the invariant is structural.
+pub trait Prompter {
+    /// Whether stdin is a terminal (no prompt is possible when it is not).
+    fn is_tty(&self) -> bool;
+    /// `[Y/n]` for one state-overwriting remediation.
+    fn confirm(&mut self, component: &str, description: &str) -> bool;
+}
+
+/// The production prompter: one stdin reader, held for the whole DECIDE phase.
+pub struct Stdio<R: BufRead, W: Write> {
+    tty: bool,
+    input: R,
+    err: W,
+}
+
+impl Stdio<std::io::StdinLock<'static>, std::io::Stderr> {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            tty: stdin_is_tty(),
+            input: std::io::stdin().lock(),
+            err: std::io::stderr(),
+        }
+    }
+}
+
+impl<R: BufRead, W: Write> Stdio<R, W> {
+    /// A prompter over supplied streams — the seam a test drives with an
+    /// in-memory cursor holding EVERY answer, in order.
+    #[cfg(test)]
+    pub fn with_streams(tty: bool, input: R, err: W) -> Self {
+        Self { tty, input, err }
+    }
+}
+
+impl<R: BufRead, W: Write> Prompter for Stdio<R, W> {
+    fn is_tty(&self) -> bool {
+        self.tty
+    }
+
+    fn confirm(&mut self, component: &str, description: &str) -> bool {
+        confirm_remediate_io(component, description, &mut self.input, &mut self.err)
+    }
 }
 
 // --- UX-04: wrong-shell alt-user prompt (prompt::alt_user_or_bail) ---
@@ -184,6 +257,11 @@ pub fn confirm_remediate(component: &str, description: &str) -> bool {
 /// First free `agent2..agent99` (remediate::find_alt_user_name), or `None` when
 /// all are taken.
 #[must_use]
+/// Not mutation-tested: it probes the live passwd DB for every candidate
+/// (ADR-019 §5), so its answer is a property of the host the tests run on. The
+/// caller re-validates whatever it returns before use — see the
+/// defence-in-depth note in [`alt_user_prompt_io`].
+#[cfg_attr(test, mutants::skip)]
 pub fn find_alt_user_name() -> Option<String> {
     (2..=99)
         .map(|n| format!("agent{n}"))
@@ -224,18 +302,23 @@ pub fn alt_user_prompt_io<R: BufRead, W: Write>(
         }
         let _ = err.flush();
         let mut line = String::new();
-        let n = match input.read_line(&mut line) {
+        match input.read_line(&mut line) {
             Ok(0) | Err(_) => {
                 let _ = writeln!(err);
                 return AltUser::DeclinedEof;
             }
-            Ok(n) => n,
-        };
+            Ok(_) => {}
+        }
         // A line with no trailing newline means EOF was hit mid-line (the operator
         // closed the TTY without pressing Enter). Match the Bash `read` contract —
         // EOF → decline — rather than accept a half-typed name AND avoid a second
         // read that would block forever (the driver sends only one EOF).
-        if !line.ends_with('\n') && n > 0 {
+        //
+        // The old spelling also tested `n > 0`, which cannot be false here: a
+        // zero-byte read is the `Ok(0)` arm above and already returned. `>` and
+        // `>=` were therefore indistinguishable — an equivalent mutant guarding
+        // nothing.
+        if !line.ends_with('\n') {
             let _ = writeln!(err);
             return AltUser::DeclinedEof;
         }
@@ -418,7 +501,224 @@ mod wizard_prompt_tests {
 #[cfg(test)]
 mod wizard_tests {
     use super::*;
+
+    /// Both retry loops give the operator exactly three attempts. `<` becoming
+    /// `<=` grants a fourth, and `tries += 1` becoming `*=` never advances the
+    /// counter at all — a prompt loop that only ends because stdin ran out.
+    ///
+    /// The RESULT is the same in every case (the default / a decline), so the
+    /// only witness is how many times the prompt was written. That is what these
+    /// assert.
+    #[test]
+    fn the_user_prompt_gives_exactly_three_attempts() {
+        let input = std::io::Cursor::new(b"BAD-1\nBAD-2\nBAD-3\nBAD-4\nBAD-5\n".to_vec());
+        let mut err = Vec::new();
+        let chosen = choose_install_user_io("agent", &|name: &str| name == "good", input, &mut err);
+
+        assert_eq!(chosen, "agent", "three strikes falls back to the default");
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Install AgentLinux under which user?").count(),
+            3,
+            "exactly three prompts — no more, no fewer:\n{text}"
+        );
+        assert_eq!(
+            text.matches("invalid name").count(),
+            3,
+            "and each rejection is reported"
+        );
+    }
+
+    /// A valid answer short-circuits the loop, so "three attempts" is not
+    /// satisfied by always prompting three times.
+    #[test]
+    fn a_valid_name_is_accepted_on_the_first_prompt() {
+        let input = std::io::Cursor::new(b"good\n".to_vec());
+        let mut err = Vec::new();
+        let chosen = choose_install_user_io("agent", &|name: &str| name == "good", input, &mut err);
+
+        assert_eq!(chosen, "good");
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Install AgentLinux under which user?").count(),
+            1
+        );
+    }
+
+    /// The consent prompt has the same three-attempt bound, and the same
+    /// mutations survived on it. A run of invalid answers must end in a DECLINE,
+    /// never in an accidental accept.
+    #[test]
+    fn the_consent_prompt_gives_exactly_three_attempts_then_declines() {
+        let input = std::io::Cursor::new(b"x\nq\nz\ny\ny\n".to_vec());
+        let mut err = Vec::new();
+        let accepted = confirm_remediate_io("npm-prefix", "chown the prefix", input, &mut err);
+
+        assert!(
+            !accepted,
+            "three invalid answers must decline — never fall through to accept"
+        );
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Proceed with this remediation?").count(),
+            3,
+            "exactly three prompts:\n{text}"
+        );
+    }
+
+    /// EOF at the very first read is a decline, not a retry — `delete match arm
+    /// Ok(0)` survived, and without it a closed stdin loops against a stream
+    /// that will never produce another byte.
+    #[test]
+    fn eof_declines_the_consent_prompt_immediately() {
+        let input = std::io::Cursor::new(Vec::new());
+        let mut err = Vec::new();
+        assert!(
+            !confirm_remediate_io("sudoers", "overwrite drift", input, &mut err),
+            "EOF is a decline"
+        );
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Proceed with this remediation?").count(),
+            1,
+            "one prompt, then EOF ends it:\n{text}"
+        );
+    }
+
+    /// EOF arriving MID-DRAIN is terminal too. After an invalid answer the rest
+    /// of the line is discarded, and `delete match arm Ok(0)` survived on that
+    /// drain — the earlier EOF test could not catch it because it exercises the
+    /// FIRST read, a different `Ok(0)` two branches up.
+    ///
+    /// Without the arm the loop re-prompts against a stream that will never
+    /// produce another byte. The verdict is a decline either way, so the witness
+    /// is again the prompt count: one, not two.
+    #[test]
+    fn eof_mid_drain_ends_the_consent_prompt_rather_than_re_prompting() {
+        // "x" with no trailing newline: the answer byte is read, then the drain
+        // immediately hits EOF.
+        let input = std::io::Cursor::new(b"x".to_vec());
+        let mut err = Vec::new();
+        assert!(
+            !confirm_remediate_io("npm-prefix", "chown the prefix", input, &mut err),
+            "a half-typed answer followed by EOF declines"
+        );
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Proceed with this remediation?").count(),
+            1,
+            "EOF mid-drain must END the loop, not re-prompt a closed stream:\n{text}"
+        );
+    }
+
+    /// Y, y and a bare Enter accept; N and n decline. Pinned so the accept set
+    /// cannot quietly widen.
+    #[test]
+    fn only_the_documented_answers_accept_or_decline() {
+        for accept in ["Y\n", "y\n", "\n"] {
+            let mut err = Vec::new();
+            assert!(
+                confirm_remediate_io(
+                    "c",
+                    "d",
+                    std::io::Cursor::new(accept.as_bytes().to_vec()),
+                    &mut err
+                ),
+                "{accept:?} accepts"
+            );
+        }
+        for decline in ["N\n", "n\n"] {
+            let mut err = Vec::new();
+            assert!(
+                !confirm_remediate_io(
+                    "c",
+                    "d",
+                    std::io::Cursor::new(decline.as_bytes().to_vec()),
+                    &mut err
+                ),
+                "{decline:?} declines"
+            );
+        }
+    }
+    use crate::provision::probe::{NpmPrefixState, SudoersState, UserState};
     use std::io::Cursor;
+
+    /// The AL-50 prompt gate, exhaustively over the axes that decide it.
+    ///
+    /// `should_prompt_from` was introduced with its own coverage claim already
+    /// written into the doc comment — "a one-line test here instead of a fixture
+    /// that has to manufacture a brownfield host" — and no such test existed.
+    /// Eight mutants survived on a four-input boolean, including `-> true`,
+    /// which fires the install-user prompt on a drifted-sudoers host. This
+    /// module's own comment says what happens then: the prompt eats the `[Y/n]`
+    /// answers out of the shared read buffer and desyncs the consent loop, "the
+    /// bug class this project has shipped twice".
+    #[test]
+    fn the_install_user_prompt_fires_only_on_a_clean_greenfield_host() {
+        let clean = || {
+            should_prompt_from(
+                false,
+                UserState::Absent,
+                SudoersState::Absent,
+                NpmPrefixState::Absent,
+            )
+        };
+        assert!(clean(), "no prior provision and no brownfield flow: prompt");
+
+        // A prior provision. The env-file is the "we already chose a user" mark.
+        assert!(!should_prompt_from(
+            true,
+            UserState::Absent,
+            SudoersState::Absent,
+            NpmPrefixState::Absent
+        ));
+
+        // Each irreconcilable user state owns its own flow: WrongShell is the
+        // UX-04 alt-user gate, HomeNotWritable is a REUSE-01 bail. Prompting
+        // first would swallow their answers.
+        for state in [UserState::WrongShell, UserState::HomeNotWritable] {
+            assert!(
+                !should_prompt_from(false, state, SudoersState::Absent, NpmPrefixState::Absent),
+                "{state:?} has its own flow"
+            );
+        }
+        // Conforming does NOT: an existing compatible user is still offered for
+        // rename, so this arm must stay true.
+        assert!(should_prompt_from(
+            false,
+            UserState::Conforming,
+            SudoersState::Absent,
+            NpmPrefixState::Absent
+        ));
+
+        // The two REMEDIATE consent flows. Only the drifted/wrong-owner arms
+        // suppress — a sudoers drop-in that merely EXISTS and carries the
+        // canonical line, or an npm prefix already owned by the user, does not.
+        assert!(!should_prompt_from(
+            false,
+            UserState::Absent,
+            SudoersState::Drifted,
+            NpmPrefixState::Absent
+        ));
+        assert!(should_prompt_from(
+            false,
+            UserState::Absent,
+            SudoersState::Canonical,
+            NpmPrefixState::Absent
+        ));
+        assert!(!should_prompt_from(
+            false,
+            UserState::Absent,
+            SudoersState::Absent,
+            NpmPrefixState::WrongOwner
+        ));
+        assert!(should_prompt_from(
+            false,
+            UserState::Absent,
+            SudoersState::Absent,
+            NpmPrefixState::OwnedByUser
+        ));
+    }
 
     fn ok(_n: &str) -> bool {
         true

@@ -286,7 +286,7 @@ mod proptests {
     //! OR one of the three typed `DivergenceError` variants — never a panic, and
     //! never an `Ok` that violates the constraint.
     use super::*;
-    use crate::proptest_strategies::{range_str, version_str};
+    use crate::proptest_strategies::{prerelease_version_str, range_str};
     use crate::semver_shim;
     use proptest::prelude::*;
 
@@ -308,7 +308,7 @@ mod proptests {
         #[test]
         fn p3_resolve_latest_satisfies_or_typed_error(
             entry in entry_with_range(),
-            published in proptest::collection::vec(version_str(), 0..8),
+            published in proptest::collection::vec(prerelease_version_str(), 0..8),
         ) {
             match resolve_latest_for(&entry, &published) {
                 Ok(v) => {
@@ -335,6 +335,21 @@ mod proptests {
                         v,
                         range
                     );
+                    // (c) MAXIMALITY — "latest" means the GREATEST satisfying
+                    //     published version, not merely a satisfying one. Without
+                    //     this arm, a resolver that returns the first match passes
+                    //     (a) and (b) for every generated case.
+                    for candidate in &published {
+                        if let Ok(c) = semver_shim::parse_lenient(candidate) {
+                            if req.matches(&c) {
+                                prop_assert!(
+                                    c <= parsed,
+                                    "resolved {:?} but {:?} also satisfies {:?} and is greater",
+                                    v, candidate, range
+                                );
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
                     // The ONLY legal failures are the three typed variants — the

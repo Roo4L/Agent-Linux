@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc aa4000f520eca5e7194b80c065adf874620136871dfc1ac1e63d2d372b3dad6d # shrinks to entry = CatalogEntry { id: "foo", pinned_version: "1.0.0", version_constraint: None, npm_package_name: Some("foo"), compatibility_window: None, tags: [], source_kind: None }, published = ["0.0.0+build.5", "0.0.1"]

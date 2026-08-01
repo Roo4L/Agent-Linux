@@ -93,7 +93,12 @@ jobs:
   rust:
     needs: changes
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    # 120, not 15: `--in-diff` is scoped to the lines a PR changes, and the
+    # v0.4.0 cutover PR changes the entire Rust tree — ~977 mutants where an
+    # ordinary PR yields a few dozen. The cap is sized for that one merge; every
+    # PR after it lands is back to minutes, and the gate's own bound below is
+    # what actually stops a runaway.
+    timeout-minutes: 120
     permissions:
       contents: read
     steps:
@@ -138,13 +143,27 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
         run: cargo test --all
-      # TEST-02: mutation gate on the pure agentlinux-core crate. Pinned +
+      # TEST-02: mutation gate on the WHOLE workspace. Pinned +
       # --locked (T-54-SC: a silent upstream bump cannot change the mutation
       # set mid-milestone). Swatinem/rust-cache above caches ~/.cargo incl. this
       # binary, so warm runs are a no-op.
       - name: Install cargo-mutants (pinned, cached)
         if: steps.guard.outputs.ready == 'true'
         run: cargo install --locked --version 27.1.0 cargo-mutants
+      # The gate's own suite runs HERE, not in the bats-docker matrix, and that
+      # placement is the point. Thirteen of its cases stub `cargo`, so together
+      # they pin the gate against a schema this repo wrote; MUT-14 is the one
+      # that runs the real pinned cargo-mutants and asserts outcomes.json still
+      # has the fields the gate reads. In the bats container that case always
+      # SKIPPED — `CI` is not in run.sh's env allowlist and no bats image ships
+      # cargo — so the contract test reported green without ever running, which
+      # is precisely the class this gate exists to eliminate. On this runner
+      # `CI=true` and the pinned binary is already installed and cached.
+      - name: mutation-gate self-test (incl. the real-tool contract, MUT-14)
+        if: steps.guard.outputs.ready == 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+          bats tests/bats/80-mutation-gate.bats
       # W1: assert the diff base resolves BEFORE the gate runs, so a shallow
       # clone (or a missing origin/master) fails loudly here instead of letting
       # `--in-diff` silently mutate an empty diff (a false-green gate). fetch-depth: 0
@@ -162,33 +181,55 @@ jobs:
           else
             echo "TEST-02 FAIL: no merge-base between origin/master and HEAD"; exit 1
           fi
-      # TEST-02 GATE (not advisory): mutate only diff-touched lines of the pure
-      # crate; a surviving un-skipped mutant FAILS the step. --minimum-test-timeout 20
-      # (T-54-06) floors the per-mutant timeout so an infinite-loop mutant is killed
-      # rather than hanging under the job's 15-min cap. No `|| echo ::warning::`
-      # bypass — this is the enforcing merge gate. Exclude a justified survivor with
-      # #[mutants::skip] + a comment in Rust rather than loosening the gate. The
-      # full-crate score runs advisory nightly (nightly-mutation.yml).
-      # --in-place is REQUIRED, not optional: two agentlinux-core tests
-      # (schema_gen::schema_is_not_drifted, semver_shim::parity::…round_trip) read
-      # sibling files at CARGO_MANIFEST_DIR/../../../plugin/catalog/*, which live
-      # OUTSIDE the rust/ workspace. cargo-mutants' default copy-tree isolation
-      # copies only rust/, so those reads fail in the temp copy and the baseline
-      # aborts ("cargo test failed in an unmutated tree"). --in-place mutates the
-      # checked-out tree directly (disposable on a CI runner; cargo-mutants restores
-      # each mutation), so the out-of-workspace catalog reads resolve. Verified
-      # locally: reuse.rs → 10 mutants, 9 caught, 1 unviable, 0 survived.
-      - name: cargo-mutants gate (pure core, --in-diff)
+      # TEST-02 GATE (enforcing): mutate only diff-touched lines; a surviving
+      # un-skipped mutant FAILS. Scoped to BOTH crates, not just the pure one:
+      # the bin crate carries every sudo, chown, useradd, file-mode and
+      # orchestration decision, and while the gate skipped it, delete-the-function
+      # mutants survived on install_or_overwrite, resolve_argv and visudo_validate.
+      #
+      # The diff goes to a FILE, not `<(git diff …)`. Process substitution
+      # discards git's exit status, so a bad pathspec or an unresolvable ref
+      # produced an empty stream, and an empty --in-diff is a documented
+      # cargo-mutants no-op that exits 0 — a false green. With `set -o pipefail`
+      # and an explicit file, a git failure fails the step, and
+      # scripts/mutation-gate.sh distinguishes "empty diff" (a legitimate skip it
+      # names out loud) from "the file never appeared" (a hard failure).
+      #
+      # --relative is REQUIRED: the step runs from rust/, but `git diff` emits
+      # repo-root-relative paths and cargo-mutants matches --in-diff against the
+      # WORKSPACE root. Without it nothing matches and the gate passes every PR.
+      # The gate script's "0 mutants tested is never a pass" check is the backstop
+      # for exactly that class of mistake.
+      #
+      # --in-place is REQUIRED: two agentlinux-core tests read sibling files at
+      # CARGO_MANIFEST_DIR/../../../plugin/catalog/*, OUTSIDE the rust/ workspace,
+      # so cargo-mutants' default copy-tree isolation aborts the baseline.
+      # --in-place forbids --jobs, so this run is serial; the cost is bounded by
+      # --in-diff (one bin file ≈ 10-35 mutants ≈ 1-3 min). A PR whose diff is the
+      # whole workspace — the Rust cutover itself — produces ~1000 mutants and will
+      # exceed the job cap. Shard it like the nightly for that merge rather than
+      # narrowing the gate back.
+      - name: cargo-mutants gate (changed lines, --in-diff)
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust
-        # --relative is REQUIRED: the step runs from working-directory: rust, but
-        # `git diff` emits repo-root-relative paths (rust/crates/…). cargo-mutants
-        # matches --in-diff paths against the WORKSPACE root (rust/), so without
-        # --relative the paths never match and the gate silently passes every PR
-        # ("No mutants to filter", exit 0) — a false-green. --relative rewrites the
-        # diff paths to crates/… so the filter matches. Verified locally: a reuse.rs
-        # diff yields 10 mutants with --relative vs 0 without.
-        run: cargo mutants --package agentlinux-core --minimum-test-timeout 20 --in-place --in-diff <(git diff --relative origin/master...HEAD -- 'crates/agentlinux-core/**')
+        run: |
+          set -euo pipefail
+          # `.` (from working-directory: rust), not 'crates/**': a new or
+          # relocated crate outside crates/ would otherwise produce an empty
+          # diff and a silent skip. Non-Rust lines simply match no mutants.
+          # -c core.quotePath=false: git's DEFAULT octal-escapes non-ASCII paths
+          # ("b/src/caf\303\251.rs"), which the gate refuses because it cannot
+          # verify them. Turning it off at the one place that generates the diff
+          # makes that refusal unreachable in the merge path.
+          git -c core.quotePath=false diff --relative origin/master...HEAD -- . \
+            > "$RUNNER_TEMP/rust.diff"
+          echo "diff: $(wc -l < "$RUNNER_TEMP/rust.diff") lines"
+          # Below this job's timeout-minutes (120). The gate SIGTERMs cargo-mutants
+          # so an --in-place run restores its mutated source; the job cap would
+          # SIGKILL it and leave the tree rewritten. The inner bound must fire
+          # first for that to mean anything.
+          MUTATION_GATE_TIMEOUT=6600 ../scripts/mutation-gate.sh enforce \
+            --in-place --minimum-test-timeout 20 --in-diff "$RUNNER_TEMP/rust.diff"
       - name: static musl build + ldd assertion (RUST-01)
         if: steps.guard.outputs.ready == 'true'
         working-directory: rust

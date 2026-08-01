@@ -156,6 +156,11 @@ impl PkgCmd {
     /// the package manager's own explanation instead of just the argv. stdin is
     /// `/dev/null`: under `curl … | sudo bash` the installer's stdin is the
     /// SCRIPT, and an apt prompt that reads it consumes the rest of the installer.
+    ///
+    /// Not mutation-tested: the one place this module spawns a real process
+    /// (ADR-019 §5). What gets spawned is asserted through the `*_cmd` builders,
+    /// and what happens to the outcome through the [`Runner`] seam.
+    #[cfg_attr(test, mutants::skip)]
     fn run(&self) -> io::Result<PkgOutcome> {
         // Every `PkgCmd` in this module is built from a literal argv, so this is
         // unreachable today — but indexing `[0]` on an empty argv would PANIC,
@@ -264,8 +269,13 @@ pub fn install_cmds(family: Family, pkgs: &[&str]) -> Vec<PkgCmd> {
 }
 
 /// `pkg_install <pkg...>` — install one or more packages.
+///
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it runs
+/// `apt-get`/`dnf` as root. The argv is asserted through [`install_cmds`] and
+/// the failure handling through [`run_all_with`].
+#[cfg_attr(test, mutants::skip)]
 pub fn pkg_install(family: Family, pkgs: &[&str]) -> io::Result<()> {
-    require_all_success(&install_cmds(family, pkgs))
+    run_all(&install_cmds(family, pkgs))
 }
 
 /// The command `pkg_remove` runs (debian apt-get purge, rhel dnf remove).
@@ -285,8 +295,11 @@ pub fn remove_cmd(family: Family, pkgs: &[&str]) -> PkgCmd {
 }
 
 /// `pkg_remove <pkg...>` — remove packages (purge config on debian).
+///
+/// Not mutation-tested: as [`pkg_install`]; argv via [`remove_cmd`].
+#[cfg_attr(test, mutants::skip)]
 pub fn pkg_remove(family: Family, pkgs: &[&str]) -> io::Result<()> {
-    require_success(&remove_cmd(family, pkgs))
+    run_one(&remove_cmd(family, pkgs))
 }
 
 /// The command `pkg_autoremove` runs.
@@ -298,8 +311,11 @@ pub fn autoremove_cmd(family: Family) -> PkgCmd {
 }
 
 /// `pkg_autoremove` — drop orphaned dependencies.
+///
+/// Not mutation-tested: as [`pkg_install`]; argv via [`autoremove_cmd`].
+#[cfg_attr(test, mutants::skip)]
 pub fn pkg_autoremove(family: Family) -> io::Result<()> {
-    require_success(&autoremove_cmd(family))
+    run_one(&autoremove_cmd(family))
 }
 
 // ---------------------------------------------------------------------------
@@ -340,8 +356,12 @@ pub fn nodesource_prereqs_cmds(family: Family) -> Vec<PkgCmd> {
 }
 
 /// `nodesource_prereqs` — install the prerequisites setup_22.x expects.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it runs the
+/// prereq installs as root. The argv is asserted through
+/// [`nodesource_prereqs_cmds`], the failure handling through [`run_all_with`].
+#[cfg_attr(test, mutants::skip)]
 pub fn nodesource_prereqs(family: Family) -> io::Result<()> {
-    require_all_success(&nodesource_prereqs_cmds(family))
+    run_all(&nodesource_prereqs_cmds(family))
 }
 
 /// The NodeSource setup URL for `family` (deb vs rpm). The live verb pipes
@@ -429,6 +449,12 @@ fn write_apt_lock_conf() -> io::Result<Option<AptConfGuard>> {
 /// matching the Bash verb's `set -euo pipefail`). The URL comes from
 /// `nodesource_setup_url`; HTTPS + `curl -fsSL` cert verification is the
 /// fetch-integrity control (ADR-005).
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it pipes the
+/// NodeSource setup script into `bash -o pipefail` as root, over the network.
+/// The URL is asserted through [`nodesource_setup_url`] and the script shape
+/// through [`nodesource_setup_script`], which carry the ADR-005 fetch-integrity
+/// contract; only the spawn and its status check are unreachable here.
+#[cfg_attr(test, mutants::skip)]
 pub fn nodesource_setup(family: Family) -> io::Result<()> {
     let url = nodesource_setup_url(family);
     let script = nodesource_setup_script(url);
@@ -508,6 +534,9 @@ pub fn nodesource_module_reset_cmd(family: Family) -> Option<PkgCmd> {
 
 /// `nodesource_module_reset` — defuse the AppStream `nodejs` module (rhel-only,
 /// non-fatal); a no-op on debian.
+/// Not mutation-tested: as [`nodesource_prereqs`]; argv via
+/// [`nodesource_module_reset_cmd`].
+#[cfg_attr(test, mutants::skip)]
 pub fn nodesource_module_reset(family: Family) -> io::Result<()> {
     if let Some(cmd) = nodesource_module_reset_cmd(family) {
         // Non-fatal (Bash `|| true`) — a host with no `nodejs` module to reset is
@@ -549,6 +578,11 @@ fn locale_available_cmd() -> PkgCmd {
 /// Debian: the byte-for-byte Ubuntu path (locale-gen + update-locale, writing
 /// `/etc/default/locale`). Rhel: write `/etc/locale.conf` via
 /// `sysio::write_file_atomic` (NEVER cat>/tee; no locale-gen on EL9).
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it spawns
+/// `locale-gen`/`update-locale` as root and writes `/etc/locale.conf`. The gate
+/// it ends on is asserted through [`require_locale_available_with`], and the
+/// resulting BHV-02 behaviour by the bats contract.
+#[cfg_attr(test, mutants::skip)]
 pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
     if loc != "C.UTF-8" {
         return Err(io::Error::other(format!(
@@ -560,7 +594,7 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
             // Install `locales` if locale-gen is absent (best-effort), then
             // locale-gen + update-locale, then the availability gate.
             if sysio::which("locale-gen").is_none() {
-                require_all_success(&install_cmds(Family::Debian, &["locales"]))?;
+                run_all(&install_cmds(Family::Debian, &["locales"]))?;
             }
             // locale-gen C.UTF-8 stays non-fatal (the Bash verb's `|| true`) —
             // on 24.04 C.UTF-8 is built in and locale-gen has nothing to do. But
@@ -574,7 +608,7 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
                     locale_gen.failure_reason(&["locale-gen".into(), "C.UTF-8".into()])
                 );
             }
-            require_success(&PkgCmd::new(
+            run_one(&PkgCmd::new(
                 &[],
                 &["update-locale", "LANG=C.UTF-8", "LC_ALL=C.UTF-8"],
             ))?;
@@ -596,8 +630,13 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
 ///
 /// A read-only probe of state the caller just finished writing — a miss is a real
 /// answer, not a transient one.
+#[cfg_attr(test, mutants::skip)]
 fn require_locale_available() -> io::Result<()> {
-    if !locale_available_cmd().run()?.success() {
+    require_locale_available_with(PkgCmd::run)
+}
+
+fn require_locale_available_with(run: Runner) -> io::Result<()> {
+    if !run(&locale_available_cmd())?.success() {
         return Err(io::Error::other(
             "locale_ensure: C.UTF-8 locale not available after enforcement \
              (checked with `locale -a`)",
@@ -610,11 +649,21 @@ fn require_locale_available() -> io::Result<()> {
 // helpers
 // ---------------------------------------------------------------------------
 
+/// How a [`PkgCmd`] gets executed. A seam because everything below decides what
+/// to do with an exit status, and reaching those decisions through the real
+/// [`PkgCmd::run`] means spawning `apt-get`/`dnf` as root.
+type Runner = fn(&PkgCmd) -> io::Result<PkgOutcome>;
+
 /// Run every command in sequence, failing fast on the first non-zero exit
 /// (matches the Bash `set -e` sequencing of the multi-command verbs).
-fn require_all_success(cmds: &[PkgCmd]) -> io::Result<()> {
+#[cfg_attr(test, mutants::skip)]
+fn run_all(cmds: &[PkgCmd]) -> io::Result<()> {
+    run_all_with(cmds, PkgCmd::run)
+}
+
+fn run_all_with(cmds: &[PkgCmd], run: Runner) -> io::Result<()> {
     for c in cmds {
-        require_success(c)?;
+        run_one_with(c, run)?;
     }
     Ok(())
 }
@@ -622,8 +671,13 @@ fn require_all_success(cmds: &[PkgCmd]) -> io::Result<()> {
 /// Run one command, mapping a non-zero exit to an `Err` (the `set -e` default
 /// for a verb whose failure IS fatal — the individual `|| true` sites handle
 /// their own non-fatality inline). The error quotes the child's stderr.
-fn require_success(cmd: &PkgCmd) -> io::Result<()> {
-    let outcome = cmd.run()?;
+#[cfg_attr(test, mutants::skip)]
+fn run_one(cmd: &PkgCmd) -> io::Result<()> {
+    run_one_with(cmd, PkgCmd::run)
+}
+
+fn run_one_with(cmd: &PkgCmd, run: Runner) -> io::Result<()> {
+    let outcome = run(cmd)?;
     if !outcome.success() {
         return Err(io::Error::other(outcome.failure_reason(&cmd.argv)));
     }
@@ -633,6 +687,87 @@ fn require_success(cmd: &PkgCmd) -> io::Result<()> {
 #[cfg(test)]
 mod pkg_tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// A finished run that exited `code` on its own — the seam's stand-in for a
+    /// real `apt-get`. Separate from the timeout case on purpose: `success()`
+    /// distinguishes them, and a helper that could only express "exited N" would
+    /// leave the timeout arm of `failure_reason` unreachable from these tests.
+    fn exited(code: i32) -> io::Result<PkgOutcome> {
+        Ok(PkgOutcome {
+            exit_code: code,
+            timed_out: false,
+            bound_ms: None,
+            stderr: String::new(),
+        })
+    }
+    fn ok_run(_c: &PkgCmd) -> io::Result<PkgOutcome> {
+        exited(0)
+    }
+    fn failing_run(_c: &PkgCmd) -> io::Result<PkgOutcome> {
+        exited(1)
+    }
+
+    /// A non-zero exit from a package verb is fatal, and the error names the
+    /// argv so an operator can see WHICH command failed. `delete !` survived on
+    /// that check — inverted, a failed `apt-get install` reports success and the
+    /// provision continues onto a step whose prerequisite never landed.
+    #[test]
+    fn a_failed_package_command_is_an_error_naming_its_argv() {
+        let cmd = PkgCmd::new(&[], &["apt-get", "install", "-y", "nodejs"]);
+
+        assert!(run_one_with(&cmd, ok_run).is_ok(), "exit 0 is success");
+
+        let err = run_one_with(&cmd, failing_run).expect_err("exit 1 must be fatal");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("apt-get") && msg.contains("nodejs"),
+            "the failure must name the command that failed, got {msg:?}"
+        );
+    }
+
+    /// `run_all` is the `set -e` sequencing of the multi-command verbs: the
+    /// first failure stops the sequence. Without this, a failed `apt-get update`
+    /// is followed by the `install` that depends on it.
+    #[test]
+    fn a_sequence_stops_at_the_first_failure() {
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        fn second_fails(_c: &PkgCmd) -> io::Result<PkgOutcome> {
+            let n = CALLS.fetch_add(1, Ordering::SeqCst);
+            exited(i32::from(n == 1))
+        }
+        let cmds = [
+            PkgCmd::new(&[], &["apt-get", "update"]),
+            PkgCmd::new(&[], &["apt-get", "install", "-y", "curl"]),
+            PkgCmd::new(&[], &["apt-get", "clean"]),
+        ];
+
+        CALLS.store(0, Ordering::SeqCst);
+        assert!(run_all_with(&cmds, second_fails).is_err());
+        assert_eq!(
+            CALLS.load(Ordering::SeqCst),
+            2,
+            "the third command must NOT run after the second failed"
+        );
+
+        CALLS.store(0, Ordering::SeqCst);
+        assert!(run_all_with(&cmds, ok_run).is_ok());
+    }
+
+    /// The locale gate is the last word of `locale_ensure`: if `locale -a` does
+    /// not list C.UTF-8 after enforcement, provisioning must fail rather than
+    /// continue onto a host whose non-interactive SSH sessions get the wrong
+    /// locale (BHV-02).
+    #[test]
+    fn an_unavailable_locale_fails_the_gate() {
+        assert!(require_locale_available_with(ok_run).is_ok());
+        let err = require_locale_available_with(failing_run)
+            .expect_err("a missing locale must not pass the gate");
+        assert!(
+            err.to_string().contains("C.UTF-8"),
+            "the diagnostic must name the locale, got {err}"
+        );
+    }
 
     /// Every debian argv carries the dpkg-lock wait — asserted once here and
     /// reused by each apt case so the option cannot be dropped from one site.
@@ -818,7 +953,7 @@ mod pkg_tests {
     // explicit 0 — the same contract as the recipe bound.
     #[test]
     fn pkg_timeout_reads_env_with_a_safe_default() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         std::env::remove_var(PKG_TIMEOUT_ENV);
         assert_eq!(pkg_timeout_ms(), Some(DEFAULT_PKG_TIMEOUT_MS));
 
@@ -883,7 +1018,7 @@ mod pkg_tests {
     // the provision.
     #[test]
     fn a_wedged_package_command_is_killed_not_awaited() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         std::env::set_var(PKG_TIMEOUT_ENV, "200");
         let start = std::time::Instant::now();
         let outcome = PkgCmd::new(&[], &["bash", "-c", "sleep 60"]).run().unwrap();

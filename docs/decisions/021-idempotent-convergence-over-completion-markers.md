@@ -1,4 +1,4 @@
-# 019: Convergent, self-verifying steps — not per-step completion markers
+# 021: Convergent, self-verifying steps — not per-step completion markers
 
 **Status:** Accepted
 **Date:** 2026-07-31

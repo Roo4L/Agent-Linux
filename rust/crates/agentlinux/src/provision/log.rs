@@ -137,6 +137,49 @@ pub fn line(msg: &str) {
     }
 }
 
+/// A `Write` sink that tees to stderr AND (best-effort) the install transcript.
+///
+/// The verbs take their diagnostic sink as `&mut dyn Write` so a test can assert
+/// what they printed (ADR-019 §1). Production wired `std::io::stderr()` into that
+/// seam, which meant every line through it reached the console and NONE reached
+/// the transcript — the same gap `plog!` closed for the steps that print
+/// directly, reopened one layer up. Wiring this in stderr's place keeps both
+/// properties: the seam is still injectable, and what goes through it in
+/// production is still recorded.
+///
+/// Outside a provision run no log handle exists and this degrades to stderr-only
+/// on its own, exactly like [`line`].
+pub struct TranscriptErr;
+
+/// The production error sink: stderr, teed to the transcript. Use this wherever a
+/// verb wires its real `err` seam.
+#[must_use]
+pub fn err_sink() -> TranscriptErr {
+    TranscriptErr
+}
+
+impl Write for TranscriptErr {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        // stderr is the contract (bats greps it); the transcript is best-effort.
+        // A write_all + full-length return keeps callers off the partial-write
+        // retry path for a sink that is really two sinks.
+        std::io::stderr().write_all(buf)?;
+        if let Some(cell) = LOG.get() {
+            if let Ok(mut guard) = cell.lock() {
+                if let Some(f) = guard.as_mut() {
+                    let _ = f.write_all(buf);
+                    let _ = f.flush();
+                }
+            }
+        }
+        Ok(buf.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        std::io::stderr().flush()
+    }
+}
+
 #[cfg(test)]
 mod log_tests {
     use super::*;
@@ -144,20 +187,20 @@ mod log_tests {
 
     #[test]
     fn log_path_honors_env_else_default() {
-        let _g = crate::test_support::env_guard();
-        std::env::remove_var("AGENTLINUX_LOG");
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.unset("AGENTLINUX_LOG");
         assert_eq!(log_path(), PathBuf::from(DEFAULT_LOG));
-        std::env::set_var("AGENTLINUX_LOG", "/tmp/al-test.log");
+        env_scope.set("AGENTLINUX_LOG", "/tmp/al-test.log");
         assert_eq!(log_path(), PathBuf::from("/tmp/al-test.log"));
-        std::env::remove_var("AGENTLINUX_LOG");
+        env_scope.unset("AGENTLINUX_LOG");
     }
 
     #[test]
     fn init_creates_log_and_line_appends() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("install.log");
-        std::env::set_var("AGENTLINUX_LOG", &path);
+        env_scope.set("AGENTLINUX_LOG", &path);
 
         let resolved = init();
         assert_eq!(resolved, path);
@@ -172,7 +215,74 @@ mod log_tests {
         assert!(body.contains("agentlinux-install v0.3.6 starting"));
         assert!(body.contains("agentlinux-install complete"));
 
-        std::env::remove_var("AGENTLINUX_LOG");
+        env_scope.unset("AGENTLINUX_LOG");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn log_path_prefers_the_env_seam_over_the_default() {
+        let mut env = crate::test_support::EnvScope::new();
+        env.unset("AGENTLINUX_LOG");
+        assert_eq!(log_path(), PathBuf::from(DEFAULT_LOG));
+        // An EMPTY value falls back rather than resolving to "": a caller that
+        // exports the seam unset would otherwise open a relative path named "".
+        env.set("AGENTLINUX_LOG", "");
+        assert_eq!(log_path(), PathBuf::from(DEFAULT_LOG));
+        env.set("AGENTLINUX_LOG", "/tmp/al.log");
+        assert_eq!(log_path(), PathBuf::from("/tmp/al.log"));
+    }
+
+    /// Both directions of `is_active`, in ONE test on purpose.
+    ///
+    /// `LOG` is process-global, so two tests asserting opposite states would be
+    /// order-dependent — the exact defect that made `cmd/provision`'s
+    /// "transcript unavailable" banner unassertable and forced `log_active` to
+    /// become a `ProvisionDeps` field. Holding the `EnvScope` lock across both
+    /// halves makes the sequence deterministic; `init` re-seats the handle on
+    /// every call, so the order below is the whole contract.
+    ///
+    /// The `AGENTLINUX_LOG` pin is not optional: without it `init()` truncates
+    /// `/var/log/agentlinux-install.log`, and the Docker and QEMU harnesses run
+    /// this suite as ROOT.
+    #[test]
+    fn is_active_follows_whether_init_actually_opened_the_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let mut env = crate::test_support::EnvScope::new();
+
+        // Openable: the handle is live and the file is the 0644 the Bash
+        // `install -m 0644` produced.
+        let good = dir.path().join("install.log");
+        env.set("AGENTLINUX_LOG", &good);
+        assert_eq!(init(), good);
+        assert!(is_active(), "a created transcript must report active");
+        use std::os::unix::fs::PermissionsExt;
+        let mode = fs::metadata(&good).expect("stat").permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644, "transcript mode");
+
+        line("hello transcript");
+        let body = fs::read_to_string(&good).expect("read");
+        assert!(
+            body.contains("hello transcript"),
+            "line must reach the file"
+        );
+
+        // Un-openable (a path under a file, so it is ENOTDIR for every user
+        // INCLUDING root — a permission-based fixture inverts under the root
+        // harnesses). init must not panic, must still return the path, and
+        // is_active must now be false so the banner stops naming it.
+        let bad = good.join("not-a-dir").join("install.log");
+        env.set("AGENTLINUX_LOG", &bad);
+        assert_eq!(init(), bad);
+        assert!(
+            !is_active(),
+            "an unopenable transcript must report inactive"
+        );
+        line("this must not panic");
+        assert!(!bad.exists());
     }
 
     // Re-running keeps the PREVIOUS transcript at `<log>.prev`. The obvious
@@ -180,7 +290,7 @@ mod log_tests {
     // destroyed the failing run's evidence exactly when it was wanted.
     #[test]
     fn init_rotates_the_previous_transcript_instead_of_destroying_it() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("install.log");
         std::env::set_var("AGENTLINUX_LOG", &path);
@@ -210,7 +320,7 @@ mod log_tests {
     // console.
     #[test]
     fn plog_writes_step_markers_to_the_transcript() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("install.log");
         std::env::set_var("AGENTLINUX_LOG", &path);

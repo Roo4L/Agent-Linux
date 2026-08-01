@@ -73,7 +73,96 @@ fn validate_reused_binary(sentinel: Option<&Sentinel>) -> bool {
     let Some(bin) = s.binary_path.as_deref() else {
         return true;
     };
-    std::fs::metadata(bin).map(|m| m.is_file()).unwrap_or(false)
+    crate::cmd::is_regular_file(bin)
+}
+
+/// The presence overlay only ever describes a row the sentinel store says is
+/// NOT installed — a host that already has the binary but has not adopted it.
+///
+/// `replace == with !=` survived, which consults the overlay for every row
+/// EXCEPT the ones it exists to describe, so an already-managed agent can be
+/// re-reported as merely "present".
+fn presence_overlay_applies(status: Status) -> bool {
+    status == Status::NotInstalled
+}
+
+/// The reinstall target after the vanished-reuse override.
+///
+/// `should_reinstall` speaks first; the override only fills a gap it left. The
+/// `&&` survived as `||`, which lets the override REPLACE a decision that was
+/// already made — an `--all-latest` run targeting "latest" would be forced back
+/// to "curated" on any agent with a missing reused binary.
+fn final_target(target: Option<&'static str>, reused_binary_gone: bool) -> Option<&'static str> {
+    match target {
+        Some(t) => Some(t),
+        None if reused_binary_gone => Some("curated"),
+        None => None,
+    }
+}
+
+/// Sticky survives a `latest` reinstall and nothing else.
+///
+/// Sticky means "the operator pinned this deliberately". Carrying it through a
+/// CURATED reinstall would re-pin an agent the operator just accepted the
+/// curated version for; dropping it on a latest reinstall silently un-pins one
+/// they did not. `replace == with !=` survived and does exactly that swap.
+fn preserve_sticky(source: &str, prior_sticky: bool) -> bool {
+    source == "latest" && prior_sticky
+}
+
+/// The INSTALLED column: an npm-kind entry's real on-disk version comes from
+/// the `npm ls -g` map; everything else can only report what the sentinel
+/// recorded.
+///
+/// `replace == with !=` survived on the source-kind test, which swaps the two
+/// sources: npm agents then report their sentinel's recorded version (missing
+/// any self-update, which is the whole reason the npm map is consulted) and
+/// script agents look themselves up in an npm map they were never in.
+fn installed_version_for(
+    entry: &FullCatalogEntry,
+    npm_ls: &BTreeMap<String, String>,
+    sentinel: Option<&Sentinel>,
+) -> Option<String> {
+    if entry.source_kind.as_deref() == Some("npm") {
+        entry
+            .npm_package_name
+            .as_deref()
+            .and_then(|pkg| npm_ls.get(pkg).cloned())
+    } else {
+        sentinel.map(|s| s.version.clone())
+    }
+}
+
+/// Whether to spend an `npm view` round trip on this entry: only when the
+/// operator opted in AND the entry is npm-kind (nothing else has a registry to
+/// ask).
+///
+/// `replace && with ||` survived, which queries upstream for every entry on
+/// every run — a network call per catalog entry on a command that is
+/// offline-by-default (ADR-011).
+fn should_query_upstream(opts: &UpgradeArgs, entry: &FullCatalogEntry) -> bool {
+    will_touch_upstream(opts) && entry.source_kind.as_deref() == Some("npm")
+}
+
+/// No bulk flag means no mutation: `agentlinux upgrade` with no flags REPORTS.
+///
+/// Five mutants survived on this one condition — both `&&`s and all three `!`s.
+/// Each turns a bare `upgrade` into a run that reinstalls agents the operator
+/// only asked to look at.
+fn is_report_only(opts: &UpgradeArgs) -> bool {
+    !opts.reset_all_curated && !opts.respect_overrides && !opts.all_latest
+}
+
+/// A "reused" sentinel whose binary has vanished forces a curated reinstall even
+/// when the divergence report says "synced" — the report believes the sentinel,
+/// and the sentinel is describing a binary that is no longer there.
+///
+/// Both halves broke independently under mutation: `||` reinstalls every reused
+/// agent regardless, `delete !` reinstalls only the ones whose binary is STILL
+/// present, and inverting the status test applies it to managed agents instead.
+fn reuse_forces_reinstall(sentinel: Option<&Sentinel>) -> bool {
+    sentinel.and_then(|s| s.status.as_deref()) == Some("reused")
+        && !validate_reused_binary(sentinel)
 }
 
 fn will_touch_upstream(opts: &UpgradeArgs) -> bool {
@@ -145,25 +234,40 @@ struct Row {
 
 /// `agentlinux upgrade` body. Port of `upgradeCmd`.
 #[must_use]
+/// Not mutation-tested: binds the real streams and the real dispatcher
+/// (ADR-019 §5). Every decision lives in [`upgrade_with`].
+#[cfg_attr(test, mutants::skip)]
 pub fn upgrade(opts: &UpgradeArgs) -> ExitCode {
-    upgrade_with(opts, UpgradeDeps::default())
+    let (mut out, mut err) = (std::io::stdout(), crate::provision::log::err_sink());
+    upgrade_with(
+        opts,
+        UpgradeDeps::default(),
+        &mut crate::cmd::install::Out {
+            out: &mut out,
+            err: &mut err,
+        },
+    )
 }
 
 /// DI-seam variant — the testable core.
 #[must_use]
-pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
+pub fn upgrade_with(
+    opts: &UpgradeArgs,
+    deps: UpgradeDeps,
+    o: &mut crate::cmd::install::Out<'_>,
+) -> ExitCode {
     let catalog_dir = catalog::resolve_catalog_dir();
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Required) {
         Ok(a) => a,
         Err(e) => {
-            crate::plog!("{e}");
+            let _ = writeln!(o.err, "{e}");
             return ExitCode::from(1);
         }
     };
     let sentinels = match sentinel::list_sentinels() {
         Ok(s) => s,
         Err(e) => {
-            crate::plog!("agentlinux: failed to list sentinels: {e}");
+            let _ = writeln!(o.err, "agentlinux: failed to list sentinels: {e}");
             return ExitCode::from(1);
         }
     };
@@ -210,22 +314,17 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
 
         // installed-version: npm-kind from the npm ls map, else the sentinel's
         // declared-install record.
-        let installed: Option<String> = if entry.source_kind.as_deref() == Some("npm") {
-            entry
-                .npm_package_name
-                .as_deref()
-                .and_then(|pkg| npm_ls.get(pkg).cloned())
-        } else {
-            sentinel.map(|s| s.version.clone())
-        };
+        let installed = installed_version_for(entry, &npm_ls, sentinel);
 
         // Upstream-latest (opt-in). Per-entry errors are non-fatal — the row still
         // renders with latest=None.
         let mut latest: Option<String> = None;
-        if will_touch_upstream(opts) && entry.source_kind.as_deref() == Some("npm") {
+        if should_query_upstream(opts, entry) {
             match (deps.query_npm_view_latest)(entry) {
                 Ok(v) => latest = v,
-                Err(msg) => crate::plog!("  ! {}: could not resolve latest — {msg}", entry.id),
+                Err(msg) => {
+                    let _ = writeln!(o.err, "  ! {}: could not resolve latest — {msg}", entry.id);
+                }
             }
         }
 
@@ -240,7 +339,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
 
         // Presence overlay (mirrors list): a not-installed entry the host already
         // has reads "present" with its detected version.
-        if report.status == Status::NotInstalled {
+        if presence_overlay_applies(report.status) {
             let detected = crate::cache::read_cached_agent_by_id(&entry.id);
             let hit = detected.as_ref().and_then(|d| {
                 presence_gate(&core_entry, d, host_paths(canonical_path(&entry.id), &home))
@@ -256,14 +355,13 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
 
     // Render.
     if opts.json {
-        render_json(&rows);
+        render_json(&rows, o);
     } else {
-        render_table(&rows);
+        render_table(&rows, o);
     }
 
     // Report-only default: no bulk flag = no mutation.
-    let is_report_only = !opts.reset_all_curated && !opts.respect_overrides && !opts.all_latest;
-    if is_report_only {
+    if is_report_only(opts) {
         return ExitCode::SUCCESS;
     }
 
@@ -302,7 +400,8 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
 
         // REUSE-03 surfacing.
         if sentinel.and_then(|s| s.status.as_deref()) == Some("reused") {
-            println!(
+            let _ = writeln!(
+                o.out,
                 "{id}: upgrading reused install (binary={} -> catalog pin)",
                 sentinel
                     .and_then(|s| s.binary_path.as_deref())
@@ -310,7 +409,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
             );
         }
         if sentinel.and_then(|s| s.status.as_deref()) == Some("reused-with-warning") {
-            println!(
+            let _ = writeln!(o.out,
                 "{id}: skipping upgrade for reused-with-warning sentinel (decline_reason={}; user retains manual ownership)",
                 sentinel.and_then(|s| s.decline_reason.as_deref()).unwrap_or("unknown")
             );
@@ -318,13 +417,11 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
 
         // A reused sentinel whose binary vanished forces a curated reinstall even
         // when shouldReinstall returned null for a "synced" report.
-        let reused_binary_gone = sentinel.and_then(|s| s.status.as_deref()) == Some("reused")
-            && !validate_reused_binary(sentinel);
-        let mut target = should_reinstall(&row.status, &row.report.source, row.report.sticky, opts);
-        if reused_binary_gone && target.is_none() {
-            target = Some("curated");
-        }
-        let Some(target) = target else { continue };
+        let reused_binary_gone = reuse_forces_reinstall(sentinel);
+        let target = should_reinstall(&row.status, &row.report.source, row.report.sticky, opts);
+        let Some(target) = final_target(target, reused_binary_gone) else {
+            continue;
+        };
 
         let Some(entry) = entry_by_id.get(id) else {
             continue; // defensive
@@ -340,7 +437,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
                     // sweep exits 0 having done nothing — the exact "told the
                     // scheduler it succeeded" failure the exit code exists to
                     // prevent. Counted as attempted AND failed.
-                    crate::plog!("{id}: skipping (no upstream latest resolved)");
+                    let _ = writeln!(o.err, "{id}: skipping (no upstream latest resolved)");
                     attempted += 1;
                     failures += 1;
                     continue;
@@ -351,7 +448,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         };
 
         let recipe = recipe_path(&catalog_dir, id, &entry.install_recipe_path);
-        println!("{id}: reinstalling at {version} ({source})");
+        let _ = writeln!(o.out, "{id}: reinstalling at {version} ({source})");
         attempted += 1;
         let env = recipe_child_env(entry, &version, &catalog_dir, &user);
         // Bounded: the production `dispatch` is `dispatcher::dispatch_recipe`,
@@ -360,9 +457,9 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         // wedge the sweep.
         let result = (deps.dispatch)(&user, &recipe, &env, Capture::Buffered);
         if result.exit_code != 0 {
-            crate::plog!("{id}: recipe failed (exit {})", result.exit_code);
+            let _ = writeln!(o.err, "{id}: recipe failed (exit {})", result.exit_code);
             if !result.stderr.is_empty() {
-                crate::plog!("{}", result.stderr);
+                let _ = writeln!(o.err, "{}", result.stderr);
             }
             // Preserve the pre-upgrade sentinel — never mark "installed" on failure.
             // continue — NEVER abort the whole run, but DO remember, so the final
@@ -371,21 +468,17 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
             continue;
         }
         if !result.stdout.is_empty() {
-            println!("{}", result.stdout.trim_end());
+            let _ = writeln!(o.out, "{}", result.stdout.trim_end());
         }
 
         // Sticky preservation: keep sticky when source='latest' and prior was sticky.
-        let sticky = if source == "latest" {
-            sentinel.map(|s| s.sticky).unwrap_or(false)
-        } else {
-            false
-        };
+        let sticky = preserve_sticky(source, sentinel.is_some_and(|s| s.sticky));
 
         let mut s = Sentinel::new(id.clone(), version, source.into(), sticky);
         s.installed_at = Some(sentinel::now_iso8601());
         s.status = Some("installed".to_string());
         if let Err(e) = sentinel::write_sentinel(&s) {
-            crate::plog!("agentlinux: failed to write sentinel for {id}: {e}");
+            let _ = writeln!(o.err, "agentlinux: failed to write sentinel for {id}: {e}");
             // Non-fatal for the run (a single write failure shouldn't abort the
             // sweep) — continue like a per-entry recipe failure. The recipe DID
             // succeed, but the host now disagrees with its own record, which is
@@ -417,7 +510,7 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
 /// Render the padded 7-column table. Header
 /// `["ID","STATUS","SENTINEL","INSTALLED","CURATED","LATEST","SRC"]`; each column
 /// padded to its max width; columns joined with two spaces.
-fn render_table(rows: &[Row]) {
+fn render_table(rows: &[Row], o: &mut crate::cmd::install::Out<'_>) {
     let header = [
         "ID",
         "STATUS",
@@ -453,13 +546,13 @@ fn render_table(rows: &[Row]) {
             .map(|(i, c)| format!("{c:<width$}", width = widths[i]))
             .collect::<Vec<_>>()
             .join("  ");
-        println!("{line}");
+        let _ = writeln!(o.out, "{line}");
     }
 }
 
 /// Render the `--json` DivergenceReport array. A `present` row overlays its
 /// status string onto the serialized report (the core enum can't hold `present`).
-fn render_json(rows: &[Row]) {
+fn render_json(rows: &[Row], o: &mut crate::cmd::install::Out<'_>) {
     let arr: Vec<serde_json::Value> = rows
         .iter()
         .map(|row| {
@@ -473,8 +566,12 @@ fn render_json(rows: &[Row]) {
         })
         .collect();
     match serde_json::to_string_pretty(&arr) {
-        Ok(s) => println!("{s}"),
-        Err(e) => crate::plog!("agentlinux: failed to serialize upgrade JSON: {e}"),
+        Ok(s) => {
+            let _ = writeln!(o.out, "{s}");
+        }
+        Err(e) => {
+            let _ = writeln!(o.err, "agentlinux: failed to serialize upgrade JSON: {e}");
+        }
     }
 }
 
@@ -515,6 +612,345 @@ mod upgrade_tests {
             source: source.to_string(),
             sticky,
         }
+    }
+
+    fn sentinel(status: Option<&str>, binary_path: Option<&str>) -> Sentinel {
+        Sentinel {
+            id: "claude-code".to_string(),
+            version: "1.0.0".to_string(),
+            source: "curated".to_string(),
+            sticky: false,
+            installed_at: None,
+            status: status.map(str::to_string),
+            decline_reason: None,
+            binary_path: binary_path.map(str::to_string),
+            detected_source: None,
+            reused_at: None,
+            compatibility_window_at_reuse: None,
+            remediated_at: None,
+            remediate_failure_reason: None,
+        }
+    }
+
+    /// A "reused" sentinel is a claim about a binary AgentLinux did not install.
+    /// The claim is only trustworthy while that binary is still there — the one
+    /// case that returns false, and the only case that reaches the stat.
+    ///
+    /// Four mutants survived here: forcing the result true or false outright,
+    /// and inverting each of the two status comparisons. Forced true is the
+    /// dangerous one — a vanished upstream binary reads as "still installed",
+    /// so `upgrade` skips the reinstall that would have restored it.
+    #[test]
+    fn a_reused_sentinel_is_trusted_only_while_its_binary_survives() {
+        let dir = tempdir().unwrap();
+        let present = dir.path().join("claude");
+        std::fs::write(&present, b"#!/bin/sh\n").unwrap();
+        let present = present.to_str().unwrap();
+        let absent = dir.path().join("gone").to_str().unwrap().to_string();
+
+        // The discriminating case: reused, and the binary is gone.
+        assert!(
+            !validate_reused_binary(Some(&sentinel(Some("reused"), Some(&absent)))),
+            "a reused sentinel whose binary vanished has drifted"
+        );
+
+        // Everything else is trusted, each for its own reason.
+        for (s, why) in [
+            (
+                sentinel(Some("reused"), Some(present)),
+                "binary still present",
+            ),
+            (sentinel(Some("reused"), None), "no binary_path to check"),
+            (
+                sentinel(Some("reused-with-warning"), Some(&absent)),
+                "reused-with-warning is trusted regardless",
+            ),
+            (
+                sentinel(Some("managed"), Some(&absent)),
+                "a managed sentinel is not a reuse claim",
+            ),
+            (
+                sentinel(None, Some(&absent)),
+                "no status is not a reuse claim",
+            ),
+        ] {
+            assert!(validate_reused_binary(Some(&s)), "{why}");
+        }
+
+        assert!(
+            validate_reused_binary(None),
+            "no sentinel at all is not a drifted reuse"
+        );
+    }
+
+    /// `--check-upstream` and `--all-latest` each independently mean the run
+    /// will hit the network. `replace || with &&` survived, which makes a
+    /// single-flag run report as offline — and the flag guards a real
+    /// `npm view` round trip.
+    #[test]
+    fn either_upstream_flag_alone_means_upstream_is_touched() {
+        assert!(will_touch_upstream(&opts(false, false, false, true, false)));
+        assert!(will_touch_upstream(&opts(false, false, true, false, false)));
+        assert!(will_touch_upstream(&opts(false, false, true, true, false)));
+        assert!(
+            !will_touch_upstream(&opts(true, true, false, false, true)),
+            "no upstream flag means no upstream, whatever else is set"
+        );
+    }
+
+    /// The presence overlay describes rows the store says are NOT installed.
+    /// `replace == with !=` consults it for every row EXCEPT those, so an
+    /// already-managed agent can be re-reported as merely "present".
+    #[test]
+    fn the_presence_overlay_applies_only_to_a_not_installed_row() {
+        assert!(presence_overlay_applies(Status::NotInstalled));
+        for s in [
+            Status::Synced,
+            Status::DriftUndeclared,
+            Status::OverrideAhead,
+            Status::OverrideBehind,
+            Status::PinnedOverride,
+        ] {
+            assert!(
+                !presence_overlay_applies(s),
+                "{s:?} is installed — the overlay has nothing to add"
+            );
+        }
+    }
+
+    /// The vanished-reuse override FILLS a gap `should_reinstall` left; it does
+    /// not overrule it. `replace && with ||` lets it replace a decision already
+    /// made, so an --all-latest run targeting "latest" is forced back to
+    /// "curated" on any agent whose reused binary is missing.
+    #[test]
+    fn the_reuse_override_fills_a_gap_it_does_not_overrule_one() {
+        assert_eq!(
+            final_target(Some("latest"), true),
+            Some("latest"),
+            "a decision already made must survive the override"
+        );
+        assert_eq!(final_target(Some("curated"), true), Some("curated"));
+        assert_eq!(
+            final_target(None, true),
+            Some("curated"),
+            "no decision + a vanished reused binary forces a curated reinstall"
+        );
+        assert_eq!(
+            final_target(None, false),
+            None,
+            "no decision and nothing forcing one means skip"
+        );
+    }
+
+    /// Sticky means "the operator pinned this deliberately". It survives a
+    /// `latest` reinstall and nothing else: carrying it through a CURATED
+    /// reinstall re-pins an agent the operator just accepted the curated version
+    /// for, and dropping it on a latest reinstall silently un-pins one they did
+    /// not. `replace == with !=` makes exactly that swap.
+    #[test]
+    fn sticky_survives_a_latest_reinstall_and_nothing_else() {
+        assert!(preserve_sticky("latest", true));
+        assert!(
+            !preserve_sticky("latest", false),
+            "a non-sticky agent does not BECOME sticky"
+        );
+        assert!(
+            !preserve_sticky("curated", true),
+            "accepting the curated version clears the pin"
+        );
+        assert!(!preserve_sticky("curated", false));
+    }
+
+    /// The STATUS column's string. Both constant replacements survived, and a
+    /// blank or junk STATUS is the column an operator reads to decide whether
+    /// to act at all.
+    #[test]
+    fn every_status_or_present_has_its_own_string() {
+        assert_eq!(StatusOrPresent::Present.as_str(), "present");
+        for (s, want) in [
+            (Status::NotInstalled, "not-installed"),
+            (Status::Synced, "synced"),
+            (Status::DriftUndeclared, "drift-undeclared"),
+            (Status::OverrideAhead, "override-ahead"),
+            (Status::OverrideBehind, "override-behind"),
+            (Status::PinnedOverride, "pinned-override"),
+        ] {
+            assert_eq!(StatusOrPresent::Core(s).as_str(), want);
+            assert_ne!(
+                StatusOrPresent::Core(s).as_str(),
+                StatusOrPresent::Present.as_str(),
+                "a core status must not render as the presence overlay"
+            );
+        }
+    }
+
+    /// Both renderers could be replaced with `()` and produce no output at all —
+    /// `upgrade` would exit 0 having printed nothing, which reads as "no agents"
+    /// rather than "the report is missing".
+    #[test]
+    fn the_renderers_actually_emit_the_report() {
+        let rows = vec![Row {
+            report: report("claude-code", Status::Synced, "curated", false),
+            status: StatusOrPresent::Core(Status::Synced),
+        }];
+
+        let (mut o, mut e) = (Vec::new(), Vec::new());
+        render_table(
+            &rows,
+            &mut crate::cmd::install::Out {
+                out: &mut o,
+                err: &mut e,
+            },
+        );
+        let text = String::from_utf8(o).unwrap();
+        assert!(
+            text.contains("ID") && text.contains("STATUS"),
+            "header: {text:?}"
+        );
+        assert!(
+            text.contains("claude-code") && text.contains("synced"),
+            "the row must carry the agent and its status: {text:?}"
+        );
+
+        let (mut o, mut e) = (Vec::new(), Vec::new());
+        render_json(
+            &rows,
+            &mut crate::cmd::install::Out {
+                out: &mut o,
+                err: &mut e,
+            },
+        );
+        let parsed: serde_json::Value =
+            serde_json::from_str(&String::from_utf8(o).unwrap()).expect("--json emits JSON");
+        assert_eq!(parsed[0]["id"], "claude-code");
+        assert_eq!(parsed[0]["status"], "synced");
+    }
+
+    /// A bare `agentlinux upgrade` REPORTS; only a bulk flag mutates. Five
+    /// mutants survived on this one condition — both `&&`s and all three `!`s —
+    /// and each turns a look-only run into one that reinstalls agents.
+    #[test]
+    fn only_a_bulk_flag_turns_upgrade_into_a_mutation() {
+        assert!(
+            is_report_only(&opts(false, false, false, false, false)),
+            "no flags is a report"
+        );
+        assert!(
+            is_report_only(&opts(false, false, false, true, true)),
+            "--check-upstream and --json are read-only too"
+        );
+        for (r, o_, a, what) in [
+            (true, false, false, "--reset-all-curated"),
+            (false, true, false, "--respect-overrides"),
+            (false, false, true, "--all-latest"),
+            (true, true, true, "all three"),
+        ] {
+            assert!(
+                !is_report_only(&opts(r, o_, a, false, false)),
+                "{what} mutates"
+            );
+        }
+    }
+
+    /// The INSTALLED column reads from the npm map for npm entries and from the
+    /// sentinel for everything else. Inverted, npm agents report their recorded
+    /// version — missing exactly the self-update the map exists to catch — and
+    /// script agents are looked up in a map they were never in.
+    #[test]
+    fn the_installed_column_reads_the_right_source_per_kind() {
+        let mut npm_ls = BTreeMap::new();
+        npm_ls.insert("@anthropic-ai/claude-code".to_string(), "2.5.0".to_string());
+
+        let npm_entry: FullCatalogEntry = serde_json::from_value(serde_json::json!({
+            "id": "claude-code", "display_name": "C", "description": "d",
+            "source_kind": "npm", "npm_package_name": "@anthropic-ai/claude-code",
+            "pinned_version": "2.1.0", "install_recipe_path": "i.sh",
+            "uninstall_recipe_path": "u.sh",
+        }))
+        .unwrap();
+        let script_entry: FullCatalogEntry = serde_json::from_value(serde_json::json!({
+            "id": "rtk", "display_name": "R", "description": "d",
+            "source_kind": "script", "pinned_version": "0.42.0",
+            "install_recipe_path": "i.sh", "uninstall_recipe_path": "u.sh",
+        }))
+        .unwrap();
+        let s = sentinel(Some("installed"), None);
+
+        assert_eq!(
+            installed_version_for(&npm_entry, &npm_ls, Some(&s)).as_deref(),
+            Some("2.5.0"),
+            "an npm entry reports what is ON DISK, not what was recorded"
+        );
+        assert_eq!(
+            installed_version_for(&script_entry, &npm_ls, Some(&s)).as_deref(),
+            Some("1.0.0"),
+            "a script entry can only report the sentinel's record"
+        );
+        assert_eq!(
+            installed_version_for(&script_entry, &npm_ls, None),
+            None,
+            "…and nothing at all without one"
+        );
+    }
+
+    /// Upstream is queried only when the operator asked AND the entry has a
+    /// registry to ask. `replace && with ||` survived, which fires a network
+    /// call per catalog entry on a command that is offline-by-default.
+    #[test]
+    fn upstream_is_queried_only_for_npm_entries_on_an_opt_in_run() {
+        let npm_entry: FullCatalogEntry = serde_json::from_value(serde_json::json!({
+            "id": "claude-code", "display_name": "C", "description": "d",
+            "source_kind": "npm", "npm_package_name": "@anthropic-ai/claude-code",
+            "pinned_version": "2.1.0", "install_recipe_path": "i.sh",
+            "uninstall_recipe_path": "u.sh",
+        }))
+        .unwrap();
+        let script_entry: FullCatalogEntry = serde_json::from_value(serde_json::json!({
+            "id": "rtk", "display_name": "R", "description": "d",
+            "source_kind": "script", "pinned_version": "0.42.0",
+            "install_recipe_path": "i.sh", "uninstall_recipe_path": "u.sh",
+        }))
+        .unwrap();
+
+        let opted_in = opts(false, false, false, true, false);
+        let offline = opts(false, false, false, false, false);
+
+        assert!(should_query_upstream(&opted_in, &npm_entry));
+        assert!(
+            !should_query_upstream(&opted_in, &script_entry),
+            "a script entry has no registry to ask, even on an opt-in run"
+        );
+        assert!(
+            !should_query_upstream(&offline, &npm_entry),
+            "no opt-in means no network, even for an npm entry"
+        );
+        assert!(!should_query_upstream(&offline, &script_entry));
+    }
+
+    /// A reused sentinel whose binary vanished forces a curated reinstall even
+    /// when the report says "synced" — the report believes the sentinel, and the
+    /// sentinel describes a binary that is gone.
+    #[test]
+    fn a_vanished_reused_binary_forces_a_reinstall() {
+        let dir = tempdir().unwrap();
+        let present = dir.path().join("claude");
+        std::fs::write(&present, b"#!/bin/sh\n").unwrap();
+        let present = present.to_str().unwrap();
+        let absent = dir.path().join("gone").to_str().unwrap().to_string();
+
+        assert!(
+            reuse_forces_reinstall(Some(&sentinel(Some("reused"), Some(&absent)))),
+            "reused + gone is the case that forces it"
+        );
+        assert!(
+            !reuse_forces_reinstall(Some(&sentinel(Some("reused"), Some(present)))),
+            "a reused binary still on disk needs no forcing"
+        );
+        assert!(
+            !reuse_forces_reinstall(Some(&sentinel(Some("installed"), Some(&absent)))),
+            "a MANAGED sentinel is not a reuse claim — this rule does not apply"
+        );
+        assert!(!reuse_forces_reinstall(None));
     }
 
     // --- shouldReinstall flag-priority golden ---
@@ -647,7 +1083,14 @@ mod upgrade_tests {
         ];
         assert_eq!(header.len(), 7);
         // Render doesn't panic + the padded row is at least as wide as the header.
-        render_table(&rows);
+        let (mut ro, mut re) = (Vec::new(), Vec::new());
+        render_table(
+            &rows,
+            &mut crate::cmd::install::Out {
+                out: &mut ro,
+                err: &mut re,
+            },
+        );
     }
 
     #[test]
@@ -665,6 +1108,141 @@ mod upgrade_tests {
     }
 
     // --- reconcile loop: continue-on-failure never aborts; the exit code is honest ---
+
+    /// Drive the reconcile loop and hand back what the operator would have seen.
+    fn run_upgrade(o_args: UpgradeArgs, deps: UpgradeDeps) -> (ExitCode, String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = upgrade_with(
+            &o_args,
+            deps,
+            &mut crate::cmd::install::Out {
+                out: &mut out,
+                err: &mut err,
+            },
+        );
+        (
+            code,
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        )
+    }
+
+    /// The reconcile loop's per-sentinel notices and its failure reporting.
+    /// Seven mutants lived in here, every one of them only observable in what
+    /// the operator is told:
+    ///
+    /// * the two `status ==` tests decide WHICH notice fires — a reused install
+    ///   being upgraded, versus one deliberately left alone because the operator
+    ///   declined its remediation. Swapping them tells the operator the opposite
+    ///   of what happened.
+    /// * `delete !` on the two `is_empty` checks either drops a failing recipe's
+    ///   stderr — the only diagnosis of why an upgrade failed — or prints an
+    ///   empty line in its place on every success.
+    #[test]
+    fn the_reconcile_loop_reports_what_it_did_to_each_sentinel() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog_two(cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+
+        // a-agent was adopted; b-agent's remediation was declined.
+        let mut a = Sentinel::new("a-agent".into(), "1.0.0".into(), "override".into(), false);
+        a.status = Some("reused".to_string());
+        a.binary_path = Some("/nonexistent/gone".to_string());
+        sentinel::write_sentinel(&a).unwrap();
+        let mut b = Sentinel::new("b-agent".into(), "1.0.0".into(), "override".into(), false);
+        b.status = Some("reused-with-warning".to_string());
+        b.decline_reason = Some("prefix busy".to_string());
+        sentinel::write_sentinel(&b).unwrap();
+
+        let (code, out, _err) = run_upgrade(
+            opts(true, false, false, false, false),
+            UpgradeDeps {
+                dispatch: |_u, _p, _e, _s| DispatchResult {
+                    exit_code: 0,
+                    stdout: "recipe said hello".to_string(),
+                    stderr: String::new(),
+                    streamed: false,
+                },
+                query_global_npm: empty_npm,
+                query_npm_view_latest: no_latest,
+            },
+        );
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(
+            out.contains("a-agent: upgrading reused install"),
+            "an adopted install being upgraded must say so:\n{out}"
+        );
+        assert!(
+            out.contains("b-agent: skipping upgrade for reused-with-warning")
+                && out.contains("prefix busy"),
+            "a declined remediation must be reported as SKIPPED, with its reason:\n{out}"
+        );
+        assert!(
+            out.contains("recipe said hello"),
+            "a recipe's own stdout reaches the operator:\n{out}"
+        );
+
+        // Re-seed: the successful run above rewrote both sentinels to curated, so
+        // nothing would be diverged for the next one to reconcile.
+        sentinel::write_sentinel(&a).unwrap();
+        sentinel::write_sentinel(&b).unwrap();
+
+        // A failing recipe: its stderr is the only diagnosis there is.
+        let (code, _out, err) = run_upgrade(
+            opts(true, false, false, false, false),
+            UpgradeDeps {
+                dispatch: |_u, _p, _e, _s| DispatchResult {
+                    exit_code: 3,
+                    stdout: String::new(),
+                    stderr: "npm EACCES on prefix".to_string(),
+                    streamed: false,
+                },
+                query_global_npm: empty_npm,
+                query_npm_view_latest: no_latest,
+            },
+        );
+        assert_eq!(
+            code,
+            ExitCode::FAILURE,
+            "every entry is visited, and a sweep in which all of them failed \
+             must not report success"
+        );
+        assert!(
+            err.contains("recipe failed (exit 3)") && err.contains("npm EACCES on prefix"),
+            "the failure and its cause must both reach the operator:\n{err}"
+        );
+    }
+
+    /// A catalog that will not load is a hard exit 1, not a silent success.
+    /// `replace upgrade_with -> ExitCode with Default::default()` survived, and
+    /// `Default` is SUCCESS — so a broken catalog would report as a clean run.
+    #[test]
+    fn an_unreadable_catalog_fails_the_run() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let empty = tempdir().unwrap();
+        env_scope.set("AGENTLINUX_CATALOG_DIR", empty.path()); // no catalog.json
+        env_scope.set("AGENTLINUX_STATE_DIR", empty.path());
+
+        let (code, _out, err) = run_upgrade(
+            opts(false, false, false, false, false),
+            UpgradeDeps {
+                dispatch: |_u, _p, _e, _s| DispatchResult {
+                    exit_code: 0,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    streamed: false,
+                },
+                query_global_npm: empty_npm,
+                query_npm_view_latest: no_latest,
+            },
+        );
+        assert_eq!(code, ExitCode::from(1), "a missing catalog is a failure");
+        assert!(!err.is_empty(), "and it says why:\n{err}");
+    }
 
     fn write_catalog_two(dir: &std::path::Path) {
         // Two script agents so a first-entry recipe failure can be observed to NOT
@@ -690,13 +1268,13 @@ mod upgrade_tests {
 
     #[test]
     fn reconcile_total_failure_reports_failure_and_preserves_sentinels() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog_two(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
 
         // Both agents have a diverged (override) sentinel so --reset-all-curated
         // targets them. The dispatcher FAILS for every entry.
@@ -725,7 +1303,14 @@ mod upgrade_tests {
         // both leave identical state. That property is pinned by
         // `reconcile_finishes_every_entry_but_still_reports_partial_failure`.)
         assert_eq!(
-            upgrade_with(&opts(true, false, false, false, false), deps),
+            upgrade_with(
+                &opts(true, false, false, false, false),
+                deps,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new(),
+                },
+            ),
             ExitCode::FAILURE
         );
         // Sentinels PRESERVED (source stays override, not overwritten to curated).
@@ -738,9 +1323,9 @@ mod upgrade_tests {
             "override"
         );
 
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
     }
 
     thread_local! {
@@ -757,7 +1342,7 @@ mod upgrade_tests {
     /// expects FAILURE.
     #[test]
     fn reconcile_reports_success_when_every_entry_succeeds() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog_two(cat.path());
@@ -785,7 +1370,14 @@ mod upgrade_tests {
             query_npm_view_latest: no_latest,
         };
         assert_eq!(
-            upgrade_with(&opts(true, false, false, false, false), deps),
+            upgrade_with(
+                &opts(true, false, false, false, false),
+                deps,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new(),
+                },
+            ),
             ExitCode::SUCCESS,
             "a clean sweep must report success"
         );
@@ -809,7 +1401,7 @@ mod upgrade_tests {
     /// total-failure bug survived: `continue` was tested, the exit code was not.
     #[test]
     fn reconcile_finishes_every_entry_but_still_reports_partial_failure() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog_two(cat.path());
@@ -850,7 +1442,14 @@ mod upgrade_tests {
             query_npm_view_latest: no_latest,
         };
         assert_eq!(
-            upgrade_with(&opts(true, false, false, false, false), deps),
+            upgrade_with(
+                &opts(true, false, false, false, false),
+                deps,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new(),
+                },
+            ),
             ExitCode::FAILURE,
             "a sweep with a failed entry must not report success"
         );
@@ -880,13 +1479,13 @@ mod upgrade_tests {
 
     #[test]
     fn report_only_default_does_not_mutate() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog_two(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
 
         let mut s = Sentinel::new("a-agent".into(), "1.0.0".into(), "override".into(), false);
         s.status = Some("installed".to_string());
@@ -906,7 +1505,14 @@ mod upgrade_tests {
             query_npm_view_latest: no_latest,
         };
         assert_eq!(
-            upgrade_with(&opts(false, false, false, false, false), deps),
+            upgrade_with(
+                &opts(false, false, false, false, false),
+                deps,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new(),
+                },
+            ),
             ExitCode::SUCCESS
         );
         // Untouched.
@@ -915,8 +1521,8 @@ mod upgrade_tests {
             "override"
         );
 
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
     }
 }

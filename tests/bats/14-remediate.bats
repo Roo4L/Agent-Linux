@@ -10,22 +10,22 @@
 #   - Consent surface: --yes ONLY (no AGENTLINUX_YES / ALWAYS_YES env var
 #     equivalents — T-14-01 mitigation)
 #
-# Task 1 block (this file's first 11 @tests):
-#   1.  remediate.sh is sourceable after log+as_user+detect+reuse libs
-#   2.  remediate::register_bail appends to BAILED_COMPONENTS (additive)
-#   3.  flush_bails_or_continue returns 0 when array is empty
-#   4.  flush_bails_or_continue with N=1 prints structured msg + exits 65
-#   5.  flush_bails_or_continue with N=2 prints both [BAIL] lines + exits 65
-#   6.  remediate_action_overwrites_state predicate (true/false matrix)
-#   7.  per-component stubs source + define remediate::<c>::<action> stubs
-#   8.  reuse::user_decision behavior unchanged from Phase 13
-#   9.  reuse::npm_prefix_decision returns reuse|remediate|create per export
-#   10. zero `register_bail "$VAR` matches in remediate/*.sh + provisioners
-#   11. collect_all_decisions populates RESOLUTIONS + makes zero host mutations
+# The eleven Bash-library @tests this file opened with (sourcing remediate.sh,
+# register_bail, flush_bails_or_continue, the per-component stubs) went away with
+# the Bash provisioner at the Rust cutover. Their successors are Rust unit tests:
+# `provision::remediate`'s gate/decide_sudoers/decide_npm_prefix tables and
+# `flush_tests` (the [BAIL] aggregation + exit 65). What REMAINS here is what
+# only a real host can show — the end-to-end brownfield remediation behaviour.
 #
-# Task 2 block (@tests 12-24): --yes/--no-yes parsing, exit-code-64 sites,
-# --help Exit codes section grep, no-mutation snapshot tests, bail-aggregation
-# E2E, RESOLUTIONS dispatch greps. See action steps 1-8 in 14-01-PLAN.md.
+# Thirteen `# Test NN — …` headers were left behind above nothing when those
+# tests were deleted. They have been removed rather than left as an index of
+# coverage that does not exist; the most misleading read "visudo-fail gate
+# UPHELD" above no code, while the behaviour it named — install_or_overwrite
+# refusing to install when visudo -cf rejects the tmpfile, both the pre-install
+# gate and the post-install re-verify — had no test anywhere. It now has one:
+# `visudo_gates_the_install_before_the_file_is_ever_written` and
+# `a_failed_post_install_verify_is_a_hard_error` in
+# rust/crates/agentlinux/src/provision/sudoers.rs.
 
 load 'helpers/assertions'
 load 'helpers/brownfield'
@@ -396,18 +396,6 @@ setup_brownfield_for_bail_sudoers_drift() {
 
 # ---- Plan 14-02 Task 1: REMEDIATE-01 chown/rebase strategy + module migration -----
 
-# Test 25 — Predicate: trivially salvageable returns 0 on empty allowlist tree.
-
-# Test 26 — T-14-03 mitigation: predicate REJECTS non-allowlist entry.
-
-# Test 27 — Strategy selector picks chown for under-home + salvageable.
-
-# Test 28 — Strategy selector picks rebase for prefix OUTSIDE home.
-
-# Test 29 — Strategy selector picks rebase for under-home + NOT salvageable.
-
-# Test 30 — Module enumeration filters catalog agents + npm.
-
 # Test 31 — BROWNFIELD chown happy path E2E.
 @test "REMEDIATE-01: BROWNFIELD chown E2E — under-home + empty prefix → chown -R; prefix becomes agent:agent" {
   setup_brownfield_for_remediate_01_chown
@@ -483,10 +471,6 @@ setup_brownfield_for_bail_sudoers_drift() {
   true
 }
 
-# Test 35 — npm self-exclusion (Area 2 Q3 — npm comes from system Node).
-
-# Test 36 — T-14-08 protection: even if /usr is empty, we never chown it.
-
 # Test 37 — chown-blocked-by-allowlist E2E (T-14-03 end-to-end).
 @test "REMEDIATE-01 (T-14-03): BROWNFIELD chown REFUSED when prefix has non-allowlist entry → falls back to rebase" {
   setup_brownfield_for_remediate_01_chown_blocked
@@ -504,11 +488,7 @@ setup_brownfield_for_bail_sudoers_drift() {
     || __fail "REMEDIATE-01 (T-14-03)" "pre-existing user-installed module preserved" "missing" "$LOG"
 }
 
-# Test 38 — REMEDIATE-01 source code: no rm -rf against old prefix anywhere.
-
 # ---- Plan 14-02 Task 2: REMEDIATE-02 + REMEDIATE-03 helpers + refactor -----
-
-# Test 39 — install_or_overwrite helper exists + functions on missing-file install.
 
 # Test 40 — install_or_overwrite OVERWRITES a pre-existing drifted file.
 @test "REMEDIATE-03: install_or_overwrite OVERWRITES drifted sudoers with canonical ADR-012 line" {
@@ -523,8 +503,6 @@ setup_brownfield_for_bail_sudoers_drift() {
   printf '%s' "$output" | grep -qF '[REMEDIATE-03] component=sudoers action=overwrite' \
     || __fail "REMEDIATE-03" "[REMEDIATE-03] action=overwrite marker in transcript" "$output" "$LOG"
 }
-
-# Test 41 — T-14-02 mitigation: visudo-fail gate UPHELD via the test-only override.
 
 # Test 42 — BROWNFIELD missing-file install is ADDITIVE (no --yes needed).
 @test "REMEDIATE-03: missing sudoers — additive install fires WITHOUT --yes (no consent gate consulted)" {
@@ -611,8 +589,6 @@ setup_brownfield_for_bail_sudoers_drift() {
   [[ "$sha_first" == "$sha_second" ]] \
     || __fail "REMEDIATE-02" "byte-stable ~agent/.bashrc across re-run" "first=$sha_first second=$sha_second" "$LOG"
 }
-
-# Test 46 — 20-sudoers.sh post-refactor: BOTH arms call install_or_overwrite.
 
 # Test 47 — BHV-07 regression guard: 20-sudoers.sh refactor preserves byte-stable output.
 @test "REMEDIATE-03: 20-sudoers.sh post-refactor produces byte-identical /etc/sudoers.d/agentlinux across re-run (BHV-07)" {
@@ -730,7 +706,6 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   rm -rf /home/agent/.cache/ms-playwright
 }
 
-# Test 51 — BROWNFIELD PATH-MISMATCH happy path E2E.
 # Pre-populate container with claude-code installed via `npm install -g`
 # (~/.npm-global/bin/claude — PATH-MISMATCH vs canonical ~/.local/bin/claude).
 # Pre-populate ~/.claude/test-marker-file. Run `agentlinux install claude-code --yes`.

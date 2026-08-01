@@ -22,7 +22,6 @@
 //! ran in `main::dispatch` before this body.
 
 use crate::catalog::{self, FullCatalogEntry};
-use crate::probe::probe_installed_version;
 use crate::sentinel::{self, Sentinel};
 use crate::{agent_home, canonical_path, host_paths};
 use agentlinux_core::category::derive_category;
@@ -91,7 +90,7 @@ fn build_rows(entries: &[FullCatalogEntry], sentinels: &[Sentinel]) -> Vec<Row> 
             // #6: probe the REAL on-disk version for npm entries; fall back to the
             // recorded sentinel version when unprobeable.
             let mut installed: Option<String> = if sentinel.is_some() {
-                probe_installed_version(entry).or_else(|| sentinel_version.clone())
+                crate::probe::probe_installed_version(entry).or_else(|| sentinel_version.clone())
             } else {
                 None
             };
@@ -289,6 +288,11 @@ fn pad_end(s: &str, width: usize) -> String {
 /// `agentlinux list` body. Loads catalog + sentinels, builds rows, renders. Always
 /// exits 0. Port of `listCmd`.
 #[must_use]
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it resolves
+/// the ambient catalog dir, reads the real sentinel store and writes real
+/// stdout. Everything it decides is asserted directly: [`visible_entries`],
+/// [`build_rows`], [`render_by_category`] and [`render_table`].
+#[cfg_attr(test, mutants::skip)]
 pub fn list(opts: &ListArgs) -> ExitCode {
     let catalog_dir = catalog::resolve_catalog_dir();
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
@@ -314,10 +318,7 @@ pub fn list(opts: &ListArgs) -> ExitCode {
         }
     };
 
-    let visible: Vec<FullCatalogEntry> = agents
-        .into_iter()
-        .filter(|a| opts.include_test || !a.test_only)
-        .collect();
+    let visible = visible_entries(agents, opts.include_test);
     let rows = build_rows(&visible, &sentinels);
 
     if opts.json {
@@ -334,42 +335,7 @@ pub fn list(opts: &ListArgs) -> ExitCode {
 
     let mut lines: Vec<String> = Vec::new();
     if opts.by_category {
-        // Group by category, ordered by category_order (ties by key).
-        let mut keys: Vec<String> = Vec::new();
-        for r in &rows {
-            if !keys.contains(&r.category) {
-                keys.push(r.category.clone());
-            }
-        }
-        keys.sort_by(|a, b| {
-            let oa = rows
-                .iter()
-                .find(|r| &r.category == a)
-                .map_or(100, |r| r.category_order);
-            let ob = rows
-                .iter()
-                .find(|r| &r.category == b)
-                .map_or(100, |r| r.category_order);
-            oa.cmp(&ob).then_with(|| a.cmp(b))
-        });
-        let mut first = true;
-        for key in &keys {
-            let mut group: Vec<Row> = rows
-                .iter()
-                .filter(|r| &r.category == key)
-                .cloned()
-                .collect();
-            group.sort_by(|a, b| a.id.cmp(&b.id));
-            if !first {
-                lines.push(String::new());
-            }
-            first = false;
-            let label = group
-                .first()
-                .map_or_else(|| key.clone(), |r| r.category_label.clone());
-            lines.push(format!("## {label}"));
-            render_table(&group, &mut lines, opts.descriptions);
-        }
+        render_by_category(&rows, opts.descriptions, &mut lines);
     } else {
         render_table(&rows, &mut lines, opts.descriptions);
     }
@@ -377,6 +343,63 @@ pub fn list(opts: &ListArgs) -> ExitCode {
         println!("{line}");
     }
     ExitCode::SUCCESS
+}
+
+/// The catalog entries `list` will show: `test_only` fixtures are hidden unless
+/// `--include-test` asks for them.
+///
+/// Extracted from `list` because inside it the filter was only reachable by
+/// running the whole verb against the real catalog and reading real stdout.
+/// `delete !` and `replace || with &&` both survived there — one shows the
+/// fixtures to every user, the other hides every REAL agent unless
+/// `--include-test` is passed.
+fn visible_entries(agents: Vec<FullCatalogEntry>, include_test: bool) -> Vec<FullCatalogEntry> {
+    agents
+        .into_iter()
+        .filter(|a| include_test || !a.test_only)
+        .collect()
+}
+
+/// Render the `--by-category` grouping: categories in `category_order` (ties
+/// broken by key), agents within a category by id, a blank line between groups
+/// and never before the first.
+///
+/// Extracted for the same reason as [`visible_entries`] — five mutants survived
+/// in here behind `println!`: the dedup that builds the key list, both halves of
+/// the order lookup, the per-group membership test, and the blank-line guard.
+fn render_by_category(rows: &[Row], descriptions: bool, lines: &mut Vec<String>) {
+    let mut keys: Vec<String> = Vec::new();
+    for r in rows {
+        if !keys.contains(&r.category) {
+            keys.push(r.category.clone());
+        }
+    }
+    keys.sort_by(|a, b| {
+        let order_of = |k: &String| {
+            rows.iter()
+                .find(|r| &r.category == k)
+                .map_or(100, |r| r.category_order)
+        };
+        order_of(a).cmp(&order_of(b)).then_with(|| a.cmp(b))
+    });
+    let mut first = true;
+    for key in &keys {
+        let mut group: Vec<Row> = rows
+            .iter()
+            .filter(|r| &r.category == key)
+            .cloned()
+            .collect();
+        group.sort_by(|a, b| a.id.cmp(&b.id));
+        if !first {
+            lines.push(String::new());
+        }
+        first = false;
+        let label = group
+            .first()
+            .map_or_else(|| key.clone(), |r| r.category_label.clone());
+        lines.push(format!("## {label}"));
+        render_table(&group, lines, descriptions);
+    }
 }
 
 #[cfg(test)]
@@ -404,6 +427,396 @@ mod list_tests {
             category: "coding-agent".to_string(),
             category_label: "Coding agents".to_string(),
             category_order: 1,
+        }
+    }
+
+    fn entry(id: &str, test_only: bool) -> FullCatalogEntry {
+        FullCatalogEntry {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            description: "d".to_string(),
+            homepage: None,
+            license: None,
+            source_kind: Some("script".to_string()),
+            npm_package_name: None,
+            requires_secret: None,
+            secret_env: None,
+            endpoint_url: None,
+            pinned_version: "1.0.0".to_string(),
+            version_constraint: None,
+            compatibility_window: None,
+            install_recipe_path: "install.sh".to_string(),
+            uninstall_recipe_path: "uninstall.sh".to_string(),
+            rewire_recipe_path: None,
+            post_install_verify: None,
+            preserve_paths_file: None,
+            preserve_paths: None,
+            tags: Vec::new(),
+            test_only,
+        }
+    }
+
+    fn sentinel_for(id: &str, version: &str, source: &str, status: Option<&str>) -> Sentinel {
+        let mut s = Sentinel::new(
+            id.to_string(),
+            version.to_string(),
+            source.to_string(),
+            false,
+        );
+        s.status = status.map(str::to_string);
+        s
+    }
+
+    /// `build_rows` is where a catalog entry and its sentinel become the row the
+    /// table and the JSON both render. Five mutants survived in it: the whole
+    /// function replaced by an empty vec, and four `==` comparisons inverted —
+    /// the sentinel lookup, the presence-overlay gate, the reuse flag and the
+    /// drift flag.
+    ///
+    /// Inverting the sentinel lookup is the worst of them: every row then reads
+    /// SOME OTHER agent's sentinel, so versions, sources and reuse state are
+    /// attributed to the wrong tool throughout the list.
+    #[test]
+    fn a_row_carries_its_own_sentinel_and_its_own_flags() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        // No detect cache → the presence overlay cannot fire, so these
+        // assertions are about the sentinel path alone.
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_AGENT_HOME", "/home/agent");
+
+        let entries = vec![entry("claude-code", false), entry("gsd", false)];
+        // Deliberately in the OPPOSITE order to the entries, and with different
+        // versions, so a mismatched lookup is visible rather than coincidental.
+        let sentinels = vec![
+            sentinel_for("gsd", "1.7.0", "override", Some("reused")),
+            sentinel_for("claude-code", "1.0.0", "curated", Some("installed")),
+        ];
+
+        let rows = build_rows(&entries, &sentinels);
+        assert_eq!(rows.len(), 2, "one row per visible entry");
+        let by_id = |id: &str| rows.iter().find(|r| r.id == id).expect("row present");
+
+        let claude = by_id("claude-code");
+        assert_eq!(
+            claude.sentinel_version.as_deref(),
+            Some("1.0.0"),
+            "each row must read ITS OWN sentinel, not the other one's"
+        );
+        assert_eq!(claude.source, "curated");
+        assert!(!claude.reused, "status=installed is not a reuse");
+
+        let gsd = by_id("gsd");
+        assert_eq!(gsd.sentinel_version.as_deref(), Some("1.7.0"));
+        assert_eq!(gsd.source, "override");
+        assert!(gsd.reused, "status=reused sets the reuse flag");
+
+        // An entry with NO sentinel is not-installed: no version, no source, and
+        // the presence overlay left it alone because the cache is absent.
+        let rows = build_rows(&[entry("rtk", false)], &sentinels);
+        let rtk = &rows[0];
+        assert_eq!(rtk.sentinel_version, None);
+        assert_eq!(rtk.source, "-");
+        assert_eq!(rtk.installed, "-");
+        assert!(!rtk.present, "no cache entry means no presence overlay");
+        assert!(!rtk.reused);
+    }
+
+    fn npm_entry(id: &str, pkg: &str, pinned: &str) -> FullCatalogEntry {
+        let mut e = entry(id, false);
+        e.source_kind = Some("npm".to_string());
+        e.npm_package_name = Some(pkg.to_string());
+        e.pinned_version = pinned.to_string();
+        e
+    }
+
+    /// The drift flag says "the binary on disk is not the version we recorded".
+    /// `replace == with != in build_rows` survived on it, which inverts the
+    /// column: every synced agent renders as self-updated and every genuinely
+    /// drifted one renders as clean — and drift is what tells an operator to run
+    /// `agentlinux upgrade`.
+    #[test]
+    fn a_row_is_drifted_only_when_disk_disagrees_with_the_sentinel() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let home = tempfile::tempdir().unwrap();
+        env_scope.set("AGENTLINUX_AGENT_HOME", home.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+
+        // A real global-npm layout so probe_installed_version reads a version
+        // off disk rather than falling back to the sentinel's own record.
+        let pkg_dir = home
+            .path()
+            .join(".npm-global/lib/node_modules/@anthropic-ai/claude-code");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        let write_version = |v: &str| {
+            std::fs::write(
+                pkg_dir.join("package.json"),
+                format!(r#"{{"name":"@anthropic-ai/claude-code","version":"{v}"}}"#),
+            )
+            .unwrap();
+        };
+
+        let entries = vec![npm_entry(
+            "claude-code",
+            "@anthropic-ai/claude-code",
+            "1.0.0",
+        )];
+        let sentinels = vec![sentinel_for(
+            "claude-code",
+            "1.0.0",
+            "curated",
+            Some("installed"),
+        )];
+
+        // On disk == recorded → not drifted.
+        write_version("1.0.0");
+        let rows = build_rows(&entries, &sentinels);
+        assert_eq!(rows[0].installed, "1.0.0");
+        assert!(!rows[0].drifted, "matching versions are not drift");
+
+        // On disk ahead of the record → drifted, and the row reports what is
+        // actually installed, not what was recorded.
+        write_version("2.5.0");
+        let rows = build_rows(&entries, &sentinels);
+        assert_eq!(
+            rows[0].installed, "2.5.0",
+            "the row shows the on-disk version"
+        );
+        assert_eq!(rows[0].sentinel_version.as_deref(), Some("1.0.0"));
+        assert!(
+            rows[0].drifted,
+            "a self-updated binary must render as drift so upgrade is offered"
+        );
+    }
+
+    /// The AL-61 presence overlay reconciles a not-installed verdict against the
+    /// detect cache, so a present-but-unadopted agent reads "present" instead of
+    /// "not-installed". `replace == with != in build_rows` survived on the gate
+    /// that enters it: inverted, the overlay is consulted for agents that ARE
+    /// installed and skipped for the ones it exists to describe.
+    #[test]
+    fn the_presence_overlay_fires_only_for_a_not_installed_row() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("detect.json");
+        std::fs::write(
+            &cache,
+            r#"{"agents":[{"id":"claude-code","status":"healthy",
+                 "path":"/home/agent/.local/bin/claude","version":"2.1.0"}]}"#,
+        )
+        .unwrap();
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
+        env_scope.set("AGENTLINUX_AGENT_HOME", "/home/agent");
+
+        // No sentinel → NotInstalled → the overlay is allowed to fire.
+        let rows = build_rows(&[entry("claude-code", false)], &[]);
+        assert!(
+            rows[0].present,
+            "a cached, unadopted agent must read as present"
+        );
+        assert_eq!(rows[0].status, "present");
+        assert_eq!(
+            rows[0].present_path.as_deref(),
+            Some("/home/agent/.local/bin/claude")
+        );
+
+        // With a sentinel the row is installed, and the overlay must NOT fire —
+        // an adopted agent is not "detected".
+        let sentinels = vec![sentinel_for(
+            "claude-code",
+            "2.1.0",
+            "curated",
+            Some("installed"),
+        )];
+        let rows = build_rows(&[entry("claude-code", false)], &sentinels);
+        assert!(
+            !rows[0].present,
+            "an already-managed agent must not be re-reported as merely present"
+        );
+        assert_ne!(rows[0].status, "present");
+    }
+
+    /// `test_only` fixtures are hidden by default and shown on --include-test.
+    /// `delete !` and `replace || with &&` both survived: one offers the test
+    /// fixtures to every user, the other hides every REAL agent unless
+    /// --include-test is passed.
+    #[test]
+    fn test_only_entries_are_hidden_unless_asked_for() {
+        let catalog = || vec![entry("claude-code", false), entry("test-dummy", true)];
+
+        let ids = |v: Vec<FullCatalogEntry>| v.into_iter().map(|e| e.id).collect::<Vec<_>>();
+        assert_eq!(
+            ids(visible_entries(catalog(), false)),
+            vec!["claude-code"],
+            "the default list must not offer test fixtures"
+        );
+        assert_eq!(
+            ids(visible_entries(catalog(), true)),
+            vec!["claude-code", "test-dummy"],
+            "--include-test adds them WITHOUT dropping the real ones"
+        );
+    }
+
+    /// `--by-category` orders groups by `category_order`, agents inside a group
+    /// by id, and separates groups with exactly one blank line — never one
+    /// before the first group.
+    ///
+    /// Five mutants survived in here while it lived inside `list` behind
+    /// `println!`: the key dedup, both halves of the order lookup, the group
+    /// membership test, and the blank-line guard.
+    #[test]
+    fn by_category_orders_groups_and_separates_them_exactly_once() {
+        let mk = |id: &str, cat: &str, label: &str, order: u32| {
+            let mut r = row(id);
+            r.category = cat.to_string();
+            r.category_label = label.to_string();
+            r.category_order = order;
+            r
+        };
+        // Deliberately out of order, and with two members in the later group so
+        // the within-group sort is observable.
+        let rows = vec![
+            mk("zebra", "mcp", "MCP servers", 2),
+            mk("alpha", "coding-agent", "Coding agents", 1),
+            mk("beta", "mcp", "MCP servers", 2),
+        ];
+
+        let mut lines = Vec::new();
+        render_by_category(&rows, false, &mut lines);
+
+        let headers: Vec<&String> = lines.iter().filter(|l| l.starts_with("## ")).collect();
+        assert_eq!(
+            headers,
+            vec!["## Coding agents", "## MCP servers"],
+            "groups run in category_order, not first-seen order"
+        );
+
+        // Each category appears exactly once — the dedup that builds the key
+        // list is what guarantees it.
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|l| l.as_str() == "## MCP servers")
+                .count(),
+            1,
+            "a category with two members must still print one header"
+        );
+
+        assert!(
+            !lines.is_empty() && !lines[0].is_empty(),
+            "no blank line before the FIRST group"
+        );
+        assert_eq!(
+            lines.iter().filter(|l| l.is_empty()).count(),
+            1,
+            "exactly one blank line between two groups"
+        );
+
+        // Within the group, ids sort — beta before zebra despite input order.
+        let joined = lines.join("\n");
+        assert!(
+            joined.find("beta").unwrap() < joined.find("zebra").unwrap(),
+            "agents inside a category sort by id, got:\n{joined}"
+        );
+    }
+
+    /// The INSTALLED cell is a priority chain, and the ORDER is the contract:
+    /// broken-after-remediate beats reused-with-warning beats reused beats drift
+    /// beats present. Deleting either of the first two match arms survived —
+    /// each silently demotes a row to the next suffix down, so a
+    /// half-uninstalled agent needing manual recovery renders as an ordinary
+    /// reuse, and an operator is told nothing is wrong.
+    #[test]
+    fn the_installed_cell_branch_order_is_the_contract() {
+        // Every flag below is set at once, so each case can only be produced by
+        // its OWN arm winning — not by being the last one standing.
+        let loaded = |status: Option<&str>| {
+            let mut r = row("claude-code");
+            r.installed = "2.1.0".to_string();
+            r.sentinel_status = status.map(str::to_string);
+            r.decline_reason = Some("npm prefix busy".to_string());
+            r.reused = true;
+            r.drifted = true;
+            r.sentinel_version = Some("2.0.0".to_string());
+            r.present = true;
+            r.present_adoptable = true;
+            r
+        };
+
+        assert_eq!(
+            installed_cell(&loaded(Some("broken-after-remediate"))),
+            format!("2.1.0{BROKEN_AFTER_REMEDIATE_SUFFIX}"),
+            "broken-after-remediate outranks every other signal"
+        );
+        assert_eq!(
+            installed_cell(&loaded(Some("reused-with-warning"))),
+            format!("2.1.0{}", reused_with_warning_suffix("npm prefix busy")),
+            "reused-with-warning outranks plain reuse, and carries the reason"
+        );
+        assert_eq!(
+            installed_cell(&loaded(None)),
+            format!("2.1.0{REUSED_SUFFIX}"),
+            "with neither status set, plain reuse wins over drift and present"
+        );
+
+        // Drift is only reportable when there is a recorded version to name.
+        let mut d = row("gsd");
+        d.installed = "1.8.0".to_string();
+        d.drifted = true;
+        d.sentinel_version = Some("1.7.0".to_string());
+        assert_eq!(
+            installed_cell(&d),
+            format!("1.8.0{}", drift_suffix("1.7.0")),
+            "drift names the version AgentLinux recorded"
+        );
+        d.sentinel_version = None;
+        assert_eq!(
+            installed_cell(&d),
+            "1.8.0",
+            "drift with no recorded version has nothing to report — the `&&` in \
+             that guard is what stops it printing `self-updated from `"
+        );
+    }
+
+    /// The three generated suffixes are byte-exact acceptance contracts: the
+    /// bats suite greps them with `grep -qF`. Each could be replaced wholesale
+    /// with an empty or junk string and nothing noticed.
+    #[test]
+    fn the_generated_suffixes_are_byte_exact() {
+        assert_eq!(
+            reused_with_warning_suffix("EACCES on prefix"),
+            " (reused — declined remediation: EACCES on prefix; manual fix needed)"
+        );
+        assert_eq!(
+            drift_suffix("1.2.3"),
+            " (self-updated from 1.2.3 — run: agentlinux upgrade to reconcile)"
+        );
+        assert_eq!(
+            present_reconcile_suffix("rtk"),
+            " (detected out-of-window — run: agentlinux install rtk to manage)"
+        );
+        // The em-dash is load-bearing in all three, as it is in REUSED_SUFFIX.
+        for suffix in [
+            reused_with_warning_suffix("x"),
+            drift_suffix("x"),
+            present_reconcile_suffix("x"),
+        ] {
+            assert!(suffix.contains('\u{2014}'), "{suffix:?} lost its em-dash");
+        }
+    }
+
+    /// Every `Status` renders as the kebab string the JSON and the text table
+    /// both carry. Replacing the whole function with "" or junk survived.
+    #[test]
+    fn every_status_has_its_kebab_string() {
+        for (s, want) in [
+            (Status::NotInstalled, "not-installed"),
+            (Status::Synced, "synced"),
+            (Status::DriftUndeclared, "drift-undeclared"),
+            (Status::OverrideAhead, "override-ahead"),
+            (Status::OverrideBehind, "override-behind"),
+            (Status::PinnedOverride, "pinned-override"),
+        ] {
+            assert_eq!(status_str(s), want);
         }
     }
 

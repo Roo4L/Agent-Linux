@@ -111,12 +111,20 @@ fn extract_semver(text: &str) -> Option<String> {
 /// prerelease tail, matching `grep -Eo` leftmost-longest at this position.
 fn match_semver_at(bytes: &[u8], start: usize) -> Option<usize> {
     let n = bytes.len();
+    // Counted with `take_while` rather than a hand-rolled `while … { *i += 1 }`.
+    // Both spell the same scan, but the loop form can be made non-terminating by
+    // a single-character change to the advance (`+=` -> `*=` leaves the index
+    // still while the condition stays true). That is not a hypothetical: it is
+    // the shape a mutation testing run produces, and it hangs the whole test
+    // binary rather than failing an assertion — a regression nobody can diagnose
+    // from a CI timeout. With no loop there is no way to not advance.
     let digits = |i: &mut usize| -> bool {
-        let s = *i;
-        while *i < n && bytes[*i].is_ascii_digit() {
-            *i += 1;
-        }
-        *i > s
+        let run = bytes[*i..]
+            .iter()
+            .take_while(|b| b.is_ascii_digit())
+            .count();
+        *i += run;
+        run > 0
     };
     let mut i = start;
     // MAJOR
@@ -141,18 +149,15 @@ fn match_semver_at(bytes: &[u8], start: usize) -> Option<usize> {
     }
     // Optional -prerelease ([a-z0-9.-]+, at least one char after the hyphen).
     if i < n && bytes[i] == b'-' {
-        let mut j = i + 1;
-        let tail_start = j;
-        while j < n
-            && (bytes[j].is_ascii_digit()
-                || bytes[j].is_ascii_lowercase()
-                || bytes[j] == b'.'
-                || bytes[j] == b'-')
-        {
-            j += 1;
-        }
-        if j > tail_start {
-            i = j;
+        // Same counted form as `digits` above, for the same reason.
+        let tail = bytes[i + 1..]
+            .iter()
+            .take_while(|b| {
+                b.is_ascii_digit() || b.is_ascii_lowercase() || **b == b'.' || **b == b'-'
+            })
+            .count();
+        if tail > 0 {
+            i += 1 + tail;
         }
     }
     Some(i)
@@ -200,6 +205,20 @@ fn probe_env(home: &str) -> Vec<(String, String)> {
 /// Run `script` as `user` through a login shell (sourcing the agent profile so
 /// PATH resolves agent-owned bins), returning `(exit_code, trimmed_stdout)`.
 /// Bounded so a wedged probe can never hang an unattended provision.
+/// A login-shell probe: `(user, home, script) -> (exit_code, trimmed_stdout)`.
+/// Injectable so the FALLBACK CHAIN below — try `--version`, then `version`,
+/// then `--help`, first semver wins — is reachable from a test. It had none: a
+/// regression that probes only `--version` and drops the rest compiles, passes
+/// `cargo test`, and surfaces as a wrong REUSE verdict in QEMU.
+pub type LoginRun = fn(user: &str, home: &str, script: &str) -> (i32, String);
+
+/// Not mutation-tested: the production adapter behind [`LoginRun`] (ADR-019 §5).
+/// It shells out through `dispatcher::as_user`, i.e. a real `sudo -u` hop to a
+/// login shell — which is exactly why `LoginRun` is a type alias and not a
+/// direct call, so the fallback chain in [`probe_one`] is reachable from a test
+/// without one. The env it hands the child is asserted through [`probe_env`],
+/// and the argv shape through the dispatcher's own tests.
+#[cfg_attr(test, mutants::skip)]
 fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
     let argv: Vec<String> = ["bash", "--login", "-c", script]
         .iter()
@@ -239,14 +258,14 @@ const SCAN_BUDGET: std::time::Duration = std::time::Duration::from_secs(180);
 /// token outside `[A-Za-z0-9._/-]` (so no shell metacharacter can reach this
 /// `bash -c`), and the captured stdout is bounded by [`extract_semver`] to a pure
 /// semver substring — it never re-enters a shell.
-fn probe_version(user: &str, home: &str, id: &str, binary: &str) -> String {
+fn probe_version(run: LoginRun, user: &str, home: &str, id: &str, binary: &str) -> String {
     let flags: &[&str] = match id {
         "claude-code" | "playwright-cli" => &["--version"],
         "gsd" => &["--help"],
         _ => &["--version", "version", "--help"],
     };
     for flag in flags {
-        let (_rc, out) = login_run(user, home, &format!("{binary} {flag} 2>/dev/null"));
+        let (_rc, out) = run(user, home, &format!("{binary} {flag} 2>/dev/null"));
         if let Some(v) = extract_semver(&out) {
             return v;
         }
@@ -257,8 +276,8 @@ fn probe_version(user: &str, home: &str, id: &str, binary: &str) -> String {
 /// Probe a single `(id, binary)` row into an [`AgentRecord`]. Resolves the binary
 /// on the install user's login PATH; on a miss, GSD falls back to its deployed
 /// `~/.claude/gsd-core/VERSION` (owner-gated). Absent everywhere → `status=absent`.
-fn probe_one(user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
-    let (rc, bin_path) = login_run(user, home, &format!("command -v {binary}"));
+fn probe_one(run: LoginRun, user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
+    let (rc, bin_path) = run(user, home, &format!("command -v {binary}"));
     let resolved = if rc == 0 && !bin_path.is_empty() {
         Some(bin_path)
     } else {
@@ -266,10 +285,10 @@ fn probe_one(user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
     };
 
     if let Some(path) = resolved {
-        let version = probe_version(user, home, id, binary);
+        let version = probe_version(run, user, home, id, binary);
         // Legacy ids additionally gate health on `--help` exit 0.
         let legacy_help_ok = if LEGACY_IDS.contains(&id) {
-            login_run(user, home, &format!("{binary} --help >/dev/null 2>&1")).0 == 0
+            run(user, home, &format!("{binary} --help >/dev/null 2>&1")).0 == 0
         } else {
             true
         };
@@ -353,9 +372,40 @@ fn record_value(r: &AgentRecord) -> serde_json::Value {
 /// records (mcp/test entries excluded, absent agents included as `status=absent`).
 /// A catalog-read failure logs a breadcrumb and returns an empty vec (the callers
 /// treat that as "detected nothing" — the same absent-cache fallback).
+/// Not mutation-tested — ADR-019 §5, "production wiring adapters". This is the
+/// one line that binds the real login shell and the ambient catalog dir to
+/// [`scan_with`], and `replace scan -> vec![]` is unkillable HERE because no
+/// test drives it: driving it means spawning `bash --login` against a real
+/// catalog, which is the coupling the seam removed.
+///
+/// Recorded rather than claimed fixed. An earlier commit said the seam killed
+/// this mutant; it kills `scan_with -> vec![]`, which is a different function.
+/// Measured: `scan -> vec![]` passed all 493 tests. The BEHAVIOUR it would cause
+/// — an empty detect cache, so every downstream REUSE-03/REMEDIATE-04 verdict
+/// sees "nothing installed" — is asserted through the seam by
+/// `scan_probes_every_non_mcp_agent_in_the_catalog`.
+#[cfg_attr(test, mutants::skip)]
 fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
-    let catalog_dir = catalog::resolve_catalog_dir();
-    let entries = match catalog::load_catalog(&catalog_dir, catalog::Validate::Skip) {
+    scan_with(login_run, &catalog::resolve_catalog_dir(), user, home)
+}
+
+/// [`scan`] over an injected login runner and catalog dir.
+///
+/// The `LoginRun` seam stopped one call short of every public entry point:
+/// `probe_one`/`probe_version` took it, but `scan` wired the real one in, so
+/// `scan`, `scan_and_write` and `scan_persist_report_json` — everything the
+/// `provision` verb actually calls — could only run by spawning a real login
+/// shell against a real catalog. Replacing this function's body with
+/// `Vec::new()` passed the whole suite, and the cache is then written as
+/// `{"agents":[]}`, so every downstream REUSE-03/REMEDIATE-04 verdict sees
+/// "nothing installed" and no test can tell.
+fn scan_with(
+    run: LoginRun,
+    catalog_dir: &std::path::Path,
+    user: &str,
+    home: &str,
+) -> Vec<AgentRecord> {
+    let entries = match catalog::load_catalog(catalog_dir, catalog::Validate::Skip) {
         Ok(e) => e,
         Err(e) => {
             crate::provision::log::line(&format!(
@@ -389,7 +439,7 @@ fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
             skipped += 1;
             continue;
         }
-        records.push(probe_one(user, home, &id, &binary));
+        records.push(probe_one(run, user, home, &id, &binary));
     }
     if skipped > 0 {
         crate::provision::log::line(&format!(
@@ -444,6 +494,9 @@ fn persist(records: &[AgentRecord]) {
 /// real work must not fail because detection could not persist), but the common
 /// path leaves `/run/agentlinux-detect.json` populated so REUSE-03 / REMEDIATE-04
 /// can fire on the next `agentlinux install`.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) binding the
+/// real login-shell scan to [`persist`], which is asserted directly.
+#[cfg_attr(test, mutants::skip)]
 pub fn scan_and_write(user: &str, home: &str) {
     persist(&scan(user, home));
 }
@@ -456,9 +509,24 @@ pub fn scan_and_write(user: &str, home: &str) {
 /// absent agents included), which `agentlinux list`/`adopt`/`upgrade` then read
 /// back from the cache. Wrapped under `.components.agents` to match the Bash
 /// report shape (the cache adapter accepts both `.agents` and `.components.agents`).
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) binding the
+/// real login-shell scan. The persisted bytes are asserted through
+/// [`write_cache`] and the returned shape through [`report_body`].
+#[cfg_attr(test, mutants::skip)]
 pub fn scan_persist_report_json(user: &str, home: &str) -> serde_json::Value {
     let records = scan(user, home);
     persist(&records);
+    report_body(&records)
+}
+
+/// The `--report-format=json` body: the records wrapped under
+/// `.components.agents`, matching the Bash report shape the DET-04 suite pipes
+/// to `jq`. (The cache adapter accepts both that and a bare `.agents`.)
+///
+/// Split from the scan because the wrapper is the part a test can pin without a
+/// login shell — replacing the whole function with `Default::default()` survived,
+/// which hands DET-04 a JSON `null` where it expects an agents array.
+fn report_body(records: &[AgentRecord]) -> serde_json::Value {
     let agents: Vec<serde_json::Value> = records.iter().map(record_value).collect();
     serde_json::json!({ "components": { "agents": agents } })
 }
@@ -562,6 +630,389 @@ mod detect_tests {
         );
     }
 
+    fn record(id: &str, status: &str) -> AgentRecord {
+        AgentRecord {
+            id: id.to_string(),
+            binary: format!("{id}-bin"),
+            path: format!("/home/agent/.local/bin/{id}"),
+            version: "1.2.3".to_string(),
+            status: status.to_string(),
+        }
+    }
+
+    /// The detect cache is what REUSE-03 and REMEDIATE-04 read on the next
+    /// `agentlinux install`. `write_cache` could be replaced by `Ok(())` — a
+    /// silent no-op leaving an absent cache, which is exactly the bug this
+    /// module was written to fix — and `persist` by `()`.
+    ///
+    /// Also pins the 0o644 mode: root writes this file and the unprivileged
+    /// install user must read it, so relying on the ambient umask would be a
+    /// coin flip.
+    #[test]
+    fn the_cache_is_written_where_the_seam_points_and_is_world_readable() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("detect.json");
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
+
+        write_cache(&[record("claude-code", "healthy"), record("gsd", "absent")])
+            .expect("the cache must be writable");
+
+        let body = std::fs::read_to_string(&cache).expect("the cache file must exist");
+        let v: serde_json::Value = serde_json::from_str(&body).expect("valid JSON");
+        assert_eq!(v["agents"][0]["id"], "claude-code");
+        assert_eq!(v["agents"][0]["status"], "healthy");
+        assert_eq!(v["agents"][1]["id"], "gsd");
+        assert_eq!(
+            v["agents"].as_array().map(Vec::len),
+            Some(2),
+            "every record reaches the cache, including absent ones"
+        );
+
+        let mode = std::fs::metadata(&cache).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o644, "the install user has to be able to read it");
+
+        // `persist` is the best-effort wrapper the scan paths share: it must
+        // actually write, not merely not-panic.
+        std::fs::remove_file(&cache).unwrap();
+        persist(&[record("rtk", "healthy")]);
+        let body = std::fs::read_to_string(&cache).expect("persist must write the cache");
+        assert!(body.contains("rtk"));
+    }
+
+    /// The DET-04 report shape: agents under `.components.agents`, which the
+    /// bats suite pipes to `jq`.
+    #[test]
+    fn the_report_body_wraps_agents_under_components() {
+        let v = report_body(&[record("claude-code", "healthy")]);
+        assert_eq!(v["components"]["agents"][0]["id"], "claude-code");
+        assert!(
+            v["components"]["agents"].is_array(),
+            "DET-04 indexes this as an array"
+        );
+    }
+
+    /// The scanner must TERMINATE on every input, and a test that hangs is not
+    /// a test that proves it.
+    ///
+    /// `replace += with *=` on either digit-advance turns the scan into a
+    /// non-terminating loop: the index stops moving while the loop condition
+    /// stays true. Called directly, that hangs the whole test binary, so
+    /// cargo-mutants recorded both as timeouts rather than as caught — the same
+    /// mutant reported as "we do not know" instead of "the suite noticed".
+    ///
+    /// Running the scan on a worker thread with a deadline converts the hang
+    /// into an assertion failure: the regression is CAUGHT, with a diagnosis,
+    /// in a bounded time. The worker is left spinning if it never returns, which
+    /// only happens when the code really is broken.
+    #[test]
+    fn the_semver_scan_terminates_on_every_input() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            // Inputs that exercise both digit-advance loops and the prerelease
+            // tail: a long digit run, and a long prerelease.
+            let cases = [
+                "1.2.3",
+                "111111.222222.333333",
+                "1.2.3-rc.1.2.3-alpha.beta",
+                "not a version at all",
+                "9999999999.0.0-x",
+            ];
+            let out: Vec<Option<String>> = cases.iter().map(|c| extract_semver(c)).collect();
+            let _ = tx.send(out);
+        });
+
+        let out = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the semver scan must terminate — an index that stops advancing hangs it");
+
+        // And it still returns the right answers, so "terminates" is not being
+        // satisfied by a scan that gave up.
+        assert_eq!(out[0].as_deref(), Some("1.2.3"));
+        assert_eq!(out[1].as_deref(), Some("111111.222222.333333"));
+        assert_eq!(out[2].as_deref(), Some("1.2.3-rc.1.2.3-alpha.beta"));
+        assert_eq!(out[3], None);
+        assert_eq!(out[4].as_deref(), Some("9999999999.0.0-x"));
+    }
+
+    /// Each id has its own version-flag chain, and the legacy split is real:
+    /// claude-code/playwright-cli answer `--version` only, gsd answers `--help`
+    /// only, everything else tries three flags in turn until a semver appears.
+    ///
+    /// `delete match arm "claude-code" | "playwright-cli"` survived — it drops
+    /// those two into the generic chain. That is not obviously wrong until you
+    /// notice the generic chain also runs `--help`, and the probe would then
+    /// accept a version parsed out of a HELP BANNER for the two agents whose
+    /// banners carry unrelated version numbers.
+    #[test]
+    fn each_id_probes_the_flags_its_binary_actually_answers() {
+        // Record every script the probe tried, so the chain is observable rather
+        // than inferred from the answer.
+        thread_local! {
+            static TRIED: std::cell::RefCell<Vec<String>> =
+                const { std::cell::RefCell::new(Vec::new()) };
+        }
+        fn record_nothing(_u: &str, _h: &str, script: &str) -> (i32, String) {
+            TRIED.with(|t| t.borrow_mut().push(script.to_string()));
+            (0, String::new())
+        }
+        let flags_for = |id: &str| {
+            TRIED.with(|t| t.borrow_mut().clear());
+            probe_version(record_nothing, "agent", "/home/agent", id, "tool");
+            TRIED.with(|t| t.borrow().clone())
+        };
+
+        assert_eq!(
+            flags_for("claude-code"),
+            vec!["tool --version 2>/dev/null"],
+            "claude-code answers --version and must not fall through to --help"
+        );
+        assert_eq!(
+            flags_for("playwright-cli"),
+            vec!["tool --version 2>/dev/null"],
+            "playwright-cli shares that arm"
+        );
+        assert_eq!(
+            flags_for("gsd"),
+            vec!["tool --help 2>/dev/null"],
+            "gsd has no --version flag at all"
+        );
+        assert_eq!(
+            flags_for("rtk"),
+            vec![
+                "tool --version 2>/dev/null",
+                "tool version 2>/dev/null",
+                "tool --help 2>/dev/null",
+            ],
+            "an unknown id tries all three, in order"
+        );
+
+        // And the chain STOPS at the first flag that yields a semver.
+        fn version_on_first(_u: &str, _h: &str, script: &str) -> (i32, String) {
+            TRIED.with(|t| t.borrow_mut().push(script.to_string()));
+            (0, "9.9.9".to_string())
+        }
+        TRIED.with(|t| t.borrow_mut().clear());
+        assert_eq!(
+            probe_version(version_on_first, "agent", "/home/agent", "rtk", "tool"),
+            "9.9.9"
+        );
+        assert_eq!(
+            TRIED.with(|t| t.borrow().len()),
+            1,
+            "first semver wins — the later flags must not run"
+        );
+    }
+
+    /// The cache writer and the `--report-format=json` report share this one
+    /// projection so the two shapes cannot drift. Replacing it wholesale with
+    /// `Default::default()` — JSON `null` — survived, which empties every agent
+    /// row in both the cache REUSE-03 reads and the operator-facing report.
+    #[test]
+    fn a_record_serializes_to_the_five_cache_fields() {
+        let v = record_value(&AgentRecord {
+            id: "claude-code".to_string(),
+            binary: "claude".to_string(),
+            path: "/home/agent/.local/bin/claude".to_string(),
+            version: "2.1.0".to_string(),
+            status: "healthy".to_string(),
+        });
+        assert_eq!(v["id"], "claude-code");
+        assert_eq!(v["binary"], "claude");
+        assert_eq!(v["path"], "/home/agent/.local/bin/claude");
+        assert_eq!(v["version"], "2.1.0");
+        assert_eq!(v["status"], "healthy");
+        assert_eq!(
+            v.as_object().map(serde_json::Map::len),
+            Some(5),
+            "exactly the five fields the cache reader expects, no more"
+        );
+    }
+
+    // --- probe_one: the resolve gate, the legacy --help gate, the gsd fallback ---
+
+    fn found(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        if script.starts_with("command -v") {
+            (0, "/home/agent/.local/bin/tool".to_string())
+        } else if script.contains("--help") {
+            (0, String::new())
+        } else {
+            (0, "1.2.3".to_string())
+        }
+    }
+    fn found_but_help_fails(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        if script.starts_with("command -v") {
+            (0, "/home/agent/.local/bin/tool".to_string())
+        } else if script.contains("--help") {
+            (1, String::new())
+        } else {
+            (0, "1.2.3".to_string())
+        }
+    }
+    fn nonzero_rc(_u: &str, _h: &str, _script: &str) -> (i32, String) {
+        (1, "/home/agent/.local/bin/tool".to_string())
+    }
+    fn empty_stdout(_u: &str, _h: &str, _script: &str) -> (i32, String) {
+        (0, String::new())
+    }
+
+    /// A binary counts as resolved only when `command -v` BOTH exits 0 AND names
+    /// a path. `replace && with ||` survived, and so did inverting the `rc == 0`:
+    /// either way a failed lookup that happens to print something, or a success
+    /// that prints nothing, is treated as an installed agent — and the record
+    /// goes into the detect cache that REUSE-03 and REMEDIATE-04 later read.
+    #[test]
+    fn a_binary_is_resolved_only_on_exit_zero_and_a_path() {
+        let ok = probe_one(found, "agent", "/home/agent", "rtk", "rtk");
+        assert_eq!(ok.status, "healthy");
+        assert_eq!(ok.path, "/home/agent/.local/bin/tool");
+
+        for (run, why) in [
+            (nonzero_rc as LoginRun, "non-zero rc with a path on stdout"),
+            (empty_stdout as LoginRun, "exit 0 with no path"),
+        ] {
+            let rec = probe_one(run, "agent", "/home/agent", "rtk", "rtk");
+            assert_eq!(rec.status, "absent", "{why} must not resolve");
+            assert_eq!(rec.path, "", "{why} must leave the path empty");
+        }
+    }
+
+    /// The three legacy ids gate health on `--help` exiting 0 as well as on a
+    /// parsed version; every other id does not. Without this, a legacy agent
+    /// whose `--help` is broken still reports healthy.
+    #[test]
+    fn only_legacy_ids_are_gated_on_help_exiting_zero() {
+        let legacy = probe_one(
+            found_but_help_fails,
+            "agent",
+            "/home/agent",
+            "claude-code",
+            "claude",
+        );
+        assert_eq!(
+            legacy.status, "broken",
+            "a legacy id with a failing --help is broken even with a version"
+        );
+        assert_eq!(legacy.version, "1.2.3", "the version still parses");
+
+        let generic = probe_one(found_but_help_fails, "agent", "/home/agent", "rtk", "rtk");
+        assert_eq!(
+            generic.status, "healthy",
+            "a non-legacy id is not gated on --help"
+        );
+    }
+
+    // --- the gsd deployed-VERSION fallback, owner-gated ---
+
+    fn me() -> String {
+        nix::unistd::User::from_uid(nix::unistd::getuid())
+            .ok()
+            .flatten()
+            .map(|u| u.name)
+            .expect("the test process has a passwd entry")
+    }
+
+    /// GSD's binary is a bootstrapper, so an absent binary still counts as
+    /// present when the deployed VERSION file is there — but ONLY when that file
+    /// is owned by the install user, because a planted symlink to a root-owned
+    /// file would otherwise be read as GSD's version.
+    ///
+    /// `delete !` survived on that owner gate, which inverts it exactly: the
+    /// files we own are refused and the foreign-owned ones are accepted.
+    #[test]
+    fn the_gsd_version_fallback_is_owner_gated_and_classifies_by_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("VERSION");
+
+        std::fs::write(&f, "1.37.1\n").unwrap();
+        let rec = gsd_version_file_record(&me(), f.to_str().unwrap())
+            .expect("a file we own must be accepted");
+        assert_eq!(rec.id, "gsd");
+        assert_eq!(rec.version, "1.37.1");
+        assert_eq!(rec.status, "healthy");
+
+        // The fallback is GSD-ONLY: its binary is a bootstrapper, so an absent
+        // one still counts as present. `replace == with !=` in probe_one
+        // survived, which applies the fallback to every OTHER agent and denies
+        // it to gsd — so any tool with a stray file at that path would report
+        // installed, and gsd itself would report absent.
+        let home = dir.path().parent().unwrap().to_str().unwrap().to_string();
+        std::fs::create_dir_all(format!("{home}/.claude/gsd-core")).unwrap();
+        std::fs::write(format!("{home}/.claude/gsd-core/VERSION"), "1.37.1\n").unwrap();
+        fn never_resolves(_u: &str, _h: &str, _s: &str) -> (i32, String) {
+            (1, String::new())
+        }
+        let gsd = probe_one(never_resolves, &me(), &home, "gsd", "gsd-core");
+        assert_eq!(
+            gsd.status, "healthy",
+            "gsd with no binary but a deployed VERSION is present"
+        );
+        assert_eq!(gsd.version, "1.37.1");
+        let other = probe_one(never_resolves, &me(), &home, "rtk", "rtk");
+        assert_eq!(
+            other.status, "absent",
+            "no other agent gets the VERSION-file fallback"
+        );
+
+        // Present and ours, but empty → present-but-broken, not absent.
+        std::fs::write(&f, "   \n\t\n").unwrap();
+        let rec = gsd_version_file_record(&me(), f.to_str().unwrap())
+            .expect("an empty file is still a presence signal");
+        assert_eq!(rec.version, "");
+        assert_eq!(rec.status, "broken");
+
+        // Owned by someone else → refused. A name with no passwd entry cannot
+        // match the file's uid, which is the same rejection path a foreign owner
+        // takes, without needing a second real account on the runner.
+        assert!(
+            gsd_version_file_record("no-such-user-agentlinux-fixture", f.to_str().unwrap())
+                .is_none(),
+            "a file not owned by the install user must be refused"
+        );
+
+        assert!(
+            gsd_version_file_record(&me(), dir.path().join("absent").to_str().unwrap()).is_none(),
+            "a missing VERSION file is absent, not broken"
+        );
+    }
+
+    /// The child env for the login-shell probe hop. Five mutants survived here,
+    /// every one of them replacing the whole vector — empty, or a fabricated
+    /// pair. An empty env means the probe child gets no PATH, so `command -v`
+    /// fails for every agent and a fully-provisioned host reports as greenfield.
+    ///
+    /// Also pins the documented invariant that only `AGENTLINUX_*` is forwarded:
+    /// the comment above the function reasons that those are all path/config
+    /// seams and never secrets, and nothing enforced the filter that makes the
+    /// claim true.
+    #[test]
+    fn the_probe_child_env_carries_path_home_and_only_agentlinux_seams() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_CATALOG_DIR", "/opt/fixture/catalog");
+        env_scope.set("NOT_AGENTLINUX_SECRET", "hunter2");
+
+        let env = probe_env("/home/agent");
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+
+        assert_eq!(get("HOME").as_deref(), Some("/home/agent"));
+        let path = get("PATH").expect("the child must get a PATH");
+        assert!(
+            path.contains("/home/agent/.local/bin") && path.contains("/home/agent/.npm-global/bin"),
+            "both agent-owned bin dirs must resolve before the profile loads, got {path:?}"
+        );
+
+        assert_eq!(
+            get("AGENTLINUX_CATALOG_DIR").as_deref(),
+            Some("/opt/fixture/catalog"),
+            "the seams the parent runs under must reach the probe child"
+        );
+        assert!(
+            get("NOT_AGENTLINUX_SECRET").is_none(),
+            "only AGENTLINUX_* is forwarded — the invariant the doc comment rests on"
+        );
+    }
+
     #[test]
     fn extract_semver_finds_first_match() {
         assert_eq!(extract_semver("1.2.3").as_deref(), Some("1.2.3"));
@@ -581,6 +1032,36 @@ mod detect_tests {
         // No 3-part semver → None (adversarial / non-version output).
         assert_eq!(extract_semver("no version here 12.9"), None);
         assert_eq!(extract_semver(""), None);
+    }
+
+    /// Each of the three digit runs must consume at least one digit.
+    ///
+    /// `replace > with >=` survived on the `digits` closure's "did I consume
+    /// anything?" return. Relaxed, an EMPTY digit run counts as a match, so a
+    /// dotted string with missing components parses as a version: `1..2` becomes
+    /// the reported version of an installed agent, and every downstream semver
+    /// comparison — divergence, the compatibility window, the upgrade decision —
+    /// is then made against a string that is not a version.
+    #[test]
+    fn a_component_with_no_digits_is_not_a_version() {
+        for text in [
+            "1..2",   // MINOR empty
+            "1.2..",  // PATCH empty
+            "1..",    // both empty
+            "1..2.3", // empty MINOR, digits after
+            "v1..0",  // the leading-v form the probes actually emit
+        ] {
+            assert_eq!(
+                extract_semver(text),
+                None,
+                "{text:?} has an empty component and is not a semver"
+            );
+        }
+
+        // The neighbouring well-formed cases still match, so the guard is not
+        // merely rejecting everything.
+        assert_eq!(extract_semver("1.0.2").as_deref(), Some("1.0.2"));
+        assert_eq!(extract_semver("x1.2.3y").as_deref(), Some("1.2.3"));
     }
 
     #[test]
@@ -639,5 +1120,216 @@ mod detect_tests {
         // Generic: version alone is the health signal (--help conventions vary).
         assert_eq!(classify("gitleaks", "8.18.0", false), "healthy");
         assert_eq!(classify("gitleaks", "", true), "broken");
+    }
+}
+
+#[cfg(test)]
+mod probe_chain_tests {
+    //! The version-flag fallback chain and the health gates. None of this had a
+    //! test: only the pure leaves (verify_binary, extract_semver, classify,
+    //! agent_rows) were covered, so a regression that probes `--version` and
+    //! drops the remaining flags compiled, passed, and surfaced only as a wrong
+    //! REUSE/REMEDIATE verdict on a real host.
+    use super::*;
+    use std::cell::RefCell;
+
+    thread_local! {
+        static SCRIPTS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn scripts() -> Vec<String> {
+        SCRIPTS.with(|s| s.borrow().clone())
+    }
+
+    fn reset() {
+        SCRIPTS.with(|s| s.borrow_mut().clear());
+    }
+
+    /// Only `--help` yields a version — the third flag in the generic chain.
+    fn only_help_has_a_version(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        SCRIPTS.with(|s| s.borrow_mut().push(script.to_string()));
+        if script.contains("command -v") {
+            (0, "/home/agent/.npm-global/bin/tool".to_string())
+        } else if script.contains("--help") {
+            (0, "tool, version 3.4.5".to_string())
+        } else {
+            (1, String::new())
+        }
+    }
+
+    /// Nothing is on PATH.
+    fn nothing_resolves(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        SCRIPTS.with(|s| s.borrow_mut().push(script.to_string()));
+        (1, String::new())
+    }
+
+    /// Resolves and reports a version on the FIRST flag.
+    fn version_on_first_flag(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        SCRIPTS.with(|s| s.borrow_mut().push(script.to_string()));
+        if script.contains("command -v") {
+            (0, "/home/agent/.local/bin/claude".to_string())
+        } else {
+            (0, "2.1.98".to_string())
+        }
+    }
+
+    #[test]
+    fn the_generic_chain_falls_through_version_then_help() {
+        reset();
+        let rec = probe_one(
+            only_help_has_a_version,
+            "agent",
+            "/home/agent",
+            "tool",
+            "tool",
+        );
+        assert_eq!(rec.version, "3.4.5");
+        // All three flags were tried, in order, and only until one produced a
+        // semver.
+        let tried: Vec<String> = scripts()
+            .into_iter()
+            .filter(|s| !s.contains("command -v"))
+            .collect();
+        assert_eq!(tried.len(), 3, "tried={tried:?}");
+        assert!(tried[0].contains("tool --version"));
+        assert!(tried[1].contains("tool version"));
+        assert!(tried[2].contains("tool --help"));
+    }
+
+    #[test]
+    fn the_first_semver_wins_and_stops_the_chain() {
+        reset();
+        let rec = probe_one(
+            version_on_first_flag,
+            "agent",
+            "/home/agent",
+            "some-id",
+            "tool",
+        );
+        assert_eq!(rec.version, "2.1.98");
+        let tried: Vec<String> = scripts()
+            .into_iter()
+            .filter(|s| !s.contains("command -v"))
+            .collect();
+        assert_eq!(
+            tried.len(),
+            1,
+            "the chain must stop at the first hit: {tried:?}"
+        );
+    }
+
+    #[test]
+    fn the_legacy_ids_probe_only_their_own_flag() {
+        // claude-code/playwright-cli parse --version; gsd has no --version flag
+        // and parses --help. Probing the wrong one reports an empty version, i.e.
+        // a broken agent.
+        for (id, expected_flag) in [
+            ("claude-code", "--version"),
+            ("playwright-cli", "--version"),
+            ("gsd", "--help"),
+        ] {
+            reset();
+            probe_one(version_on_first_flag, "agent", "/home/agent", id, "tool");
+            let tried: Vec<String> = scripts()
+                .into_iter()
+                // Exclude the resolve probe and the legacy `--help` HEALTH gate
+                // (`… >/dev/null 2>&1`), keeping only the version flags.
+                .filter(|s| !s.contains("command -v") && !s.contains(">/dev/null 2>&1"))
+                .collect();
+            assert_eq!(tried.len(), 1, "{id}: {tried:?}");
+            assert!(tried[0].contains(expected_flag), "{id}: {tried:?}");
+        }
+    }
+
+    #[test]
+    fn an_unresolvable_binary_is_absent_with_no_version_probe() {
+        reset();
+        let rec = probe_one(nothing_resolves, "agent", "/home/agent", "tool", "tool");
+        assert_eq!(rec.status, "absent");
+        assert!(rec.path.is_empty());
+        assert!(rec.version.is_empty());
+        // No flag was probed — resolving the binary gates the whole chain.
+        assert_eq!(scripts().len(), 1, "{:?}", scripts());
+    }
+
+    #[test]
+    fn a_legacy_id_whose_help_exits_non_zero_is_broken() {
+        // The legacy health gate: a resolvable binary reporting a version is
+        // still `broken` when `--help` fails.
+        fn help_fails(_u: &str, _h: &str, script: &str) -> (i32, String) {
+            if script.contains("command -v") {
+                (0, "/home/agent/.local/bin/claude".to_string())
+            } else if script.contains(">/dev/null") {
+                (1, String::new()) // the health gate
+            } else {
+                (0, "2.1.98".to_string())
+            }
+        }
+        let rec = probe_one(help_fails, "agent", "/home/agent", "claude-code", "claude");
+        assert_eq!(rec.status, "broken", "version={}", rec.version);
+    }
+}
+
+#[cfg(test)]
+mod scan_tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    /// A login runner that reports every probed binary as present at a
+    /// predictable path with a fixed version — no shell, no host.
+    fn found(_user: &str, _home: &str, script: &str) -> (i32, String) {
+        if script.starts_with("command -v ") {
+            (0, "/usr/local/bin/thing".to_string())
+        } else {
+            (0, "1.2.3".to_string())
+        }
+    }
+
+    fn write_catalog(dir: &std::path::Path, body: &str) {
+        std::fs::write(dir.join("catalog.json"), body).unwrap();
+    }
+
+    #[test]
+    fn scan_probes_every_non_mcp_agent_in_the_catalog() {
+        // `scan` used to hardcode the real login runner and the ambient catalog
+        // dir, so replacing its whole body with `Vec::new()` — which makes the
+        // detect cache claim nothing is installed, and every REUSE/REMEDIATE
+        // verdict downstream wrong — passed the entire suite.
+        let cat = tempdir().unwrap();
+        write_catalog(
+            cat.path(),
+            r#"{"version":"0.3.6","agents":[
+                {"id":"alpha","display_name":"A","description":"d","source_kind":"npm",
+                 "pinned_version":"1.0.0","install_recipe_path":"i.sh",
+                 "uninstall_recipe_path":"u.sh","post_install_verify":"command -v alpha",
+                 "tags":["agent"]},
+                {"id":"beta","display_name":"B","description":"d","source_kind":"npm",
+                 "pinned_version":"1.0.0","install_recipe_path":"i.sh",
+                 "uninstall_recipe_path":"u.sh","post_install_verify":"command -v beta",
+                 "tags":["agent"]},
+                {"id":"some-mcp","display_name":"M","description":"d","source_kind":"mcp",
+                 "pinned_version":"1.0.0","install_recipe_path":"i.sh",
+                 "uninstall_recipe_path":"u.sh","post_install_verify":"command -v m",
+                 "tags":["mcp"]}
+            ]}"#,
+        );
+
+        let records = scan_with(found, cat.path(), "agent", "/home/agent");
+
+        let ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).collect();
+        // mcp entries are excluded from the scan; the two agents are probed.
+        assert_eq!(ids, vec!["alpha", "beta"], "records={records:?}");
+        assert!(
+            records.iter().all(|r| r.status == "healthy"),
+            "records={records:?}"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_catalog_degrades_to_an_empty_scan() {
+        // The documented fallback, previously reachable only by breaking the
+        // host's real catalog.
+        let empty = tempdir().unwrap();
+        assert!(scan_with(found, empty.path(), "agent", "/home/agent").is_empty());
     }
 }

@@ -28,8 +28,8 @@ defect even when the happy path is correct — observability is part of correctn
 
 AgentLinux's reliability trade-offs live in the decision record, not in this
 prompt. Start from the ADR index at `docs/decisions/README.md`, tag `reliability`.
-Two of them answer questions this rubric asks directly — ADR-019 on why steps
-converge instead of recording completion, and ADR-020 on which waits are bounded
+Two of them answer questions this rubric asks directly — ADR-021 on why steps
+converge instead of recording completion, and ADR-022 on which waits are bounded
 and how expiry degrades. Re-filing a trade-off those record is noise. Still a
 finding: a new unbounded wait, a bound that cannot fire, an expiry with no
 operator-visible line, a gate whose probe does not cover the actions it guards, or

@@ -31,11 +31,16 @@ use std::path::PathBuf;
 const DEFAULT_INSTALLED_DIR: &str = "/opt/agentlinux/state/installed.d";
 
 /// Resolve the installed.d dir lazily: `$AGENTLINUX_STATE_DIR` (bats seam) else
-/// the default. Port of `installedDir()`.
+/// the default. Port of `installedDir()` (sentinel.ts:24-26).
 ///
-/// Public so a diagnostic can name the directory an operator has to go look at —
-/// "cannot read the install records" is not actionable without the path.
-pub fn installed_dir() -> PathBuf {
+/// `pub(crate)` because EVERY reader of installed.d must come through here.
+/// `--purge` used to read a hard-coded `/opt/agentlinux/state/installed.d`, so a
+/// bats fixture that redirects state — which install/remove/list all obey — was
+/// ignored by the one verb that deletes things, which then walked the host's
+/// real /opt tree. Crate-visible rather than private for the second reason too: a
+/// diagnostic has to be able to NAME the directory an operator should go look at
+/// — "cannot read the install records" is not actionable without the path.
+pub(crate) fn installed_dir() -> PathBuf {
     match std::env::var("AGENTLINUX_STATE_DIR") {
         Ok(v) if !v.is_empty() => PathBuf::from(v),
         _ => PathBuf::from(DEFAULT_INSTALLED_DIR),
@@ -83,31 +88,7 @@ pub fn now_iso8601() -> String {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    format_epoch_utc(secs)
-}
-
-/// Format unix seconds as `YYYY-MM-DDTHH:MM:SSZ` (proleptic Gregorian, UTC).
-///
-/// Hand-rolled rather than pulling in `chrono` for one format string. Lives here
-/// once — install/remove/upgrade/adopt all stamp sentinels, and three of them
-/// used to carry their own copy of this algorithm with only one under test.
-#[must_use]
-pub fn format_epoch_utc(secs: u64) -> String {
-    let days = secs / 86_400;
-    let rem = secs % 86_400;
-    let (hh, mm, ss) = (rem / 3600, (rem % 3600) / 60, rem % 60);
-    // Civil-from-days (Howard Hinnant's algorithm), epoch 1970-01-01.
-    let z = days as i64 + 719_468;
-    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
-    let doe = (z - era * 146_097) as u64;
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let y = yoe as i64 + era * 400;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let year = if m <= 2 { y + 1 } else { y };
-    format!("{year:04}-{m:02}-{d:02}T{hh:02}:{mm:02}:{ss:02}Z")
+    agentlinux_core::time::format_epoch_utc(secs)
 }
 
 /// Project the write-path sentinel down to the four fields the pure core reads.
@@ -280,11 +261,131 @@ mod sentinel_tests {
     use super::*;
     use tempfile::tempdir;
 
+    /// An EMPTY `AGENTLINUX_STATE_DIR` is not a directory. `replace match guard
+    /// !v.is_empty() with true` survived: with it the sentinel store resolves to
+    /// `PathBuf::from("")` — a relative path in whatever the process's cwd
+    /// happens to be — instead of the real `/opt` store. Every verb then reads
+    /// and writes a different set of sentinels than the one on the host.
+    #[test]
+    fn an_empty_state_dir_seam_falls_back_to_the_real_store() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+
+        env_scope.set("AGENTLINUX_STATE_DIR", "/tmp/fixture-state");
+        assert_eq!(installed_dir(), PathBuf::from("/tmp/fixture-state"));
+
+        env_scope.set("AGENTLINUX_STATE_DIR", "");
+        assert_eq!(
+            installed_dir(),
+            PathBuf::from(DEFAULT_INSTALLED_DIR),
+            "an EMPTY seam must fall back, not resolve to a relative path"
+        );
+
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        assert_eq!(installed_dir(), PathBuf::from(DEFAULT_INSTALLED_DIR));
+    }
+
+    /// Every sentinel timestamp carries this shape, and `agentlinux upgrade`
+    /// and the reuse audit both read them back. Replacing the function with ""
+    /// or junk survived; either makes every `installed_at` unparseable.
+    #[test]
+    fn a_timestamp_has_the_iso8601_shape_the_sentinels_carry() {
+        let t = now_iso8601();
+        assert_eq!(t.len(), 20, "YYYY-MM-DDTHH:MM:SSZ is 20 bytes, got {t:?}");
+        assert!(t.ends_with('Z'), "must be UTC-suffixed, got {t:?}");
+        assert_eq!(&t[4..5], "-");
+        assert_eq!(&t[10..11], "T");
+        assert_eq!(&t[13..14], ":");
+        // A plausible year rather than 1970 — the epoch read must reach through.
+        let year: u32 = t[0..4].parse().expect("the year must be numeric");
+        assert!((2020..2100).contains(&year), "implausible year in {t:?}");
+    }
+
+    /// ENOENT is "not installed"; every other I/O error is a real failure.
+    /// Three of these guards had `with true` survive — collapsing the two, so a
+    /// permission or type error silently reads as "this agent is not installed"
+    /// and `remove` reports success having deleted nothing.
+    #[test]
+    fn absent_is_distinguished_from_unreadable_on_every_store_path() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempdir().unwrap();
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
+
+        // read: absent → Ok(None); present-but-unreadable → Err.
+        assert!(read_sentinel("nosuch").unwrap().is_none());
+        std::fs::create_dir(dir.path().join("broken.json")).unwrap();
+        assert!(
+            read_sentinel("broken").is_err(),
+            "a directory where a sentinel belongs is a failure, not an absence"
+        );
+
+        // delete: absent → Ok (idempotent); undeletable → Err.
+        assert!(delete_sentinel("nosuch").is_ok(), "delete is idempotent");
+        assert!(
+            delete_sentinel("broken").is_err(),
+            "a sentinel that cannot be removed must not report success"
+        );
+        std::fs::remove_dir(dir.path().join("broken.json")).unwrap();
+
+        // list: missing dir → empty, not an error.
+        let missing = dir.path().join("not-created-yet");
+        env_scope.set("AGENTLINUX_STATE_DIR", &missing);
+        assert_eq!(list_sentinels().unwrap().len(), 0);
+
+        // list: state dir that is a FILE → a real error, not an empty store.
+        let as_file = dir.path().join("state-is-a-file");
+        std::fs::write(&as_file, b"not a dir").unwrap();
+        env_scope.set("AGENTLINUX_STATE_DIR", &as_file);
+        assert!(
+            list_sentinels().is_err(),
+            "an unreadable store must not read as an empty one — that would let \
+             upgrade and list silently report nothing installed"
+        );
+    }
+
+    /// The store's modes are the provisioner's: 0755 on the directory, 0644 on
+    /// each sentinel. `replace set_mode with ()` survived, which leaves both to
+    /// the ambient umask — and the unprivileged install user has to read what
+    /// root wrote.
+    #[test]
+    fn the_store_and_its_sentinels_carry_explicit_modes() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let base = tempdir().unwrap();
+        // A dir the write path must CREATE, so the 0755 is ours and not tempfile's.
+        let dir = base.path().join("installed.d");
+        env_scope.set("AGENTLINUX_STATE_DIR", &dir);
+
+        // A RESTRICTIVE umask, deliberately. Under the default 022 a plain
+        // `create_dir_all` already yields 0755, so `replace set_mode with ()`
+        // survived — the assertion was satisfied by the ambient umask rather
+        // than by the code. That is precisely the coin flip the explicit mode
+        // exists to remove: root provisions with whatever umask it inherited,
+        // and the unprivileged install user still has to read the store.
+        let prev = unsafe { nix::libc::umask(0o077) };
+        write_sentinel(&Sentinel::new(
+            "rtk".into(),
+            "0.42.4".into(),
+            "curated".into(),
+            false,
+        ))
+        .unwrap();
+        unsafe { nix::libc::umask(prev) };
+
+        let dir_mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o755, "the store dir must be traversable");
+        let file_mode = std::fs::metadata(dir.join("rtk.json"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(file_mode, 0o644, "the install user must be able to read it");
+    }
+
     #[test]
     fn atomic_round_trip_write_then_read() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
 
         let mut s = Sentinel::new("gsd".into(), "1.7.0".into(), "curated".into(), false);
         s.installed_at = Some("2026-07-28T00:00:00Z".into());
@@ -295,7 +396,7 @@ mod sentinel_tests {
         let back = read_sentinel("gsd").unwrap().unwrap();
         assert_eq!(back, s);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     #[test]
@@ -317,21 +418,21 @@ mod sentinel_tests {
 
     #[test]
     fn write_produces_trailing_newline() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
         let s = Sentinel::new("x".into(), "1.0.0".into(), "curated".into(), false);
         write_sentinel(&s).unwrap();
         let body = std::fs::read_to_string(dir.path().join("x.json")).unwrap();
         assert!(body.ends_with("}\n"), "trailing newline expected: {body:?}");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     #[test]
     fn delete_is_enoent_tolerant_and_list_skips_missing() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
 
         // Delete before any write — idempotent no-op.
         delete_sentinel("ghost").unwrap();
@@ -358,7 +459,7 @@ mod sentinel_tests {
             .collect();
         assert_eq!(ids, vec!["b".to_string()]);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     // One corrupt record must not hide the others. A zero-length `<id>.json` from
@@ -367,7 +468,7 @@ mod sentinel_tests {
     // for EVERY agent, on every subsequent run.
     #[test]
     fn one_corrupt_record_does_not_hide_the_healthy_ones() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
         std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
 
@@ -409,7 +510,7 @@ mod sentinel_tests {
     // 1 column 1", which does not say which record or where to find it.
     #[test]
     fn a_corrupt_record_error_names_the_file() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
         std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
         std::fs::write(dir.path().join("broken.json"), b"{not json").unwrap();
@@ -424,10 +525,10 @@ mod sentinel_tests {
 
     #[test]
     fn read_missing_is_none() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let dir = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", dir.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
         assert!(read_sentinel("nope").unwrap().is_none());
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 }

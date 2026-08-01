@@ -84,6 +84,18 @@ const RECIPE_TIMEOUT_ENV: &str = "AGENTLINUX_RECIPE_TIMEOUT_MS";
 /// deadlock the child.
 const MAX_CAPTURE: usize = 10 * 1024 * 1024;
 
+/// Whether the capture buffer may still grow.
+///
+/// A named predicate rather than an inline `acc.len() < MAX_CAPTURE`, because
+/// the BOUNDARY is the contract and it is otherwise only reachable by producing
+/// ten megabytes of child output: `<` vs `<=` differ on exactly one byte, at a
+/// size no test is going to generate. Past the cap the live tee still forwards
+/// every byte and the pipe is still drained to EOF — only the retained String
+/// stops growing.
+const fn may_accumulate(len: usize) -> bool {
+    len < MAX_CAPTURE
+}
+
 /// How a dispatched child's output is handled — and, as a direct consequence,
 /// what a timeout reports as its exit code.
 ///
@@ -146,10 +158,21 @@ pub(crate) fn invoker_username() -> String {
     std::env::var("USER").unwrap_or_default()
 }
 
+/// Build the concrete argv for the ambient invoker (the production entry point).
+fn resolve_argv(user: &str, argv: &[String]) -> Vec<String> {
+    resolve_argv_for(&invoker_username(), user, argv)
+}
+
 /// Build the concrete argv: direct when invoker==target, else the sudo hop.
 /// The `--` terminator is load-bearing.
-fn resolve_argv(user: &str, argv: &[String]) -> Vec<String> {
-    if invoker_username() == user {
+///
+/// `invoker` is a parameter rather than an ambient read so the argv SHAPE — the
+/// flags this module's doc calls load-bearing — can be asserted directly. Every
+/// test that goes through `as_user` necessarily runs as the current user, i.e.
+/// takes the short-circuit, so the sudo arm was never executed by any assertion
+/// that looked at it.
+fn resolve_argv_for(invoker: &str, user: &str, argv: &[String]) -> Vec<String> {
+    if invoker == user {
         argv.to_vec()
     } else {
         let mut v = vec![
@@ -199,6 +222,16 @@ fn describe(argv: &[String]) -> String {
         None => joined,
     }
 }
+
+/// The `as_user` signature, as an injectable fn pointer — the seam a provisioner
+/// step's subprocess FAILURE arms are reachable through.
+pub type AsUser = fn(
+    user: &str,
+    argv: &[String],
+    env: &[(String, String)],
+    capture: Capture,
+    timeout_ms: Option<u64>,
+) -> DispatchResult;
 
 /// Run `argv` as `user` under `capture`, honoring an optional `timeout_ms` that
 /// escalates SIGTERM→(2000ms)→SIGKILL across the child's whole process group.
@@ -457,7 +490,7 @@ pub(crate) fn own_process_group(cmd: &mut Command) {
 /// a monitor process, so the command escapes the group we created and a
 /// group-directed SIGKILL reaches sudo rather than the work. sudo's monitor
 /// terminates the command when sudo dies, so the tree does come down in practice,
-/// but not by our signal and not on our schedule. Recorded in ADR-020 rather than
+/// but not by our signal and not on our schedule. Recorded in ADR-022 rather than
 /// worked around: overriding `use_pty` is a sudoers-side setting, and widening the
 /// kill to catch it would mean signalling processes we did not create.
 fn escalate_kill(child: &mut std::process::Child, label: &str) {
@@ -504,6 +537,11 @@ enum TeeSink {
 
 impl TeeSink {
     /// Forward one chunk to the parent stream.
+    ///
+    /// Not mutation-tested: it writes to the process's real stdout/stderr
+    /// (ADR-019 §5). Which sink a stream tees to is decided by the caller and
+    /// asserted there; there is nothing here but the write itself.
+    #[cfg_attr(test, mutants::skip)]
     fn write(self, bytes: &[u8]) {
         use std::io::Write;
         match self {
@@ -549,7 +587,7 @@ fn spawn_reader<R: Read + Send + 'static>(
                 match r.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        if acc.len() < MAX_CAPTURE {
+                        if may_accumulate(acc.len()) {
                             acc.extend_from_slice(&buf[..n]);
                         }
                         if let Some(sink) = sink {
@@ -618,6 +656,93 @@ mod dispatcher_tests {
     use super::*;
     use nix::unistd::{getuid, User};
 
+    /// A command that finishes well inside its timeout must not be reported as
+    /// timed out. Three mutants survived on the waiting path and every one of
+    /// them makes the deadline already-expired: `poll_until -> None`, `>=`
+    /// flipped to `<` in its deadline check, and `Instant::now() + ms` becoming
+    /// a subtraction. All three turn every dispatch into an instant timeout —
+    /// `install` would report exit 124 for a recipe that ran fine.
+    #[test]
+    fn a_fast_command_under_a_generous_timeout_is_not_a_timeout() {
+        let start = Instant::now();
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", "exit 0"]),
+            &[],
+            Capture::Buffered,
+            Some(10_000),
+        );
+        assert_eq!(r.exit_code, 0, "a command that exits 0 in time reports 0");
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "and it must return promptly, not sit out the timeout"
+        );
+
+        // A non-zero exit is still not a timeout: the child chose that code.
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", "exit 7"]),
+            &[],
+            Capture::Buffered,
+            Some(10_000),
+        );
+        assert_eq!(
+            r.exit_code, 7,
+            "the child's own exit code must survive, not become the timeout code"
+        );
+    }
+
+    /// The capture cap is a memory bound on an unattended path — the buffered
+    /// `npm ls -g --json` probe that `upgrade` runs. Its arithmetic could be
+    /// mutated (`*` to `+` or `/`) to 10250 bytes or 10240 KiB with nothing
+    /// noticing, and the `<` could become `<=`.
+    ///
+    /// Ten megabytes of child output is not something a test will generate, so
+    /// the bound and its boundary are asserted directly instead.
+    #[test]
+    fn the_capture_cap_is_ten_megabytes_and_stops_at_it() {
+        assert_eq!(MAX_CAPTURE, 10 * 1024 * 1024, "10 MiB, not 10 KiB or 10250");
+
+        assert!(may_accumulate(0));
+        assert!(may_accumulate(MAX_CAPTURE - 1), "one byte short still fits");
+        assert!(
+            !may_accumulate(MAX_CAPTURE),
+            "AT the cap the buffer stops growing — `<=` would let it exceed"
+        );
+        assert!(!may_accumulate(MAX_CAPTURE + 1));
+    }
+
+    /// `is_streamed` is what `DispatchResult::streamed` carries, and callers use
+    /// it to decide whether output already reached the console. Both constant
+    /// replacements survived.
+    #[test]
+    fn only_the_streamed_capture_reports_as_streamed() {
+        assert!(Capture::Streamed.is_streamed());
+        assert!(!Capture::Buffered.is_streamed());
+    }
+
+    /// The sudo hop is skipped only when the invoker IS the target user.
+    /// `replace == with !=` survived because every test that goes through
+    /// `as_user` necessarily runs as the current user and takes the
+    /// short-circuit — so the sudo arm was never executed by any assertion that
+    /// looked at it. Inverted, a same-user call gets a pointless sudo hop and a
+    /// cross-user call runs as the WRONG user.
+    #[test]
+    fn the_sudo_hop_is_taken_only_when_the_user_differs() {
+        let argv = vec!["node".to_string(), "--version".to_string()];
+
+        let same = resolve_argv_for("agent", "agent", &argv);
+        assert_eq!(same, argv, "no hop when the invoker is already the target");
+
+        let cross = resolve_argv_for("root", "agent", &argv);
+        assert_eq!(cross[0], "sudo");
+        assert_eq!(&cross[1..4], &["-u", "agent", "-H"]);
+        assert!(
+            cross.ends_with(&argv),
+            "the original argv must survive the hop intact, got {cross:?}"
+        );
+    }
+
     /// The current username — invoker==target so `as_user` runs argv directly
     /// (no sudo), keeping these tests unprivileged and host-portable.
     fn self_user() -> String {
@@ -679,20 +804,131 @@ mod dispatcher_tests {
         assert!(!r.streamed, "buffered path must not claim streamed");
     }
 
-    // Case 4 (:84): the sudo branch fires when invoker != target; an unknown
-    // user makes the outcome deterministic (sudo errors → non-zero), surfaced
-    // as a returned shape, never a panic.
+    // --- the sudo hop's ARGV SHAPE (T-56-01) ---
+    //
+    // Every flag below is load-bearing and every one of them used to be
+    // unasserted: the only test touching the sudo branch ran an unknown user and
+    // checked `exit_code != 0`, which passes identically if `--` is deleted, if
+    // `-E` is dropped, if `-H` is dropped, or if the flags are reordered.
+
     #[test]
-    fn sudo_branch_unknown_user_returns_shape() {
+    fn sudo_hop_argv_is_exact() {
+        assert_eq!(
+            resolve_argv_for("root", "agent", &argv(&["bash", "/opt/recipe.sh"])),
+            argv(&[
+                "sudo",
+                "-u",
+                "agent",
+                "-H",
+                "-E",
+                "--",
+                "bash",
+                "/opt/recipe.sh"
+            ])
+        );
+    }
+
+    #[test]
+    fn sudo_hop_keeps_h_so_the_child_gets_the_target_home() {
+        // Dropping -H runs the recipe with ROOT's HOME, so `npm install -g`
+        // writes to /root/.npm — the ownership bug class AgentLinux exists to
+        // eliminate.
+        let out = resolve_argv_for("root", "agent", &argv(&["bash", "x.sh"]));
+        assert!(out.contains(&"-H".to_string()), "argv={out:?}");
+    }
+
+    #[test]
+    fn sudo_hop_terminator_precedes_every_caller_supplied_word() {
+        // `--` ends sudo's option parsing, so a recipe path that begins with a
+        // dash can never be reparsed as a sudo flag.
+        let out = resolve_argv_for("root", "agent", &argv(&["bash", "-not-a-flag.sh"]));
+        let term = out.iter().position(|w| w == "--").expect("-- terminator");
+        let recipe = out.iter().position(|w| w == "-not-a-flag.sh").unwrap();
+        assert!(term < recipe, "argv={out:?}");
+        // …and it is the LAST sudo-owned word: everything after it is ours.
+        assert_eq!(&out[term + 1..], &argv(&["bash", "-not-a-flag.sh"])[..]);
+    }
+
+    #[test]
+    fn sudo_hop_preserves_env_explicitly() {
+        // -E is only leak-safe because base_command env_clear()s first; the two
+        // are coupled, so pin that -E is actually emitted.
+        let out = resolve_argv_for("root", "agent", &argv(&["bash", "x.sh"]));
+        assert!(out.contains(&"-E".to_string()), "argv={out:?}");
+    }
+
+    #[test]
+    fn invoker_equals_target_short_circuits_without_sudo() {
+        // agent→agent sudo is broken on a default Ubuntu host (no drop-in), so
+        // the short-circuit is a correctness requirement, not an optimisation.
+        let a = argv(&["bash", "x.sh"]);
+        assert_eq!(resolve_argv_for("agent", "agent", &a), a);
+        assert!(!resolve_argv_for("agent", "agent", &a).contains(&"sudo".to_string()));
+    }
+
+    #[test]
+    fn the_target_user_lands_in_the_u_slot_verbatim() {
+        // An alternate install user (AL-50) must reach sudo as its own argument
+        // — never spliced into a longer word.
+        let out = resolve_argv_for("root", "claude", &argv(&["bash", "x.sh"]));
+        assert_eq!(out[1], "-u");
+        assert_eq!(out[2], "claude");
+    }
+
+    // Case 4 (:84): the sudo branch fires when invoker != target, and what it
+    // EXECUTES is `resolve_argv_for`'s output.
+    //
+    // This used to invoke the real `sudo` against a nonexistent user and assert
+    // `exit_code != 0`. That verdict holds on every host, but for three
+    // different reasons — unknown user, invoker not in sudoers, or no `sudo`
+    // binary at all (ENOENT → 1, which `enoent_maps_to_one` below already
+    // covers) — so it could not distinguish "the sudo branch ran" from "nothing
+    // ran". It also executed real `sudo` during `cargo test`, which is how the
+    // suite came to print `sudo: error initializing audit plugin sudoers_audit`.
+    //
+    // A stub `sudo` on PATH makes the claim decidable: the branch is observed by
+    // what it invoked, not by a failure code shared with the ways it can not run.
+    #[test]
+    fn the_sudo_branch_executes_the_resolved_argv() {
+        let d = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            d.path().join("sudo"),
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\"\n",
+        )
+        .unwrap();
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            d.path().join("sudo"),
+            std::fs::Permissions::from_mode(0o755),
+        )
+        .unwrap();
+
+        // The child env is `env_clear`ed, so PATH must arrive through the same
+        // `env` argument a real recipe dispatch uses — which is also why this
+        // needs no process-global mutation and no `EnvScope` lock.
+        let path = format!("{}:/usr/bin:/bin", d.path().display());
+        let env = vec![("PATH".to_string(), path)];
+
+        let want = resolve_argv_for(&invoker_username(), "claude", &argv(&["bash", "x.sh"]));
+        assert_eq!(
+            want[0], "sudo",
+            "this test is meaningless on the direct branch"
+        );
+
         let r = as_user(
-            "no-such-user-agentlinux-xyzzy",
-            &argv(&["bash", "-c", "echo x"]),
-            &[],
-            Capture::Streamed,
+            "claude",
+            &argv(&["bash", "x.sh"]),
+            &env,
+            Capture::Buffered,
             None,
         );
-        assert_ne!(r.exit_code, 0, "unknown sudo target must fail non-zero");
-        assert!(r.streamed);
+        assert_eq!(r.exit_code, 0);
+        assert!(!r.streamed);
+        assert_eq!(
+            r.stdout.lines().collect::<Vec<_>>(),
+            want[1..].iter().map(String::as_str).collect::<Vec<_>>(),
+            "the sudo branch must execute exactly what resolve_argv_for produced"
+        );
     }
 
     // Case 5 (:104): ENOENT (missing binary) maps to exit_code 1, streamed true.
@@ -712,6 +948,7 @@ mod dispatcher_tests {
     // Case 6 (:117): timeout → SIGTERM → exit_code 124 (GNU convention).
     #[test]
     fn timeout_maps_to_124() {
+        let start = Instant::now();
         let r = as_user(
             &self_user(),
             &argv(&["bash", "-c", "sleep 5"]),
@@ -721,6 +958,14 @@ mod dispatcher_tests {
         );
         assert_eq!(r.exit_code, 124, "timed-out child maps to 124");
         assert!(r.streamed);
+        // The exit code alone does not prove the child was STOPPED: a broken
+        // kill path still reports 124 once the child finishes its own sleep. The
+        // clock is the only witness that the timeout bounded anything.
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "the timeout must end the child, not merely outlast it: took {:?}",
+            start.elapsed()
+        );
     }
 
     // Case 7 (VALIDATION Manual-Only): a child that IGNORES SIGTERM still
@@ -731,18 +976,36 @@ mod dispatcher_tests {
         let start = Instant::now();
         let r = as_user(
             &self_user(),
-            &argv(&["bash", "-c", "trap '' TERM; sleep 30"]),
+            // 8s, not 30: it only has to outlast the escalation window
+            // (200ms timeout + 2000ms grace ~= 2.2s) by a comfortable margin.
+            // At 30s a BROKEN escalation still failed this test — after thirty
+            // seconds, which is past cargo-mutants' per-mutant timeout, so three
+            // real mutants on this path were recorded as timeouts rather than as
+            // caught. A test that takes 30s to notice a regression is a slow
+            // test, not a strong one.
+            &argv(&["bash", "-c", "trap '' TERM; sleep 8"]),
             &[],
             Capture::Streamed,
             Some(200),
         );
         assert_eq!(r.exit_code, 124, "escalation still maps to 124");
         assert!(r.streamed);
-        // Must have been killed via escalation well before the 30s sleep — the
+        // Must have been killed via escalation well before the 8s sleep — the
         // 200ms timeout + 2000ms grace bounds it comfortably under ~5s.
+        let elapsed = start.elapsed();
         assert!(
-            start.elapsed() < Duration::from_secs(5),
-            "escalation should terminate the child within the grace window"
+            elapsed < Duration::from_secs(5),
+            "escalation should terminate the child within the grace window, took {elapsed:?}"
+        );
+        // …and NOT instantly. SIGTERM comes first and the child gets its full
+        // grace period before SIGKILL. `Instant::now() + KILL_GRACE` becoming a
+        // subtraction survived: the grace deadline is then already past, so
+        // SIGKILL fires immediately and a child that WOULD have cleaned up on
+        // SIGTERM never gets the chance. This child ignores SIGTERM, so the only
+        // witness is the clock.
+        assert!(
+            elapsed >= Duration::from_millis(1_500),
+            "the child must get its SIGTERM grace before SIGKILL, took {elapsed:?}"
         );
     }
 
@@ -752,6 +1015,7 @@ mod dispatcher_tests {
     // Only the STREAMING path returns 124.
     #[test]
     fn buffered_timeout_maps_to_1() {
+        let start = Instant::now();
         let r = as_user(
             &self_user(),
             &argv(&["bash", "-c", "sleep 5"]),
@@ -764,6 +1028,13 @@ mod dispatcher_tests {
             "buffered timeout maps to 1 (TS execFile parity)"
         );
         assert!(!r.streamed);
+        // As on the streamed path: the exit code does not prove the child was
+        // stopped, only the clock does.
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "the buffered timeout must end the child too: took {:?}",
+            start.elapsed()
+        );
     }
 
     // A recipe that leaks a background grandchild holding the stdout pipe must
@@ -857,7 +1128,7 @@ mod dispatcher_tests {
     // explicit 0. An unparseable value falls back rather than failing the run.
     #[test]
     fn recipe_timeout_reads_env_with_a_safe_default() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         std::env::remove_var(RECIPE_TIMEOUT_ENV);
         assert_eq!(recipe_timeout_ms(), Some(DEFAULT_RECIPE_TIMEOUT_MS));
 

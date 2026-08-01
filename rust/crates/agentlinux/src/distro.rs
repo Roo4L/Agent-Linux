@@ -184,6 +184,49 @@ pub fn detect_distro(os_release_path: &Path, env: &DetectEnv) -> Result<Distro, 
 mod distro_tests {
     use super::*;
     use std::io::Write;
+
+    /// The skip seam is exactly `"1"`, not "anything set". `replace == with !=`
+    /// survived, which inverts it: the distro gate is skipped on every host that
+    /// does NOT set the variable, and enforced only on the ones that do. That
+    /// gate is what stops provisioning an unsupported distro.
+    #[test]
+    fn the_distro_skip_seam_is_the_literal_one() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+
+        env_scope.set("AGENTLINUX_SKIP_DISTRO_CHECK", "1");
+        assert!(DetectEnv::from_process_env().skip_check, "\"1\" skips");
+
+        for other in ["0", "true", "yes", ""] {
+            env_scope.set("AGENTLINUX_SKIP_DISTRO_CHECK", other);
+            assert!(
+                !DetectEnv::from_process_env().skip_check,
+                "{other:?} is not the skip value"
+            );
+        }
+
+        env_scope.unset("AGENTLINUX_SKIP_DISTRO_CHECK");
+        assert!(
+            !DetectEnv::from_process_env().skip_check,
+            "unset must enforce the gate, not skip it"
+        );
+    }
+
+    /// The os-release path the production caller reads. Replacing it with
+    /// `Default::default()` — an empty path — survived, and an empty path reads
+    /// as an absent os-release, which the detector treats as an unknown distro.
+    #[test]
+    fn the_os_release_path_defaults_to_etc_and_honours_its_seam() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+
+        env_scope.unset("AGENTLINUX_OS_RELEASE_PATH");
+        assert_eq!(os_release_path_from_env(), PathBuf::from("/etc/os-release"));
+
+        env_scope.set("AGENTLINUX_OS_RELEASE_PATH", "/fixtures/os-release");
+        assert_eq!(
+            os_release_path_from_env(),
+            PathBuf::from("/fixtures/os-release")
+        );
+    }
     use tempfile::TempDir;
 
     fn write_os_release(dir: &TempDir, contents: &str) -> PathBuf {

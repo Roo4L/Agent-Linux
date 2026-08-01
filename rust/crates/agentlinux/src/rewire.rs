@@ -40,18 +40,27 @@ const WIREABLE_AGENTS: &[&str] = &[
 /// `user` is the resolved install user, `catalog_dir` the catalog root; the
 /// providers are the installed entries (per the sentinel list) that declare a
 /// `rewire_recipe_path`, excluding `installed_id` itself.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) binding the
+/// real recipe dispatcher. Everything it decides lives in
+/// [`reconcile_cross_wiring_with`], which takes that dispatcher as a parameter.
+#[cfg_attr(test, mutants::skip)]
 pub fn reconcile_cross_wiring(
     installed_id: &str,
     agents: &[FullCatalogEntry],
     catalog_dir: &str,
     user: &str,
 ) {
+    let (mut out, mut err) = (std::io::stdout(), crate::provision::log::err_sink());
     reconcile_cross_wiring_with(
         installed_id,
         agents,
         catalog_dir,
         user,
         dispatcher::dispatch_recipe,
+        &mut crate::cmd::install::Out {
+            out: &mut out,
+            err: &mut err,
+        },
     );
 }
 
@@ -62,6 +71,7 @@ pub fn reconcile_cross_wiring_with(
     catalog_dir: &str,
     user: &str,
     dispatch: RecipeDispatcher,
+    o: &mut crate::cmd::install::Out<'_>,
 ) {
     // Only a freshly-installed coding agent can be a NEW wiring target.
     if !WIREABLE_AGENTS.contains(&installed_id) {
@@ -127,10 +137,16 @@ pub fn reconcile_cross_wiring_with(
             &env,
             Capture::Buffered,
         );
+        // Through a sink, not `println!`: which of these two lines an operator
+        // sees is the whole point of the branch — "re-wired" versus "it did not
+        // work, here is the command to retry". `replace == with !=` survived
+        // because both arms only printed, so a failed re-wire could report
+        // success and nothing would notice.
         if result.exit_code == 0 {
-            println!("↻ re-wired {} into {installed_id}", provider.id);
+            let _ = writeln!(o.out, "↻ re-wired {} into {installed_id}", provider.id);
         } else {
-            crate::plog!(
+            let _ = writeln!(
+                o.err,
                 "↻ note: re-wiring {} into {installed_id} exited {} (install still OK; run `agentlinux install {}` to re-wire)",
                 provider.id, result.exit_code, provider.id
             );
@@ -162,6 +178,12 @@ mod rewire_tests {
         serde_json::from_value(json).unwrap()
     }
 
+    /// A capturing sink, so the two operator-facing lines are assertable rather
+    /// than merely printed.
+    fn sink() -> (Vec<u8>, Vec<u8>) {
+        (Vec::new(), Vec::new())
+    }
+
     static DISPATCH_COUNT: AtomicUsize = AtomicUsize::new(0);
     fn counting_ok(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
         DISPATCH_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -178,7 +200,18 @@ mod rewire_tests {
     fn non_wireable_agent_is_a_noop() {
         DISPATCH_COUNT.store(0, Ordering::SeqCst);
         // rtk is a provider, not a wireable coding agent → early return.
-        reconcile_cross_wiring_with("rtk", &[], "/tmp", "agent", counting_ok);
+        let (mut o, mut e) = sink();
+        reconcile_cross_wiring_with(
+            "rtk",
+            &[],
+            "/tmp",
+            "agent",
+            counting_ok,
+            &mut crate::cmd::install::Out {
+                out: &mut o,
+                err: &mut e,
+            },
+        );
         assert_eq!(DISPATCH_COUNT.load(Ordering::SeqCst), 0);
     }
 
@@ -186,9 +219,9 @@ mod rewire_tests {
     // provider's (rtk) rewire recipe exactly once, excluding the agent itself.
     #[test]
     fn rewires_installed_providers_into_new_agent() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let state = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
 
         // rtk (provider, has a rewire recipe) + claude-code are both installed.
         sentinel::write_sentinel(&Sentinel::new(
@@ -212,19 +245,42 @@ mod rewire_tests {
         ];
 
         DISPATCH_COUNT.store(0, Ordering::SeqCst);
-        reconcile_cross_wiring_with("claude-code", &agents, "/opt/cat", "agent", counting_ok);
+        let (mut o, mut e) = sink();
+        reconcile_cross_wiring_with(
+            "claude-code",
+            &agents,
+            "/opt/cat",
+            "agent",
+            counting_ok,
+            &mut crate::cmd::install::Out {
+                out: &mut o,
+                err: &mut e,
+            },
+        );
         // Exactly rtk's rewire ran (claude-code excluded as the installed id).
         assert_eq!(DISPATCH_COUNT.load(Ordering::SeqCst), 1);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        // And a SUCCEEDING re-wire says so on stdout, with nothing on stderr —
+        // the other half of the branch the failure case pins.
+        let (o, e) = (String::from_utf8(o).unwrap(), String::from_utf8(e).unwrap());
+        assert!(
+            o.contains("re-wired rtk into claude-code"),
+            "a successful re-wire must be reported, got {o:?}"
+        );
+        assert!(
+            e.is_empty(),
+            "a successful re-wire must not warn, got {e:?}"
+        );
+
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
     // A provider that is NOT installed (no sentinel) is skipped.
     #[test]
     fn skips_uninstalled_providers() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let state = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
         // Only claude-code installed; rtk is in the catalog but has no sentinel.
         sentinel::write_sentinel(&Sentinel::new(
             "claude-code".into(),
@@ -236,18 +292,30 @@ mod rewire_tests {
         let agents = vec![provider("rtk", Some("rewire.sh"))];
 
         DISPATCH_COUNT.store(0, Ordering::SeqCst);
-        reconcile_cross_wiring_with("claude-code", &agents, "/opt/cat", "agent", counting_ok);
+        let (mut o, mut e) = sink();
+        reconcile_cross_wiring_with(
+            "claude-code",
+            &agents,
+            "/opt/cat",
+            "agent",
+            counting_ok,
+            &mut crate::cmd::install::Out {
+                out: &mut o,
+                err: &mut e,
+            },
+        );
         assert_eq!(DISPATCH_COUNT.load(Ordering::SeqCst), 0);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
     }
 
-    // A non-zero rewire exit does NOT panic or propagate — best-effort.
+    // A non-zero rewire exit does NOT abort the sweep and does NOT invalidate
+    // the provider's install.
     #[test]
-    fn failed_rewire_is_best_effort_no_panic() {
-        let _g = crate::test_support::env_guard();
+    fn a_failed_rewire_leaves_the_sentinel_intact_and_keeps_going() {
+        let mut env_scope = crate::test_support::EnvScope::new();
         let state = tempdir().unwrap();
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
         sentinel::write_sentinel(&Sentinel::new(
             "rtk".into(),
             "1.0.0".into(),
@@ -262,9 +330,20 @@ mod rewire_tests {
             false,
         ))
         .unwrap();
-        let agents = vec![provider("rtk", Some("rewire.sh"))];
+        sentinel::write_sentinel(&Sentinel::new(
+            "gsd".into(),
+            "1.37.1".into(),
+            "curated".into(),
+            false,
+        ))
+        .unwrap();
+        let agents = vec![
+            provider("rtk", Some("rewire.sh")),
+            provider("gsd", Some("rewire.sh")),
+        ];
 
         fn failing(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
+            DISPATCH_COUNT.fetch_add(1, Ordering::SeqCst);
             DispatchResult {
                 exit_code: 3,
                 stdout: String::new(),
@@ -272,9 +351,44 @@ mod rewire_tests {
                 streamed: false,
             }
         }
-        // Must simply return (the assertion is "no panic").
-        reconcile_cross_wiring_with("claude-code", &agents, "/opt/cat", "agent", failing);
 
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        DISPATCH_COUNT.store(0, Ordering::SeqCst);
+        let (mut o, mut e) = sink();
+        reconcile_cross_wiring_with(
+            "claude-code",
+            &agents,
+            "/opt/cat",
+            "agent",
+            failing,
+            &mut crate::cmd::install::Out {
+                out: &mut o,
+                err: &mut e,
+            },
+        );
+        let (o, e) = (String::from_utf8(o).unwrap(), String::from_utf8(e).unwrap());
+        // A FAILED re-wire must say so on stderr and must NOT claim success.
+        assert!(
+            e.contains("note: re-wiring") && e.contains("agentlinux install"),
+            "a failed re-wire must tell the operator how to retry, got {e:?}"
+        );
+        assert!(
+            !o.contains("re-wired"),
+            "a failed re-wire must not report success, got {o:?}"
+        );
+
+        // The behaviour worth defending, and what the old "no panic" version
+        // discarded: the first provider failing must not stop the second…
+        assert_eq!(
+            DISPATCH_COUNT.load(Ordering::SeqCst),
+            2,
+            "a failed rewire must not abort the remaining providers"
+        );
+        // …and a failed rewire must not be mistaken for a failed install: the
+        // provider's sentinel is left exactly as it was.
+        let rtk = sentinel::read_sentinel("rtk")
+            .unwrap()
+            .expect("rtk sentinel");
+        assert_eq!(rtk.version, "1.0.0");
+        assert!(sentinel::read_sentinel("gsd").unwrap().is_some());
     }
 }

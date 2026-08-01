@@ -21,7 +21,7 @@
 use crate::catalog::{self, FullCatalogEntry};
 use crate::sentinel::{self, Sentinel};
 use crate::{agent_home, canonical_path, host_paths};
-use agentlinux_core::detect_gates::{remediate_gate, reuse_gate, RemediateReason};
+use agentlinux_core::detect_gates::{remediate_gate, reuse_gate};
 use agentlinux_core::types::CatalogEntry as CoreCatalogEntry;
 use serde::Serialize;
 use std::process::ExitCode;
@@ -63,13 +63,7 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
     let reuse_hit = detected
         .as_ref()
         .and_then(|d| reuse_gate(&core_entry, d, host_paths(canonical, &home)));
-    let reuse_hit = reuse_hit.filter(|c| {
-        // ADAPTER statSync re-validation: confirm the binary
-        // still exists at install time. Stale-cache safety.
-        std::fs::metadata(&c.path)
-            .map(|m| m.is_file())
-            .unwrap_or(false)
-    });
+    let reuse_hit = reuse_hit.filter(|c| crate::cmd::is_regular_file(&c.path));
 
     let Some(hit) = reuse_hit else {
         // Not reuse-eligible. AL-62: distinguish a migration candidate (healthy at
@@ -78,7 +72,10 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
             .as_ref()
             .and_then(|d| remediate_gate(&core_entry, d, host_paths(canonical, &home)));
         if let Some(rem) = rem {
-            if rem.reason == RemediateReason::PathMismatch {
+            // The same decision `install` makes, through the same tested
+            // helper — a second copy of the comparison is a second place to get
+            // it backwards.
+            if crate::cmd::install::is_migration(rem.reason) {
                 return AdoptResult {
                     id: entry.id.clone(),
                     action: "migrate-available".to_string(),
@@ -155,7 +152,9 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
     };
 
     let targets: Vec<FullCatalogEntry> = if let Some(name) = name {
-        let Some(entry) = catalog::find_entry(&agents, name) else {
+        let Some(entry) =
+            catalog::find_entry(&agents, name, &mut crate::provision::log::err_sink())
+        else {
             return ExitCode::from(EX_USAGE);
         };
         if entry.test_only && !opts.include_test {
@@ -164,10 +163,7 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
         }
         vec![entry.clone()]
     } else if opts.all {
-        agents
-            .into_iter()
-            .filter(|a| opts.include_test || !a.test_only)
-            .collect()
+        adopt_all_targets(agents, opts.include_test)
     } else {
         crate::plog!("agentlinux adopt: specify an agent name or --all");
         return ExitCode::from(EX_USAGE);
@@ -187,33 +183,7 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
     }
 
     for r in &results {
-        match r.action.as_str() {
-            "adopted" => println!(
-                "[ADOPT] {}: adopted pre-existing install {} (status=reused — managed by agentlinux upgrade/remove)",
-                r.id,
-                r.version.as_deref().unwrap_or("")
-            ),
-            "already-managed" => println!(
-                "{}: already managed at {}; no-op",
-                r.id,
-                r.version.as_deref().unwrap_or("")
-            ),
-            "migrate-available" => println!(
-                "[MIGRATE] {}: {}",
-                r.id,
-                r.reason.as_deref().unwrap_or("")
-            ),
-            "failed" => println!(
-                "[ADOPT:fail] {}: {}",
-                r.id,
-                r.reason.as_deref().unwrap_or("")
-            ),
-            _ => println!(
-                "{}: nothing to adopt — {}",
-                r.id,
-                r.reason.as_deref().unwrap_or("")
-            ),
-        }
+        println!("{}", adopt_line(r));
     }
 
     // An unattended caller reads the exit code and nothing else. `provision`
@@ -233,9 +203,131 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// The `--all` target set: every catalog agent, with `test_only` fixtures
+/// excluded unless `--include-test` asks for them.
+///
+/// Extracted from `adopt` because inside it the filter was only reachable by
+/// running the whole verb. `delete !` offers the fixtures to everyone;
+/// `|| -> &&` drops every REAL agent unless --include-test is passed, so a
+/// plain `adopt --all` silently adopts nothing.
+fn adopt_all_targets(agents: Vec<FullCatalogEntry>, include_test: bool) -> Vec<FullCatalogEntry> {
+    agents
+        .into_iter()
+        .filter(|a| include_test || !a.test_only)
+        .collect()
+}
+
+/// The operator-facing line for one adopt result.
+///
+/// Extracted for the same reason: all four arms went straight to `println!`, so
+/// deleting any of the three named arms silently demoted its result to the
+/// catch-all "nothing to adopt" — telling an operator that an agent AgentLinux
+/// just adopted was not adopted at all.
+fn adopt_line(r: &AdoptResult) -> String {
+    let version = r.version.as_deref().unwrap_or("");
+    let reason = r.reason.as_deref().unwrap_or("");
+    match r.action.as_str() {
+        "adopted" => format!(
+            "[ADOPT] {}: adopted pre-existing install {version} (status=reused — managed by agentlinux upgrade/remove)",
+            r.id
+        ),
+        "already-managed" => format!("{}: already managed at {version}; no-op", r.id),
+        "migrate-available" => format!("[MIGRATE] {}: {reason}", r.id),
+        // "failed" is NOT the catch-all: an adopt that ERRORED and an adopt that
+        // found nothing to do both used to render "nothing to adopt", so a
+        // sentinel write that failed read as a clean skip and the verb still
+        // exited 0.
+        "failed" => format!("[ADOPT:fail] {}: {reason}", r.id),
+        _ => format!("{}: nothing to adopt — {reason}", r.id),
+    }
+}
+
 #[cfg(test)]
 mod adopt_tests {
     use super::*;
+
+    fn result(id: &str, action: &str) -> AdoptResult {
+        AdoptResult {
+            id: id.to_string(),
+            action: action.to_string(),
+            version: Some("2.1.0".to_string()),
+            reason: Some("because".to_string()),
+        }
+    }
+
+    /// Each action renders as its OWN line. Deleting any of the three named
+    /// match arms survived, and each deletion demotes that result to the
+    /// catch-all "nothing to adopt" — so an agent AgentLinux just adopted is
+    /// reported as not adopted.
+    #[test]
+    fn every_adopt_action_renders_as_its_own_line() {
+        let adopted = adopt_line(&result("claude-code", "adopted"));
+        assert!(
+            adopted.starts_with("[ADOPT] claude-code:") && adopted.contains("2.1.0"),
+            "got {adopted:?}"
+        );
+        assert!(
+            adopted.contains("status=reused"),
+            "the adopt line states what management it just took on: {adopted:?}"
+        );
+
+        let managed = adopt_line(&result("gsd", "already-managed"));
+        assert!(
+            managed.contains("already managed") && managed.contains("no-op"),
+            "got {managed:?}"
+        );
+
+        let migrate = adopt_line(&result("rtk", "migrate-available"));
+        assert!(
+            migrate.starts_with("[MIGRATE] rtk:") && migrate.contains("because"),
+            "got {migrate:?}"
+        );
+
+        let nothing = adopt_line(&result("other", "skipped"));
+        assert!(
+            nothing.contains("nothing to adopt") && nothing.contains("because"),
+            "got {nothing:?}"
+        );
+
+        // And the four are genuinely distinct — a deleted arm would collapse one
+        // into another.
+        let all = [adopted, managed, migrate, nothing];
+        for (i, a) in all.iter().enumerate() {
+            for b in all.iter().skip(i + 1) {
+                assert_ne!(a, b, "two actions must not render identically");
+            }
+        }
+    }
+
+    /// `--all` adopts every real agent, and the test fixtures only when asked.
+    /// `|| -> &&` survived, which drops every REAL agent unless --include-test
+    /// is passed — so a plain `adopt --all` silently adopts nothing.
+    #[test]
+    fn adopt_all_covers_real_agents_and_fixtures_only_on_request() {
+        let entry = |id: &str, test_only: bool| -> FullCatalogEntry {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "display_name": id, "description": "d",
+                "source_kind": "script", "pinned_version": "1.0.0",
+                "install_recipe_path": "install.sh",
+                "uninstall_recipe_path": "uninstall.sh",
+                "test_only": test_only,
+            }))
+            .unwrap()
+        };
+        let catalog = || vec![entry("claude-code", false), entry("test-dummy", true)];
+        let ids = |v: Vec<FullCatalogEntry>| v.into_iter().map(|e| e.id).collect::<Vec<_>>();
+
+        assert_eq!(
+            ids(adopt_all_targets(catalog(), false)),
+            vec!["claude-code"],
+            "a plain --all must still cover the real agents"
+        );
+        assert_eq!(
+            ids(adopt_all_targets(catalog(), true)),
+            vec!["claude-code", "test-dummy"],
+            "--include-test ADDS the fixtures, it does not replace the list"
+        );
+    }
     use tempfile::tempdir;
 
     fn write_catalog(dir: &std::path::Path) {
@@ -265,63 +357,63 @@ mod adopt_tests {
 
     #[test]
     fn no_name_no_all_exits_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
         assert_eq!(
             adopt(None, &args(false, false, false)),
             ExitCode::from(EX_USAGE)
         );
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
     }
 
     #[test]
     fn unknown_agent_exits_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
         assert_eq!(
             adopt(Some("ghost"), &args(false, false, false)),
             ExitCode::from(EX_USAGE)
         );
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
     }
 
     #[test]
     fn test_only_without_include_test_exits_64() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
         assert_eq!(
             adopt(Some("test-dummy"), &args(false, false, false)),
             ExitCode::from(EX_USAGE)
         );
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
     }
 
     #[test]
     fn greenfield_all_is_a_noop_exit_0() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         write_catalog(cat.path());
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
         // No cache → nothing adopted, no sentinel written, exit 0.
         assert_eq!(adopt(None, &args(true, false, false)), ExitCode::SUCCESS);
         assert!(sentinel::list_sentinels().unwrap().is_empty());
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
     }
 
     #[test]
     fn adopts_present_in_window_agent_as_reused_sentinel() {
-        let _g = crate::test_support::env_guard();
+        let mut env_scope = crate::test_support::EnvScope::new();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
         let bindir = tempdir().unwrap();
@@ -354,10 +446,10 @@ mod adopt_tests {
             ]}"#,
         )
         .unwrap();
-        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
-        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
-        std::env::set_var("AGENTLINUX_DETECT_CACHE", &cache);
-        std::env::set_var("AGENTLINUX_AGENT_HOME", bindir.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
+        env_scope.set("AGENTLINUX_AGENT_HOME", bindir.path());
 
         assert_eq!(
             adopt(Some("rtk"), &args(false, false, false)),
@@ -371,19 +463,13 @@ mod adopt_tests {
             Some(bin.display().to_string().as_str())
         );
 
-        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
-        std::env::remove_var("AGENTLINUX_STATE_DIR");
-        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
-        std::env::remove_var("AGENTLINUX_AGENT_HOME");
+        env_scope.unset("AGENTLINUX_CATALOG_DIR");
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_AGENT_HOME");
     }
 
-    #[test]
-    fn epoch_formatting_matches_known_timestamp() {
-        // 2026-07-28T00:00:00Z = 1785196800 (sanity of the civil-from-days path).
-        assert_eq!(
-            sentinel::format_epoch_utc(1_785_196_800),
-            "2026-07-28T00:00:00Z"
-        );
-        assert_eq!(sentinel::format_epoch_utc(0), "1970-01-01T00:00:00Z");
-    }
+    // The epoch formatter itself is `agentlinux_core::time::format_epoch_utc`,
+    // covered there against leap days, the century rule and an independent
+    // inverse. Two assertions from this call site added nothing it does not.
 }

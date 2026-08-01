@@ -1,4 +1,4 @@
-# 020: Bound every wait; degrade loudly rather than block
+# 022: Bound every wait; degrade loudly rather than block
 
 **Status:** Accepted
 **Date:** 2026-07-31
@@ -163,5 +163,12 @@ an expiry that produces no operator-visible line.
 
 - ADR-012 (agent holds `NOPASSWD: ALL` — the privilege context these subprocesses
   run in)
-- ADR-019 (convergent steps — why a retry after a timeout is safe)
+- ADR-021 (convergent steps — why a retry after a timeout is safe)
+- ADR-019 (testability seams). The two decisions meet at `Effects`: the bounded,
+  symlink-refusing primitives here are what the production `Effects` bag binds,
+  and the injected `err` sink is wired to `provision::log::err_sink()` so a
+  diagnostic reaching the seam still reaches the transcript. A seam that binds a
+  weaker primitive in production — a path-based `chown`, an unbounded
+  `Command::status()` — passes every step test and silently undoes this ADR;
+  `a_production_ctx_carries_the_real_root_and_effects` exists to catch that.
 - `dispatcher.rs`, `pkg.rs`, `statelock.rs`

@@ -133,26 +133,76 @@ mod guard_tests {
         assert_eq!(err, ("claude".to_string(), "agent".to_string()));
     }
 
+    /// Configure the install user the guard gates on, from a fixture env file.
+    /// Both variables are restored when the returned scope drops.
+    ///
+    /// These two tests used to wrap their bodies in `if
+    /// !Path::new("/etc/agentlinux.env").exists()` — so on any host AgentLinux
+    /// had actually provisioned, and in the Docker/QEMU containers after
+    /// `provision` runs, the guard's only public-API coverage silently
+    /// evaporated and still reported green.
+    fn with_install_user(user: &str) -> (crate::test_support::EnvScope, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("agentlinux.env");
+        std::fs::write(&path, format!("AGENTLINUX_USER={user}\n")).unwrap();
+        let mut scope = crate::test_support::EnvScope::new();
+        scope
+            .unset("AGENTLINUX_USER")
+            .set("AGENTLINUX_ENV_FILE", &path);
+        (scope, dir)
+    }
+
     #[test]
     fn guard_agent_user_returns_success_when_invoker_matches() {
-        // With the DI seam we can drive the full public fn without a real EUID.
-        // resolve_install_user() defaults to `agent` on this host (no env / no
-        // /etc/agentlinux.env), so an `agent` invoker matches → SUCCESS.
-        std::env::remove_var("AGENTLINUX_USER");
-        if !std::path::Path::new("/etc/agentlinux.env").exists() {
-            let code = guard_agent_user("list", Some("agent"));
-            assert_eq!(code, ExitCode::SUCCESS);
-        }
+        let (_scope, _dir) = with_install_user("agent");
+        assert_eq!(guard_agent_user("list", Some("agent")), ExitCode::SUCCESS);
     }
 
     #[test]
     fn guard_agent_user_returns_64_when_invoker_mismatches() {
-        std::env::remove_var("AGENTLINUX_USER");
-        if !std::path::Path::new("/etc/agentlinux.env").exists() {
-            // root invoking against the default `agent` user → EX_USAGE(64).
-            let code = guard_agent_user("list", Some("root"));
-            assert_eq!(code, ExitCode::from(EX_USAGE));
-        }
+        let (_scope, _dir) = with_install_user("agent");
+        // root invoking against the configured `agent` user → EX_USAGE(64).
+        assert_eq!(
+            guard_agent_user("list", Some("root")),
+            ExitCode::from(EX_USAGE)
+        );
+    }
+
+    #[test]
+    fn guard_agent_user_gates_on_the_configured_user_not_the_default() {
+        // AL-50: a `--user=claude` install gates on `claude`, so the erstwhile
+        // default `agent` is now the one that is refused. This is the assertion
+        // the env-file-absent guard made unwritable.
+        let (_scope, _dir) = with_install_user("claude");
+        assert_eq!(guard_agent_user("list", Some("claude")), ExitCode::SUCCESS);
+        assert_eq!(
+            guard_agent_user("list", Some("agent")),
+            ExitCode::from(EX_USAGE)
+        );
+    }
+
+    #[test]
+    fn effective_username_resolves_the_euid_not_the_user_env_var() {
+        // T-56-07: the invoker is geteuid-backed precisely so a hostile caller
+        // cannot spoof the guard by exporting USER=agent. Assert the spoof does
+        // NOT take, and that the resolved name is the euid's real passwd entry.
+        let mut scope = crate::test_support::EnvScope::new();
+        scope.set("USER", "agent-spoofed-xyzzy");
+        let resolved = effective_username();
+        assert_ne!(resolved, "agent-spoofed-xyzzy");
+        let expected = User::from_uid(geteuid())
+            .ok()
+            .flatten()
+            .map_or_else(|| geteuid().to_string(), |u| u.name);
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn a_euid_with_no_passwd_entry_fails_closed() {
+        // The fallback returns the numeric euid, which can never equal a POSIX
+        // install-user name (`^[a-z]…`), so the guard denies rather than admits.
+        let numeric = geteuid().to_string();
+        assert!(guard_decision(&numeric, "agent").is_err());
     }
 
     // --- require_root: the provision entry guard is the INVERSE of

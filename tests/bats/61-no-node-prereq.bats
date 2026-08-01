@@ -33,28 +33,26 @@
 # Preconditions (set up by tests/docker/run.sh before bats runs): the DEFAULT
 # (no-flag) run stages the static musl bin as the `agentlinux` command and runs
 # the Rust `provision` as the provisioner, writing /var/log/agentlinux-install.log
-# with the per-step markers this file greps. Under the AGENTLINUX_LEGACY_TS=1
-# rollback the staged artifact is the TS `dist/index.js` Node script — the no-Node
-# claim is specifically about the musl artifact, so the musl-only assertions skip
-# with a loud reason in that regime (never a false-red on the rollback path).
+# with the per-step markers this file greps. There is no second regime: the
+# AGENTLINUX_LEGACY_TS rollback was deleted in 0eca053, so a missing staged bin
+# is the INST-08 regression itself and these tests go RED for it.
 
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
 
-# Resolve the staged `agentlinux` command's real path + the shipped-artifact
-# regime (musl vs legacy-TS), mirroring 10-installer.bats:82-95. The Rust
-# provisioner (DIST-01, default) stages /opt/agentlinux/cli/<ver>/bin/agentlinux;
-# the legacy TS provisioner stages /opt/agentlinux/cli/<ver>/dist/index.js.
+# The staged `agentlinux` command's real path (DIST-01: the static musl bin at
+# /opt/agentlinux/cli/<ver>/bin/agentlinux).
+#
+# This used to fall back to .../dist/index.js and both INST-08 tests then
+# SKIPPED. The AGENTLINUX_LEGACY_TS regime that fallback named was deleted in
+# 0eca053, so the only reachable path into it was "the provisioner failed to
+# stage the CLI bin" — the INST-08 regression itself. The static-link proof and
+# the pre-Node ordering proof evaporated instead of going red.
 __staged_cli_path() {
   local version
   version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)}
-  local staged_bin="/opt/agentlinux/cli/${version}/bin/agentlinux"
-  if [[ -f "$staged_bin" ]]; then
-    printf '%s' "$staged_bin"
-  else
-    printf '%s' "/opt/agentlinux/cli/${version}/dist/index.js"
-  fi
+  printf '%s' "/opt/agentlinux/cli/${version}/bin/agentlinux"
 }
 
 @test "INST-08: staged agentlinux bin is a static executable (no interpreter, no NEEDED libs)" {
@@ -66,13 +64,6 @@ __staged_cli_path() {
   # here, not shipped.
   local cli
   cli=$(__staged_cli_path)
-
-  # Legacy-TS rollback: the staged artifact is the dist/index.js Node script, not
-  # a static ELF. The no-Node claim is specifically about the musl artifact, so
-  # skip loudly in that regime (never a false-red on the GATE-05 rollback path).
-  if [[ "$cli" == *dist/index.js ]]; then
-    skip "INST-08: legacy-TS rollback regime (staged artifact is dist/index.js; the no-Node claim is scoped to the musl bin)"
-  fi
 
   [[ -x "$cli" ]] \
     || __fail "INST-08" "staged agentlinux bin exists + is executable" "missing: $cli" "$LOG"
@@ -114,9 +105,8 @@ __staged_cli_path() {
   # that drove steps 10/20 therefore needed no Node.
   local cli
   cli=$(__staged_cli_path)
-  if [[ "$cli" == *dist/index.js ]]; then
-    skip "INST-08: legacy-TS rollback regime (the Bash entrypoint emits different markers; the pre-Node ordering proof is scoped to the musl provisioner)"
-  fi
+  [[ -x "$cli" ]] \
+    || __fail "INST-08" "provisioner staged the CLI bin at ${cli}" "missing" "$LOG"
 
   [[ -f "$LOG" ]] \
     || __fail "INST-08" "$LOG exists (provisioner ran + tee'd its transcript)" "not found" "$LOG"

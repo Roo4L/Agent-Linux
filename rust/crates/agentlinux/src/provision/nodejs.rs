@@ -41,6 +41,13 @@ use std::path::Path;
 /// `run` — the 30-nodejs.sh port. `ctx.resolutions.node` selects the CREATE/REUSE
 /// path; the npm-prefix REMEDIATE-01 dispatch (`ctx.resolutions.npm_prefix`) runs
 /// unconditionally afterward.
+///
+/// Not mutation-tested: an ADR-019 §5 seam gap. Reaches the NodeSource script,
+/// `apt-get`/`dnf` and `node --version` with no injection point. Skipped with a
+/// back-reference rather than left to redden the enforcing gate (ADR-020 §4,
+/// third case). The REMEDIATE-01 dispatch it makes IS observed, through
+/// `remediate_npm_prefix::chown_or_rebase_with`.
+#[cfg_attr(test, mutants::skip)]
 pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     crate::plog!("30-nodejs: starting");
 
@@ -112,6 +119,11 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
 
 /// The CREATE path: prereqs → module-reset → idempotent
 /// repo-add → `pkg_install nodejs` → RT-01 verify → RT-04 npm-prefix + `.npmrc`.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it drives
+/// apt/dnf, the NodeSource setup script and `ensure_dir` as root. Its two
+/// decisions are [`rt01_version_gate`] and [`prefix_layout_should_be_enforced`],
+/// both asserted directly.
+#[cfg_attr(test, mutants::skip)]
 fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
     // Step 1: pre-reqs for setup_22.x, via the distro-neutral verb. Debian installs
     // the four apt prereqs after `apt-get update`; rhel installs ONLY
@@ -150,11 +162,7 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
     // `return 1` (not `exit 1`) so the ERR trap fires with the correct src:line;
     // here that is an `Err` that aborts the provisioner loudly.
     let major = node_major_version()?;
-    if major < 22 {
-        return Err(io::Error::other(format!(
-            "30-nodejs: node v{major} installed but v22 LTS required (RT-01)"
-        )));
-    }
+    rt01_version_gate(major)?;
     crate::plog!("30-nodejs: Node.js v{major} installed (RT-01 — v22 LTS)");
 
     // Step 5: per-user npm prefix layout (RT-04). bin/ and lib/ are created
@@ -165,7 +173,7 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
     // the install user.
     let owner = format!("{u}:{u}", u = ctx.install_user);
     let npm_global = format!("{}/.npm-global", ctx.install_home);
-    if ctx.resolutions.npm_prefix != StepResolution::ReuseWithWarning {
+    if prefix_layout_should_be_enforced(ctx.resolutions.npm_prefix) {
         sysio::ensure_dir(Path::new(&npm_global), 0o755, &owner)?;
         sysio::ensure_dir(Path::new(&format!("{npm_global}/bin")), 0o755, &owner)?;
         sysio::ensure_dir(Path::new(&format!("{npm_global}/lib")), 0o755, &owner)?;
@@ -185,7 +193,13 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
     // One fd across create+append+chmod+chown — see `ensure_line_in_owned_file`.
     // `~/.npmrc` is where npm keeps `_authToken`, so an existing file keeps the
     // mode the operator gave it rather than being re-widened to 0644 every run.
-    sysio::ensure_line_in_owned_file(&format!("prefix={npm_global}"), npmrc_path, &owner, 0o644)?;
+    sysio::ensure_line_in_owned_file(
+        &format!("prefix={npm_global}"),
+        npmrc_path,
+        &owner,
+        0o644,
+        sysio::chown_by_name_nofollow,
+    )?;
     crate::plog!("30-nodejs: wrote {npmrc} (prefix={npm_global} — RT-04)");
 
     Ok(())
@@ -254,6 +268,9 @@ fn trusted_system_node_in(candidates: &[&str]) -> Option<String> {
 /// `node --version` runs from the root-executed 30-nodejs.sh). A missing binary or
 /// an unparsable version maps to major 0 (→ the RT-01 hard-fail), mirroring the
 /// Bash `${node_major:-0}` default.
+/// Not mutation-tested: it spawns the freshly-installed `node` (ADR-019 §5).
+/// The parse it wraps is [`parse_node_major`].
+#[cfg_attr(test, mutants::skip)]
 fn node_major_version() -> io::Result<u32> {
     match trusted_system_node_in(&SYSTEM_NODE_PATHS) {
         Some(p) => node_major_version_at(&p),
@@ -313,16 +330,47 @@ fn node_major_version_at(node: &str) -> io::Result<u32> {
         // loudly rather than silently accepting an unknown runtime.
         return Ok(0);
     }
-    let ver = r.stdout;
-    // Parse `v22.11.0` → 22 (strip a leading `v`, take the pre-`.` field).
-    let major = ver
+    Ok(parse_node_major(&r.stdout))
+}
+
+/// Parse `v22.11.0` → 22: strip a leading `v`, take the pre-`.` field. Anything
+/// unparsable is major 0, which the RT-01 gate then hard-fails on — mirroring
+/// the Bash `${node_major:-0}` default.
+///
+/// Split from the spawn so the parse is reachable without a `node` on PATH.
+fn parse_node_major(stdout: &str) -> u32 {
+    stdout
         .trim()
         .trim_start_matches('v')
         .split('.')
         .next()
         .and_then(|s| s.parse::<u32>().ok())
-        .unwrap_or(0);
-    Ok(major)
+        .unwrap_or(0)
+}
+
+/// RT-01: v22 LTS or the provision aborts.
+///
+/// A pure verdict rather than an inline `if` because the COMPARISON is the
+/// contract and every neighbouring spelling survived mutation — `==`, `>`, `<=`
+/// each let some wrong major through. `<=` is the interesting one: it rejects
+/// exactly v22, the only version that is supposed to pass.
+fn rt01_version_gate(major: u32) -> io::Result<()> {
+    if major < 22 {
+        return Err(io::Error::other(format!(
+            "30-nodejs: node v{major} installed but v22 LTS required (RT-01)"
+        )));
+    }
+    Ok(())
+}
+
+/// Whether the CREATE path may (re-)establish the npm-prefix layout and its
+/// ownership.
+///
+/// `ReuseWithWarning` means the operator DECLINED the chown remediation, so
+/// enforcing the layout would silently chown the prefix back and undo the
+/// decline. Every other resolution enforces.
+fn prefix_layout_should_be_enforced(npm_prefix: StepResolution) -> bool {
+    npm_prefix != StepResolution::ReuseWithWarning
 }
 
 /// Whether the install user's npm prefix (`<home>/.npm-global`) is writable by the
@@ -349,8 +397,114 @@ mod nodejs_tests {
     use crate::provision::StepResolutions;
     use std::os::unix::fs::PermissionsExt;
 
+    /// RT-01 accepts v22 and above and nothing below. Every neighbouring
+    /// spelling of the comparison survived: `==` rejects everything except 21,
+    /// `>` accepts only what it should reject, and `<=` rejects exactly v22 —
+    /// the one version that is supposed to pass.
+    #[test]
+    fn the_rt01_gate_accepts_v22_and_up_and_nothing_below() {
+        for major in [0, 1, 18, 20, 21] {
+            let err = rt01_version_gate(major).expect_err("below v22 must abort");
+            let msg = err.to_string();
+            assert!(
+                msg.contains(&format!("v{major}")) && msg.contains("RT-01"),
+                "the diagnostic must name the version and the requirement, got {msg:?}"
+            );
+        }
+        for major in [22, 23, 24, 99] {
+            assert!(
+                rt01_version_gate(major).is_ok(),
+                "v{major} satisfies v22 LTS or newer"
+            );
+        }
+    }
+
+    /// `node --version` output → major. Anything unparsable is 0, which the gate
+    /// above then hard-fails on — an unreadable version must never pass for a
+    /// good one.
+    #[test]
+    fn the_node_version_parse_defaults_to_zero_on_anything_odd() {
+        assert_eq!(parse_node_major("v22.11.0\n"), 22);
+        assert_eq!(parse_node_major("22.11.0"), 22, "a bare version parses too");
+        assert_eq!(
+            parse_node_major("  v24.0.1  \n"),
+            24,
+            "whitespace is trimmed"
+        );
+        for odd in ["", "not a version", "vX.1.2", "\n", "v.1.2"] {
+            assert_eq!(
+                parse_node_major(odd),
+                0,
+                "{odd:?} must read as 0 so RT-01 rejects it"
+            );
+        }
+    }
+
+    /// A declined chown remediation must stay declined: enforcing the prefix
+    /// layout would silently chown it back and undo the operator's choice.
+    #[test]
+    fn a_declined_prefix_remediation_is_not_re_enforced() {
+        assert!(
+            !prefix_layout_should_be_enforced(StepResolution::ReuseWithWarning),
+            "reuse-with-warning is the operator declining — do not chown back"
+        );
+        for r in [
+            StepResolution::Create,
+            StepResolution::Reuse,
+            StepResolution::Remediate,
+        ] {
+            assert!(
+                prefix_layout_should_be_enforced(r),
+                "{r:?} must establish the layout"
+            );
+        }
+    }
+
+    /// The REUSE-branch warn probe: is the prefix owned by the install user?
+    /// Both constant replacements survived, and so did inverting the uid
+    /// comparison — forced true reports a root-owned prefix as writable by the
+    /// agent, which is the EACCES bug class AgentLinux exists to eliminate.
+    #[test]
+    fn the_prefix_probe_answers_on_real_ownership() {
+        let home = tempfile::tempdir().unwrap();
+        let me = nix::unistd::User::from_uid(nix::unistd::getuid())
+            .ok()
+            .flatten()
+            .map(|u| u.name)
+            .expect("the test process has a passwd entry");
+
+        let mut ctx = ctx_with(
+            StepResolution::Create,
+            StepResolution::Create,
+            home.path().to_str().unwrap(),
+        );
+        ctx.install_user = me;
+
+        // No prefix yet → not-yet-writable.
+        assert!(
+            !npm_prefix_writable_by_install_user(&ctx),
+            "a missing prefix is not yet writable"
+        );
+
+        // Created and owned by us → writable.
+        std::fs::create_dir_all(home.path().join(".npm-global")).unwrap();
+        assert!(
+            npm_prefix_writable_by_install_user(&ctx),
+            "a prefix we own is writable by us"
+        );
+
+        // A user with no passwd entry can own nothing.
+        ctx.install_user = "no-such-user-agentlinux-fixture".to_string();
+        assert!(
+            !npm_prefix_writable_by_install_user(&ctx),
+            "an unresolvable install user must not read as the owner"
+        );
+    }
+
     fn ctx_with(node: StepResolution, npm_prefix: StepResolution, home: &str) -> ProvisionCtx {
         ProvisionCtx {
+            root: std::path::PathBuf::from("/"),
+            fx: crate::provision::Effects::default(),
             install_user: "agent".into(),
             install_home: home.into(),
             family: Family::Debian,
@@ -406,7 +560,7 @@ mod nodejs_tests {
     /// the binary it was handed rather than finding some other node.
     #[test]
     fn rt01_probe_ignores_agentlinux_user_and_runs_the_binary_it_was_given() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let d = tempfile::TempDir::new().unwrap();
         let node = stub_node(d.path(), "v22.11.0");
 
@@ -465,7 +619,7 @@ mod nodejs_tests {
     /// the caller hard-fails.
     #[test]
     fn rt01_probe_reports_a_sub_22_major_through_the_real_spawn_path() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let d = tempfile::TempDir::new().unwrap();
         let node = stub_node(d.path(), "v18.19.0");
         assert_eq!(node_major_version_at(&node).unwrap(), 18);
@@ -478,7 +632,7 @@ mod nodejs_tests {
     /// binary being executed with full privilege.
     #[test]
     fn rt01_probe_ignores_a_node_on_path_when_no_system_node_exists() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let d = tempfile::TempDir::new().unwrap();
         stub_node(d.path(), "v22.11.0"); // on PATH below, but not a candidate
         let old = std::env::var("PATH").unwrap_or_default();
@@ -531,18 +685,13 @@ mod nodejs_tests {
         }
     }
 
-    // A `Bail` node token is a defensive error (the step loop never sees it; a bail
-    // exits 65 upstream) — mirrors agent_user.rs / sudoers.rs. This reaches the
-    // dispatch before any I/O, so it is host-independent.
-    #[test]
-    fn bail_node_token_is_defensive_error() {
-        let ctx = ctx_with(
-            StepResolution::Create,
-            StepResolution::Create,
-            "/home/agent",
-        );
-        assert!(run(&ctx).is_err());
-    }
+    // There is deliberately NO test driving `run` on a Create token here. The
+    // one that used to sit at this spot asserted `run(&ctx).is_err()` against a
+    // `Bail` token; when `Bail` stopped being representable at the step layer the
+    // token became `Create`, and the assertion only still passed because an
+    // unprivileged runner cannot apt-get. As root it ran the real NodeSource
+    // install against `/`. `run` needs the package/exec seam `sudoers` already
+    // has before it can be driven from a test at all.
 
     // The RT-04 npm-prefix layout paths are derived from install_home — a
     // non-default home lands the prefix + .npmrc under it verbatim (AL-59).
@@ -577,7 +726,7 @@ mod nodejs_tests {
         let gname = nix::unistd::Group::from_gid(gid).unwrap().unwrap().name;
         let owner = format!("{uname}:{gname}");
 
-        sysio::create_if_absent_0644(&f, &owner).unwrap();
+        sysio::create_if_absent_0644(&f, &owner, sysio::chown_by_name_nofollow).unwrap();
         assert!(f.exists());
         assert_eq!(std::fs::read(&f).unwrap(), b"");
         assert_eq!(
@@ -587,7 +736,7 @@ mod nodejs_tests {
 
         // Now seed content and prove a present file is untouched (no-op).
         std::fs::write(&f, b"prefix=/home/agent/.npm-global\n").unwrap();
-        sysio::create_if_absent_0644(&f, &owner).unwrap();
+        sysio::create_if_absent_0644(&f, &owner, sysio::chown_by_name_nofollow).unwrap();
         assert_eq!(
             std::fs::read_to_string(&f).unwrap(),
             "prefix=/home/agent/.npm-global\n"
@@ -609,13 +758,15 @@ mod nodejs_tests {
         let owner = format!("{uname}:{gname}");
         let line = "prefix=/home/agent/.npm-global";
 
-        sysio::ensure_line_in_owned_file(line, &f, &owner, 0o644).unwrap();
+        sysio::ensure_line_in_owned_file(line, &f, &owner, 0o644, sysio::chown_by_name_nofollow)
+            .unwrap();
         let after_first = std::fs::read_to_string(&f).unwrap();
         assert_eq!(after_first, "prefix=/home/agent/.npm-global\n");
 
         // Re-run: create-if-absent is a no-op, ensure_line_in_file greps-before-
         // appends → byte-identical (no duplicate prefix line).
-        sysio::ensure_line_in_owned_file(line, &f, &owner, 0o644).unwrap();
+        sysio::ensure_line_in_owned_file(line, &f, &owner, 0o644, sysio::chown_by_name_nofollow)
+            .unwrap();
         assert_eq!(std::fs::read_to_string(&f).unwrap(), after_first);
         assert_eq!(
             after_first

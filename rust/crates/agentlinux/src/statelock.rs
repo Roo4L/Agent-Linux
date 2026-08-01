@@ -251,7 +251,7 @@ mod statelock_tests {
 
     /// Point the lock at a fresh temp file for the duration of one test.
     fn with_temp_lock<T>(body: impl FnOnce(&std::path::Path) -> T) -> T {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("agentlinux.lock");
         std::env::set_var(LOCK_PATH_ENV, &path);
@@ -338,7 +338,7 @@ mod statelock_tests {
     // failure modes on purpose.
     #[test]
     fn unavailable_lock_fails_open_not_closed() {
-        let _g = crate::test_support::env_guard();
+        let _g = crate::test_support::EnvScope::new();
         std::env::remove_var(LOCK_INHERITED_ENV);
         // A path under a FILE, so both the open and the create-parent fail.
         let dir = tempfile::tempdir().unwrap();

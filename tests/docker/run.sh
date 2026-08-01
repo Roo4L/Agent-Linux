@@ -223,13 +223,20 @@ host_build_musl() {
   # return silently staged a stale bin across waves (a false green/red risk on
   # the acceptance oracle). Fall back to an existing prebuilt bin only when cargo
   # is absent (the CI prebuilt-stage path).
+  #
+  # A FAILED build is fatal here, not a warning. The only downstream guard is
+  # `[[ -x $HOST_MUSL_BIN ]]` — existence, not freshness — so with a warm
+  # rust/target a compile error left yesterday's binary in place, staged it, ran
+  # all 242 tests against code that does not compile, and printed PASS.
   if command -v cargo >/dev/null 2>&1 || [[ -f "$HOME/.cargo/env" ]]; then
     # shellcheck disable=SC1091  # optional, path checked
     [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
     echo "-- building/refreshing host musl binary (cargo incremental) --"
-    (cd "$REPO_ROOT/rust" \
-      && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux) \
-      || echo "-- WARN: host musl build failed --"
+    if ! (cd "$REPO_ROOT/rust" \
+      && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux); then
+      echo "ERROR: host musl build FAILED — refusing to run bats against a possibly stale binary" >&2
+      exit 1
+    fi
   elif [[ -x $HOST_MUSL_BIN ]]; then
     echo "-- cargo unavailable; using existing prebuilt musl binary --"
   else
@@ -287,14 +294,22 @@ docker exec "$CID" "$RUST_PROVISION_BIN_IN_CONTAINER" provision --user agent --y
 echo "== seed BHV-02 ssh keypair + sshd (idempotent; unblocks the six-mode iteration) =="
 docker exec "$CID" bash -c '
   set -e
+  # Two INDEPENDENT guards, deliberately. Nesting the authorized_keys install
+  # inside the keypair check made "the keypair exists" stand in for "the agent
+  # can be reached over ssh" — and at this point in the run the agent user does
+  # NOT exist yet (bats provisions it), so `id agent` fails, authorized_keys is
+  # skipped, and the keypair is left behind. Every later guard then sees the key
+  # present and short-circuits, including 20-agent-user.bats setup(). The result
+  # was BHV-02 failing with `Permission denied (publickey,password)` on a host
+  # that was otherwise provisioned correctly.
   if [[ ! -f /root/.ssh/id_ed25519 ]]; then
     install -d -m 0700 -o root -g root /root/.ssh
     ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519 -q
-    if id agent >/dev/null 2>&1; then
-      install -d -m 0700 -o agent -g agent /home/agent/.ssh
-      install -m 0600 -o agent -g agent \
-        /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
-    fi
+  fi
+  if id agent >/dev/null 2>&1 && [[ ! -f /home/agent/.ssh/authorized_keys ]]; then
+    install -d -m 0700 -o agent -g agent /home/agent/.ssh
+    install -m 0600 -o agent -g agent \
+      /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
   fi
   # Best-effort sshd start (family unit: ssh on Debian, sshd on EL9). Silent on a
   # non-systemd container — the ssh-mode tests then diagnose the connection error.

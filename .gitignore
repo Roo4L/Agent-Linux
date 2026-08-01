@@ -122,3 +122,6 @@ __pycache__/
 .codex/auth.json
 .codex/*.pem
 .codex/*.key
+.mutation-gate-selftest-pristine
+.mutation-gate-selftest-pristine.sha256
+.mutation-gate-selftest-lock/

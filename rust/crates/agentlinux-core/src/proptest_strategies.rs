@@ -20,6 +20,31 @@ pub fn version_str() -> impl Strategy<Value = String> {
     (0u64..50, 0u64..50, 0u64..50).prop_map(|(a, b, c)| format!("{a}.{b}.{c}"))
 }
 
+/// A version string that MAY carry a prerelease tag or build metadata —
+/// `"1.2.3"`, `"1.2.3-rc.1"`, `"1.2.3-alpha"`, `"1.2.3+build.5"`.
+///
+/// Prerelease ordering is node-semver's #1 divergence source and the reason the
+/// shim exists, yet [`version_str`] alone can never cross it: a list of plain
+/// `X.Y.Z` versions never exercises "a prerelease is LESS than its release", nor
+/// "a range without a prerelease does not match a prerelease". Anything
+/// selecting a maximum from a candidate list should generate from HERE.
+pub fn prerelease_version_str() -> impl Strategy<Value = String> {
+    prop_oneof![
+        // Plain releases stay well represented — the common case.
+        3 => version_str(),
+        2 => (version_str(), prop_oneof![
+            Just("alpha"),
+            Just("beta"),
+            Just("rc.1"),
+            Just("rc.2"),
+            Just("0"),
+            Just("1"),
+        ])
+        .prop_map(|(v, tag)| format!("{v}-{tag}")),
+        1 => version_str().prop_map(|v| format!("{v}+build.5")),
+    ]
+}
+
 /// A version string with the node-loose shapes the shim must accept: a full
 /// version, a `v`-prefixed version (`"v1.2.3"`), or a two-part partial
 /// (`"2.1"` → coerced to `"2.1.0"`). Feeds P1/P4 totality — every branch of

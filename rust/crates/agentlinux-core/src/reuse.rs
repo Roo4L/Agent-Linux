@@ -255,6 +255,53 @@ mod tests {
 }
 
 #[cfg(test)]
+mod fallthrough_tests {
+    //! The status fallthrough, stated explicitly because it is easy to read the
+    //! branch order and conclude the opposite.
+    use super::*;
+
+    /// Only `absent` and `broken` are recognised negatively; ANY other status
+    /// value takes the healthy path. So an agent whose detect record carries an
+    /// unrecognised status (a future `degraded`, or a truncated cache write) at
+    /// the canonical path is REUSED, not reinstalled.
+    ///
+    /// This test PINS CURRENT BEHAVIOUR — it does not endorse it. The port from
+    /// Bash `reuse::agent_decision` inherited a fail-OPEN default: the only way
+    /// a fourth status reaches here is a hand-edited or truncated
+    /// `/run/agentlinux-detect.json`, and the consequence is that a possibly
+    /// broken binary at the canonical path is reused instead of reinstalled.
+    /// Changing it is a behaviour change with a bats contract behind it, so it is
+    /// recorded rather than fixed in passing; see AL-129. The structural fix is a
+    /// typed `Status` enum at the cache boundary, which makes the fourth case
+    /// unrepresentable instead of merely tested.
+    #[test]
+    fn an_unrecognised_status_currently_fails_open_to_reuse() {
+        let canonical = "/home/agent/.local/bin/claude";
+        assert_eq!(
+            agent_decision(
+                "claude-code",
+                "degraded",
+                Some(canonical),
+                Some(canonical),
+                ""
+            ),
+            Decision::Reuse
+        );
+        // …and away from the canonical path it remediates, same as healthy.
+        assert_eq!(
+            agent_decision(
+                "claude-code",
+                "degraded",
+                Some("/usr/bin/claude"),
+                Some(canonical),
+                ""
+            ),
+            Decision::Remediate
+        );
+    }
+}
+
+#[cfg(test)]
 mod proptests {
     //! Property test (TEST-01) — `agent_decision` totality. The fn is
     //! branch-total (every path returns a `Decision`); this proves it across
@@ -267,13 +314,29 @@ mod proptests {
         #[test]
         fn agent_decision_is_total(
             id in ".*",
-            status in ".*",
+            // Drawn from the vocabulary `detect` actually emits, plus arbitrary
+            // junk. A bare `".*"` essentially never produces the literal
+            // "broken" or "absent", so the two status-dependent postconditions
+            // below fired ZERO times in 256 cases — asserted but unreachable.
+            status in prop_oneof![
+                Just("healthy".to_string()),
+                Just("broken".to_string()),
+                Just("absent".to_string()),
+                ".*",
+            ],
             detected_path in proptest::option::of(".*"),
             canonical in proptest::option::of(".*"),
             gsd_system_path in ".*",
+            // Same problem for the reuse arm: two independent `option::of(".*")`
+            // draws never coincide, so "detected at exactly its canonical path"
+            // never happened. This aligns them half the time.
+            align_paths in proptest::bool::weighted(0.5),
         ) {
-            // The call returning a Decision without unwinding IS the totality
-            // assertion; assert it is one of the three tokens as a smoke check.
+            let detected_path = if align_paths { canonical.clone() } else { detected_path };
+
+            // Totality plus the arms that are decidable from the inputs alone.
+            // "The return is one of three enum variants" is guaranteed by the
+            // type system, so on its own this property could not fail.
             let decision = agent_decision(
                 &id,
                 &status,
@@ -285,6 +348,28 @@ mod proptests {
                 decision,
                 Decision::Reuse | Decision::Remediate | Decision::Create
             ));
+
+            // An absent agent, an empty id, or an id with no canonical path can
+            // only ever be CREATE — never a reuse of something that is not there.
+            if id.is_empty() || status == "absent" || canonical.is_none() {
+                prop_assert_eq!(decision, Decision::Create);
+            }
+            // A known-broken agent is always a REMEDIATE, whatever its path.
+            if !id.is_empty() && status == "broken" && canonical.is_some() {
+                prop_assert_eq!(decision, Decision::Remediate);
+            }
+            // An agent at exactly its canonical path with a status that is not
+            // `absent`/`broken` is always a REUSE — see
+            // `an_unrecognised_status_currently_fails_open_to_reuse` for why the
+            // condition is phrased that way rather than `status == "healthy"`.
+            if !id.is_empty()
+                && status != "absent"
+                && status != "broken"
+                && canonical.is_some()
+                && detected_path.as_deref() == canonical.as_deref()
+            {
+                prop_assert_eq!(decision, Decision::Reuse);
+            }
         }
     }
 }

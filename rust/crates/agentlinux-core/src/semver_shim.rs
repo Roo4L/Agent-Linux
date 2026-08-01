@@ -580,7 +580,7 @@ mod proptests {
     //! becomes machine-checked over the generated loose-input space, not just the
     //! handful of example rows.
     use super::*;
-    use crate::proptest_strategies::{loose_version_str, range_str, version_str};
+    use crate::proptest_strategies::{loose_version_str, prerelease_version_str, range_str};
     use proptest::prelude::*;
 
     proptest! {
@@ -663,7 +663,7 @@ mod proptests {
         // of the input list AND actually satisfies the range (output soundness).
         #[test]
         fn p4_max_satisfying_total_and_sound(
-            versions in proptest::collection::vec(version_str(), 0..8),
+            versions in proptest::collection::vec(prerelease_version_str(), 0..8),
             range in range_str(),
         ) {
             match max_satisfying(&versions, &range) {
@@ -690,6 +690,32 @@ mod proptests {
                         "max_satisfying winner {:?} does not satisfy range {:?}",
                         best, range
                     );
+                    // MAXIMALITY — the property the name actually claims. Without
+                    // it, a max_satisfying returning the FIRST satisfying
+                    // candidate instead of the GREATEST passes membership and
+                    // soundness for every case. That is precisely the defect
+                    // c44b858 had to fix by hand, because the example rows
+                    // happened to be in ascending order.
+                    for v in &versions {
+                        if let Ok(parsed) = parse_lenient(v) {
+                            if req.matches(&parsed) {
+                                prop_assert!(
+                                    parsed <= winner,
+                                    "max_satisfying picked {:?} but {:?} also satisfies {:?} and is greater",
+                                    best, v, range
+                                );
+                            }
+                        }
+                    }
+                }
+                Ok(None) if versions.iter().any(|v| {
+                    VersionReq::parse(&normalize_range(&range))
+                        .ok()
+                        .zip(parse_lenient(v).ok())
+                        .is_some_and(|(req, parsed)| req.matches(&parsed))
+                }) => {
+                    // COMPLETENESS — `None` is only legal when NOTHING matched.
+                    prop_assert!(false, "max_satisfying returned None for {:?} while a candidate in {:?} satisfies it", range, versions);
                 }
                 Ok(None) => {} // legal: nothing matched.
                 Err(SemverError::Range { .. }) => {} // legal: malformed range.

@@ -126,12 +126,15 @@ setup_brownfield_for_path_mismatch() {
   run "$INSTALLER" provision --dry-run
   [[ "$status" -eq 0 ]] \
     || __fail "UX-01" "exit 0 on brownfield dry-run even with bail candidates" "exit=$status output=$output" "$LOG"
-  # Detection ran (at least one DET marker in transcript).
-  printf '%s' "$output" | grep -qE '\[DET-|\[DRY-RUN\]' \
-    || __fail "UX-01" "detection ran (DET marker or DRY-RUN marker present)" "$output" "$LOG"
-  # Provisioner runs were skipped.
-  if printf '%s' "$output" | grep -qE 'running 10-agent-user\.sh|running 20-sudoers\.sh|running 30-nodejs\.sh'; then
-    __fail "UX-01" "no 'running NN-*.sh' markers in brownfield dry-run" "$output" "$LOG"
+  # Detection ran (the dry-run report is present).
+  printf '%s' "$output" | grep -qE '\[DRY-RUN\] pre-flight report' \
+    || __fail "UX-01" "detection ran (the [DRY-RUN] pre-flight report is present)" "$output" "$LOG"
+  # The steps were SKIPPED. Grep the markers the Rust provisioner emits when a
+  # step actually runs (`agentlinux provision: NN-<name>`, per run_steps) — the
+  # previous `running NN-*.sh` pattern was the Bash entrypoint's and can no
+  # longer match, so "the dry-run did not run the provisioners" was unfalsifiable.
+  if printf '%s' "$output" | grep -qE 'agentlinux provision: (10-agent-user|20-sudoers|30-nodejs)'; then
+    __fail "UX-01" "no per-step markers in a brownfield dry-run" "$output" "$LOG"
   fi
 }
 
@@ -175,21 +178,31 @@ setup_brownfield_for_path_mismatch() {
 }
 
 # Test 6 (UX-01 idempotency): re-running --dry-run produces stable detection output.
-@test "UX-01 (idempotency): re-running agentlinux-install --dry-run produces stable DET markers (sorted-equal)" {
+@test "UX-01 (idempotency): re-running agentlinux provision --dry-run produces an identical report" {
   setup_brownfield_for_dry_run_combo
+
+  # Grep the report lines the Rust provisioner actually emits. This used to grep
+  # `^\[DET-`, a marker no longer produced anywhere in the tree, so it compared
+  # "" to "" — the report could have become fully non-deterministic, or vanished,
+  # and this stayed green. The non-empty assertion below is what makes the
+  # comparison mean anything.
+  local pattern='(\[DRY-RUN\]|detection report|install-user:|distro:|agent [a-z0-9-]+:)'
 
   run "$INSTALLER" provision --dry-run
   [[ "$status" -eq 0 ]] || __fail "UX-01" "dry-run #1 exit 0" "exit=$status" "$LOG"
   local first
-  first=$(printf '%s\n' "$output" | grep -E '^\[DET-' | sort)
+  first=$(printf '%s\n' "$output" | grep -E "$pattern" | sort)
+
+  [[ -n "$first" ]] \
+    || __fail "UX-01" "the dry-run emits a report to compare" "no report lines matched: $output" "$LOG"
 
   run "$INSTALLER" provision --dry-run
   [[ "$status" -eq 0 ]] || __fail "UX-01" "dry-run #2 exit 0" "exit=$status" "$LOG"
   local second
-  second=$(printf '%s\n' "$output" | grep -E '^\[DET-' | sort)
+  second=$(printf '%s\n' "$output" | grep -E "$pattern" | sort)
 
   [[ "$first" == "$second" ]] \
-    || __fail "UX-01" "two dry-run invocations produce identical sorted [DET-] markers" "diff: $(diff <(printf '%s' "$first") <(printf '%s' "$second"))" "$LOG"
+    || __fail "UX-01" "two dry-run invocations produce an identical report" "diff: $(diff <(printf '%s' "$first") <(printf '%s' "$second"))" "$LOG"
 }
 
 # -----------------------------------------------------------------------------
