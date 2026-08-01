@@ -16,6 +16,10 @@ use std::io::{BufRead, IsTerminal, Write};
 /// True when stdin is an interactive terminal (the wizard's guard). The
 /// curl-installer pipes the installer over stdin → not a TTY → no prompt.
 #[must_use]
+/// Not mutation-tested: it asks the real process stdin whether it is a terminal
+/// (ADR-019 §5). Every caller takes it as an injected `is_tty` dep precisely so
+/// the branches behind it are reachable without one.
+#[cfg_attr(test, mutants::skip)]
 pub fn stdin_is_tty() -> bool {
     std::io::stdin().is_terminal()
 }
@@ -30,6 +34,10 @@ pub fn stdin_is_tty() -> bool {
 /// brownfield fixtures purge `/etc/agentlinux.env` but keep a pre-existing agent
 /// user in a REMEDIATE/wrong-shell state, so the extra state checks are load-bearing.
 #[must_use]
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — it reads the
+/// real env-file path and the three live host probes. The decision it hands them
+/// to is [`should_prompt_from`], which is pure and asserted directly.
+#[cfg_attr(test, mutants::skip)]
 pub fn should_prompt_install_user(user: &str, home: &str) -> bool {
     use crate::provision::probe::{npm_prefix_state, sudoers_state, user_state};
     should_prompt_from(
@@ -121,6 +129,9 @@ pub fn choose_install_user_io<R: BufRead, W: Write>(
 /// Prompt on stderr / read from stdin (stdout is reserved), returning the chosen
 /// install user. Callers gate this behind `stdin_is_tty()` + `is_greenfield()` +
 /// an absent `--user`.
+/// Not mutation-tested: binds the real stdin/stderr (ADR-019 §5). The prompt
+/// loop is [`choose_install_user_io`].
+#[cfg_attr(test, mutants::skip)]
 pub fn choose_install_user(default_user: &str, validate: &dyn Fn(&str) -> bool) -> String {
     let stdin = std::io::stdin();
     choose_install_user_io(default_user, validate, stdin.lock(), std::io::stderr())
@@ -246,6 +257,11 @@ impl<R: BufRead, W: Write> Prompter for Stdio<R, W> {
 /// First free `agent2..agent99` (remediate::find_alt_user_name), or `None` when
 /// all are taken.
 #[must_use]
+/// Not mutation-tested: it probes the live passwd DB for every candidate
+/// (ADR-019 §5), so its answer is a property of the host the tests run on. The
+/// caller re-validates whatever it returns before use — see the
+/// defence-in-depth note in [`alt_user_prompt_io`].
+#[cfg_attr(test, mutants::skip)]
 pub fn find_alt_user_name() -> Option<String> {
     (2..=99)
         .map(|n| format!("agent{n}"))
@@ -286,18 +302,23 @@ pub fn alt_user_prompt_io<R: BufRead, W: Write>(
         }
         let _ = err.flush();
         let mut line = String::new();
-        let n = match input.read_line(&mut line) {
+        match input.read_line(&mut line) {
             Ok(0) | Err(_) => {
                 let _ = writeln!(err);
                 return AltUser::DeclinedEof;
             }
-            Ok(n) => n,
-        };
+            Ok(_) => {}
+        }
         // A line with no trailing newline means EOF was hit mid-line (the operator
         // closed the TTY without pressing Enter). Match the Bash `read` contract —
         // EOF → decline — rather than accept a half-typed name AND avoid a second
         // read that would block forever (the driver sends only one EOF).
-        if !line.ends_with('\n') && n > 0 {
+        //
+        // The old spelling also tested `n > 0`, which cannot be false here: a
+        // zero-byte read is the `Ok(0)` arm above and already returned. `>` and
+        // `>=` were therefore indistinguishable — an equivalent mutant guarding
+        // nothing.
+        if !line.ends_with('\n') {
             let _ = writeln!(err);
             return AltUser::DeclinedEof;
         }
@@ -480,6 +501,119 @@ mod wizard_prompt_tests {
 #[cfg(test)]
 mod wizard_tests {
     use super::*;
+
+    /// Both retry loops give the operator exactly three attempts. `<` becoming
+    /// `<=` grants a fourth, and `tries += 1` becoming `*=` never advances the
+    /// counter at all — a prompt loop that only ends because stdin ran out.
+    ///
+    /// The RESULT is the same in every case (the default / a decline), so the
+    /// only witness is how many times the prompt was written. That is what these
+    /// assert.
+    #[test]
+    fn the_user_prompt_gives_exactly_three_attempts() {
+        let input = std::io::Cursor::new(b"BAD-1\nBAD-2\nBAD-3\nBAD-4\nBAD-5\n".to_vec());
+        let mut err = Vec::new();
+        let chosen = choose_install_user_io("agent", &|name: &str| name == "good", input, &mut err);
+
+        assert_eq!(chosen, "agent", "three strikes falls back to the default");
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Install AgentLinux under which user?").count(),
+            3,
+            "exactly three prompts — no more, no fewer:\n{text}"
+        );
+        assert_eq!(
+            text.matches("invalid name").count(),
+            3,
+            "and each rejection is reported"
+        );
+    }
+
+    /// A valid answer short-circuits the loop, so "three attempts" is not
+    /// satisfied by always prompting three times.
+    #[test]
+    fn a_valid_name_is_accepted_on_the_first_prompt() {
+        let input = std::io::Cursor::new(b"good\n".to_vec());
+        let mut err = Vec::new();
+        let chosen = choose_install_user_io("agent", &|name: &str| name == "good", input, &mut err);
+
+        assert_eq!(chosen, "good");
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Install AgentLinux under which user?").count(),
+            1
+        );
+    }
+
+    /// The consent prompt has the same three-attempt bound, and the same
+    /// mutations survived on it. A run of invalid answers must end in a DECLINE,
+    /// never in an accidental accept.
+    #[test]
+    fn the_consent_prompt_gives_exactly_three_attempts_then_declines() {
+        let input = std::io::Cursor::new(b"x\nq\nz\ny\ny\n".to_vec());
+        let mut err = Vec::new();
+        let accepted = confirm_remediate_io("npm-prefix", "chown the prefix", input, &mut err);
+
+        assert!(
+            !accepted,
+            "three invalid answers must decline — never fall through to accept"
+        );
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Proceed with this remediation?").count(),
+            3,
+            "exactly three prompts:\n{text}"
+        );
+    }
+
+    /// EOF at the very first read is a decline, not a retry — `delete match arm
+    /// Ok(0)` survived, and without it a closed stdin loops against a stream
+    /// that will never produce another byte.
+    #[test]
+    fn eof_declines_the_consent_prompt_immediately() {
+        let input = std::io::Cursor::new(Vec::new());
+        let mut err = Vec::new();
+        assert!(
+            !confirm_remediate_io("sudoers", "overwrite drift", input, &mut err),
+            "EOF is a decline"
+        );
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Proceed with this remediation?").count(),
+            1,
+            "one prompt, then EOF ends it:\n{text}"
+        );
+    }
+
+    /// Y, y and a bare Enter accept; N and n decline. Pinned so the accept set
+    /// cannot quietly widen.
+    #[test]
+    fn only_the_documented_answers_accept_or_decline() {
+        for accept in ["Y\n", "y\n", "\n"] {
+            let mut err = Vec::new();
+            assert!(
+                confirm_remediate_io(
+                    "c",
+                    "d",
+                    std::io::Cursor::new(accept.as_bytes().to_vec()),
+                    &mut err
+                ),
+                "{accept:?} accepts"
+            );
+        }
+        for decline in ["N\n", "n\n"] {
+            let mut err = Vec::new();
+            assert!(
+                !confirm_remediate_io(
+                    "c",
+                    "d",
+                    std::io::Cursor::new(decline.as_bytes().to_vec()),
+                    &mut err
+                ),
+                "{decline:?} declines"
+            );
+        }
+    }
     use crate::provision::probe::{NpmPrefixState, SudoersState, UserState};
     use std::io::Cursor;
 
