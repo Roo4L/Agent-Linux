@@ -20,18 +20,35 @@ const EX_USAGE: u8 = 64;
 
 /// `agentlinux remove <name>` body.
 #[must_use]
+/// Not mutation-tested: binds the real streams and dispatcher (ADR-019 §5).
+/// Every decision lives in [`remove_with`].
+#[cfg_attr(test, mutants::skip)]
 pub fn remove(name: &str, opts: &RemoveArgs) -> ExitCode {
-    remove_with(name, opts, dispatcher::dispatch_recipe)
+    let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
+    remove_with(
+        name,
+        opts,
+        dispatcher::dispatch_recipe,
+        &mut crate::cmd::install::Out {
+            out: &mut out,
+            err: &mut err,
+        },
+    )
 }
 
 /// DI-seam variant — the testable core.
 #[must_use]
-pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) -> ExitCode {
+pub fn remove_with(
+    name: &str,
+    opts: &RemoveArgs,
+    dispatch: RecipeDispatcher,
+    o: &mut crate::cmd::install::Out<'_>,
+) -> ExitCode {
     let catalog_dir = catalog::resolve_catalog_dir();
     let agents = match catalog::load_catalog(&catalog_dir, catalog::Validate::Required) {
         Ok(a) => a,
         Err(e) => {
-            eprintln!("{e}");
+            let _ = writeln!(o.err, "{e}");
             return ExitCode::from(1);
         }
     };
@@ -43,7 +60,11 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     let sentinel = match sentinel::read_sentinel(&entry.id) {
         Ok(s) => s,
         Err(e) => {
-            eprintln!("agentlinux: failed to read sentinel for {}: {e}", entry.id);
+            let _ = writeln!(
+                o.err,
+                "agentlinux: failed to read sentinel for {}: {e}",
+                entry.id
+            );
             return ExitCode::from(1);
         }
     };
@@ -51,7 +72,8 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     let Some(sentinel) = sentinel else {
         // Not installed. Without --force → exit 1; with --force → no-op exit 0.
         if !opts.force {
-            eprintln!(
+            let _ = writeln!(
+                o.err,
                 "agentlinux: {} is not installed (pass --force for no-op)",
                 entry.id
             );
@@ -67,13 +89,14 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
         if let Some(bin) = sentinel.binary_path.as_deref() {
             if !std::path::Path::new(bin).exists() {
                 if let Err(e) = sentinel::delete_sentinel(&entry.id) {
-                    eprintln!(
+                    let _ = writeln!(
+                        o.err,
                         "agentlinux: failed to delete sentinel for {}: {e}",
                         entry.id
                     );
                     return ExitCode::from(1);
                 }
-                println!(
+                let _ = writeln!(o.out,
                     "{}: sentinel removed (binary at {bin} was already gone — adopted binary no longer present)",
                     entry.id
                 );
@@ -84,29 +107,29 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
 
     let user = resolve_install_user();
     let recipe = recipe_path(&catalog_dir, &entry.id, &entry.uninstall_recipe_path);
-    println!("▸ removing {}…", entry.id);
+    let _ = writeln!(o.out, "▸ removing {}…", entry.id);
     let env = recipe_child_env(entry, &sentinel.version, &catalog_dir, &user);
     let result = dispatch(&user, &recipe, &env, Capture::Streamed);
     if result.exit_code != 0 {
-        eprintln!(
+        let _ = writeln!(
+            o.err,
             "{}: uninstall.sh failed (exit {})",
             entry.id, result.exit_code
         );
-        if !result.stderr.is_empty() {
-            eprintln!("{}", result.stderr);
-        }
+        crate::cmd::install::echo_stderr_if_any(o, &result.stderr);
         // Propagate the recipe exit code.
         return ExitCode::from(u8::try_from(result.exit_code).unwrap_or(1));
     }
 
     if let Err(e) = sentinel::delete_sentinel(&entry.id) {
-        eprintln!(
+        let _ = writeln!(
+            o.err,
             "agentlinux: failed to delete sentinel for {}: {e}",
             entry.id
         );
         return ExitCode::from(1);
     }
-    println!("{}: removed", entry.id);
+    let _ = writeln!(o.out, "{}: removed", entry.id);
     ExitCode::SUCCESS
 }
 
@@ -197,6 +220,10 @@ mod remove_tests {
                 force: false,
             },
             counting_dispatch,
+            &mut crate::cmd::install::Out {
+                out: &mut Vec::new(),
+                err: &mut Vec::new(),
+            },
         );
         assert_eq!(code, ExitCode::SUCCESS);
         assert_eq!(
@@ -222,6 +249,10 @@ mod remove_tests {
                 force: false,
             },
             counting_dispatch,
+            &mut crate::cmd::install::Out {
+                out: &mut Vec::new(),
+                err: &mut Vec::new(),
+            },
         );
         assert_eq!(code, ExitCode::SUCCESS);
         assert_eq!(
@@ -245,6 +276,10 @@ mod remove_tests {
                 force: false,
             },
             counting_dispatch,
+            &mut crate::cmd::install::Out {
+                out: &mut Vec::new(),
+                err: &mut Vec::new(),
+            },
         );
         assert_eq!(code, ExitCode::SUCCESS);
         assert_eq!(
@@ -280,7 +315,11 @@ mod remove_tests {
                     name: "ghost".into(),
                     force: false
                 },
-                ok_dispatch
+                ok_dispatch,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new()
+                },
             ),
             ExitCode::from(EX_USAGE)
         );
@@ -300,7 +339,11 @@ mod remove_tests {
                     name: "test-dummy".into(),
                     force: false
                 },
-                ok_dispatch
+                ok_dispatch,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new()
+                },
             ),
             ExitCode::from(1)
         );
@@ -320,7 +363,11 @@ mod remove_tests {
                     name: "test-dummy".into(),
                     force: true
                 },
-                ok_dispatch
+                ok_dispatch,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new()
+                },
             ),
             ExitCode::SUCCESS
         );
@@ -347,7 +394,11 @@ mod remove_tests {
                     name: "test-dummy".into(),
                     force: false
                 },
-                ok_dispatch
+                ok_dispatch,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new()
+                },
             ),
             ExitCode::SUCCESS
         );
@@ -376,7 +427,11 @@ mod remove_tests {
                     name: "test-dummy".into(),
                     force: false
                 },
-                fail_dispatch
+                fail_dispatch,
+                &mut crate::cmd::install::Out {
+                    out: &mut Vec::new(),
+                    err: &mut Vec::new()
+                },
             ),
             ExitCode::from(5)
         );

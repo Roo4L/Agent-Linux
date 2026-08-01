@@ -21,7 +21,7 @@
 use crate::catalog::{self, FullCatalogEntry};
 use crate::sentinel::{self, Sentinel};
 use crate::{agent_home, canonical_path, host_paths};
-use agentlinux_core::detect_gates::{remediate_gate, reuse_gate, RemediateReason};
+use agentlinux_core::detect_gates::{remediate_gate, reuse_gate};
 use agentlinux_core::types::CatalogEntry as CoreCatalogEntry;
 use serde::Serialize;
 use std::process::ExitCode;
@@ -72,7 +72,10 @@ fn adopt_one(entry: &FullCatalogEntry) -> AdoptResult {
             .as_ref()
             .and_then(|d| remediate_gate(&core_entry, d, host_paths(canonical, &home)));
         if let Some(rem) = rem {
-            if rem.reason == RemediateReason::PathMismatch {
+            // The same decision `install` makes, through the same tested
+            // helper — a second copy of the comparison is a second place to get
+            // it backwards.
+            if crate::cmd::install::is_migration(rem.reason) {
                 return AdoptResult {
                     id: entry.id.clone(),
                     action: "migrate-available".to_string(),

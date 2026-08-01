@@ -82,13 +82,24 @@ const fn uninstall_left_something_behind(canonical: bool, detected: bool) -> boo
     canonical || detected
 }
 
+/// A path mismatch is a MIGRATION: the binary MOVES, it is not replaced. Every
+/// other remediation reason reinstalls in place.
+///
+/// The distinction reaches the operator in three separate lines — the planned
+/// action, the `--yes` hint, and the past-tense confirmation — so getting it
+/// backwards tells them the opposite of what happened three times over.
+/// `replace == with !=` survived on it.
+pub(crate) const fn is_migration(reason: RemediateReason) -> bool {
+    matches!(reason, RemediateReason::PathMismatch)
+}
+
 /// Echo a recipe's stderr, when it has any.
 ///
 /// One helper rather than three copies of the same `if !…is_empty()`. Each copy
 /// carried its own surviving `delete !`, which drops a failing recipe's stderr —
 /// the only diagnosis of WHY an install or a REMEDIATE-04 teardown failed — and
 /// prints a blank line after every success instead.
-fn echo_stderr_if_any(o: &mut Out<'_>, stderr: &str) {
+pub(crate) fn echo_stderr_if_any(o: &mut Out<'_>, stderr: &str) {
     if !stderr.is_empty() {
         errln!(o, "{stderr}");
     }
@@ -397,7 +408,7 @@ pub fn install_into(
 
     // REMEDIATE-04.
     if let Some(rem) = remediate_hit {
-        let is_migration = rem.reason == RemediateReason::PathMismatch;
+        let is_migration = is_migration(rem.reason);
         let preserve_version = preserve_version_for(
             rem.reason,
             rem.detected_version.as_deref(),
@@ -683,6 +694,20 @@ mod install_tests {
             "so is the detected copy surviving on its own"
         );
         assert!(uninstall_left_something_behind(true, true));
+    }
+
+    /// A path mismatch MOVES a binary; every other reason replaces one in place.
+    /// The word reaches the operator three times — planned action, --yes hint,
+    /// past-tense confirmation — so `replace == with !=` tells them the opposite
+    /// of what happened, three times over.
+    #[test]
+    fn only_a_path_mismatch_is_a_migration() {
+        use agentlinux_core::detect_gates::RemediateReason;
+        assert!(is_migration(RemediateReason::PathMismatch));
+        assert!(
+            !is_migration(RemediateReason::Broken),
+            "a BROKEN install is reinstalled in place, not migrated"
+        );
     }
 
     /// A failing recipe's stderr is the only diagnosis of WHY it failed, and it

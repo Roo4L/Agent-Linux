@@ -891,6 +891,29 @@ mod detect_tests {
         assert_eq!(rec.version, "1.37.1");
         assert_eq!(rec.status, "healthy");
 
+        // The fallback is GSD-ONLY: its binary is a bootstrapper, so an absent
+        // one still counts as present. `replace == with !=` in probe_one
+        // survived, which applies the fallback to every OTHER agent and denies
+        // it to gsd — so any tool with a stray file at that path would report
+        // installed, and gsd itself would report absent.
+        let home = dir.path().parent().unwrap().to_str().unwrap().to_string();
+        std::fs::create_dir_all(format!("{home}/.claude/gsd-core")).unwrap();
+        std::fs::write(format!("{home}/.claude/gsd-core/VERSION"), "1.37.1\n").unwrap();
+        fn never_resolves(_u: &str, _h: &str, _s: &str) -> (i32, String) {
+            (1, String::new())
+        }
+        let gsd = probe_one(never_resolves, &me(), &home, "gsd", "gsd-core");
+        assert_eq!(
+            gsd.status, "healthy",
+            "gsd with no binary but a deployed VERSION is present"
+        );
+        assert_eq!(gsd.version, "1.37.1");
+        let other = probe_one(never_resolves, &me(), &home, "rtk", "rtk");
+        assert_eq!(
+            other.status, "absent",
+            "no other agent gets the VERSION-file fallback"
+        );
+
         // Present and ours, but empty → present-but-broken, not absent.
         std::fs::write(&f, "   \n\t\n").unwrap();
         let rec = gsd_version_file_record(&me(), f.to_str().unwrap())

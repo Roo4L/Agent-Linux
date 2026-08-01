@@ -308,6 +308,13 @@ mod sentinel_tests {
         let dir = base.path().join("installed.d");
         env_scope.set("AGENTLINUX_STATE_DIR", &dir);
 
+        // A RESTRICTIVE umask, deliberately. Under the default 022 a plain
+        // `create_dir_all` already yields 0755, so `replace set_mode with ()`
+        // survived — the assertion was satisfied by the ambient umask rather
+        // than by the code. That is precisely the coin flip the explicit mode
+        // exists to remove: root provisions with whatever umask it inherited,
+        // and the unprivileged install user still has to read the store.
+        let prev = unsafe { nix::libc::umask(0o077) };
         write_sentinel(&Sentinel::new(
             "rtk".into(),
             "0.42.4".into(),
@@ -315,6 +322,7 @@ mod sentinel_tests {
             false,
         ))
         .unwrap();
+        unsafe { nix::libc::umask(prev) };
 
         let dir_mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
         assert_eq!(dir_mode, 0o755, "the store dir must be traversable");
