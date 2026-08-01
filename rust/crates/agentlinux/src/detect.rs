@@ -111,12 +111,20 @@ fn extract_semver(text: &str) -> Option<String> {
 /// prerelease tail, matching `grep -Eo` leftmost-longest at this position.
 fn match_semver_at(bytes: &[u8], start: usize) -> Option<usize> {
     let n = bytes.len();
+    // Counted with `take_while` rather than a hand-rolled `while … { *i += 1 }`.
+    // Both spell the same scan, but the loop form can be made non-terminating by
+    // a single-character change to the advance (`+=` -> `*=` leaves the index
+    // still while the condition stays true). That is not a hypothetical: it is
+    // the shape a mutation testing run produces, and it hangs the whole test
+    // binary rather than failing an assertion — a regression nobody can diagnose
+    // from a CI timeout. With no loop there is no way to not advance.
     let digits = |i: &mut usize| -> bool {
-        let s = *i;
-        while *i < n && bytes[*i].is_ascii_digit() {
-            *i += 1;
-        }
-        *i > s
+        let run = bytes[*i..]
+            .iter()
+            .take_while(|b| b.is_ascii_digit())
+            .count();
+        *i += run;
+        run > 0
     };
     let mut i = start;
     // MAJOR
@@ -141,18 +149,15 @@ fn match_semver_at(bytes: &[u8], start: usize) -> Option<usize> {
     }
     // Optional -prerelease ([a-z0-9.-]+, at least one char after the hyphen).
     if i < n && bytes[i] == b'-' {
-        let mut j = i + 1;
-        let tail_start = j;
-        while j < n
-            && (bytes[j].is_ascii_digit()
-                || bytes[j].is_ascii_lowercase()
-                || bytes[j] == b'.'
-                || bytes[j] == b'-')
-        {
-            j += 1;
-        }
-        if j > tail_start {
-            i = j;
+        // Same counted form as `digits` above, for the same reason.
+        let tail = bytes[i + 1..]
+            .iter()
+            .take_while(|b| {
+                b.is_ascii_digit() || b.is_ascii_lowercase() || **b == b'.' || **b == b'-'
+            })
+            .count();
+        if tail > 0 {
+            i += 1 + tail;
         }
     }
     Some(i)
