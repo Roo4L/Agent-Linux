@@ -40,6 +40,30 @@ pub(crate) fn is_regular_file(path: impl AsRef<std::path::Path>) -> bool {
         .unwrap_or(false)
 }
 
+#[cfg(test)]
+mod cmd_helper_tests {
+    /// `is_regular_file` decides whether a REUSE claim still has a binary behind
+    /// it. `replace is_regular_file -> bool with true` survived, which makes
+    /// every vanished binary look present — so a drifted reuse never gets
+    /// reinstalled.
+    #[test]
+    fn only_a_real_file_is_a_regular_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("claude");
+        std::fs::write(&file, b"#!/bin/sh\n").unwrap();
+
+        assert!(super::is_regular_file(&file), "a real file is one");
+        assert!(
+            !super::is_regular_file(dir.path()),
+            "a directory is not a regular file"
+        );
+        assert!(
+            !super::is_regular_file(dir.path().join("gone")),
+            "an absent path is not a regular file"
+        );
+    }
+}
+
 pub mod adopt;
 pub mod install;
 pub mod list;

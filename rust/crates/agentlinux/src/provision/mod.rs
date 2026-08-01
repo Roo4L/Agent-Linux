@@ -178,8 +178,28 @@ impl Default for Effects {
 }
 
 impl std::fmt::Debug for Effects {
+    /// Hand-written because `Effects` is all function pointers, which have no
+    /// useful Debug. The placeholder still has to APPEAR: `ProvisionCtx` derives
+    /// Debug and carries one, and a step that logs its context is the main way
+    /// an operator sees what a failing provision was working with.
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("Effects { .. }")
+    }
+}
+
+#[cfg(test)]
+mod effects_debug_tests {
+    /// `replace fmt -> std::fmt::Result with Ok(Default::default())` survived,
+    /// which renders the field as nothing at all — so a logged context silently
+    /// loses it.
+    #[test]
+    fn effects_renders_a_placeholder_rather_than_nothing() {
+        let rendered = format!("{:?}", super::Effects::default());
+        assert_eq!(rendered, "Effects { .. }");
+        assert!(
+            !rendered.is_empty(),
+            "an empty Debug makes a logged ProvisionCtx lose the field entirely"
+        );
     }
 }
 

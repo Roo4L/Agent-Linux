@@ -214,6 +214,118 @@ mod sentinel_tests {
     use super::*;
     use tempfile::tempdir;
 
+    /// An EMPTY `AGENTLINUX_STATE_DIR` is not a directory. `replace match guard
+    /// !v.is_empty() with true` survived: with it the sentinel store resolves to
+    /// `PathBuf::from("")` — a relative path in whatever the process's cwd
+    /// happens to be — instead of the real `/opt` store. Every verb then reads
+    /// and writes a different set of sentinels than the one on the host.
+    #[test]
+    fn an_empty_state_dir_seam_falls_back_to_the_real_store() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+
+        env_scope.set("AGENTLINUX_STATE_DIR", "/tmp/fixture-state");
+        assert_eq!(installed_dir(), PathBuf::from("/tmp/fixture-state"));
+
+        env_scope.set("AGENTLINUX_STATE_DIR", "");
+        assert_eq!(
+            installed_dir(),
+            PathBuf::from(DEFAULT_INSTALLED_DIR),
+            "an EMPTY seam must fall back, not resolve to a relative path"
+        );
+
+        env_scope.unset("AGENTLINUX_STATE_DIR");
+        assert_eq!(installed_dir(), PathBuf::from(DEFAULT_INSTALLED_DIR));
+    }
+
+    /// Every sentinel timestamp carries this shape, and `agentlinux upgrade`
+    /// and the reuse audit both read them back. Replacing the function with ""
+    /// or junk survived; either makes every `installed_at` unparseable.
+    #[test]
+    fn a_timestamp_has_the_iso8601_shape_the_sentinels_carry() {
+        let t = now_iso8601();
+        assert_eq!(t.len(), 20, "YYYY-MM-DDTHH:MM:SSZ is 20 bytes, got {t:?}");
+        assert!(t.ends_with('Z'), "must be UTC-suffixed, got {t:?}");
+        assert_eq!(&t[4..5], "-");
+        assert_eq!(&t[10..11], "T");
+        assert_eq!(&t[13..14], ":");
+        // A plausible year rather than 1970 — the epoch read must reach through.
+        let year: u32 = t[0..4].parse().expect("the year must be numeric");
+        assert!((2020..2100).contains(&year), "implausible year in {t:?}");
+    }
+
+    /// ENOENT is "not installed"; every other I/O error is a real failure.
+    /// Three of these guards had `with true` survive — collapsing the two, so a
+    /// permission or type error silently reads as "this agent is not installed"
+    /// and `remove` reports success having deleted nothing.
+    #[test]
+    fn absent_is_distinguished_from_unreadable_on_every_store_path() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempdir().unwrap();
+        env_scope.set("AGENTLINUX_STATE_DIR", dir.path());
+
+        // read: absent → Ok(None); present-but-unreadable → Err.
+        assert!(read_sentinel("nosuch").unwrap().is_none());
+        std::fs::create_dir(dir.path().join("broken.json")).unwrap();
+        assert!(
+            read_sentinel("broken").is_err(),
+            "a directory where a sentinel belongs is a failure, not an absence"
+        );
+
+        // delete: absent → Ok (idempotent); undeletable → Err.
+        assert!(delete_sentinel("nosuch").is_ok(), "delete is idempotent");
+        assert!(
+            delete_sentinel("broken").is_err(),
+            "a sentinel that cannot be removed must not report success"
+        );
+        std::fs::remove_dir(dir.path().join("broken.json")).unwrap();
+
+        // list: missing dir → empty, not an error.
+        let missing = dir.path().join("not-created-yet");
+        env_scope.set("AGENTLINUX_STATE_DIR", &missing);
+        assert_eq!(list_sentinels().unwrap().len(), 0);
+
+        // list: state dir that is a FILE → a real error, not an empty store.
+        let as_file = dir.path().join("state-is-a-file");
+        std::fs::write(&as_file, b"not a dir").unwrap();
+        env_scope.set("AGENTLINUX_STATE_DIR", &as_file);
+        assert!(
+            list_sentinels().is_err(),
+            "an unreadable store must not read as an empty one — that would let \
+             upgrade and list silently report nothing installed"
+        );
+    }
+
+    /// The store's modes are the provisioner's: 0755 on the directory, 0644 on
+    /// each sentinel. `replace set_mode with ()` survived, which leaves both to
+    /// the ambient umask — and the unprivileged install user has to read what
+    /// root wrote.
+    #[test]
+    fn the_store_and_its_sentinels_carry_explicit_modes() {
+        use std::os::unix::fs::PermissionsExt;
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let base = tempdir().unwrap();
+        // A dir the write path must CREATE, so the 0755 is ours and not tempfile's.
+        let dir = base.path().join("installed.d");
+        env_scope.set("AGENTLINUX_STATE_DIR", &dir);
+
+        write_sentinel(&Sentinel::new(
+            "rtk".into(),
+            "0.42.4".into(),
+            "curated".into(),
+            false,
+        ))
+        .unwrap();
+
+        let dir_mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o755, "the store dir must be traversable");
+        let file_mode = std::fs::metadata(dir.join("rtk.json"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(file_mode, 0o644, "the install user must be able to read it");
+    }
+
     #[test]
     fn atomic_round_trip_write_then_read() {
         let mut env_scope = crate::test_support::EnvScope::new();

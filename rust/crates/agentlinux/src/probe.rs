@@ -72,6 +72,30 @@ mod probe_tests {
     use super::*;
     use tempfile::tempdir;
 
+    /// `NPM_CONFIG_PREFIX` overrides where the probe looks, but an EMPTY value
+    /// is not a prefix. `replace match guard !v.is_empty() with true` survived:
+    /// with it the probe reads `lib/node_modules/...` relative to the process's
+    /// cwd instead of the install user's `~/.npm-global`, so every npm agent
+    /// probes as absent.
+    #[test]
+    fn an_empty_npm_prefix_override_falls_back_to_the_agent_home() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_AGENT_HOME", "/home/bob");
+
+        env_scope.set("NPM_CONFIG_PREFIX", "/opt/staged-npm");
+        assert_eq!(npm_prefix(), "/opt/staged-npm");
+
+        env_scope.set("NPM_CONFIG_PREFIX", "");
+        assert_eq!(
+            npm_prefix(),
+            "/home/bob/.npm-global",
+            "an EMPTY override must fall back to the agent home's prefix"
+        );
+
+        env_scope.unset("NPM_CONFIG_PREFIX");
+        assert_eq!(npm_prefix(), "/home/bob/.npm-global");
+    }
+
     fn entry(id: &str, source_kind: &str, npm_package_name: Option<&str>) -> FullCatalogEntry {
         let mut json = serde_json::json!({
             "id": id,

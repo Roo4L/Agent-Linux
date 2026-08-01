@@ -358,12 +358,14 @@ fn ln_sfn(target: &Path, link: &Path) -> io::Result<()> {
     // -n: if `link` is an existing symlink to a directory, do NOT descend into it;
     // removing the link path itself handles that. remove_file removes a symlink
     // (even a dangling one) without touching its target.
-    match fs::symlink_metadata(link) {
-        Ok(_) => {
-            fs::remove_file(link)?;
-        }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        Err(e) => return Err(e),
+    // `is_ok()` rather than a match with a NotFound arm: the two error arms were
+    // observationally identical. A non-NotFound stat error (say ENOTDIR from a
+    // parent that is a file) returned early with that error; swallowing it and
+    // falling through to `symlink` fails with the SAME error kind on the same
+    // input. Nothing could distinguish them — an equivalent mutant, and a branch
+    // carrying no decision. Deleting it is the honest fix.
+    if fs::symlink_metadata(link).is_ok() {
+        fs::remove_file(link)?;
     }
     std::os::unix::fs::symlink(target, link)?;
     Ok(())
