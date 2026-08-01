@@ -501,6 +501,120 @@ mod list_tests {
         assert!(!rtk.reused);
     }
 
+    fn npm_entry(id: &str, pkg: &str, pinned: &str) -> FullCatalogEntry {
+        let mut e = entry(id, false);
+        e.source_kind = Some("npm".to_string());
+        e.npm_package_name = Some(pkg.to_string());
+        e.pinned_version = pinned.to_string();
+        e
+    }
+
+    /// The drift flag says "the binary on disk is not the version we recorded".
+    /// `replace == with != in build_rows` survived on it, which inverts the
+    /// column: every synced agent renders as self-updated and every genuinely
+    /// drifted one renders as clean — and drift is what tells an operator to run
+    /// `agentlinux upgrade`.
+    #[test]
+    fn a_row_is_drifted_only_when_disk_disagrees_with_the_sentinel() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let home = tempfile::tempdir().unwrap();
+        env_scope.set("AGENTLINUX_AGENT_HOME", home.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+
+        // A real global-npm layout so probe_installed_version reads a version
+        // off disk rather than falling back to the sentinel's own record.
+        let pkg_dir = home
+            .path()
+            .join(".npm-global/lib/node_modules/@anthropic-ai/claude-code");
+        std::fs::create_dir_all(&pkg_dir).unwrap();
+        let write_version = |v: &str| {
+            std::fs::write(
+                pkg_dir.join("package.json"),
+                format!(r#"{{"name":"@anthropic-ai/claude-code","version":"{v}"}}"#),
+            )
+            .unwrap();
+        };
+
+        let entries = vec![npm_entry(
+            "claude-code",
+            "@anthropic-ai/claude-code",
+            "1.0.0",
+        )];
+        let sentinels = vec![sentinel_for(
+            "claude-code",
+            "1.0.0",
+            "curated",
+            Some("installed"),
+        )];
+
+        // On disk == recorded → not drifted.
+        write_version("1.0.0");
+        let rows = build_rows(&entries, &sentinels);
+        assert_eq!(rows[0].installed, "1.0.0");
+        assert!(!rows[0].drifted, "matching versions are not drift");
+
+        // On disk ahead of the record → drifted, and the row reports what is
+        // actually installed, not what was recorded.
+        write_version("2.5.0");
+        let rows = build_rows(&entries, &sentinels);
+        assert_eq!(
+            rows[0].installed, "2.5.0",
+            "the row shows the on-disk version"
+        );
+        assert_eq!(rows[0].sentinel_version.as_deref(), Some("1.0.0"));
+        assert!(
+            rows[0].drifted,
+            "a self-updated binary must render as drift so upgrade is offered"
+        );
+    }
+
+    /// The AL-61 presence overlay reconciles a not-installed verdict against the
+    /// detect cache, so a present-but-unadopted agent reads "present" instead of
+    /// "not-installed". `replace == with != in build_rows` survived on the gate
+    /// that enters it: inverted, the overlay is consulted for agents that ARE
+    /// installed and skipped for the ones it exists to describe.
+    #[test]
+    fn the_presence_overlay_fires_only_for_a_not_installed_row() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        let cache = dir.path().join("detect.json");
+        std::fs::write(
+            &cache,
+            r#"{"agents":[{"id":"claude-code","status":"healthy",
+                 "path":"/home/agent/.local/bin/claude","version":"2.1.0"}]}"#,
+        )
+        .unwrap();
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
+        env_scope.set("AGENTLINUX_AGENT_HOME", "/home/agent");
+
+        // No sentinel → NotInstalled → the overlay is allowed to fire.
+        let rows = build_rows(&[entry("claude-code", false)], &[]);
+        assert!(
+            rows[0].present,
+            "a cached, unadopted agent must read as present"
+        );
+        assert_eq!(rows[0].status, "present");
+        assert_eq!(
+            rows[0].present_path.as_deref(),
+            Some("/home/agent/.local/bin/claude")
+        );
+
+        // With a sentinel the row is installed, and the overlay must NOT fire —
+        // an adopted agent is not "detected".
+        let sentinels = vec![sentinel_for(
+            "claude-code",
+            "2.1.0",
+            "curated",
+            Some("installed"),
+        )];
+        let rows = build_rows(&[entry("claude-code", false)], &sentinels);
+        assert!(
+            !rows[0].present,
+            "an already-managed agent must not be re-reported as merely present"
+        );
+        assert_ne!(rows[0].status, "present");
+    }
+
     /// `test_only` fixtures are hidden by default and shown on --include-test.
     /// `delete !` and `replace || with &&` both survived: one offers the test
     /// fixtures to every user, the other hides every REAL agent unless

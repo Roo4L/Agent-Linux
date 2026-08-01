@@ -378,6 +378,38 @@ mod recipe_env_tests {
         );
     }
 
+    /// An EMPTY `AGENTLINUX_USER` must fall THROUGH to the root-owned env file,
+    /// not short-circuit to the default.
+    ///
+    /// `replace match guard !v.is_empty() with true` survived: with it an empty
+    /// var is taken as a real override, so the env file is never read and a host
+    /// provisioned for `bob` dispatches every recipe as `agent`. The earlier
+    /// agent_home test did not catch it because the pure validator rejects the
+    /// empty string too — both paths reach "agent" — so the difference is only
+    /// visible when the FILE would have said something else.
+    #[test]
+    fn an_empty_user_override_still_consults_the_env_file() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        let env_file = dir.path().join("agentlinux.env");
+        std::fs::write(&env_file, "AGENTLINUX_USER=bob\n").unwrap();
+        env_scope.set("AGENTLINUX_ENV_FILE", &env_file);
+
+        env_scope.set("AGENTLINUX_USER", "");
+        assert_eq!(
+            resolve_install_user(),
+            "bob",
+            "an empty override is not an override — the env file still decides"
+        );
+
+        env_scope.unset("AGENTLINUX_USER");
+        assert_eq!(resolve_install_user(), "bob", "unset behaves the same way");
+
+        // A REAL override wins over the file, which is what the seam is for.
+        env_scope.set("AGENTLINUX_USER", "carol");
+        assert_eq!(resolve_install_user(), "carol");
+    }
+
     /// The recipe child env is the 6-var contract every catalog recipe reads.
     /// Five mutants replaced the whole vector — empty, or one fabricated pair —
     /// and nothing noticed. An empty child env means every recipe runs with no
