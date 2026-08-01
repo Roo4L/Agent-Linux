@@ -585,6 +585,32 @@ mod wizard_tests {
         );
     }
 
+    /// EOF arriving MID-DRAIN is terminal too. After an invalid answer the rest
+    /// of the line is discarded, and `delete match arm Ok(0)` survived on that
+    /// drain — the earlier EOF test could not catch it because it exercises the
+    /// FIRST read, a different `Ok(0)` two branches up.
+    ///
+    /// Without the arm the loop re-prompts against a stream that will never
+    /// produce another byte. The verdict is a decline either way, so the witness
+    /// is again the prompt count: one, not two.
+    #[test]
+    fn eof_mid_drain_ends_the_consent_prompt_rather_than_re_prompting() {
+        // "x" with no trailing newline: the answer byte is read, then the drain
+        // immediately hits EOF.
+        let input = std::io::Cursor::new(b"x".to_vec());
+        let mut err = Vec::new();
+        assert!(
+            !confirm_remediate_io("npm-prefix", "chown the prefix", input, &mut err),
+            "a half-typed answer followed by EOF declines"
+        );
+        let text = String::from_utf8(err).unwrap();
+        assert_eq!(
+            text.matches("Proceed with this remediation?").count(),
+            1,
+            "EOF mid-drain must END the loop, not re-prompt a closed stream:\n{text}"
+        );
+    }
+
     /// Y, y and a bare Enter accept; N and n decline. Pinned so the accept set
     /// cannot quietly widen.
     #[test]

@@ -76,6 +76,40 @@ fn validate_reused_binary(sentinel: Option<&Sentinel>) -> bool {
     crate::cmd::is_regular_file(bin)
 }
 
+/// The presence overlay only ever describes a row the sentinel store says is
+/// NOT installed — a host that already has the binary but has not adopted it.
+///
+/// `replace == with !=` survived, which consults the overlay for every row
+/// EXCEPT the ones it exists to describe, so an already-managed agent can be
+/// re-reported as merely "present".
+fn presence_overlay_applies(status: Status) -> bool {
+    status == Status::NotInstalled
+}
+
+/// The reinstall target after the vanished-reuse override.
+///
+/// `should_reinstall` speaks first; the override only fills a gap it left. The
+/// `&&` survived as `||`, which lets the override REPLACE a decision that was
+/// already made — an `--all-latest` run targeting "latest" would be forced back
+/// to "curated" on any agent with a missing reused binary.
+fn final_target(target: Option<&'static str>, reused_binary_gone: bool) -> Option<&'static str> {
+    match target {
+        Some(t) => Some(t),
+        None if reused_binary_gone => Some("curated"),
+        None => None,
+    }
+}
+
+/// Sticky survives a `latest` reinstall and nothing else.
+///
+/// Sticky means "the operator pinned this deliberately". Carrying it through a
+/// CURATED reinstall would re-pin an agent the operator just accepted the
+/// curated version for; dropping it on a latest reinstall silently un-pins one
+/// they did not. `replace == with !=` survived and does exactly that swap.
+fn preserve_sticky(source: &str, prior_sticky: bool) -> bool {
+    source == "latest" && prior_sticky
+}
+
 /// The INSTALLED column: an npm-kind entry's real on-disk version comes from
 /// the `npm ls -g` map; everything else can only report what the sentinel
 /// recorded.
@@ -280,7 +314,7 @@ pub fn upgrade_with(
 
         // Presence overlay (mirrors list): a not-installed entry the host already
         // has reads "present" with its detected version.
-        if report.status == Status::NotInstalled {
+        if presence_overlay_applies(report.status) {
             let detected = crate::cache::read_cached_agent_by_id(&entry.id);
             let hit = detected.as_ref().and_then(|d| {
                 presence_gate(&core_entry, d, host_paths(canonical_path(&entry.id), &home))
@@ -335,11 +369,10 @@ pub fn upgrade_with(
         // A reused sentinel whose binary vanished forces a curated reinstall even
         // when shouldReinstall returned null for a "synced" report.
         let reused_binary_gone = reuse_forces_reinstall(sentinel);
-        let mut target = should_reinstall(&row.status, &row.report.source, row.report.sticky, opts);
-        if reused_binary_gone && target.is_none() {
-            target = Some("curated");
-        }
-        let Some(target) = target else { continue };
+        let target = should_reinstall(&row.status, &row.report.source, row.report.sticky, opts);
+        let Some(target) = final_target(target, reused_binary_gone) else {
+            continue;
+        };
 
         let Some(entry) = entry_by_id.get(id) else {
             continue; // defensive
@@ -379,11 +412,7 @@ pub fn upgrade_with(
         }
 
         // Sticky preservation: keep sticky when source='latest' and prior was sticky.
-        let sticky = if source == "latest" {
-            sentinel.map(|s| s.sticky).unwrap_or(false)
-        } else {
-            false
-        };
+        let sticky = preserve_sticky(source, sentinel.is_some_and(|s| s.sticky));
 
         let mut s = Sentinel::new(id.clone(), version, source.into(), sticky);
         s.installed_at = Some(sentinel::now_iso8601());
@@ -588,6 +617,69 @@ mod upgrade_tests {
             !will_touch_upstream(&opts(true, true, false, false, true)),
             "no upstream flag means no upstream, whatever else is set"
         );
+    }
+
+    /// The presence overlay describes rows the store says are NOT installed.
+    /// `replace == with !=` consults it for every row EXCEPT those, so an
+    /// already-managed agent can be re-reported as merely "present".
+    #[test]
+    fn the_presence_overlay_applies_only_to_a_not_installed_row() {
+        assert!(presence_overlay_applies(Status::NotInstalled));
+        for s in [
+            Status::Synced,
+            Status::DriftUndeclared,
+            Status::OverrideAhead,
+            Status::OverrideBehind,
+            Status::PinnedOverride,
+        ] {
+            assert!(
+                !presence_overlay_applies(s),
+                "{s:?} is installed — the overlay has nothing to add"
+            );
+        }
+    }
+
+    /// The vanished-reuse override FILLS a gap `should_reinstall` left; it does
+    /// not overrule it. `replace && with ||` lets it replace a decision already
+    /// made, so an --all-latest run targeting "latest" is forced back to
+    /// "curated" on any agent whose reused binary is missing.
+    #[test]
+    fn the_reuse_override_fills_a_gap_it_does_not_overrule_one() {
+        assert_eq!(
+            final_target(Some("latest"), true),
+            Some("latest"),
+            "a decision already made must survive the override"
+        );
+        assert_eq!(final_target(Some("curated"), true), Some("curated"));
+        assert_eq!(
+            final_target(None, true),
+            Some("curated"),
+            "no decision + a vanished reused binary forces a curated reinstall"
+        );
+        assert_eq!(
+            final_target(None, false),
+            None,
+            "no decision and nothing forcing one means skip"
+        );
+    }
+
+    /// Sticky means "the operator pinned this deliberately". It survives a
+    /// `latest` reinstall and nothing else: carrying it through a CURATED
+    /// reinstall re-pins an agent the operator just accepted the curated version
+    /// for, and dropping it on a latest reinstall silently un-pins one they did
+    /// not. `replace == with !=` makes exactly that swap.
+    #[test]
+    fn sticky_survives_a_latest_reinstall_and_nothing_else() {
+        assert!(preserve_sticky("latest", true));
+        assert!(
+            !preserve_sticky("latest", false),
+            "a non-sticky agent does not BECOME sticky"
+        );
+        assert!(
+            !preserve_sticky("curated", true),
+            "accepting the curated version clears the pin"
+        );
+        assert!(!preserve_sticky("curated", false));
     }
 
     /// The STATUS column's string. Both constant replacements survived, and a
