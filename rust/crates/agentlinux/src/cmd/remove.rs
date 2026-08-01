@@ -146,6 +146,114 @@ mod remove_tests {
         }
     }
 
+    static REMOVE_DISPATCHES: std::sync::atomic::AtomicUsize =
+        std::sync::atomic::AtomicUsize::new(0);
+    fn counting_dispatch(
+        _u: &str,
+        _p: &str,
+        _e: &[(String, String)],
+        _s: Capture,
+    ) -> DispatchResult {
+        REMOVE_DISPATCHES.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        DispatchResult {
+            exit_code: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+            streamed: false,
+        }
+    }
+
+    /// An ADOPTED agent whose binary has since vanished is removed by deleting
+    /// the sentinel — running `uninstall.sh` against a binary that is not there
+    /// is wasteful and, for a reused binary AgentLinux never installed, wrong.
+    ///
+    /// Three mutants survived on that shortcut: inverting the `== Some("reused")`
+    /// status test and deleting the `!` on the existence check both send a
+    /// managed agent down the adopted path (or vice versa), and the whole
+    /// shortcut is only observable through what gets dispatched.
+    #[test]
+    fn an_adopted_agent_whose_binary_vanished_skips_the_uninstall_recipe() {
+        use std::sync::atomic::Ordering;
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        set_env(&mut env_scope, cat.path(), state.path());
+
+        let reused = |bin: &str| {
+            let mut s = Sentinel::new("test-dummy".into(), "0.0.1".into(), "curated".into(), false);
+            s.status = Some("reused".to_string());
+            s.binary_path = Some(bin.to_string());
+            s
+        };
+
+        // Adopted, binary gone → sentinel deleted, recipe NOT run.
+        sentinel::write_sentinel(&reused("/nonexistent/vanished-binary")).unwrap();
+        REMOVE_DISPATCHES.store(0, Ordering::SeqCst);
+        let code = remove_with(
+            "test-dummy",
+            &RemoveArgs {
+                name: "test-dummy".to_string(),
+                force: false,
+            },
+            counting_dispatch,
+        );
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert_eq!(
+            REMOVE_DISPATCHES.load(Ordering::SeqCst),
+            0,
+            "uninstall.sh must NOT run for a binary that is already gone"
+        );
+        assert!(
+            sentinel::read_sentinel("test-dummy").unwrap().is_none(),
+            "the sentinel must still be removed"
+        );
+
+        // Adopted, binary PRESENT → the recipe runs, because there is something
+        // to uninstall.
+        let bin = state.path().join("still-here");
+        std::fs::write(&bin, b"#!/bin/sh\n").unwrap();
+        sentinel::write_sentinel(&reused(bin.to_str().unwrap())).unwrap();
+        REMOVE_DISPATCHES.store(0, Ordering::SeqCst);
+        let code = remove_with(
+            "test-dummy",
+            &RemoveArgs {
+                name: "test-dummy".to_string(),
+                force: false,
+            },
+            counting_dispatch,
+        );
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert_eq!(
+            REMOVE_DISPATCHES.load(Ordering::SeqCst),
+            1,
+            "a present adopted binary must still go through uninstall.sh"
+        );
+
+        // A MANAGED sentinel (not reused) always runs the recipe, even if the
+        // recorded binary is gone — the shortcut is for adopted binaries only.
+        let mut managed =
+            Sentinel::new("test-dummy".into(), "0.0.1".into(), "curated".into(), false);
+        managed.status = Some("installed".to_string());
+        managed.binary_path = Some("/nonexistent/vanished-binary".to_string());
+        sentinel::write_sentinel(&managed).unwrap();
+        REMOVE_DISPATCHES.store(0, Ordering::SeqCst);
+        let code = remove_with(
+            "test-dummy",
+            &RemoveArgs {
+                name: "test-dummy".to_string(),
+                force: false,
+            },
+            counting_dispatch,
+        );
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert_eq!(
+            REMOVE_DISPATCHES.load(Ordering::SeqCst),
+            1,
+            "a managed agent is not an adopted one — the recipe still runs"
+        );
+    }
+
     /// Point the catalog/state reads at fixtures for the lifetime of
     /// `env_scope` — which restores them on drop, so a failing assertion cannot
     /// leak a fixture path into whatever test runs next.

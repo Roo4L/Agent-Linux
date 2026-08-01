@@ -98,7 +98,31 @@ pub fn pin(spec: &str) -> ExitCode {
 
 /// The not-installed branch: route the present-hint sentences to
 /// STDERR via the pure `presence_gate`, then exit 1.
+/// Not mutation-tested: binds the real stderr. The three-way verdict is
+/// [`pin_not_installed_to`] (ADR-019 §5).
+#[cfg_attr(test, mutants::skip)]
 fn pin_not_installed(entry: &FullCatalogEntry) -> ExitCode {
+    let (mut out, mut err) = (std::io::stdout(), std::io::stderr());
+    pin_not_installed_to(
+        entry,
+        &mut crate::cmd::install::Out {
+            out: &mut out,
+            err: &mut err,
+        },
+    )
+}
+
+/// [`pin_not_installed`] over an injected sink.
+///
+/// The three presence verdicts differ ONLY in the remedy they name — adopt,
+/// install-to-reconcile, or install-to-migrate — and all three went to a bare
+/// `eprintln!`, so both `adoptable` and `canonical` match guards could be forced
+/// either way with nothing noticing. Telling an operator to run the wrong verb
+/// is the whole failure here.
+fn pin_not_installed_to(
+    entry: &FullCatalogEntry,
+    o: &mut crate::cmd::install::Out<'_>,
+) -> ExitCode {
     let core_entry = CoreCatalogEntry::from(entry);
     let home = agent_home();
     let present = crate::cache::read_cached_agent_by_id(&entry.id).and_then(|detected| {
@@ -110,25 +134,29 @@ fn pin_not_installed(entry: &FullCatalogEntry) -> ExitCode {
     });
     match present {
         Some(hit) if hit.adoptable => {
-            eprintln!(
+            let _ = writeln!(
+                o.err,
                 "agentlinux: {} is present but not managed — run 'agentlinux adopt {}' first, then pin",
                 entry.id, entry.id
             );
         }
         Some(hit) if hit.canonical => {
-            eprintln!(
+            let _ = writeln!(
+                o.err,
                 "agentlinux: {} is present but out of the compatibility window — run 'agentlinux install {}' to bring it under management, then pin",
                 entry.id, entry.id
             );
         }
         Some(hit) => {
-            eprintln!(
+            let _ = writeln!(
+                o.err,
                 "agentlinux: {} is present at {} (not the managed path) — run 'agentlinux install {}' to migrate it under management, then pin",
                 entry.id, hit.path, entry.id
             );
         }
         None => {
-            eprintln!(
+            let _ = writeln!(
+                o.err,
                 "agentlinux: {} is not installed — run 'agentlinux install {}' first",
                 entry.id, entry.id
             );
@@ -142,6 +170,89 @@ mod pin_tests {
     use super::*;
     use crate::sentinel::Sentinel;
     use tempfile::tempdir;
+
+    /// The three presence verdicts name three DIFFERENT remedies, and telling an
+    /// operator to run the wrong verb is the whole failure. Both match guards
+    /// could be forced either way with nothing noticing, because all three lines
+    /// went to a bare `eprintln!`.
+    #[test]
+    fn each_presence_verdict_names_its_own_remedy() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempdir().unwrap();
+        let cache = dir.path().join("detect.json");
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &cache);
+        env_scope.set("AGENTLINUX_AGENT_HOME", "/home/agent");
+
+        let entry: FullCatalogEntry = serde_json::from_value(serde_json::json!({
+            "id": "claude-code", "display_name": "C", "description": "d",
+            "source_kind": "script", "pinned_version": "2.1.98",
+            "install_recipe_path": "install.sh", "uninstall_recipe_path": "uninstall.sh",
+            // A declared window is what makes a canonical presence ADOPTABLE —
+            // without it the gate can only offer the reconcile path.
+            "compatibility_window": ">=2.0.0 <3.0.0",
+        }))
+        .unwrap();
+
+        let verdict = |path: &str, version: &str| {
+            std::fs::write(
+                &cache,
+                format!(
+                    r#"{{"agents":[{{"id":"claude-code","status":"healthy",
+                       "path":"{path}","version":"{version}"}}]}}"#
+                ),
+            )
+            .unwrap();
+            let (mut o, mut e) = (Vec::new(), Vec::new());
+            let code = pin_not_installed_to(
+                &entry,
+                &mut crate::cmd::install::Out {
+                    out: &mut o,
+                    err: &mut e,
+                },
+            );
+            assert_eq!(code, ExitCode::from(1), "pin on an unmanaged agent fails");
+            String::from_utf8(e).unwrap()
+        };
+
+        // At the canonical path and inside the window → adoptable → adopt.
+        let msg = verdict("/home/agent/.local/bin/claude", "2.1.98");
+        assert!(
+            msg.contains("adopt claude-code"),
+            "an adoptable agent must be told to adopt, got {msg:?}"
+        );
+        assert!(!msg.contains("migrate"), "and not to migrate: {msg:?}");
+
+        // Canonical but OUT of the compatibility window → install to reconcile.
+        let msg = verdict("/home/agent/.local/bin/claude", "0.0.1");
+        assert!(
+            msg.contains("out of the compatibility window") && msg.contains("install claude-code"),
+            "an out-of-window agent must be told to install, got {msg:?}"
+        );
+        assert!(!msg.contains("adopt claude-code"), "not adopt: {msg:?}");
+
+        // Present somewhere else → install to MIGRATE, and the message names
+        // where it actually is.
+        let msg = verdict("/usr/local/bin/claude", "2.1.98");
+        assert!(
+            msg.contains("not the managed path")
+                && msg.contains("/usr/local/bin/claude")
+                && msg.contains("migrate"),
+            "a foreign-path agent must be told to migrate, and where from: {msg:?}"
+        );
+
+        // Nothing cached at all → the plain not-installed message.
+        std::fs::write(&cache, r#"{"agents":[]}"#).unwrap();
+        let (mut o, mut e) = (Vec::new(), Vec::new());
+        pin_not_installed_to(
+            &entry,
+            &mut crate::cmd::install::Out {
+                out: &mut o,
+                err: &mut e,
+            },
+        );
+        let msg = String::from_utf8(e).unwrap();
+        assert!(msg.contains("is not installed"), "got {msg:?}");
+    }
 
     fn write_catalog(dir: &std::path::Path) {
         std::fs::write(
