@@ -93,12 +93,16 @@ jobs:
   rust:
     needs: changes
     runs-on: ubuntu-24.04
-    # 120, not 15: `--in-diff` is scoped to the lines a PR changes, and the
-    # v0.4.0 cutover PR changes the entire Rust tree — ~977 mutants where an
-    # ordinary PR yields a few dozen. The cap is sized for that one merge; every
-    # PR after it lands is back to minutes, and the gate's own bound below is
-    # what actually stops a runaway.
-    timeout-minutes: 120
+    # 300, not 15: `--in-diff` is scoped to the lines a PR changes, and until the
+    # v0.4.0 cutover lands on master EVERY branch diff is the entire Rust tree —
+    # 1181 mutants where an ordinary PR yields a few dozen. 120 was sized from an
+    # estimate of ~977 and proved too small: the gate hit its own 6600s bound and
+    # reported "a timed-out run is not a pass", so the cutover branch could not be
+    # scored at all. Measured, a shard of ~296 takes ~25-45 min, which puts the
+    # serial whole-tree run near three hours. The cap is for that one merge; every
+    # PR after it is back to minutes, and the gate's own bound below is what
+    # actually stops a runaway.
+    timeout-minutes: 300
     permissions:
       contents: read
     steps:
@@ -224,11 +228,11 @@ jobs:
           git -c core.quotePath=false diff --relative origin/master...HEAD -- . \
             > "$RUNNER_TEMP/rust.diff"
           echo "diff: $(wc -l < "$RUNNER_TEMP/rust.diff") lines"
-          # Below this job's timeout-minutes (120). The gate SIGTERMs cargo-mutants
+          # Below this job's timeout-minutes (300). The gate SIGTERMs cargo-mutants
           # so an --in-place run restores its mutated source; the job cap would
           # SIGKILL it and leave the tree rewritten. The inner bound must fire
           # first for that to mean anything.
-          MUTATION_GATE_TIMEOUT=6600 ../scripts/mutation-gate.sh enforce \
+          MUTATION_GATE_TIMEOUT=17400 ../scripts/mutation-gate.sh enforce \
             --in-place --minimum-test-timeout 20 --in-diff "$RUNNER_TEMP/rust.diff"
       - name: static musl build + ldd assertion (RUST-01)
         if: steps.guard.outputs.ready == 'true'
