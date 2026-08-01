@@ -227,6 +227,24 @@ requires_real_cargo_mutants() {
   fi
 }
 
+# A broken tool contract must say WHICH clause broke. `[ "$status" -eq 0 ]` on
+# its own reports a line number and nothing else, which is unactionable from a
+# CI log — and this check exists precisely for the failure that reproduces in CI
+# and not on the developer's machine, where the assertion text is the only
+# evidence there is. Carries the mutation run's own output too, since a contract
+# break is usually explained by what the tool printed on its way there.
+report_contract_break() {
+  local check_status="$1" check_output="$2" run_log="$3"
+  # An `&& return 0` short-circuit would trip `set -e` on the failing branch and
+  # abort before a single diagnostic printed — the exact defect being fixed.
+  if [ "$check_status" -eq 0 ]; then
+    return 0
+  fi
+  printf 'contract check failed:\n%s\n' "$check_output"
+  printf -- '--- cargo mutants run output ---\n%s\n' "$run_log"
+  return 1
+}
+
 @test "MUT-01: a clean run passes in both modes" {
   stub_cargo_outcomes 40 0 40 0 0
   run "$GATE" enforce
@@ -464,6 +482,7 @@ RS
   # false red on the check whose job is to report a real contract break.
   cargo mutants --no-config --list >listed.txt
   run cargo mutants --output . --minimum-test-timeout 20
+  local run_log="$output"
   # Whatever the verdict, the results file must carry the shape the gate reads.
   [ -f mutants.out/outcomes.json ]
   [ -f mutants.out/mutants.json ]
@@ -486,7 +505,7 @@ assert names == listed, (
     'symmetric difference: %r' % sorted(names ^ listed)[:5])
 print('contract OK')
 "
-  [ "$status" -eq 0 ]
+  report_contract_break "$status" "$output" "$run_log"
   [[ "$output" == *"contract OK"* ]]
 
   # The BASELINE marker, which is the only thing standing between the gate and a
@@ -500,7 +519,8 @@ assert len(runs) == 1, 'a normal run must record exactly one Baseline scenario'
 assert runs[0]['summary'] == 'Success', runs[0]['summary']
 print('baseline OK')
 "
-  [ "$status" -eq 0 ]
+  report_contract_break "$status" "$output" "$run_log"
+  [[ "$output" == *"baseline OK"* ]]
 
   # …and that --baseline skip really omits it, so the gate's discriminator is
   # the tool's behaviour rather than an assumption about it.
