@@ -165,9 +165,7 @@ impl PkgCmd {
             io::Error::new(io::ErrorKind::InvalidInput, "pkg command has an empty argv")
         })?;
         let mut cmd = Command::new(program);
-        cmd.args(args)
-            .stdin(Stdio::null())
-            .stderr(Stdio::piped());
+        cmd.args(args).stdin(Stdio::null()).stderr(Stdio::piped());
         for (k, v) in &self.env {
             cmd.env(k, v);
         }
@@ -207,7 +205,6 @@ impl PkgCmd {
             stderr,
         })
     }
-
 }
 
 /// Read a child's stderr to EOF, forwarding every byte to our own stderr and
@@ -667,7 +664,13 @@ mod pkg_tests {
     fn autoremove_cmd_per_family() {
         assert_eq!(
             autoremove_cmd(Family::Debian).argv,
-            vec!["apt-get", "-o", "DPkg::Lock::Timeout=300", "autoremove", "-y"]
+            vec![
+                "apt-get",
+                "-o",
+                "DPkg::Lock::Timeout=300",
+                "autoremove",
+                "-y"
+            ]
         );
         assert_eq!(
             autoremove_cmd(Family::Rhel).argv,
@@ -755,7 +758,14 @@ mod pkg_tests {
     // read as "pkg verb failed" with the explanation discarded.
     #[test]
     fn failure_reason_quotes_the_childs_stderr() {
-        let cmd = PkgCmd::new(&[], &["bash", "-c", "echo 'E: mirror is unreachable' >&2; exit 100"]);
+        let cmd = PkgCmd::new(
+            &[],
+            &[
+                "bash",
+                "-c",
+                "echo 'E: mirror is unreachable' >&2; exit 100",
+            ],
+        );
         let outcome = cmd.run().unwrap();
         assert!(!outcome.success());
         assert_eq!(outcome.exit_code, 100);

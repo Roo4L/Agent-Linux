@@ -168,7 +168,18 @@ pub fn effective_npm_prefix(home: &str) -> String {
         Ok(content) => content
             .lines()
             .filter_map(|l| l.split_once('='))
-            .find(|(k, _)| k.trim() == "prefix")
+            // LAST match, not first — npm's ini parser is last-wins, and our own
+            // writer APPENDS. A brownfield host with a foreign `prefix=` selects
+            // the rebase arm, and after a successful rebase the file holds both
+            // records with the old one first. Reading the first match meant the
+            // very next `provision` re-read the OLD prefix, judged it off-home,
+            // and either re-ran the whole module migration (with `--yes`, which is
+            // what the shipped installer passes) or bailed exit 65 with
+            // `reason=wrong-owner` — forever, on a host the previous run had
+            // already fixed. A gate whose probe cannot observe what the action
+            // wrote is the one failure ADR-019 says is still a finding.
+            .filter(|(k, _)| k.trim() == "prefix")
+            .next_back()
             .map(|(_, v)| v.trim().to_string())
             .filter(|v| !v.is_empty())
             .unwrap_or(default),
@@ -202,6 +213,50 @@ pub fn npm_prefix_state(user: &str, home: &str) -> NpmPrefixState {
 #[cfg(test)]
 mod probe_tests {
     use super::*;
+
+    /// REGRESSION (convergence): after a successful rebase the `.npmrc` holds BOTH
+    /// the old foreign prefix and the new one, old first, because the writer
+    /// appends. Reading the FIRST match meant the next `provision` re-read the old
+    /// prefix, judged it off-home, and either re-ran the entire module migration
+    /// (with `--yes`, which is what the shipped curl installer passes) or bailed
+    /// exit 65 with `reason=wrong-owner` — forever, on a host the previous run had
+    /// already fixed, with a diagnosis that was factually false.
+    ///
+    /// Last-wins also matches npm's own ini semantics, so the probe and the tool it
+    /// models now agree.
+    #[test]
+    fn effective_npm_prefix_reads_the_last_record_so_a_rebase_converges() {
+        let d = tempfile::TempDir::new().unwrap();
+        let home = d.path().to_string_lossy().into_owned();
+        let expected = format!("{home}/.npm-global");
+        // Exactly the shape apply_rebase leaves behind: old record first.
+        std::fs::write(
+            d.path().join(".npmrc"),
+            format!("prefix=/usr/local/lib/node_modules\nprefix={expected}\n"),
+        )
+        .unwrap();
+
+        assert_eq!(
+            effective_npm_prefix(&home),
+            expected,
+            "read the stale first record — the rebase never converges and every \
+             re-run repeats it or bails"
+        );
+    }
+
+    /// The ordinary single-record case still works, and a file with no `prefix=` at
+    /// all still falls back to the canonical location.
+    #[test]
+    fn effective_npm_prefix_handles_single_and_absent_records() {
+        let d = tempfile::TempDir::new().unwrap();
+        let home = d.path().to_string_lossy().into_owned();
+
+        std::fs::write(d.path().join(".npmrc"), b"prefix=/opt/custom\n").unwrap();
+        assert_eq!(effective_npm_prefix(&home), "/opt/custom");
+
+        std::fs::write(d.path().join(".npmrc"), b"//registry/:_authToken=x\n").unwrap();
+        assert_eq!(effective_npm_prefix(&home), format!("{home}/.npm-global"));
+    }
 
     #[test]
     fn probe_agent_absent_when_no_cache() {

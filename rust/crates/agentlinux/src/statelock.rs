@@ -58,7 +58,6 @@ use std::io;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 
-
 /// The lock file — FHS lock directory, world-writable, and outside the tree
 /// `--purge` removes. See the module docs for why each of those three matters.
 const DEFAULT_LOCK_PATH: &str = "/run/lock/agentlinux.lock";
@@ -302,7 +301,10 @@ mod statelock_tests {
                 "msg={msg}"
             );
             assert!(msg.contains("upgrade"), "must name the refused verb: {msg}");
-            assert!(msg.contains("try again later"), "must name the retry contract: {msg}");
+            assert!(
+                msg.contains("try again later"),
+                "must name the retry contract: {msg}"
+            );
             assert!(msg.contains("75"), "must name the exit code: {msg}");
             assert!(
                 msg.contains(&path.display().to_string()),
@@ -310,7 +312,6 @@ mod statelock_tests {
             );
         });
     }
-
 
     // An unprivileged verb must be able to lock a file `provision` created as
     // root. `flock` locks the open file description regardless of access mode, so

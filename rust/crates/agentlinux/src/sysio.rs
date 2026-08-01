@@ -12,8 +12,12 @@
 //!   The tmpfile is unlinked on EVERY error path (an RAII guard mirroring the
 //!   Bash `trap "rm -f" RETURN`). Mode is set on the tmpfile BEFORE the rename so
 //!   the destination is never briefly world-readable.
-//! - **`ensure_line_in_file`** — `grep -Fxq` semantics: literal, whole-line,
-//!   append `line\n` only when no exact whole-line match already exists.
+//! - **`ensure_line_in_owned_file`** — `grep -Fxq` semantics: literal, whole-line,
+//!   append `line\n` only when no exact whole-line match already exists. Create,
+//!   read, append, chmod and chown all happen through ONE descriptor, because
+//!   every caller writes into a directory the install user owns while running as
+//!   root — re-resolving the path between steps is a TOCTOU. Refuses symlinks,
+//!   hardlinks, and anything that is not a regular file.
 //! - **`ensure_marker_block`** — the awk-strip + emit-order algorithm is
 //!   BYTE-load-bearing: `--top` emits `begin\n{body}\n{end}\n` THEN the filtered
 //!   remainder; `--bottom` emits the filtered remainder THEN the block. A line
@@ -155,8 +159,24 @@ pub fn write_file_atomic(mode: u32, dest: &Path, body: &[u8]) -> io::Result<()> 
 /// declined a durability hint. Failures are silent because the caller has already
 /// succeeded at the part that matters — this only narrows a crash window.
 pub(crate) fn sync_parent_dir(dest: &Path) {
-    let dir = dest.parent().unwrap_or_else(|| Path::new("."));
-    if let Ok(handle) = fs::File::open(dir) {
+    use std::os::unix::fs::OpenOptionsExt;
+    // `Path::new("f").parent()` is Some("") — not None — so the `"."` fallback only
+    // fires for a path with no parent component at all. Map the empty case too, or
+    // the open fails ENOENT and the sync silently does nothing.
+    let dir = match dest.parent() {
+        Some(p) if !p.as_os_str().is_empty() => p,
+        _ => Path::new("."),
+    };
+    // O_DIRECTORY|O_NONBLOCK: this crate's contract (ADR-020) is that every wait is
+    // bounded, and a plain `File::open` on a FIFO blocks in open(2) until a writer
+    // appears. The rename that just succeeded proves the parent was a directory, so
+    // this is defence in depth rather than a live path — but "unreachable today"
+    // is not a reason to leave an unbounded open in the write path.
+    if let Ok(handle) = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags((nix::fcntl::OFlag::O_DIRECTORY | nix::fcntl::OFlag::O_NONBLOCK).bits())
+        .open(dir)
+    {
         let _ = handle.sync_all();
     }
 }
@@ -175,64 +195,143 @@ fn context(e: &io::Error, doing: &str, dest: &Path, via: Option<&Path>) -> io::E
     io::Error::new(e.kind(), format!("failed to {doing} {where_}: {e}"))
 }
 
-/// `ensure_line_in_file <line> <file>` — append `line\n` iff no exact
-/// whole-line match already exists (`grep -Fxq` semantics: literal, whole-line).
+/// `ensure_line_in_file` + create-if-absent + chmod + chown, done through ONE file
+/// descriptor.
 ///
-/// An ABSENT file is treated as "no match" (so the first call creates it). A file
-/// that exists but cannot be read is an ERROR, not a miss — see below.
+/// Every caller of this used to be a four-call sequence — `create_if_absent_0644`,
+/// `ensure_line_in_file`, `set_permissions`, `chown_by_name` — each re-resolving
+/// the PATH. That is a root-side TOCTOU against a directory the install user owns:
+/// hardening only the first call left the other three following a symlink the
+/// agent could swap in afterwards, and one call site guarded the hardened helper
+/// behind `if !path.exists()` (which follows), so a NON-dangling symlink skipped it
+/// entirely. Root then appended to, chmod'd and chowned whatever the link pointed
+/// at. Holding one fd across the whole operation removes the re-resolution: after
+/// the open, every syscall addresses the inode, not the name.
 ///
-/// The existing trailing bytes are preserved — a blind append after content with
-/// no trailing newline would glue the new line onto the last one, but the Bash
-/// `printf '%s\n' >>file` also appends unconditionally once the grep misses, so
-/// we match it exactly (append `line\n`).
+/// Refusals, all before any write:
+/// - a symlink at `path` (`O_NOFOLLOW` → ELOOP);
+/// - anything not a regular file — a FIFO here would otherwise block the
+///   provisioner forever in the read, unbounded, as root;
+/// - `nlink > 1`. A hardlink is a regular file and passes every other check, so
+///   `ln /etc/shadow ~/.npmrc` would have us append to and chown the real inode.
+///   The kernel's `fs.protected_hardlinks` normally prevents creating that link,
+///   but it is a sysctl an operator can turn off and nothing here should depend on
+///   it silently.
 ///
-/// # Why the read is byte-oriented
-/// Matching on BYTES rather than `read_to_string` is what makes the
-/// grep-before-mutate contract hold. `read_to_string` fails on any non-UTF-8
-/// byte, and the previous `if let Ok(existing)` swallowed that failure into "no
-/// match" — so a `~/.npmrc` carrying one Latin-1 byte in a proxy password got
-/// another `prefix=…` line appended on EVERY converge run. `grep -Fx`, the
-/// semantics this reproduces, compares bytes and does not care about encoding.
-pub fn ensure_line_in_file(line: &str, file: &Path) -> io::Result<()> {
-    match fs::read(file) {
-        Ok(existing) => {
-            // `-x` = whole-line: split on b'\n' and compare each segment
-            // literally. `str::lines()` also strips a trailing '\r'; grep -Fx
-            // does not, so compare against the raw '\n'-split segments instead.
-            if existing
-                .split(|b| *b == b'\n')
-                .any(|seg| seg == line.as_bytes())
-            {
-                return Ok(());
-            }
+/// `mode_if_created` is applied ONLY when this call creates the file. An existing
+/// file keeps its mode: `~/.npmrc` holds npm auth tokens, and re-asserting 0644 on
+/// every converge run silently widened an operator's deliberate 0600 back to
+/// world-readable.
+pub fn ensure_line_in_owned_file(
+    line: &str,
+    path: &Path,
+    owner: &str,
+    mode_if_created: u32,
+) -> io::Result<()> {
+    use std::io::{Read, Seek, SeekFrom};
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let nofollow = nix::fcntl::OFlag::O_NOFOLLOW.bits();
+    let (mut file, created) = match fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .custom_flags(nofollow)
+        .open(path)
+    {
+        Ok(f) => (f, true),
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            let f = fs::OpenOptions::new()
+                .read(true)
+                .write(true)
+                .custom_flags(nofollow)
+                .open(path)
+                .map_err(|e| {
+                    // ELOOP is O_NOFOLLOW refusing a symlink — the security case,
+                    // worth naming rather than surfacing as "too many levels".
+                    if e.raw_os_error() == Some(nix::errno::Errno::ELOOP as i32) {
+                        io::Error::new(
+                            io::ErrorKind::InvalidInput,
+                            format!(
+                                "refusing to write {} as root: it is a symlink",
+                                path.display()
+                            ),
+                        )
+                    } else {
+                        context(&e, "open", path, None)
+                    }
+                })?;
+            (f, false)
         }
-        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-        // Anything else (EACCES, EIO, a directory in the way) means we could not
-        // check. Appending blind would duplicate the line on every run; refusing
-        // makes the operator fix the real problem.
-        Err(e) => {
-            return Err(io::Error::new(
-                e.kind(),
-                format!(
-                    "ensure_line_in_file: cannot read {} to check for an existing \
-                     line (refusing to append blind): {e}",
-                    file.display()
-                ),
-            ))
-        }
+        Err(e) => return Err(context(&e, "create", path, None)),
+    };
+
+    let md = file
+        .metadata()
+        .map_err(|e| context(&e, "stat the open handle for", path, None))?;
+    if !md.is_file() || md.nlink() > 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "refusing to write {} as root: it is {}",
+                path.display(),
+                if md.nlink() > 1 {
+                    "a hardlink to another file"
+                } else {
+                    "not a regular file"
+                }
+            ),
+        ));
     }
-    let mut f = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(file)?;
-    // ONE write: `write_all(line)` followed by `write_all(b"\n")` is not an
-    // atomic append, and an ENOSPC between them leaves a newline-less partial
-    // line that the next whole-line match can never see — so the run after that
-    // appends a duplicate.
-    let mut record = Vec::with_capacity(line.len() + 1);
-    record.extend_from_slice(line.as_bytes());
-    record.push(b'\n');
-    f.write_all(&record)?;
+
+    let mut existing = Vec::new();
+    file.read_to_end(&mut existing)
+        .map_err(|e| context(&e, "read", path, None))?;
+    // `grep -Fxq` semantics on BYTES: literal, whole-line, encoding-agnostic. See
+    // `ensure_line_in_file` for why this must not go through `read_to_string`.
+    let present = existing
+        .split(|b| *b == b'\n')
+        .any(|seg| seg == line.as_bytes());
+
+    if !present {
+        // Append at the true end, and in ONE write: a split write that fails
+        // between the bytes and the newline leaves a line the next whole-line
+        // match can never see, so the run after it appends a duplicate.
+        file.seek(SeekFrom::End(0))
+            .map_err(|e| context(&e, "seek to append to", path, None))?;
+        let mut record = Vec::with_capacity(line.len() + 2);
+        // A file whose last line lacks a trailing newline would otherwise get our
+        // record glued onto it, producing one corrupt line instead of two good ones.
+        if !existing.is_empty() && !existing.ends_with(b"\n") {
+            record.push(b'\n');
+        }
+        record.extend_from_slice(line.as_bytes());
+        record.push(b'\n');
+        file.write_all(&record)
+            .map_err(|e| context(&e, "append to", path, None))?;
+    }
+
+    if created {
+        nix::sys::stat::fchmod(
+            &file,
+            nix::sys::stat::Mode::from_bits_truncate(mode_if_created),
+        )
+        .map_err(|e| context(&io::Error::from(e), "chmod", path, None))?;
+    }
+    let (uid, gid) = resolve_owner(owner)?;
+    nix::unistd::fchown(
+        &file,
+        Some(nix::unistd::Uid::from_raw(uid)),
+        Some(nix::unistd::Gid::from_raw(gid)),
+    )
+    .map_err(|e| {
+        context(
+            &io::Error::from(e),
+            &format!("chown to {owner}"),
+            path,
+            None,
+        )
+    })?;
     Ok(())
 }
 
@@ -509,6 +608,45 @@ pub fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
         .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
 }
 
+/// `chown_by_name` that refuses to traverse a symlink at the final component.
+///
+/// Use this whenever root chowns a path inside a directory the install user owns.
+/// The plain path-based chown follows links, so an agent that swaps a symlink in
+/// after we wrote the file gets the link's TARGET handed to it. Opening
+/// `O_NOFOLLOW|O_PATH` first pins the inode; `fchownat` on that handle cannot be
+/// redirected afterwards.
+pub fn chown_by_name_nofollow(path: &Path, owner: &str) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let handle = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits())
+        .open(path)
+        .map_err(|e| {
+            if e.raw_os_error() == Some(nix::errno::Errno::ELOOP as i32) {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("refusing to chown {}: it is a symlink", path.display()),
+                )
+            } else {
+                context(&e, "open for chown", path, None)
+            }
+        })?;
+    let (uid, gid) = resolve_owner(owner)?;
+    nix::unistd::fchown(
+        &handle,
+        Some(nix::unistd::Uid::from_raw(uid)),
+        Some(nix::unistd::Gid::from_raw(gid)),
+    )
+    .map_err(|e| {
+        context(
+            &io::Error::from(e),
+            &format!("chown to {owner}"),
+            path,
+            None,
+        )
+    })
+}
+
 /// Create `path` empty at 0644 owned by `owner` if it does not exist; leave a
 /// present file completely untouched (the caller's `ensure_line_in_file` mutates
 /// it). Mirrors `install -m 0644 -o <u> -g <g> /dev/null <path>`.
@@ -570,7 +708,14 @@ pub fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
         Some(nix::unistd::Uid::from_raw(uid)),
         Some(nix::unistd::Gid::from_raw(gid)),
     )
-    .map_err(|e| context(&io::Error::from(e), &format!("chown to {owner}"), path, None))?;
+    .map_err(|e| {
+        context(
+            &io::Error::from(e),
+            &format!("chown to {owner}"),
+            path,
+            None,
+        )
+    })?;
     Ok(())
 }
 
@@ -618,6 +763,23 @@ mod sysio_tests {
 
     fn mode_of(p: &Path) -> u32 {
         fs::metadata(p).unwrap().permissions().mode() & 0o7777
+    }
+
+    /// `user:group` for the account running the tests. `fchown` to your own
+    /// uid/gid succeeds unprivileged, so the ownership half of
+    /// `ensure_line_in_owned_file` is exercised rather than skipped.
+    fn self_owner() -> String {
+        let u = nix::unistd::User::from_uid(nix::unistd::getuid())
+            .ok()
+            .flatten()
+            .map(|u| u.name)
+            .unwrap_or_else(|| "root".to_string());
+        let g = nix::unistd::Group::from_gid(nix::unistd::getgid())
+            .ok()
+            .flatten()
+            .map(|g| g.name)
+            .unwrap_or_else(|| u.clone());
+        format!("{u}:{g}")
     }
 
     // --- create_if_absent_0644 symlink safety ---
@@ -726,20 +888,20 @@ mod sysio_tests {
         assert_eq!(count, 1, "only the destination should remain");
     }
 
-    // --- ensure_line_in_file ---
+    // --- ensure_line_in_owned_file ---
 
     #[test]
     fn ensure_line_appends_once_then_noops() {
         let d = TempDir::new().unwrap();
         let f = d.path().join("bashrc");
         fs::write(&f, b"# existing\n").unwrap();
-        ensure_line_in_file("export FOO=bar", &f).unwrap();
+        ensure_line_in_owned_file("export FOO=bar", &f, &self_owner(), 0o644).unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "# existing\nexport FOO=bar\n"
         );
         // Second call is a no-op (grep-before-append; a blind append would dup).
-        ensure_line_in_file("export FOO=bar", &f).unwrap();
+        ensure_line_in_owned_file("export FOO=bar", &f, &self_owner(), 0o644).unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "# existing\nexport FOO=bar\n"
@@ -753,7 +915,7 @@ mod sysio_tests {
         fs::write(&f, b"export FOO=barbaz\n").unwrap();
         // `-Fx` whole-line: "export FOO=bar" is NOT a whole-line match of
         // "export FOO=barbaz", so it must be appended.
-        ensure_line_in_file("export FOO=bar", &f).unwrap();
+        ensure_line_in_owned_file("export FOO=bar", &f, &self_owner(), 0o644).unwrap();
         assert_eq!(
             fs::read_to_string(&f).unwrap(),
             "export FOO=barbaz\nexport FOO=bar\n"
@@ -764,7 +926,7 @@ mod sysio_tests {
     fn ensure_line_creates_absent_file() {
         let d = TempDir::new().unwrap();
         let f = d.path().join("new");
-        ensure_line_in_file("first", &f).unwrap();
+        ensure_line_in_owned_file("first", &f, &self_owner(), 0o644).unwrap();
         assert_eq!(fs::read_to_string(&f).unwrap(), "first\n");
     }
 
@@ -778,10 +940,15 @@ mod sysio_tests {
         let d = TempDir::new().unwrap();
         let f = d.path().join("npmrc");
         // 0xFF is not valid UTF-8 anywhere.
-        fs::write(&f, b"//registry/:_authToken=\xffabc\nprefix=/home/agent/.npm-global\n").unwrap();
+        fs::write(
+            &f,
+            b"//registry/:_authToken=\xffabc\nprefix=/home/agent/.npm-global\n",
+        )
+        .unwrap();
 
         for _ in 0..3 {
-            ensure_line_in_file("prefix=/home/agent/.npm-global", &f).unwrap();
+            ensure_line_in_owned_file("prefix=/home/agent/.npm-global", &f, &self_owner(), 0o644)
+                .unwrap();
         }
 
         let raw = fs::read(&f).unwrap();
@@ -794,18 +961,127 @@ mod sysio_tests {
         assert!(raw.contains(&0xff), "existing bytes must be preserved");
     }
 
-    // An unreadable EXISTING file is an error, not a silent "no match" — the
-    // append would duplicate on every run and nothing would say why.
+    // Something that is not a regular file is an error, not a silent "no match".
+    // Appending blind would duplicate the line on every converge run with nothing
+    // saying why; and for the FIFO case below, reading it would block the
+    // provisioner forever, as root, with no timeout on that path.
     #[test]
-    fn ensure_line_refuses_when_it_cannot_read_an_existing_file() {
+    fn ensure_line_refuses_a_directory_naming_the_path() {
         let d = TempDir::new().unwrap();
-        // A directory where a file is expected: readable path, unreadable content.
         let f = d.path().join("as-a-dir");
         fs::create_dir(&f).unwrap();
-        let err = ensure_line_in_file("x", &f).unwrap_err();
+        let err = ensure_line_in_owned_file("x", &f, &self_owner(), 0o644).unwrap_err();
         assert!(
-            err.to_string().contains("refusing to append blind"),
-            "err={err}"
+            err.to_string().contains("as-a-dir"),
+            "the refusal must name the path it refused; err={err}"
+        );
+    }
+
+    /// A FIFO planted where a config file is expected. Without the regular-file
+    /// check this blocks in the read forever — an unbounded root-side hang inside
+    /// step 30, which is precisely what ADR-020 forbids. Guarded by a worker
+    /// thread so a regression fails the suite instead of wedging it.
+    #[test]
+    fn ensure_line_refuses_a_fifo_rather_than_blocking_on_it() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("npmrc-as-fifo");
+        nix::unistd::mkfifo(&f, nix::sys::stat::Mode::from_bits_truncate(0o644)).unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        let owner = self_owner();
+        let path = f.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(ensure_line_in_owned_file("x", &path, &owner, 0o644).is_err());
+        });
+        match rx.recv_timeout(std::time::Duration::from_secs(5)) {
+            Ok(errored) => assert!(errored, "a FIFO must be refused, not written to"),
+            Err(_) => panic!(
+                "ensure_line_in_owned_file blocked on a FIFO — unbounded root-side \
+                 hang in the provisioner"
+            ),
+        }
+    }
+
+    /// A hardlink to a sensitive file is a REGULAR file and passes every other
+    /// check, so `ln /etc/shadow ~/.npmrc` would have root append to and chown the
+    /// real inode. `fs.protected_hardlinks` normally prevents creating such a link
+    /// across owners, but it is a sysctl an operator can disable and nothing here
+    /// should silently depend on it.
+    #[test]
+    fn ensure_line_refuses_a_hardlink() {
+        let d = TempDir::new().unwrap();
+        let victim = d.path().join("victim");
+        fs::write(&victim, b"secret\n").unwrap();
+        let link = d.path().join(".npmrc");
+        fs::hard_link(&victim, &link).unwrap();
+
+        let err = ensure_line_in_owned_file("x", &link, &self_owner(), 0o644).unwrap_err();
+        assert!(err.to_string().contains("hardlink"), "err={err}");
+        assert_eq!(
+            fs::read(&victim).unwrap(),
+            b"secret\n",
+            "the linked inode was modified"
+        );
+    }
+
+    /// A symlink whose target EXISTS — the shape that bypassed the old
+    /// `if !path.exists()` guard, since `exists()` follows. The target must be
+    /// untouched: as root this was an arbitrary-file append-and-chown.
+    #[test]
+    fn ensure_line_refuses_a_symlink_whose_target_exists() {
+        let d = TempDir::new().unwrap();
+        let victim = d.path().join("victim");
+        fs::write(&victim, b"original\n").unwrap();
+        let link = d.path().join(".npmrc");
+        std::os::unix::fs::symlink(&victim, &link).unwrap();
+
+        let err = ensure_line_in_owned_file("x", &link, &self_owner(), 0o644).unwrap_err();
+        assert!(err.to_string().contains("symlink"), "err={err}");
+        assert_eq!(
+            fs::read(&victim).unwrap(),
+            b"original\n",
+            "followed the symlink and wrote through it as root"
+        );
+    }
+
+    /// An existing file keeps the mode the operator gave it. `~/.npmrc` holds npm
+    /// auth tokens, and re-asserting 0644 on every converge run silently widened a
+    /// deliberate 0600 back to world-readable.
+    #[test]
+    fn ensure_line_does_not_widen_an_existing_files_mode() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join(".npmrc");
+        fs::write(&f, b"//registry/:_authToken=secret\n").unwrap();
+        fs::set_permissions(&f, fs::Permissions::from_mode(0o600)).unwrap();
+
+        ensure_line_in_owned_file("prefix=/home/agent/.npm-global", &f, &self_owner(), 0o644)
+            .unwrap();
+
+        assert_eq!(mode_of(&f), 0o600, "widened a token file to world-readable");
+        assert!(fs::read_to_string(&f).unwrap().contains("prefix="));
+    }
+
+    /// A file whose last line lacks a trailing newline must not have our record
+    /// glued onto it — that produces one corrupt line instead of two good ones, and
+    /// the whole-line match then never sees our line again, so the next run appends
+    /// another one.
+    #[test]
+    fn ensure_line_separates_from_a_file_with_no_trailing_newline() {
+        let d = TempDir::new().unwrap();
+        let f = d.path().join("npmrc");
+        fs::write(&f, b"prefix=/old").unwrap();
+
+        ensure_line_in_owned_file("prefix=/new", &f, &self_owner(), 0o644).unwrap();
+        assert_eq!(
+            fs::read_to_string(&f).unwrap(),
+            "prefix=/old\nprefix=/new\n"
+        );
+
+        // And it is idempotent from that repaired state.
+        ensure_line_in_owned_file("prefix=/new", &f, &self_owner(), 0o644).unwrap();
+        assert_eq!(
+            fs::read_to_string(&f).unwrap(),
+            "prefix=/old\nprefix=/new\n"
         );
     }
 
@@ -835,7 +1111,10 @@ mod sysio_tests {
         let err = ensure_dir(&nested, 0o755, "root:root").unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("child"), "no path named: {msg}");
-        assert!(msg.contains("create directory"), "no operation named: {msg}");
+        assert!(
+            msg.contains("create directory"),
+            "no operation named: {msg}"
+        );
     }
 
     // --- ensure_marker_block ---

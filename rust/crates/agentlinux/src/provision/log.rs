@@ -221,7 +221,10 @@ mod log_tests {
 
         let body = fs::read_to_string(&path).unwrap();
         assert!(body.contains("[REMEDIATE-01] strategy=chown"), "{body:?}");
-        assert!(body.contains("[REUSE-WARN] component=npm-prefix"), "{body:?}");
+        assert!(
+            body.contains("[REUSE-WARN] component=npm-prefix"),
+            "{body:?}"
+        );
 
         std::env::remove_var("AGENTLINUX_LOG");
     }

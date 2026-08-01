@@ -660,9 +660,13 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
         "/etc/sudoers.d/agentlinux",
     ] {
         let _ = std::fs::remove_file(f);
-        // The sudoers drop-in is the one that matters most: a surviving
-        // `NOPASSWD: ALL` grant on a host the operator believes is torn down is a
-        // standing privilege the purge was supposed to revoke.
+        // The sudoers drop-in matters most: a surviving `NOPASSWD: ALL` grant on a
+        // host the operator believes is torn down is a standing privilege the purge
+        // was supposed to revoke. Note this checks OUR file only — sudo reads all of
+        // /etc/sudoers.d plus /etc/sudoers, so a hand-copied `agentlinux.bak` or a
+        // line an operator moved into /etc/sudoers survives a clean purge. Verifying
+        // that would mean parsing sudoers, which we do not do; the log line below is
+        // worded to claim only what this loop actually checked.
         if std::path::Path::new(f).exists() {
             leftovers.push(f.to_string());
         }
@@ -691,6 +695,16 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
     // leaving it. What the next run cares about is whether the account is gone.
     if crate::provision::probe::user_exists(user) {
         leftovers.push(format!("user '{user}'"));
+    }
+    // The HOME is a separate question from the account. `userdel -r` routinely exits
+    // 12 ("can't remove home directory") while still deleting the passwd entry — a
+    // bind mount, an immutable file, or a home the user does not own all produce
+    // it. The account then looks gone, `leftovers` is empty, and the purge reports
+    // success over a directory still holding ~/.claude/.credentials.json,
+    // ~/.config/gh/hosts.yml and ~/.npmrc. Worse, the uid is now unallocated, so the
+    // next useradd that recycles it silently inherits ownership of those secrets.
+    if !home.is_empty() && std::path::Path::new(home).exists() {
+        leftovers.push(format!("home '{home}' (may hold credentials)"));
     }
 
     // Step 7: LAST — remove the install log (LITERAL path). Note this unlinks the
@@ -792,7 +806,8 @@ fn emit_report(user: &str, distro: &distro::Distro) {
     crate::plog!("  install-user: {user}");
     crate::plog!(
         "  distro: version={} family={:?}",
-        distro.version, distro.family
+        distro.version,
+        distro.family
     );
     for &id in crate::CANONICAL_IDS {
         let probe = crate::provision::probe::probe_agent(id);

@@ -801,10 +801,7 @@ mod dispatcher_tests {
     fn timeout_kills_grandchildren_not_just_the_direct_child() {
         let marker = std::env::temp_dir().join(format!("al-pgid-{}.marker", std::process::id()));
         let _ = std::fs::remove_file(&marker);
-        let script = format!(
-            "( sleep 2; touch {} ) & sleep 30",
-            marker.to_str().unwrap()
-        );
+        let script = format!("( sleep 2; touch {} ) & sleep 30", marker.to_str().unwrap());
         let r = as_user(
             &self_user(),
             &argv(&["bash", "-c", &script]),
@@ -830,7 +827,10 @@ mod dispatcher_tests {
     // thing that identifies the run.
     #[test]
     fn describe_labels_the_callers_argv_not_the_sudo_wrapper() {
-        let label = describe(&argv(&["bash", "/opt/agentlinux/catalog/agents/gsd/install.sh"]));
+        let label = describe(&argv(&[
+            "bash",
+            "/opt/agentlinux/catalog/agents/gsd/install.sh",
+        ]));
         assert!(label.contains("gsd/install.sh"), "label={label}");
         assert!(!label.starts_with("sudo"), "label={label}");
         // The sudo hop is what gets EXECUTED for a non-self target …
@@ -845,7 +845,11 @@ mod dispatcher_tests {
     fn describe_bounds_label_length() {
         let long = argv(&["bash", &"x".repeat(500)]);
         let label = describe(&long);
-        assert!(label.len() < 260, "label not bounded: {} chars", label.len());
+        assert!(
+            label.len() < 260,
+            "label not bounded: {} chars",
+            label.len()
+        );
         assert!(label.ends_with('…'));
     }
 

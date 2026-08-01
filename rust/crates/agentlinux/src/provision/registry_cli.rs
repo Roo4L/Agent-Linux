@@ -434,7 +434,10 @@ mod registry_cli_tests {
         install_file(&src, &dst, 0o755, &self_owner()).unwrap();
 
         assert_eq!(fs::read(&dst).unwrap(), b"#!/bin/sh\nnew\n");
-        assert_eq!(fs::symlink_metadata(&dst).unwrap().permissions().mode() & 0o777, 0o755);
+        assert_eq!(
+            fs::symlink_metadata(&dst).unwrap().permissions().mode() & 0o777,
+            0o755
+        );
         // Only src + dst remain: no `.agentlinux.<pid>.…` staging file survived.
         let names: Vec<String> = fs::read_dir(d.path())
             .unwrap()

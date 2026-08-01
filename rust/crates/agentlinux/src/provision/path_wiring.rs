@@ -34,7 +34,6 @@ use crate::provision::{ProvisionCtx, StepResolution};
 use crate::recipe_env;
 use crate::sysio;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 /// `run` — the 40-path-wiring.sh port. Resolves `_user`/`_home` from `ctx` and
@@ -87,11 +86,13 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // skel copy) so ensure_marker_block has a target.
     sysio::create_if_absent_0644(bashrc_path, &owner)?;
     sysio::ensure_marker_block(bashrc_path, "agentlinux-path", BASHRC_BODY)?;
-    // ensure_marker_block writes via write_file_atomic(0o644, …) leaving the file
-    // root-owned; re-assert <user>:<user> + 0644 so the user can edit outside the
-    // block.
-    std::fs::set_permissions(bashrc_path, std::fs::Permissions::from_mode(0o644))?;
-    sysio::chown_by_name(bashrc_path, &owner)?;
+    // `ensure_marker_block` publishes through `write_file_atomic`, which sets 0644
+    // on the tmpfile BEFORE the rename — so the mode is already correct and a
+    // path-based `set_permissions` here would only re-open a name the install user
+    // controls the directory of. Ownership still has to be re-asserted (the atomic
+    // write leaves the new inode root-owned), and it goes through an O_NOFOLLOW
+    // handle so a symlink swapped in after the rename cannot redirect the chown.
+    sysio::chown_by_name_nofollow(bashrc_path, &owner)?;
     crate::plog!("40-path-wiring: wrote agentlinux-path marker block to {bashrc} (--top)");
 
     // Artefact 3: /etc/agentlinux.env (0644 root:root) — literal KEY=VALUE.

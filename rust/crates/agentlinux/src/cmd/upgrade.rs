@@ -290,7 +290,15 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
             match row.report.latest_version.as_deref() {
                 Some(v) => (v.to_string(), "latest"),
                 None => {
+                    // NOT a benign skip. Under `--all-latest` this is the shape a
+                    // blackholed or rate-limited registry takes: every entry fails
+                    // to resolve, nothing is attempted, and without counting it the
+                    // sweep exits 0 having done nothing — the exact "told the
+                    // scheduler it succeeded" failure the exit code exists to
+                    // prevent. Counted as attempted AND failed.
                     crate::plog!("{id}: skipping (no upstream latest resolved)");
+                    attempted += 1;
+                    failures += 1;
                     continue;
                 }
             }
@@ -612,7 +620,7 @@ mod upgrade_tests {
         assert_eq!(v["status"], serde_json::json!("present"));
     }
 
-    // --- reconcile loop: continue-on-failure never aborts, exit 0 ---
+    // --- reconcile loop: continue-on-failure never aborts; the exit code is honest ---
 
     fn write_catalog_two(dir: &std::path::Path) {
         // Two script agents so a first-entry recipe failure can be observed to NOT
@@ -637,7 +645,7 @@ mod upgrade_tests {
     }
 
     #[test]
-    fn reconcile_continue_on_failure_reports_failure_and_preserves_sentinel() {
+    fn reconcile_total_failure_reports_failure_and_preserves_sentinels() {
         let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
@@ -667,9 +675,11 @@ mod upgrade_tests {
             query_global_npm: empty_npm,
             query_npm_view_latest: no_latest,
         };
-        // The sweep still visits EVERY entry (continue, never abort) — but a run in
-        // which every reinstall failed must not report success, because the exit
-        // code is the only signal an unattended scheduler reads.
+        // A run in which every reinstall failed must not report success — the exit
+        // code is the only signal an unattended scheduler reads. (With an all-failing
+        // dispatcher this test cannot also distinguish "continued" from "aborted":
+        // both leave identical state. That property is pinned by
+        // `reconcile_finishes_every_entry_but_still_reports_partial_failure`.)
         assert_eq!(
             upgrade_with(&opts(true, false, false, false, false), deps),
             ExitCode::FAILURE
@@ -683,6 +693,65 @@ mod upgrade_tests {
             sentinel::read_sentinel("b-agent").unwrap().unwrap().source,
             "override"
         );
+
+        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+    }
+
+    thread_local! {
+        /// Recipe ids the stub dispatcher was asked to run, in order — the direct
+        /// evidence for "the sweep visited every entry".
+        static DISPATCHED: std::cell::RefCell<Vec<String>> =
+            const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// The NEGATIVE CONTROL. Without it, mutating `if failures > 0` to
+    /// `if failures >= 0` — making every real sweep return 1, the exact inverse of
+    /// the bug being fixed, breaking the same timer and CI consumers — survives the
+    /// entire suite, because every other test that reaches the reconcile loop
+    /// expects FAILURE.
+    #[test]
+    fn reconcile_reports_success_when_every_entry_succeeds() {
+        let _g = crate::test_support::env_guard();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog_two(cat.path());
+        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+
+        for id in ["a-agent", "b-agent"] {
+            let mut s = Sentinel::new(id.into(), "1.0.0".into(), "override".into(), false);
+            s.status = Some("installed".to_string());
+            sentinel::write_sentinel(&s).unwrap();
+        }
+
+        fn ok(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
+            DispatchResult {
+                exit_code: 0,
+                stdout: String::new(),
+                stderr: String::new(),
+                streamed: false,
+            }
+        }
+        let deps = UpgradeDeps {
+            dispatch: ok,
+            query_global_npm: empty_npm,
+            query_npm_view_latest: no_latest,
+        };
+        assert_eq!(
+            upgrade_with(&opts(true, false, false, false, false), deps),
+            ExitCode::SUCCESS,
+            "a clean sweep must report success"
+        );
+        // Both entries really were reconciled, so this is not passing vacuously.
+        for id in ["a-agent", "b-agent"] {
+            assert_eq!(
+                sentinel::read_sentinel(id).unwrap().unwrap().source,
+                "curated"
+            );
+        }
 
         std::env::remove_var("AGENTLINUX_CATALOG_DIR");
         std::env::remove_var("AGENTLINUX_STATE_DIR");
@@ -710,10 +779,19 @@ mod upgrade_tests {
             sentinel::write_sentinel(&s).unwrap();
         }
 
-        // `a-agent` fails, `b-agent` succeeds — and a-agent sorts FIRST, so if the
-        // sweep aborted on failure b-agent would never be reached.
+        // `a-agent` fails, `b-agent` succeeds. a-agent is dispatched first because
+        // `rows` follows catalog DECLARATION order (nothing sorts), so an
+        // abort-on-first-failure implementation would never reach b-agent. That
+        // ordering is asserted below rather than assumed — relying on it silently
+        // would let a future reorder fake this property.
         fn mixed(_u: &str, path: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
-            let fails = path.contains("a-agent");
+            let id = if path.contains("a-agent") {
+                "a-agent"
+            } else {
+                "b-agent"
+            };
+            DISPATCHED.with(|d| d.borrow_mut().push(id.to_string()));
+            let fails = id == "a-agent";
             DispatchResult {
                 exit_code: if fails { 9 } else { 0 },
                 stdout: String::new(),
@@ -721,6 +799,7 @@ mod upgrade_tests {
                 streamed: false,
             }
         }
+        DISPATCHED.with(|d| d.borrow_mut().clear());
         let deps = UpgradeDeps {
             dispatch: mixed,
             query_global_npm: empty_npm,
@@ -731,12 +810,18 @@ mod upgrade_tests {
             ExitCode::FAILURE,
             "a sweep with a failed entry must not report success"
         );
-        // The failure did not strand the entry behind it: b-agent was reinstalled
-        // and its sentinel rewritten to the curated source.
+        // The direct assertion of "visits every entry": both were dispatched, in
+        // that order. This pins the property itself rather than a side effect a
+        // reordering could reproduce under an aborting implementation.
+        assert_eq!(
+            DISPATCHED.with(|d| d.borrow().clone()),
+            vec!["a-agent".to_string(), "b-agent".to_string()],
+            "the sweep aborted instead of continuing past the failed entry"
+        );
+        // And the entry after the failure really was reinstalled, not merely visited.
         assert_eq!(
             sentinel::read_sentinel("b-agent").unwrap().unwrap().source,
-            "curated",
-            "the sweep aborted instead of continuing past the failed entry"
+            "curated"
         );
         // And the failed entry's own sentinel is untouched — never marked installed.
         assert_eq!(

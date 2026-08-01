@@ -90,7 +90,8 @@ pub fn remove_with(name: &str, opts: &RemoveArgs, dispatch: RecipeDispatcher) ->
     if result.exit_code != 0 {
         crate::plog!(
             "{}: uninstall.sh failed (exit {})",
-            entry.id, result.exit_code
+            entry.id,
+            result.exit_code
         );
         if !result.stderr.is_empty() {
             crate::plog!("{}", result.stderr);

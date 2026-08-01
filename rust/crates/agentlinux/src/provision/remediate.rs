@@ -214,7 +214,9 @@ pub fn flush_or_exit(bails: &[Bail]) {
     for b in bails {
         crate::plog!(
             "[BAIL] component={} reason={} hint={}",
-            b.component, b.reason, b.hint
+            b.component,
+            b.reason,
+            b.hint
         );
     }
     crate::plog!(

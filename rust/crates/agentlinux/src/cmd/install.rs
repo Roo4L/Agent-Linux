@@ -255,7 +255,8 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
         if uninstall_result.exit_code != 0 {
             crate::plog!(
                 "[REMEDIATE-04:uninstall-fail] {} uninstall.sh exited {}",
-                entry.id, uninstall_result.exit_code
+                entry.id,
+                uninstall_result.exit_code
             );
             if !uninstall_result.stderr.is_empty() {
                 crate::plog!("{}", uninstall_result.stderr);
@@ -341,15 +342,33 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
             .as_ref(),
     );
 
-    // Idempotent short-circuit.
+    // Idempotent short-circuit — matching on the version ALONE was wrong. When
+    // REMEDIATE-04's uninstall succeeded and the reinstall then failed, the verb
+    // records the requested version with `status=broken-after-remediate`, and the
+    // tool is now GONE from the host. Comparing only versions made the obvious
+    // recovery — re-run `agentlinux install <id>` — print "already installed; no-op"
+    // and exit 0 over a host with no binary. `upgrade` does not rescue it either
+    // for script/binary-kind entries, which source `installed` from this same
+    // sentinel, so the row reads Synced. Only a status we actually vouch for may
+    // satisfy a convergence check.
+    const CONVERGED_STATUSES: [&str; 2] = ["installed", "reused"];
     if !opts.force {
         if let Some(ex) = existing.as_ref() {
-            if semver_shim::eq(&ex.version, &decision.version).unwrap_or(false) {
+            let status = ex.status.as_deref().unwrap_or("installed");
+            let converged = CONVERGED_STATUSES.contains(&status);
+            if semver_shim::eq(&ex.version, &decision.version).unwrap_or(false) && converged {
                 println!(
                     "{}: already installed at {} ({}); no-op",
                     entry.id, ex.version, ex.source
                 );
                 return ExitCode::SUCCESS;
+            }
+            if !converged {
+                println!(
+                    "{}: sentinel records status={status} at {} — reinstalling rather \
+                     than trusting it",
+                    entry.id, ex.version
+                );
             }
         }
     }
@@ -362,7 +381,8 @@ pub fn install_with(name: &str, opts: &InstallArgs, dispatch: RecipeDispatcher) 
     if result.exit_code != 0 {
         crate::plog!(
             "{}: install.sh failed (exit {})",
-            entry.id, result.exit_code
+            entry.id,
+            result.exit_code
         );
         if !result.stderr.is_empty() {
             crate::plog!("{}", result.stderr);
@@ -645,6 +665,72 @@ mod install_tests {
             ok_dispatch,
         );
         // Second is a no-op: even a failing dispatcher must NOT run (short-circuit).
+        assert_eq!(
+            install_with(
+                "test-dummy",
+                &args(false, None, true, false, false, "test-dummy"),
+                fail_dispatch
+            ),
+            ExitCode::SUCCESS
+        );
+        clear_env();
+    }
+
+    /// REGRESSION: a `broken-after-remediate` sentinel must NOT satisfy the
+    /// idempotent short-circuit.
+    ///
+    /// When REMEDIATE-04's uninstall succeeded and the reinstall then failed, the
+    /// verb records the requested version with that status — and the tool is GONE
+    /// from the host. Matching on version alone made the obvious recovery, re-running
+    /// `agentlinux install <id>`, print "already installed; no-op" and exit 0 over a
+    /// host with no binary. `upgrade` does not rescue it either for script/binary-kind
+    /// entries: they source `installed` from this same sentinel, so the row reads
+    /// Synced and `should_reinstall` returns None.
+    ///
+    /// Pinned by asserting the recipe actually RAN — a failing dispatcher whose exit
+    /// code reaches the caller can only happen if the short-circuit was declined.
+    #[test]
+    fn a_broken_after_remediate_sentinel_does_not_short_circuit_install() {
+        let _g = crate::test_support::env_guard();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        set_env(cat.path(), state.path());
+
+        let mut s = Sentinel::new("test-dummy".into(), "0.0.1".into(), "curated".into(), false);
+        s.status = Some("broken-after-remediate".to_string());
+        sentinel::write_sentinel(&s).unwrap();
+
+        // Same version as the catalog pin, so ONLY the status can decline the
+        // short-circuit. exit 7 proves the recipe was dispatched.
+        assert_eq!(
+            install_with(
+                "test-dummy",
+                &args(false, None, true, false, false, "test-dummy"),
+                fail_dispatch
+            ),
+            ExitCode::from(7),
+            "a sentinel recording a broken install was treated as converged"
+        );
+        clear_env();
+    }
+
+    /// The complement: a healthy `installed` sentinel at the same version still
+    /// short-circuits. Without this, declining the short-circuit for EVERY status
+    /// would pass the test above while reinstalling on every run.
+    #[test]
+    fn an_installed_sentinel_still_short_circuits() {
+        let _g = crate::test_support::env_guard();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        set_env(cat.path(), state.path());
+
+        let mut s = Sentinel::new("test-dummy".into(), "0.0.1".into(), "curated".into(), false);
+        s.status = Some("installed".to_string());
+        sentinel::write_sentinel(&s).unwrap();
+
+        // A failing dispatcher must never run.
         assert_eq!(
             install_with(
                 "test-dummy",

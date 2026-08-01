@@ -37,8 +37,17 @@ use crate::dispatcher::{self, Capture};
 use crate::provision::ProvisionCtx;
 use crate::sysio;
 use std::io;
-use std::os::unix::fs::{MetadataExt, PermissionsExt};
+use std::os::unix::fs::MetadataExt;
 use std::path::Path;
+
+/// Per-module `npm install -g` bound — the dispatcher's buffered-npm convention.
+const PER_MODULE_TIMEOUT_MS: u64 = 300_000;
+
+/// Aggregate ceiling for the whole migration loop, independent of module count.
+/// Chosen to sit well above any realistic brownfield prefix (a dozen globals over a
+/// healthy registry is minutes) while keeping one provisioner step to a duration an
+/// operator would wait out rather than assume had hung.
+const MIGRATION_BUDGET: std::time::Duration = std::time::Duration::from_secs(20 * 60);
 
 /// The catalog agents excluded from module migration (they own their own install),
 /// plus `npm` itself — byte-for-byte with the Bash `excluded_json`
@@ -184,15 +193,18 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
     // ensure_line_in_file, then re-assert ownership+mode.
     let npmrc = format!("{user_home}/.npmrc");
     let npmrc_path = Path::new(&npmrc);
-    if !npmrc_path.exists() {
-        if let Err(e) = sysio::create_if_absent_0644(npmrc_path, &owner) {
-            crate::plog!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
-            return Err(e);
-        }
+    // One fd for create+append+chmod+chown. The previous shape gated the hardened
+    // create behind `if !npmrc_path.exists()` — and `exists()` FOLLOWS symlinks, so
+    // a non-dangling `~/.npmrc -> /etc/ld.so.preload` skipped the guard entirely and
+    // the three path-based calls below wrote through it as root. This is the
+    // brownfield remediation path, which is exactly when a planted link is sitting
+    // there waiting for a converge run.
+    if let Err(e) =
+        sysio::ensure_line_in_owned_file(&format!("prefix={new_prefix}"), npmrc_path, &owner, 0o644)
+    {
+        crate::plog!("[REMEDIATE-01:fail] reason=npmrc-write-denied path={npmrc}");
+        return Err(e);
     }
-    sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), npmrc_path)?;
-    std::fs::set_permissions(npmrc_path, std::fs::Permissions::from_mode(0o644))?;
-    sysio::chown_by_name(npmrc_path, &owner)?;
     crate::plog!("[REMEDIATE-01] wrote ~{user}/.npmrc with prefix={new_prefix}");
 
     // Enumerate + migrate modules from the OLD prefix, best-effort.
@@ -208,23 +220,54 @@ fn apply_rebase(old_prefix: &str, user: &str, user_home: &str, old_owner: &str) 
             "[REMEDIATE-01] migrating {} modules from {old_prefix}",
             modules.len()
         );
+        // A per-item bound is not a bound on the loop. Each `npm install -g` is
+        // capped at 300s, but the item COUNT comes from host data — 40 globals on a
+        // brownfield host is a 3.3-hour ceiling inside one provisioner step, with
+        // nothing in the transcript between entries to show progress. ADR-020 §4
+        // deleted the generic package retry for exactly this shape (a per-command
+        // bound silently multiplied into a much larger real one); the multiplier
+        // being host-supplied rather than a constant makes it worse, not better.
+        //
+        // The migration is explicitly best-effort and the OLD prefix is never
+        // deleted, so stopping early is safe: what is left behind is exactly what
+        // was left behind before this step ran, and the operator is told which
+        // modules were not attempted.
+        let deadline = std::time::Instant::now() + MIGRATION_BUDGET;
+        let mut skipped = 0u32;
         for pkg_at_ver in &modules {
+            if std::time::Instant::now() >= deadline {
+                skipped += 1;
+                continue;
+            }
             // The npm-level `--` stops a `-flag@1` package name being reparsed as an
             // npm flag.
             let argv: Vec<String> = ["npm", "install", "-g", "--", pkg_at_ver]
                 .iter()
                 .map(|s| s.to_string())
                 .collect();
-            // M-2: bound the npm install (300s, the dispatcher's buffered-npm
-            // convention) so a wedged/slow registry can't hang provisioning.
-            let r = dispatcher::as_user(user, &argv, &[], Capture::Buffered, Some(300_000));
+            // Bound each install at the smaller of the per-module cap and whatever
+            // is left of the aggregate budget, so the last module cannot overshoot.
+            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+            let bound = remaining.as_millis().min(u128::from(PER_MODULE_TIMEOUT_MS)) as u64;
+            let r = dispatcher::as_user(user, &argv, &[], Capture::Buffered, Some(bound));
             if r.exit_code == 0 {
                 crate::plog!("[REMEDIATE-01:migrated] module={pkg_at_ver}");
                 migrated += 1;
             } else {
-                crate::plog!("[REMEDIATE-01:partial] module={pkg_at_ver} reason=npm-install-failed");
+                crate::plog!(
+                    "[REMEDIATE-01:partial] module={pkg_at_ver} reason=npm-install-failed"
+                );
                 failed += 1;
             }
+        }
+        if skipped > 0 {
+            // Named explicitly: a silent cap reads as "everything was migrated".
+            crate::plog!(
+                "[REMEDIATE-01:partial] {skipped} module(s) NOT attempted — the \
+                 {}s migration budget expired. The old prefix at {old_prefix} is \
+                 intact; re-run provision to continue, or migrate them by hand.",
+                MIGRATION_BUDGET.as_secs()
+            );
         }
     }
 
@@ -473,14 +516,14 @@ mod remediate_npm_prefix_tests {
         let new_prefix = format!("{home}/.npm-global");
         let npmrc = Path::new(d.path()).join(".npmrc");
         sysio::ensure_dir(Path::new(&new_prefix), 0o755, &owner).unwrap();
-        sysio::create_if_absent_0644(&npmrc, &owner).unwrap();
-        sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), &npmrc).unwrap();
+        sysio::ensure_line_in_owned_file(&format!("prefix={new_prefix}"), &npmrc, &owner, 0o644)
+            .unwrap();
         let after_first = std::fs::read_to_string(&npmrc).unwrap();
         assert_eq!(after_first, format!("prefix={new_prefix}\n"));
 
         // Re-run → byte-identical (no duplicate prefix line).
-        sysio::create_if_absent_0644(&npmrc, &owner).unwrap();
-        sysio::ensure_line_in_file(&format!("prefix={new_prefix}"), &npmrc).unwrap();
+        sysio::ensure_line_in_owned_file(&format!("prefix={new_prefix}"), &npmrc, &owner, 0o644)
+            .unwrap();
         assert_eq!(std::fs::read_to_string(&npmrc).unwrap(), after_first);
     }
 }

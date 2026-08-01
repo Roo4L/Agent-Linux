@@ -130,7 +130,8 @@ fn pin_not_installed(entry: &FullCatalogEntry) -> ExitCode {
         None => {
             crate::plog!(
                 "agentlinux: {} is not installed — run 'agentlinux install {}' first",
-                entry.id, entry.id
+                entry.id,
+                entry.id
             );
         }
     }

@@ -36,7 +36,6 @@ use crate::pkg;
 use crate::provision::{remediate_npm_prefix, ProvisionCtx, StepResolution};
 use crate::sysio;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 /// `run` — the 30-nodejs.sh port. `ctx.resolutions.node` selects the CREATE/REUSE
@@ -87,7 +86,9 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // reused or freshly installed.
     match ctx.resolutions.npm_prefix {
         StepResolution::Reuse => {
-            crate::plog!("30-nodejs: [REUSE] npm-prefix: writable by the install user; nothing to do");
+            crate::plog!(
+                "30-nodejs: [REUSE] npm-prefix: writable by the install user; nothing to do"
+            );
         }
         StepResolution::Create => {
             // The CREATE path above bootstrapped the prefix (or no-op).
@@ -181,13 +182,31 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
     // (ensure_line_in_file runs with root's umask and does not chown)
     let npmrc = format!("{}/.npmrc", ctx.install_home);
     let npmrc_path = Path::new(&npmrc);
-    sysio::create_if_absent_0644(npmrc_path, &owner)?;
-    sysio::ensure_line_in_file(&format!("prefix={npm_global}"), npmrc_path)?;
-    std::fs::set_permissions(npmrc_path, std::fs::Permissions::from_mode(0o644))?;
-    sysio::chown_by_name(npmrc_path, &owner)?;
+    // One fd across create+append+chmod+chown — see `ensure_line_in_owned_file`.
+    // `~/.npmrc` is where npm keeps `_authToken`, so an existing file keeps the
+    // mode the operator gave it rather than being re-widened to 0644 every run.
+    sysio::ensure_line_in_owned_file(&format!("prefix={npm_global}"), npmrc_path, &owner, 0o644)?;
     crate::plog!("30-nodejs: wrote {npmrc} (prefix={npm_global} — RT-04)");
 
     Ok(())
+}
+
+/// Where a NodeSource-installed `node` legitimately lives, in search order.
+///
+/// A fixed list rather than a `$PATH` walk: the whole point is to be immune to
+/// whatever the invoking shell put on PATH. `/usr/bin` is where both the apt and
+/// dnf NodeSource packages install; `/usr/local/bin` covers a hand-installed
+/// tarball an operator may be reusing (the REUSE branch). Both are root-owned on
+/// every supported distro, which is the property that makes them safe to exec as
+/// root — unlike anything under the install user's home.
+const SYSTEM_NODE_PATHS: [&str; 2] = ["/usr/bin/node", "/usr/local/bin/node"];
+
+/// The first existing entry of `candidates`, or `None`.
+fn first_existing(candidates: &[&str]) -> Option<String> {
+    candidates
+        .iter()
+        .find(|p| Path::new(p).is_file())
+        .map(|p| (*p).to_string())
 }
 
 /// `node --version` → the parsed MAJOR version. Runs the freshly-installed `node`
@@ -196,6 +215,14 @@ fn create_path(ctx: &ProvisionCtx) -> io::Result<()> {
 /// an unparsable version maps to major 0 (→ the RT-01 hard-fail), mirroring the
 /// Bash `${node_major:-0}` default.
 fn node_major_version() -> io::Result<u32> {
+    node_major_version_in(&SYSTEM_NODE_PATHS)
+}
+
+/// `node_major_version` with the candidate locations injected, so a test can point
+/// it at a stub instead of depending on whichever `node` the build host happens to
+/// have installed — and on where. The production caller passes
+/// `SYSTEM_NODE_PATHS`; nothing else may.
+fn node_major_version_in(candidates: &[&str]) -> io::Result<u32> {
     // Bounded and process-grouped like every other spawn in the crate. `node
     // --version` is instant in every healthy case, but "instant in every healthy
     // case" is exactly what the unbounded calls this crate spent a release fixing
@@ -203,26 +230,38 @@ fn node_major_version() -> io::Result<u32> {
     // botched install left waiting on stdin, would hang the provisioner here with
     // no timeout and no diagnostic. 30s is far past any real answer.
     //
-    // Dispatched at the INVOKER's own identity, which `resolve_argv` short-circuits
-    // to a direct spawn — no sudo hop, no dependency on any account existing yet.
-    // Two reasons this must not become a `sudo -u <install_user>` hop:
+    // Resolved to an ABSOLUTE path against a fixed system PATH, then dispatched at
+    // the invoker's own identity — which `resolve_argv` short-circuits to a direct
+    // spawn. Three separate hazards converge on this one line:
     //
-    //   1. RT-01 asks whether the NodeSource install put the right `node` on the
-    //      SYSTEM path. Resolving it through a login shell's environment could
-    //      answer for some other runtime on that user's PATH instead — the gate
-    //      would then pass or fail for a binary it was never meant to judge.
-    //   2. Step 30 runs BEFORE step 40 writes `/etc/agentlinux.env`. Any resolution
-    //      that consults that file (`recipe_env::resolve_install_user`) still
-    //      reports the default `agent` here, so `--user claude` on a greenfield
-    //      host would probe an account step 10 never created, and RT-01 would
-    //      hard-fail naming the Node version rather than the real cause. That was
-    //      a live deterministic brick, not a hypothetical.
+    //   1. Not a `sudo -u <install_user>` hop. Step 30 runs BEFORE step 40 writes
+    //      `/etc/agentlinux.env`, so any resolution consulting that file
+    //      (`recipe_env::resolve_install_user`) still reports the default `agent`.
+    //      `--user claude` on a greenfield host would then probe an account step 10
+    //      never created and RT-01 would hard-fail naming the Node VERSION rather
+    //      than the real cause — permanently, since step 40 never runs to write the
+    //      file that would fix the resolution. That was a live deterministic brick.
+    //   2. Not a bare `node` off the ambient PATH. This spawn runs as ROOT, and
+    //      `/etc/profile.d/agentlinux.sh` (step 40, artefact 1) prepends
+    //      `<home>/.npm-global/bin` for EVERY user that sources /etc/profile,
+    //      root included. An agent that drops an executable at
+    //      `~/.npm-global/bin/node` would have it executed as root the next time an
+    //      operator re-provisions from a login shell. `Command::new` resolves argv[0]
+    //      against the PARENT's PATH, which `env_clear` does not touch.
+    //   3. Not a login-shell hop either (`sudo -i`, `bash -lc`), for the same
+    //      reason: RT-01 asks whether the NodeSource install put the right `node` on
+    //      the SYSTEM path, so it must judge the system binary and nothing else.
     //
-    // `provision` is `guard::require_root`-gated, so the invoker is root and this
-    // is the direct branch in practice.
+    // `provision` is `guard::require_root`-gated, so the invoker is root and this is
+    // the direct branch in practice.
+    let Some(node) = first_existing(candidates) else {
+        // Absent from every system location → major 0, the RT-01 hard-fail. Same
+        // outcome as a non-zero exit below, reached without spawning anything.
+        return Ok(0);
+    };
     let r = crate::dispatcher::as_user(
         &crate::dispatcher::invoker_username(),
-        &["node".to_string(), "--version".to_string()],
+        &[node, "--version".to_string()],
         &[],
         crate::dispatcher::Capture::Buffered,
         Some(30_000),
@@ -266,6 +305,7 @@ mod nodejs_tests {
     use super::*;
     use crate::distro::Family;
     use crate::provision::StepResolutions;
+    use std::os::unix::fs::PermissionsExt;
 
     fn ctx_with(node: StepResolution, npm_prefix: StepResolution, home: &str) -> ProvisionCtx {
         ProvisionCtx {
@@ -293,21 +333,81 @@ mod nodejs_tests {
     /// version for what is really a user-resolution bug, and permanent, since step
     /// 40 never runs to write the file that would have fixed the resolution.
     ///
-    /// Pinned by pointing `AGENTLINUX_USER` at an account that cannot exist: the
-    /// probe must still answer for the node on THIS process's PATH.
+    /// A stub `node` printing `version`, marked executable. Removes the dependency
+    /// on whichever real node the build host has, and on where it lives — the
+    /// earlier version of this test skipped when `node` was absent from PATH, which
+    /// meant a container without node turned it into a silent no-op with libtest
+    /// still printing `ok`.
+    fn stub_node(dir: &Path, version: &str) -> String {
+        use std::os::unix::fs::PermissionsExt;
+        let p = dir.join("node");
+        std::fs::write(&p, format!("#!/bin/sh\necho '{version}'\n")).unwrap();
+        std::fs::set_permissions(&p, std::fs::Permissions::from_mode(0o755)).unwrap();
+        p.to_string_lossy().into_owned()
+    }
+
+    /// REGRESSION: the RT-01 probe must not resolve its identity from
+    /// `AGENTLINUX_USER` / `/etc/agentlinux.env`.
+    ///
+    /// Step 30 runs BEFORE step 40 writes `/etc/agentlinux.env`, so any resolution
+    /// that consults it reports the default `agent` no matter what `--user` said.
+    /// On a greenfield `provision --user claude`, step 10 creates `claude`, then
+    /// this probe would `sudo -u agent -- node --version` against an account that
+    /// does not exist, get a non-zero exit, map it to major 0, and hard-fail RT-01
+    /// with `node v0 installed but v22 LTS required` — an error naming the Node
+    /// version for what is really a user-resolution bug, and permanent, since step
+    /// 40 never runs to write the file that would have fixed the resolution.
+    ///
+    /// `AGENTLINUX_USER` points at an account that cannot exist: any resolution
+    /// through it takes a `sudo -u` hop that fails, collapsing the answer to 0.
+    /// Asserting the EXACT major (not merely `> 0`) also pins that the probe ran
+    /// the binary it was handed rather than finding some other node.
     #[test]
-    fn rt01_probe_ignores_agentlinux_user_and_answers_for_the_system_node() {
+    fn rt01_probe_ignores_agentlinux_user_and_runs_the_binary_it_was_given() {
         let _g = crate::test_support::env_guard();
-        if crate::sysio::which("node").is_none() {
-            return; // no node on PATH — the assertion below would be vacuous
-        }
+        let d = tempfile::TempDir::new().unwrap();
+        let node = stub_node(d.path(), "v22.11.0");
+
         std::env::set_var("AGENTLINUX_USER", "no-such-user-cf19a4");
-        let major = node_major_version().expect("probe must not error");
+        let major = node_major_version_in(&[&node]).unwrap();
         std::env::remove_var("AGENTLINUX_USER");
-        assert!(
-            major > 0,
-            "RT-01 probe resolved through AGENTLINUX_USER and got major 0 for a \
-             node that is on PATH — the greenfield --user brick is back"
+
+        assert_eq!(
+            major, 22,
+            "RT-01 probe resolved through AGENTLINUX_USER instead of running the \
+             binary it was given — the greenfield --user brick is back"
+        );
+    }
+
+    /// The RT-01 gate boundary, through the real function rather than a re-typed
+    /// copy of its parse expression: a sub-22 runtime must report its true major so
+    /// the caller hard-fails.
+    #[test]
+    fn rt01_probe_reports_a_sub_22_major_through_the_real_spawn_path() {
+        let _g = crate::test_support::env_guard();
+        let d = tempfile::TempDir::new().unwrap();
+        let node = stub_node(d.path(), "v18.19.0");
+        assert_eq!(node_major_version_in(&[&node]).unwrap(), 18);
+    }
+
+    /// No candidate exists → major 0, which is the RT-01 hard-fail. Pins that the
+    /// absent case is reached WITHOUT spawning anything, and that the fixed
+    /// candidate list is consulted rather than `$PATH`: a `node` planted on PATH
+    /// must not satisfy the probe, because as root that is an agent-writable
+    /// binary being executed with full privilege.
+    #[test]
+    fn rt01_probe_ignores_a_node_on_path_when_no_system_node_exists() {
+        let _g = crate::test_support::env_guard();
+        let d = tempfile::TempDir::new().unwrap();
+        stub_node(d.path(), "v22.11.0"); // on PATH below, but not a candidate
+        let old = std::env::var("PATH").unwrap_or_default();
+        std::env::set_var("PATH", format!("{}:{old}", d.path().display()));
+        let major = node_major_version_in(&[&d.path().join("absent").to_string_lossy()]).unwrap();
+        std::env::set_var("PATH", old);
+        assert_eq!(
+            major, 0,
+            "the probe resolved a node from $PATH — as root that executes an \
+             agent-writable binary with full privilege"
         );
     }
 
@@ -428,15 +528,13 @@ mod nodejs_tests {
         let owner = format!("{uname}:{gname}");
         let line = "prefix=/home/agent/.npm-global";
 
-        sysio::create_if_absent_0644(&f, &owner).unwrap();
-        sysio::ensure_line_in_file(line, &f).unwrap();
+        sysio::ensure_line_in_owned_file(line, &f, &owner, 0o644).unwrap();
         let after_first = std::fs::read_to_string(&f).unwrap();
         assert_eq!(after_first, "prefix=/home/agent/.npm-global\n");
 
         // Re-run: create-if-absent is a no-op, ensure_line_in_file greps-before-
         // appends → byte-identical (no duplicate prefix line).
-        sysio::create_if_absent_0644(&f, &owner).unwrap();
-        sysio::ensure_line_in_file(line, &f).unwrap();
+        sysio::ensure_line_in_owned_file(line, &f, &owner, 0o644).unwrap();
         assert_eq!(std::fs::read_to_string(&f).unwrap(), after_first);
         assert_eq!(
             after_first
