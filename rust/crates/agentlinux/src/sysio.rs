@@ -620,10 +620,12 @@ pub fn ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
     // O_DIRECTORY makes "not a directory" ENOTDIR rather than something we chmod.
     let handle = fs::OpenOptions::new()
         .read(true)
+        // `.union()` rather than `|` — see `lock_open_flags`: for disjoint flag
+        // bits the `| -> ^` mutant is equivalent and unkillable.
         .custom_flags(
-            (nix::fcntl::OFlag::O_NOFOLLOW
-                | nix::fcntl::OFlag::O_DIRECTORY
-                | nix::fcntl::OFlag::O_NONBLOCK)
+            nix::fcntl::OFlag::O_NOFOLLOW
+                .union(nix::fcntl::OFlag::O_DIRECTORY)
+                .union(nix::fcntl::OFlag::O_NONBLOCK)
                 .bits(),
         )
         .open(path)
@@ -738,7 +740,12 @@ fn open_regular_nofollow(path: &Path, doing: &str) -> io::Result<fs::File> {
     let file = fs::OpenOptions::new()
         .read(true)
         .write(true)
-        .custom_flags((nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK).bits())
+        // `.union()` rather than `|` — see `lock_open_flags`.
+        .custom_flags(
+            nix::fcntl::OFlag::O_NOFOLLOW
+                .union(nix::fcntl::OFlag::O_NONBLOCK)
+                .bits(),
+        )
         .open(path)
         .map_err(|e| {
             if e.raw_os_error() == Some(nix::errno::Errno::ELOOP as i32) {

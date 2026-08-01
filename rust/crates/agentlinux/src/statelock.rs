@@ -124,7 +124,11 @@ enum LockOpenError {
 /// `mkfifo /run/lock/agentlinux.lock` by any local user would otherwise hang
 /// every privileged verb forever, silently, before the transcript is even open.
 fn lock_open_flags() -> i32 {
-    (OFlag::O_NOFOLLOW | OFlag::O_NONBLOCK).bits()
+    // `.union()` rather than `|`: for DISJOINT flag bits `a | b` and `a ^ b` are the
+    // same value, so the `| -> ^` mutant is equivalent and no test can kill it.
+    // A blanket `mutants::skip` would also excuse the killable mutants in the same
+    // function, which ADR-020 §4 forbids — so the operator goes instead.
+    OFlag::O_NOFOLLOW.union(OFlag::O_NONBLOCK).bits()
 }
 
 /// Open the lock file, preferring read-only, and prove it is a regular file.

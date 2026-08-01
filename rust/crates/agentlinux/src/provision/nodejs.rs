@@ -240,22 +240,34 @@ const SYSTEM_NODE_PATHS: [&str; 2] = ["/usr/bin/node", "/usr/local/bin/node"];
 ///
 /// A candidate that fails these checks is skipped rather than fatal — the next
 /// candidate, or ultimately major 0 and the RT-01 hard-fail, is the right outcome.
-fn trusted_system_node_in(candidates: &[&str]) -> Option<String> {
+///
+/// `owner_uid` is a parameter purely so the ACCEPT path is reachable from a test.
+/// Production passes 0. The suite runs unprivileged, so no fixture can be
+/// root-owned, and every test could therefore only assert a REJECTION — which
+/// left `-> None` and each guard inside removable with the suite green: the whole
+/// exec-as-root trust chain was unkilled. Pointing it at the test user's own uid
+/// exercises the same comparisons against a file the test controls.
+fn trusted_system_node_in(candidates: &[&str], owner_uid: u32) -> Option<String> {
     use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
 
     candidates.iter().find_map(|p| {
         let handle = std::fs::OpenOptions::new()
             .read(true)
-            .custom_flags((nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK).bits())
+            // `.union()` rather than `|` — see `statelock::lock_open_flags`.
+            .custom_flags(
+                nix::fcntl::OFlag::O_NOFOLLOW
+                    .union(nix::fcntl::OFlag::O_NONBLOCK)
+                    .bits(),
+            )
             .open(p)
             .ok()?;
         let md = handle.metadata().ok()?;
         if !md.is_file() {
             return None;
         }
-        if md.uid() != 0 {
+        if md.uid() != owner_uid {
             crate::plog!(
-                "30-nodejs: skipping RT-01 candidate {p} — owned by uid {} not root; \
+                "30-nodejs: skipping RT-01 candidate {p} — owned by uid {} not {owner_uid}; \
                  refusing to execute it as root",
                 md.uid()
             );
@@ -282,7 +294,7 @@ fn trusted_system_node_in(candidates: &[&str]) -> Option<String> {
 /// The parse it wraps is [`parse_node_major`].
 #[cfg_attr(test, mutants::skip)]
 fn node_major_version() -> io::Result<u32> {
-    match trusted_system_node_in(&SYSTEM_NODE_PATHS) {
+    match trusted_system_node_in(&SYSTEM_NODE_PATHS, 0) {
         Some(p) => node_major_version_at(&p),
         // No trustworthy candidate → major 0, the RT-01 hard-fail, without
         // spawning anything.
@@ -590,29 +602,110 @@ mod nodejs_tests {
     /// mode 2775 — group-writable — under Debian policy on some systems, which is
     /// exactly where the "hand-installed tarball" candidate lives.
     ///
-    /// Tests run unprivileged, so a stub is owned by the test user rather than root:
-    /// that makes it the non-root case directly, and it must be refused.
+    /// The uid the suite can actually produce a file for. Every ACCEPT assertion
+    /// below is against this rather than 0, because an unprivileged runner cannot
+    /// create a root-owned fixture — see `trusted_system_node_in`'s `owner_uid`.
+    fn own_uid() -> u32 {
+        nix::unistd::Uid::current().as_raw()
+    }
+
+    /// The ACCEPT path, which nothing asserted before: a plain regular file, owned
+    /// by the expected uid, not group- or world-writable, IS the trusted node.
+    ///
+    /// Without this every guard in the function was removable — `-> None`, the
+    /// `is_file` check, the uid comparison, the mode mask and the `O_NOFOLLOW`
+    /// flag composition all survived, because a function that can only be
+    /// observed returning None is satisfied by a function that always does.
+    #[test]
+    fn rt01_accepts_a_plain_file_owned_by_the_expected_uid() {
+        let d = tempfile::TempDir::new().unwrap();
+        let stub = stub_node(d.path(), "v22.11.0");
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(
+            trusted_system_node_in(&[&stub], own_uid()),
+            Some(stub.clone()),
+            "a plain, correctly-owned, non-group-writable binary must be trusted"
+        );
+
+        // A directory is not a candidate, however it is owned.
+        assert_eq!(
+            trusted_system_node_in(&[&d.path().to_string_lossy()], own_uid()),
+            None,
+            "a directory is not an executable candidate"
+        );
+    }
+
+    /// The first TRUSTED candidate wins, not the first existing one — a rejected
+    /// candidate must not stop the search, or a host with a tampered
+    /// `/usr/bin/node` would never reach a good `/usr/local/bin/node`.
+    #[test]
+    fn rt01_skips_an_untrusted_candidate_and_keeps_looking() {
+        let d = tempfile::TempDir::new().unwrap();
+        let bad = d.path().join("bad-node").to_string_lossy().into_owned();
+        std::fs::write(&bad, b"#!/bin/sh\n").unwrap();
+        std::fs::set_permissions(&bad, std::fs::Permissions::from_mode(0o777)).unwrap();
+        let good = stub_node(d.path(), "v22.11.0");
+        std::fs::set_permissions(&good, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert_eq!(
+            trusted_system_node_in(&[&bad, &good], own_uid()),
+            Some(good),
+            "a world-writable first candidate must be skipped, not fatal"
+        );
+    }
+
+    /// A SYMLINK is refused, and this is what pins the `O_NOFOLLOW | O_NONBLOCK`
+    /// composition: mutate the `|` to `&` and the flag word becomes 0, the open
+    /// follows the link, and root execs whatever is at the far end. Brownfield
+    /// hosts running `n` or a system-wide nvm have exactly this shape at
+    /// `/usr/local/bin/node`.
+    #[test]
+    fn rt01_refuses_a_symlink_candidate_however_trustworthy_its_target() {
+        let d = tempfile::TempDir::new().unwrap();
+        let real = stub_node(d.path(), "v22.11.0");
+        std::fs::set_permissions(&real, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let link = d.path().join("node-link");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        assert_eq!(
+            trusted_system_node_in(&[&link.to_string_lossy()], own_uid()),
+            None,
+            "followed a symlink to decide what to execute as root"
+        );
+    }
+
+    /// Ownership: a candidate owned by somebody other than the expected uid is
+    /// refused. Tests run unprivileged, so uid 0 is the foreign owner here — the
+    /// same comparison production makes, with the roles swapped.
     #[test]
     fn rt01_refuses_a_candidate_it_does_not_own_the_trust_chain_for() {
         let d = tempfile::TempDir::new().unwrap();
         let stub = stub_node(d.path(), "v22.11.0");
+        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o755)).unwrap();
         assert_eq!(
-            trusted_system_node_in(&[&stub]),
+            trusted_system_node_in(&[&stub], 0),
             None,
-            "accepted a non-root-owned binary as the RT-01 system node — as root \
-             that executes a binary root does not control"
+            "accepted a binary the expected owner does not own — as root that \
+             executes a binary root does not control"
         );
     }
 
-    /// A group- or world-writable candidate is refused even when root owns it:
-    /// ownership and writability are separate questions, and either one lets
-    /// somebody other than root decide what runs.
+    /// Writability is a SEPARATE question from ownership: either one lets somebody
+    /// other than the owner decide what runs. Both bits of the `0o022` mask are
+    /// pinned, so narrowing it to group-only or other-only is caught.
     #[test]
     fn rt01_refuses_a_group_or_world_writable_candidate() {
         let d = tempfile::TempDir::new().unwrap();
-        let stub = stub_node(d.path(), "v22.11.0");
-        std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(0o777)).unwrap();
-        assert_eq!(trusted_system_node_in(&[&stub]), None);
+        for mode in [0o777, 0o775, 0o757] {
+            let stub = stub_node(d.path(), "v22.11.0");
+            std::fs::set_permissions(&stub, std::fs::Permissions::from_mode(mode)).unwrap();
+            assert_eq!(
+                trusted_system_node_in(&[&stub], own_uid()),
+                None,
+                "mode {mode:04o} is writable by somebody other than the owner"
+            );
+        }
     }
 
     /// And the absent case: no candidate at all resolves to None, so
@@ -621,7 +714,7 @@ mod nodejs_tests {
     fn rt01_absent_candidate_resolves_to_none() {
         let d = tempfile::TempDir::new().unwrap();
         let missing = d.path().join("nope").to_string_lossy().into_owned();
-        assert_eq!(trusted_system_node_in(&[&missing]), None);
+        assert_eq!(trusted_system_node_in(&[&missing], own_uid()), None);
     }
 
     /// The RT-01 gate boundary, through the real function rather than a re-typed
