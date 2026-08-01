@@ -632,7 +632,7 @@ SH
   [[ -f /tmp/agentlinux-test-dummy.marker ]] \
     || __fail "INST-04" "precondition: marker file present before --purge" "absent" "-"
 
-  run "$INSTALLER" --purge
+  run "$INSTALLER" provision --purge
   assert_exit_zero "INST-04 (--purge)"
 
   # Step 1 ran: per-agent uninstall.sh cleared the marker BEFORE /opt removal.
@@ -676,6 +676,6 @@ SH
 # symmetry: purge is as idempotent as the installer it reverses.
 @test "INST-04: --purge is idempotent (second run exits 0 with nothing to clean)" {
   # State from prior @test: everything removed. Re-run --purge.
-  run "$INSTALLER" --purge
+  run "$INSTALLER" provision --purge
   assert_exit_zero "INST-04 (idempotent second purge)"
 }
