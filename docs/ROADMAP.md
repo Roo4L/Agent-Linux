@@ -54,44 +54,26 @@ a real problem for real users.
 
 ### Themes for next releases
 
-#### Security Hardening
-
-We carry an opportunistic security-hardening theme from the Phase 14
-exploration: a capability-scoped sudoers profile replacing the current
-passwordless-sudo-for-everything default, cosign-signed catalog releases,
-npm provenance verification at install time, a bubblewrap-based per-recipe
-sandbox, and an iptables egress allowlist for catalog recipes.
-**Sequencing rationale:** The v0.3.4 brownfield work has now surfaced
-which capabilities the agent actually needs in practice — that was the
-gating signal for which NOPASSWD scope we can honestly cut. The alpha's
-configurable installer (blocker #3) asks the same question at install
-time, so it decides the default; this theme hardens the profile behind
-that default afterwards.
-
 #### Preset / profile framework + compat-guarded update flow
 
-The Phase 13 differentiators: `bare` / `must-haves` / `optimum` presets,
+The product differentiators: `bare` / `must-haves` / `optimum` presets,
 `web-development`-style profiles, and a hold-and-wait-on-upstream-breakage
 policy for the catalog update pipeline.
-**Sequencing rationale:** Builds on the `pinned_version` foundation
-already in v0.3.0; the work is mechanism design plus UX, not new product
-surface. It sits behind the alpha because presets are a convenience layer
-over the tool management the alpha has to make reliable first.
 
 #### Public engagement
 
 A low-overhead opt-in mailing list for release announcements, structured
 feedback collection (issue templates, contributor invite paths in
-CONTRIBUTING.md), and community-platform basics once the catalog warrants
-them.
-**Sequencing rationale:** Gated on the alpha shipping. v0.3.6 grew the
-catalog from 3 to 25 entries, so surface area is no longer the
-bottleneck — reliability is. We go broad once the alpha's stability and
-update story survive contact with the first feedback group.
+CONTRIBUTING.md), and community-platform basics once there are enough
+users to sustain them.
+
+#### Security hardening
+
+The open-source packages we ship could be scanned for malicious code,
+security advisories, supply-chain attacks, and more — signals worth
+surfacing to our users.
 
 ## Related
 
 - [docs/STRATEGY.md](STRATEGY.md) — the strategy this roadmap operationalizes.
 - [docs/VISION.md](VISION.md) — the canonical "what we want to be" doc.
-- [Jira AL-7](https://copiedwonder.atlassian.net/browse/AL-7) — v0.3.3 agenda redefinition epic.
-- [Jira AL-38](https://copiedwonder.atlassian.net/browse/AL-38) — v0.3.4 Aware Installation Process, shipped 2026-06-08.
