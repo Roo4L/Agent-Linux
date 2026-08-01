@@ -682,6 +682,7 @@ mod dispatcher_tests {
     // Case 6 (:117): timeout → SIGTERM → exit_code 124 (GNU convention).
     #[test]
     fn timeout_maps_to_124() {
+        let start = Instant::now();
         let r = as_user(
             &self_user(),
             &argv(&["bash", "-c", "sleep 5"]),
@@ -691,6 +692,14 @@ mod dispatcher_tests {
         );
         assert_eq!(r.exit_code, 124, "timed-out child maps to 124");
         assert!(r.streamed);
+        // The exit code alone does not prove the child was STOPPED: a broken
+        // kill path still reports 124 once the child finishes its own sleep. The
+        // clock is the only witness that the timeout bounded anything.
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "the timeout must end the child, not merely outlast it: took {:?}",
+            start.elapsed()
+        );
     }
 
     // Case 7 (VALIDATION Manual-Only): a child that IGNORES SIGTERM still
@@ -701,7 +710,14 @@ mod dispatcher_tests {
         let start = Instant::now();
         let r = as_user(
             &self_user(),
-            &argv(&["bash", "-c", "trap '' TERM; sleep 30"]),
+            // 8s, not 30: it only has to outlast the escalation window
+            // (200ms timeout + 2000ms grace ~= 2.2s) by a comfortable margin.
+            // At 30s a BROKEN escalation still failed this test — after thirty
+            // seconds, which is past cargo-mutants' per-mutant timeout, so three
+            // real mutants on this path were recorded as timeouts rather than as
+            // caught. A test that takes 30s to notice a regression is a slow
+            // test, not a strong one.
+            &argv(&["bash", "-c", "trap '' TERM; sleep 8"]),
             &[],
             Capture::Streamed,
             Some(200),
@@ -722,6 +738,7 @@ mod dispatcher_tests {
     // Only the STREAMING path returns 124.
     #[test]
     fn buffered_timeout_maps_to_1() {
+        let start = Instant::now();
         let r = as_user(
             &self_user(),
             &argv(&["bash", "-c", "sleep 5"]),
@@ -734,6 +751,13 @@ mod dispatcher_tests {
             "buffered timeout maps to 1 (TS execFile parity)"
         );
         assert!(!r.streamed);
+        // As on the streamed path: the exit code does not prove the child was
+        // stopped, only the clock does.
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "the buffered timeout must end the child too: took {:?}",
+            start.elapsed()
+        );
     }
 
     // dispatch_recipe builds ["bash", <recipe>] and runs it.

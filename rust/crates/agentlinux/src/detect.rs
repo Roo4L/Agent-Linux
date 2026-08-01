@@ -647,6 +647,49 @@ mod detect_tests {
         );
     }
 
+    /// The scanner must TERMINATE on every input, and a test that hangs is not
+    /// a test that proves it.
+    ///
+    /// `replace += with *=` on either digit-advance turns the scan into a
+    /// non-terminating loop: the index stops moving while the loop condition
+    /// stays true. Called directly, that hangs the whole test binary, so
+    /// cargo-mutants recorded both as timeouts rather than as caught — the same
+    /// mutant reported as "we do not know" instead of "the suite noticed".
+    ///
+    /// Running the scan on a worker thread with a deadline converts the hang
+    /// into an assertion failure: the regression is CAUGHT, with a diagnosis,
+    /// in a bounded time. The worker is left spinning if it never returns, which
+    /// only happens when the code really is broken.
+    #[test]
+    fn the_semver_scan_terminates_on_every_input() {
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            // Inputs that exercise both digit-advance loops and the prerelease
+            // tail: a long digit run, and a long prerelease.
+            let cases = [
+                "1.2.3",
+                "111111.222222.333333",
+                "1.2.3-rc.1.2.3-alpha.beta",
+                "not a version at all",
+                "9999999999.0.0-x",
+            ];
+            let out: Vec<Option<String>> = cases.iter().map(|c| extract_semver(c)).collect();
+            let _ = tx.send(out);
+        });
+
+        let out = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .expect("the semver scan must terminate — an index that stops advancing hangs it");
+
+        // And it still returns the right answers, so "terminates" is not being
+        // satisfied by a scan that gave up.
+        assert_eq!(out[0].as_deref(), Some("1.2.3"));
+        assert_eq!(out[1].as_deref(), Some("111111.222222.333333"));
+        assert_eq!(out[2].as_deref(), Some("1.2.3-rc.1.2.3-alpha.beta"));
+        assert_eq!(out[3], None);
+        assert_eq!(out[4].as_deref(), Some("9999999999.0.0-x"));
+    }
+
     /// Each id has its own version-flag chain, and the legacy split is real:
     /// claude-code/playwright-cli answer `--version` only, gsd answers `--help`
     /// only, everything else tries three flags in turn until a semver appears.
