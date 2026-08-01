@@ -71,6 +71,31 @@ pub(crate) use {errln, outln};
 /// host-coupling as reading the real /etc/sudoers.d.
 pub type PathExists = fn(&std::path::Path) -> bool;
 
+/// Whether the REUSE-03 gate may run at all.
+///
+/// Three separate reasons to skip it, and each is a different intent:
+/// `--force` means "reinstall regardless", `--version` means "I want THIS
+/// version, not whatever is lying around", and an existing sentinel means the
+/// agent is already managed so there is nothing to adopt.
+///
+/// Extracted from `install_into` because the condition was only reachable by
+/// running the whole verb, and three mutants lived in it: turning either `&&`
+/// into `||` reuses a pre-existing binary when the operator explicitly asked
+/// for a fresh or pinned install, and `delete !` inverts `--force` into the
+/// only case that DOES reuse.
+const fn reuse_is_eligible(force: bool, explicit_version: bool, already_managed: bool) -> bool {
+    !force && !explicit_version && !already_managed
+}
+
+/// Whether the REMEDIATE-04 gate may run.
+///
+/// Same first two reasons as [`reuse_is_eligible`] — but an existing sentinel is
+/// NOT a reason to skip: a managed agent can still have drifted to a
+/// non-canonical path, which is exactly what remediation is for.
+const fn remediate_is_eligible(force: bool, explicit_version: bool) -> bool {
+    !force && !explicit_version
+}
+
 /// The production check.
 fn real_path_exists(p: &std::path::Path) -> bool {
     p.exists()
@@ -198,12 +223,12 @@ pub fn install_into(
     // real path). tryReuse is skipped on --force / --version / an existing sentinel;
     // tryRemediate is skipped on --force / --version (but fires even with a sentinel).
     let detected = crate::cache::read_cached_agent_by_id(&entry.id);
-    let reuse_hit = if !opts.force && opts.version.is_none() && existing.is_none() {
+    let reuse_hit = if reuse_is_eligible(opts.force, opts.version.is_some(), existing.is_some()) {
         try_reuse(&core_entry, detected.as_ref(), canonical, &home)
     } else {
         None
     };
-    let remediate_hit = if !opts.force && opts.version.is_none() {
+    let remediate_hit = if remediate_is_eligible(opts.force, opts.version.is_some()) {
         detected
             .as_ref()
             .and_then(|d| remediate_gate(&core_entry, d, host_paths(canonical, &home)))
@@ -569,6 +594,110 @@ mod install_tests {
     use super::*;
     use crate::dispatcher::DispatchResult;
     use tempfile::tempdir;
+
+    /// REUSE-03 adopts a pre-existing binary — but only one that is actually
+    /// THERE. `delete !` on the regular-file check survived, which inverts it:
+    /// a binary that exists is refused and a path with nothing behind it is
+    /// adopted, so the sentinel records a reuse of a file that is not present.
+    /// Replacing the whole function with `None` survived too, which silently
+    /// turns every REUSE-03 into a plain install.
+    #[test]
+    fn reuse_adopts_only_a_binary_that_is_really_there() {
+        use agentlinux_core::types::DetectedAgent;
+
+        let dir = tempdir().unwrap();
+        let bin = dir.path().join("claude");
+        let canonical = bin.to_str().unwrap();
+
+        let entry: crate::catalog::FullCatalogEntry = serde_json::from_value(serde_json::json!({
+            "id": "claude-code", "display_name": "C", "description": "d",
+            "source_kind": "script", "pinned_version": "2.1.98",
+            "install_recipe_path": "install.sh", "uninstall_recipe_path": "uninstall.sh",
+            "compatibility_window": ">=2.0.0 <3.0.0",
+        }))
+        .unwrap();
+        let core = CoreCatalogEntry::from(&entry);
+        let detected = DetectedAgent {
+            id: "claude-code".to_string(),
+            status: "healthy".to_string(),
+            path: canonical.to_string(),
+            version: "2.1.98".to_string(),
+        };
+
+        // Detected at the canonical path, in window, and the file exists.
+        std::fs::write(&bin, b"#!/bin/sh\n").unwrap();
+        let hit = try_reuse(&core, Some(&detected), Some(canonical), "/home/agent")
+            .expect("a present, in-window binary at the canonical path is reusable");
+        assert_eq!(hit.binary_path, canonical);
+        assert_eq!(hit.version, "2.1.98");
+        assert_eq!(hit.detected_source, "pre-existing");
+
+        // Same detection, but the binary is gone — the cache can be stale.
+        std::fs::remove_file(&bin).unwrap();
+        assert!(
+            try_reuse(&core, Some(&detected), Some(canonical), "/home/agent").is_none(),
+            "a cache entry whose binary has vanished must not be adopted"
+        );
+
+        // Nothing detected at all → nothing to reuse.
+        std::fs::write(&bin, b"#!/bin/sh\n").unwrap();
+        assert!(
+            try_reuse(&core, None, Some(canonical), "/home/agent").is_none(),
+            "no detection means no reuse, however present the file is"
+        );
+    }
+
+    /// REUSE-03 runs only on a plain `install <name>`: no --force, no explicit
+    /// --version, no existing sentinel. Three mutants survived on that
+    /// condition, and each one reuses a pre-existing binary in a case where the
+    /// operator explicitly asked not to — `--force` means reinstall regardless,
+    /// `--version` means THIS version rather than whatever is lying around, and
+    /// an existing sentinel means there is nothing left to adopt.
+    ///
+    /// Asserted as a full truth table: eight inputs, one eligible.
+    #[test]
+    fn reuse_runs_only_on_a_plain_install() {
+        for force in [false, true] {
+            for version in [false, true] {
+                for managed in [false, true] {
+                    let want = !force && !version && !managed;
+                    assert_eq!(
+                        reuse_is_eligible(force, version, managed),
+                        want,
+                        "force={force} explicit_version={version} already_managed={managed}"
+                    );
+                }
+            }
+        }
+        assert!(
+            reuse_is_eligible(false, false, false),
+            "the plain install is the ONLY eligible shape"
+        );
+    }
+
+    /// REMEDIATE-04 shares the first two skips but NOT the sentinel one: a
+    /// managed agent can still have drifted to a non-canonical path, which is
+    /// exactly what remediation exists to fix. `replace && with ||` survived,
+    /// which would remediate under --force and --version too — turning an
+    /// explicit pinned install into an uninstall+reinstall of something else.
+    #[test]
+    fn remediation_is_skipped_by_force_and_version_but_not_by_a_sentinel() {
+        assert!(remediate_is_eligible(false, false));
+        assert!(!remediate_is_eligible(true, false), "--force skips it");
+        assert!(!remediate_is_eligible(false, true), "--version skips it");
+        assert!(!remediate_is_eligible(true, true));
+
+        // The distinction from reuse: a sentinel does not appear here at all,
+        // so a managed-but-drifted agent still gets remediated.
+        assert!(
+            remediate_is_eligible(false, false),
+            "an already-managed agent is still a remediation candidate"
+        );
+        assert!(
+            !reuse_is_eligible(false, false, true),
+            "…while reuse skips it — the two gates differ on exactly this input"
+        );
+    }
 
     fn write_catalog(dir: &std::path::Path) {
         std::fs::write(
