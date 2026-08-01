@@ -438,6 +438,90 @@ mod upgrade_tests {
         }
     }
 
+    fn sentinel(status: Option<&str>, binary_path: Option<&str>) -> Sentinel {
+        Sentinel {
+            id: "claude-code".to_string(),
+            version: "1.0.0".to_string(),
+            source: "curated".to_string(),
+            sticky: false,
+            installed_at: None,
+            status: status.map(str::to_string),
+            decline_reason: None,
+            binary_path: binary_path.map(str::to_string),
+            detected_source: None,
+            reused_at: None,
+            compatibility_window_at_reuse: None,
+            remediated_at: None,
+            remediate_failure_reason: None,
+        }
+    }
+
+    /// A "reused" sentinel is a claim about a binary AgentLinux did not install.
+    /// The claim is only trustworthy while that binary is still there — the one
+    /// case that returns false, and the only case that reaches the stat.
+    ///
+    /// Four mutants survived here: forcing the result true or false outright,
+    /// and inverting each of the two status comparisons. Forced true is the
+    /// dangerous one — a vanished upstream binary reads as "still installed",
+    /// so `upgrade` skips the reinstall that would have restored it.
+    #[test]
+    fn a_reused_sentinel_is_trusted_only_while_its_binary_survives() {
+        let dir = tempdir().unwrap();
+        let present = dir.path().join("claude");
+        std::fs::write(&present, b"#!/bin/sh\n").unwrap();
+        let present = present.to_str().unwrap();
+        let absent = dir.path().join("gone").to_str().unwrap().to_string();
+
+        // The discriminating case: reused, and the binary is gone.
+        assert!(
+            !validate_reused_binary(Some(&sentinel(Some("reused"), Some(&absent)))),
+            "a reused sentinel whose binary vanished has drifted"
+        );
+
+        // Everything else is trusted, each for its own reason.
+        for (s, why) in [
+            (
+                sentinel(Some("reused"), Some(present)),
+                "binary still present",
+            ),
+            (sentinel(Some("reused"), None), "no binary_path to check"),
+            (
+                sentinel(Some("reused-with-warning"), Some(&absent)),
+                "reused-with-warning is trusted regardless",
+            ),
+            (
+                sentinel(Some("managed"), Some(&absent)),
+                "a managed sentinel is not a reuse claim",
+            ),
+            (
+                sentinel(None, Some(&absent)),
+                "no status is not a reuse claim",
+            ),
+        ] {
+            assert!(validate_reused_binary(Some(&s)), "{why}");
+        }
+
+        assert!(
+            validate_reused_binary(None),
+            "no sentinel at all is not a drifted reuse"
+        );
+    }
+
+    /// `--check-upstream` and `--all-latest` each independently mean the run
+    /// will hit the network. `replace || with &&` survived, which makes a
+    /// single-flag run report as offline — and the flag guards a real
+    /// `npm view` round trip.
+    #[test]
+    fn either_upstream_flag_alone_means_upstream_is_touched() {
+        assert!(will_touch_upstream(&opts(false, false, false, true, false)));
+        assert!(will_touch_upstream(&opts(false, false, true, false, false)));
+        assert!(will_touch_upstream(&opts(false, false, true, true, false)));
+        assert!(
+            !will_touch_upstream(&opts(true, true, false, false, true)),
+            "no upstream flag means no upstream, whatever else is set"
+        );
+    }
+
     // --- shouldReinstall flag-priority golden ---
 
     #[test]
