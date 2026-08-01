@@ -25,6 +25,7 @@
 
 use crate::cache;
 use agentlinux_core::types::DetectedAgent;
+use std::path::Path;
 
 /// A per-agent detect reading — status + resolved path — sourced from the detect
 /// cache. Absent from the cache → `absent` with an empty path (the fresh-install
@@ -164,27 +165,38 @@ pub enum NpmPrefixState {
 #[must_use]
 pub fn effective_npm_prefix(home: &str) -> String {
     let default = format!("{home}/.npm-global");
-    match std::fs::read_to_string(format!("{home}/.npmrc")) {
-        Ok(content) => content
-            .lines()
-            .filter_map(|l| l.split_once('='))
-            // LAST match, not first — npm's ini parser is last-wins, and our own
-            // writer APPENDS. A brownfield host with a foreign `prefix=` selects
-            // the rebase arm, and after a successful rebase the file holds both
-            // records with the old one first. Reading the first match meant the
-            // very next `provision` re-read the OLD prefix, judged it off-home,
-            // and either re-ran the whole module migration (with `--yes`, which is
-            // what the shipped installer passes) or bailed exit 65 with
-            // `reason=wrong-owner` — forever, on a host the previous run had
-            // already fixed. A gate whose probe cannot observe what the action
-            // wrote is the one failure ADR-019 says is still a finding.
-            .filter(|(k, _)| k.trim() == "prefix")
-            .next_back()
-            .map(|(_, v)| v.trim().to_string())
-            .filter(|v| !v.is_empty())
-            .unwrap_or(default),
-        Err(_) => default,
-    }
+    // `read_regular_file`, not `read_to_string`: this runs as ROOT during DECIDE,
+    // before the step loop and before the transcript has a single diagnostic line.
+    // A plain read blocks forever on a FIFO planted at `~/.npmrc` (a permanent,
+    // silent root hang on the pre-flight path), follows symlinks, and has no size
+    // cap. An unreadable/hostile file falls back to the canonical default rather
+    // than aborting a probe whose job is to answer a question.
+    let content = match crate::sysio::read_regular_file(Path::new(&format!("{home}/.npmrc"))) {
+        Ok(Some(bytes)) => String::from_utf8_lossy(&bytes).into_owned(),
+        Ok(None) => return default,
+        Err(e) => {
+            crate::plog!("npm-prefix probe: cannot read {home}/.npmrc ({e}); assuming {default}");
+            return default;
+        }
+    };
+    content
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        // LAST match, not first — npm's ini parser is last-wins, and our own
+        // writer APPENDS. A brownfield host with a foreign `prefix=` selects
+        // the rebase arm, and after a successful rebase the file holds both
+        // records with the old one first. Reading the first match meant the
+        // very next `provision` re-read the OLD prefix, judged it off-home,
+        // and either re-ran the whole module migration (with `--yes`, which is
+        // what the shipped installer passes) or bailed exit 65 with
+        // `reason=wrong-owner` — forever, on a host the previous run had
+        // already fixed. A gate whose probe cannot observe what the action
+        // wrote is the one failure ADR-019 says is still a finding.
+        .filter(|(k, _)| k.trim() == "prefix")
+        .next_back()
+        .map(|(_, v)| v.trim().to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or(default)
 }
 
 /// Probe the install user's EFFECTIVE npm prefix ownership + location. Absent →

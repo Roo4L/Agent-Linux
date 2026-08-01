@@ -28,7 +28,6 @@ use crate::pkg;
 use crate::provision::{ProvisionCtx, StepResolution};
 use crate::sysio;
 use std::io;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 /// The DOC-02 CLAUDE.md body — byte-for-byte with the heredoc between the
@@ -150,13 +149,20 @@ pub fn run(ctx: &ProvisionCtx) -> io::Result<()> {
     // the stable `agentlinux-doc-02` tag + Top placement — re-runs are
     // idempotent, user content outside the block survives.
     let claude_md = Path::new(&ctx.install_home).join("CLAUDE.md");
+    let owner = format!("{u}:{u}", u = ctx.install_user);
+    // Same hardening `.bashrc` gets in step 40 — these two files are written by
+    // adjacent steps into the same agent-owned directory and must not diverge.
+    // Without the create-if-absent guard, a pre-planted `~/CLAUDE.md -> /etc/shadow`
+    // had root read the target, preserve every line of it through the marker strip,
+    // and publish it back as a 0644 file chowned to the agent. No race required.
+    sysio::create_if_absent_0644(&claude_md, &owner)?;
     sysio::ensure_marker_block(&claude_md, "agentlinux-doc-02", DOC02_BODY)?;
 
-    // ensure_marker_block leaves the file root-owned at 0644 — re-assert 0644 and
-    // chown <user>:<user> so the user can read + edit it outside the block
-    std::fs::set_permissions(&claude_md, std::fs::Permissions::from_mode(0o644))?;
-    let owner = format!("{u}:{u}", u = ctx.install_user);
-    sysio::chown_by_name(&claude_md, &owner)?;
+    // `write_file_atomic` already set 0644 on the tmpfile before the rename, so the
+    // mode is correct; only ownership needs re-asserting (the fresh inode is
+    // root-owned). Through an O_NOFOLLOW handle — a path-based chown here would
+    // hand over the target of a symlink swapped in after the rename.
+    sysio::chown_by_name_nofollow(&claude_md, &owner)?;
     crate::plog!(
         "10-agent-user: wrote DOC-02 CLAUDE.md to {}",
         claude_md.display()

@@ -34,7 +34,6 @@
 
 use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -133,9 +132,21 @@ pub fn write_file_atomic(mode: u32, dest: &Path, body: &[u8]) -> io::Result<()> 
         .and_then(|()| file.sync_all())
         .map_err(|e| context(&e, "write", dest, Some(&tmp)))?;
     // Set mode on the tmpfile BEFORE the rename so the destination is never
-    // briefly created with the umask-default mode (mirrors install -m).
-    fs::set_permissions(&tmp, fs::Permissions::from_mode(mode))
-        .map_err(|e| context(&e, &format!("chmod {mode:04o}"), dest, Some(&tmp)))?;
+    // briefly created with the umask-default mode (mirrors install -m) — and set it
+    // on the HANDLE, not the path. `dest.parent()` is the install user's home for
+    // `~/.bashrc` and `~/CLAUDE.md`, so a path-based `set_permissions` re-resolves a
+    // name the agent controls: the tmp name is unguessable but trivially observable
+    // with inotify on your own directory, and unlinking it and symlinking it at
+    // `/etc/shadow` in that window turned this into `chmod 0644 /etc/shadow` as
+    // root. The rename then failed loudly — after the chmod had already landed.
+    nix::sys::stat::fchmod(&file, nix::sys::stat::Mode::from_bits_truncate(mode)).map_err(|e| {
+        context(
+            &io::Error::from(e),
+            &format!("chmod {mode:04o}"),
+            dest,
+            Some(&tmp),
+        )
+    })?;
     drop(file);
 
     fs::rename(&tmp, dest).map_err(|e| context(&e, "rename into place", dest, Some(&tmp)))?;
@@ -311,12 +322,26 @@ pub fn ensure_line_in_owned_file(
             .map_err(|e| context(&e, "append to", path, None))?;
     }
 
-    if created {
-        nix::sys::stat::fchmod(
-            &file,
-            nix::sys::stat::Mode::from_bits_truncate(mode_if_created),
-        )
-        .map_err(|e| context(&io::Error::from(e), "chmod", path, None))?;
+    // NARROW, never widen. "Only on create" was too weak in the other direction:
+    // the previous code forced 0644 every run, which accidentally repaired a
+    // pre-existing world-WRITABLE `~/.npmrc` (0666 — a brownfield host, a tarball
+    // unpacked with a zero umask). Leaving that alone means any local account can
+    // write `prefix=` or npm's `script-shell` into a file we then chown to the
+    // agent, and the next `npm install -g` runs against an attacker-chosen prefix
+    // and shell. So: on create, exactly `mode_if_created`; on an existing file,
+    // keep whatever the operator chose but strip group/other WRITE, which cannot
+    // widen anything and cannot re-expose the 0600 token file the mode-preserving
+    // behaviour exists to protect.
+    let target_mode = if created {
+        Some(mode_if_created)
+    } else {
+        let current = md.mode() & 0o7777;
+        let narrowed = current & !0o022;
+        (narrowed != current).then_some(narrowed)
+    };
+    if let Some(m) = target_mode {
+        nix::sys::stat::fchmod(&file, nix::sys::stat::Mode::from_bits_truncate(m))
+            .map_err(|e| context(&io::Error::from(e), "chmod", path, None))?;
     }
     let (uid, gid) = resolve_owner(owner)?;
     nix::unistd::fchown(
@@ -429,10 +454,15 @@ pub fn ensure_marker_block(file: &Path, tag: &str, body: &str) -> io::Result<()>
     let begin = format!("# >>> {tag} begin >>>");
     let end = format!("# <<< {tag} end <<<");
 
-    let existing = match fs::read(file) {
-        Ok(bytes) => bytes,
+    // `read_regular_file`, not `fs::read`: this runs as root on `~/.bashrc` and
+    // `~/CLAUDE.md`, both inside a directory the install user owns. A plain read
+    // follows symlinks — root would read `/etc/shadow`, `strip_marker_block` would
+    // preserve every line of it, and `write_file_atomic` would publish the result
+    // as a file the agent then owns. It also blocks forever on a FIFO.
+    let existing = match read_regular_file(file) {
+        Ok(Some(bytes)) => bytes,
         // Absent is the normal first-run case: no records to preserve.
-        Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
+        Ok(None) => Vec::new(),
         Err(e) => {
             return Err(io::Error::new(
                 e.kind(),
@@ -554,20 +584,85 @@ fn user_exists(name: &str) -> io::Result<bool> {
 /// (matches the Bash `install -d` on the absent arm, `chmod` + `chown` on the
 /// present arm). `owner` is `"user:group"`.
 pub fn ensure_dir(path: &Path, mode: u32, owner: &str) -> io::Result<()> {
+    use std::os::unix::fs::OpenOptionsExt;
+
     let (uid, gid) = resolve_owner(owner)?;
     if !path.is_dir() {
         fs::create_dir_all(path).map_err(|e| context(&e, "create directory", path, None))?;
     }
-    // Re-assert mode + owner unconditionally on BOTH arms (create-then-set on the
-    // absent arm equals `install -d -m -o -g`; the present arm is the Bash
-    // chmod+chown drift-correction).
-    fs::set_permissions(path, fs::Permissions::from_mode(mode))
-        .map_err(|e| context(&e, &format!("chmod {mode:04o}"), path, None))?;
-    // `std::os::unix::fs::chown` (the plan's sanctioned syscall alternative —
-    // `nix::unistd::chown` is gated behind nix's `fs` feature which we do NOT
-    // enable; only `user` is on for the name→uid/gid resolution).
-    std::os::unix::fs::chown(path, Some(uid), Some(gid)).map_err(|e| {
-        io::Error::other(format!("ensure_dir: chown {} failed: {e}", path.display()))
+
+    // Re-assert mode + owner through an O_NOFOLLOW|O_DIRECTORY HANDLE, not the path.
+    //
+    // Eight of this function's call sites are directories inside the install user's
+    // own home (`~/.local`, `~/.local/bin`, `~/.npm-global{,/bin,/lib}`, the rebase
+    // target). The previous shape resolved the path three times — `is_dir()`,
+    // `set_permissions`, `chown` — and all three FOLLOW symlinks. That was a full
+    // root-compromise primitive requiring no race whatsoever:
+    //
+    //     agent$ rm -rf ~/.local && ln -s /etc ~/.local
+    //     root#  agentlinux provision      # any re-run, upgrade or repair
+    //            => chmod 0755 /etc ; chown agent:agent /etc
+    //
+    // `fs.protected_symlinks` does not help — it covers world-writable sticky
+    // directories like /tmp, not a link the agent owns in their own home, and it
+    // gates follows in open(2), not chown(2)/chmod(2).
+    //
+    // `create_dir_all` above still resolves by path, so a symlink-to-a-directory is
+    // not created anew; the handle below is what decides whether we then mutate it.
+    // O_DIRECTORY makes "not a directory" ENOTDIR rather than something we chmod.
+    let handle = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(
+            (nix::fcntl::OFlag::O_NOFOLLOW
+                | nix::fcntl::OFlag::O_DIRECTORY
+                | nix::fcntl::OFlag::O_NONBLOCK)
+                .bits(),
+        )
+        .open(path)
+        .map_err(|e| {
+            // With O_DIRECTORY, Linux reports a symlink at the final component as
+            // ENOTDIR rather than the ELOOP that O_NOFOLLOW alone would give — so
+            // check what is actually there rather than inferring from the errno,
+            // otherwise the most security-relevant refusal prints "Not a directory".
+            let is_link = fs::symlink_metadata(path)
+                .map(|m| m.file_type().is_symlink())
+                .unwrap_or(false);
+            if is_link {
+                io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "refusing to chmod/chown {}: it is a symlink, not a directory \
+                         — as root that would hand its TARGET to {owner}",
+                        path.display()
+                    ),
+                )
+            } else {
+                context(&e, "open directory to chmod/chown", path, None)
+            }
+        })?;
+
+    nix::sys::stat::fchmod(&handle, nix::sys::stat::Mode::from_bits_truncate(mode)).map_err(
+        |e| {
+            context(
+                &io::Error::from(e),
+                &format!("chmod {mode:04o}"),
+                path,
+                None,
+            )
+        },
+    )?;
+    nix::unistd::fchown(
+        &handle,
+        Some(nix::unistd::Uid::from_raw(uid)),
+        Some(nix::unistd::Gid::from_raw(gid)),
+    )
+    .map_err(|e| {
+        context(
+            &io::Error::from(e),
+            &format!("chown to {owner}"),
+            path,
+            None,
+        )
     })?;
     Ok(())
 }
@@ -608,29 +703,132 @@ pub fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
         .map_err(|e| io::Error::other(format!("chown {} failed: {e}", path.display())))
 }
 
-/// `chown_by_name` that refuses to traverse a symlink at the final component.
+/// Largest file any of these helpers will read into memory.
 ///
-/// Use this whenever root chowns a path inside a directory the install user owns.
-/// The plain path-based chown follows links, so an agent that swaps a symlink in
-/// after we wrote the file gets the link's TARGET handed to it. Opening
-/// `O_NOFOLLOW|O_PATH` first pins the inode; `fchownat` on that handle cannot be
-/// redirected afterwards.
-pub fn chown_by_name_nofollow(path: &Path, owner: &str) -> io::Result<()> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let handle = fs::OpenOptions::new()
+/// These reads happen as ROOT on files the install user can replace at will. A
+/// sparse `~/.npmrc` of arbitrary size costs the agent nothing to create and would
+/// otherwise be read whole, OOM-killing the provisioner — or, worse, something
+/// else on the host. The real files are hundreds of bytes; 8 MiB is far past any
+/// legitimate `.npmrc`, `.bashrc` or `CLAUDE.md`.
+const MAX_CONFIG_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Open `path` for read+write, refusing anything that is not a plain, singly-linked
+/// regular file, and never following a symlink at the final component.
+///
+/// This is the one primitive for touching a file inside a directory the install
+/// user owns while running as root. Four hazards, all closed before the caller
+/// sees a handle:
+///
+/// - **symlink** → `O_NOFOLLOW` gives ELOOP. Following one lets root read
+///   `/etc/shadow` into an agent-readable file, or hand `/etc/ld.so.preload` to the
+///   agent.
+/// - **FIFO** → would block in `open(2)` forever with no writer. `O_RDWR` returns
+///   immediately on a FIFO where `O_RDONLY` blocks, and `O_NONBLOCK` covers the
+///   rest; the regular-file check then rejects it. Note the READ/WRITE MODE is what
+///   prevents the hang, not the fstat — a refactor to "open read-only" would
+///   reintroduce an unbounded root-side hang before any check could run.
+/// - **hardlink** (`nlink > 1`) → a hardlink is a regular file and passes every
+///   other test, so `ln /etc/shadow ~/.npmrc` would otherwise work. The kernel's
+///   `fs.protected_hardlinks` normally prevents creating it, but that is a sysctl
+///   an operator can disable and nothing here should depend on it silently.
+/// - **oversized** → see `MAX_CONFIG_BYTES`.
+///
+/// One invariant this CANNOT enforce, stated so it is not forgotten: `O_NOFOLLOW`
+/// constrains only the FINAL component. Every ancestor must be root-owned. That
+/// holds today because homes are `/home/<user>` and `/home` is root-owned.
+fn open_regular_nofollow(path: &Path, doing: &str) -> io::Result<fs::File> {
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let file = fs::OpenOptions::new()
         .read(true)
-        .custom_flags(nix::fcntl::OFlag::O_NOFOLLOW.bits())
+        .write(true)
+        .custom_flags((nix::fcntl::OFlag::O_NOFOLLOW | nix::fcntl::OFlag::O_NONBLOCK).bits())
         .open(path)
         .map_err(|e| {
             if e.raw_os_error() == Some(nix::errno::Errno::ELOOP as i32) {
                 io::Error::new(
                     io::ErrorKind::InvalidInput,
-                    format!("refusing to chown {}: it is a symlink", path.display()),
+                    format!("refusing to {doing} {}: it is a symlink", path.display()),
                 )
             } else {
-                context(&e, "open for chown", path, None)
+                context(&e, &format!("open to {doing}"), path, None)
             }
         })?;
+
+    let md = file
+        .metadata()
+        .map_err(|e| context(&e, "stat the open handle for", path, None))?;
+    if !md.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "refusing to {doing} {}: it is not a regular file",
+                path.display()
+            ),
+        ));
+    }
+    if md.nlink() > 1 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "refusing to {doing} {}: it has {} hard links, so writing it would \
+                 modify another file (if this is a backup/dedup tool's doing, break \
+                 the link and re-run)",
+                path.display(),
+                md.nlink()
+            ),
+        ));
+    }
+    if md.size() > MAX_CONFIG_BYTES {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "refusing to {doing} {}: {} bytes exceeds the {MAX_CONFIG_BYTES}-byte \
+                 config limit",
+                path.display(),
+                md.size()
+            ),
+        ));
+    }
+    Ok(file)
+}
+
+/// Read a config file the install user can influence, as root, safely.
+///
+/// `Ok(None)` when absent — the normal first-run case. Every other hazard is an
+/// `Err` naming the path, never a silent empty read: a caller that treats "cannot
+/// read" as "no content" rewrites the file from scratch and destroys whatever was
+/// there.
+pub fn read_regular_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    use std::io::Read;
+    match open_regular_nofollow(path, "read") {
+        Ok(mut f) => {
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf)
+                .map_err(|e| context(&e, "read", path, None))?;
+            Ok(Some(buf))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(e),
+    }
+}
+
+/// `chown_by_name` that refuses to traverse a symlink at the final component.
+///
+/// Use this whenever root chowns a path inside a directory the install user owns.
+/// The plain path-based chown follows links, so an agent that swaps a symlink in
+/// after we wrote the file gets the link's TARGET handed to it. The open pins the
+/// inode; the `fchown` on that handle cannot be redirected afterwards.
+///
+/// It goes through `open_regular_nofollow`, which matters for two reasons beyond
+/// the symlink: a plain `O_RDONLY|O_NOFOLLOW` open BLOCKS INDEFINITELY on a FIFO
+/// (verified — `O_RDWR` returns immediately, `O_RDONLY` waits for a writer), so an
+/// agent who wins the window between a rename and this chown could wedge the
+/// provisioner forever as root; and without an `nlink` check a hardlink to a
+/// root-owned file is a regular non-symlink file that would be chowned to the
+/// agent, leaving `fs.protected_hardlinks` as a silent load-bearing dependency.
+pub fn chown_by_name_nofollow(path: &Path, owner: &str) -> io::Result<()> {
+    let handle = open_regular_nofollow(path, "chown")?;
     let (uid, gid) = resolve_owner(owner)?;
     nix::unistd::fchown(
         &handle,
@@ -758,7 +956,7 @@ pub fn visudo_validate(file: &Path) -> io::Result<()> {
 #[cfg(test)]
 mod sysio_tests {
     use super::*;
-    use std::os::unix::fs::MetadataExt;
+    use std::os::unix::fs::{MetadataExt, PermissionsExt};
     use tempfile::TempDir;
 
     fn mode_of(p: &Path) -> u32 {
@@ -780,6 +978,77 @@ mod sysio_tests {
             .map(|g| g.name)
             .unwrap_or_else(|| u.clone());
         format!("{u}:{g}")
+    }
+
+    /// REGRESSION: `ensure_dir` must not follow a symlink at the target.
+    ///
+    /// Eight call sites are directories inside the install user's own home. The
+    /// path-based shape gave a full root-compromise primitive needing NO race:
+    /// `ln -s /etc ~/.local` and the next `provision` did `chmod 0755 /etc` +
+    /// `chown agent:agent /etc`. `fs.protected_symlinks` does not cover this — it
+    /// guards world-writable sticky dirs, and it gates open(2), not chmod/chown.
+    #[test]
+    fn ensure_dir_refuses_a_symlink_and_leaves_the_target_alone() {
+        let td = TempDir::new().unwrap();
+        let victim = td.path().join("etc-stand-in");
+        fs::create_dir(&victim).unwrap();
+        fs::set_permissions(&victim, fs::Permissions::from_mode(0o700)).unwrap();
+        let link = td.path().join(".local");
+        std::os::unix::fs::symlink(&victim, &link).unwrap();
+
+        let err = ensure_dir(&link, 0o755, &self_owner())
+            .expect_err("a symlink at the target must be refused, not followed");
+        assert!(err.to_string().contains("symlink"), "err={err}");
+        assert_eq!(
+            mode_of(&victim),
+            0o700,
+            "followed the symlink and chmod'd the target — as root this hands over /etc"
+        );
+    }
+
+    /// The ordinary cases still work: a real directory gets its mode asserted on
+    /// both the create and the already-present arm.
+    #[test]
+    fn ensure_dir_creates_and_reasserts_mode() {
+        let td = TempDir::new().unwrap();
+        let d = td.path().join("nested/dir");
+        ensure_dir(&d, 0o755, &self_owner()).unwrap();
+        assert_eq!(mode_of(&d), 0o755);
+
+        fs::set_permissions(&d, fs::Permissions::from_mode(0o700)).unwrap();
+        ensure_dir(&d, 0o755, &self_owner()).unwrap();
+        assert_eq!(
+            mode_of(&d),
+            0o755,
+            "drift was not corrected on the present arm"
+        );
+    }
+
+    /// A world-writable config file must be narrowed, not left alone. The
+    /// mode-preserving fix went too far in the other direction: the code it
+    /// replaced forced 0644 every run, which accidentally repaired a 0666
+    /// `~/.npmrc`. Leaving that writable lets any local account inject `prefix=` or
+    /// npm's `script-shell` into a file we then chown to the agent.
+    #[test]
+    fn ensure_line_narrows_a_world_writable_file_but_keeps_a_tight_one() {
+        let td = TempDir::new().unwrap();
+
+        let loose = td.path().join("loose-npmrc");
+        fs::write(&loose, b"# brownfield\n").unwrap();
+        fs::set_permissions(&loose, fs::Permissions::from_mode(0o666)).unwrap();
+        ensure_line_in_owned_file("prefix=/x", &loose, &self_owner(), 0o644).unwrap();
+        assert_eq!(
+            mode_of(&loose) & 0o022,
+            0,
+            "left a world-writable file we then chowned to the agent"
+        );
+
+        // A deliberately TIGHT file keeps its mode — narrowing must not widen.
+        let tight = td.path().join("tight-npmrc");
+        fs::write(&tight, b"//registry/:_authToken=s\n").unwrap();
+        fs::set_permissions(&tight, fs::Permissions::from_mode(0o600)).unwrap();
+        ensure_line_in_owned_file("prefix=/x", &tight, &self_owner(), 0o644).unwrap();
+        assert_eq!(mode_of(&tight), 0o600, "widened a token file");
     }
 
     // --- create_if_absent_0644 symlink safety ---
