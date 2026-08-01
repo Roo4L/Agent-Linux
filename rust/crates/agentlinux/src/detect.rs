@@ -207,6 +207,13 @@ fn probe_env(home: &str) -> Vec<(String, String)> {
 /// `cargo test`, and surfaces as a wrong REUSE verdict in QEMU.
 pub type LoginRun = fn(user: &str, home: &str, script: &str) -> (i32, String);
 
+/// Not mutation-tested: the production adapter behind [`LoginRun`] (ADR-019 §5).
+/// It shells out through `dispatcher::as_user`, i.e. a real `sudo -u` hop to a
+/// login shell — which is exactly why `LoginRun` is a type alias and not a
+/// direct call, so the fallback chain in [`probe_one`] is reachable from a test
+/// without one. The env it hands the child is asserted through [`probe_env`],
+/// and the argv shape through the dispatcher's own tests.
+#[cfg_attr(test, mutants::skip)]
 fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
     let argv: Vec<String> = ["bash", "--login", "-c", script]
         .iter()
@@ -559,6 +566,166 @@ mod detect_tests {
         );
     }
 
+    // --- probe_one: the resolve gate, the legacy --help gate, the gsd fallback ---
+
+    fn found(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        if script.starts_with("command -v") {
+            (0, "/home/agent/.local/bin/tool".to_string())
+        } else if script.contains("--help") {
+            (0, String::new())
+        } else {
+            (0, "1.2.3".to_string())
+        }
+    }
+    fn found_but_help_fails(_u: &str, _h: &str, script: &str) -> (i32, String) {
+        if script.starts_with("command -v") {
+            (0, "/home/agent/.local/bin/tool".to_string())
+        } else if script.contains("--help") {
+            (1, String::new())
+        } else {
+            (0, "1.2.3".to_string())
+        }
+    }
+    fn nonzero_rc(_u: &str, _h: &str, _script: &str) -> (i32, String) {
+        (1, "/home/agent/.local/bin/tool".to_string())
+    }
+    fn empty_stdout(_u: &str, _h: &str, _script: &str) -> (i32, String) {
+        (0, String::new())
+    }
+
+    /// A binary counts as resolved only when `command -v` BOTH exits 0 AND names
+    /// a path. `replace && with ||` survived, and so did inverting the `rc == 0`:
+    /// either way a failed lookup that happens to print something, or a success
+    /// that prints nothing, is treated as an installed agent — and the record
+    /// goes into the detect cache that REUSE-03 and REMEDIATE-04 later read.
+    #[test]
+    fn a_binary_is_resolved_only_on_exit_zero_and_a_path() {
+        let ok = probe_one(found, "agent", "/home/agent", "rtk", "rtk");
+        assert_eq!(ok.status, "healthy");
+        assert_eq!(ok.path, "/home/agent/.local/bin/tool");
+
+        for (run, why) in [
+            (nonzero_rc as LoginRun, "non-zero rc with a path on stdout"),
+            (empty_stdout as LoginRun, "exit 0 with no path"),
+        ] {
+            let rec = probe_one(run, "agent", "/home/agent", "rtk", "rtk");
+            assert_eq!(rec.status, "absent", "{why} must not resolve");
+            assert_eq!(rec.path, "", "{why} must leave the path empty");
+        }
+    }
+
+    /// The three legacy ids gate health on `--help` exiting 0 as well as on a
+    /// parsed version; every other id does not. Without this, a legacy agent
+    /// whose `--help` is broken still reports healthy.
+    #[test]
+    fn only_legacy_ids_are_gated_on_help_exiting_zero() {
+        let legacy = probe_one(
+            found_but_help_fails,
+            "agent",
+            "/home/agent",
+            "claude-code",
+            "claude",
+        );
+        assert_eq!(
+            legacy.status, "broken",
+            "a legacy id with a failing --help is broken even with a version"
+        );
+        assert_eq!(legacy.version, "1.2.3", "the version still parses");
+
+        let generic = probe_one(found_but_help_fails, "agent", "/home/agent", "rtk", "rtk");
+        assert_eq!(
+            generic.status, "healthy",
+            "a non-legacy id is not gated on --help"
+        );
+    }
+
+    // --- the gsd deployed-VERSION fallback, owner-gated ---
+
+    fn me() -> String {
+        nix::unistd::User::from_uid(nix::unistd::getuid())
+            .ok()
+            .flatten()
+            .map(|u| u.name)
+            .expect("the test process has a passwd entry")
+    }
+
+    /// GSD's binary is a bootstrapper, so an absent binary still counts as
+    /// present when the deployed VERSION file is there — but ONLY when that file
+    /// is owned by the install user, because a planted symlink to a root-owned
+    /// file would otherwise be read as GSD's version.
+    ///
+    /// `delete !` survived on that owner gate, which inverts it exactly: the
+    /// files we own are refused and the foreign-owned ones are accepted.
+    #[test]
+    fn the_gsd_version_fallback_is_owner_gated_and_classifies_by_body() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("VERSION");
+
+        std::fs::write(&f, "1.37.1\n").unwrap();
+        let rec = gsd_version_file_record(&me(), f.to_str().unwrap())
+            .expect("a file we own must be accepted");
+        assert_eq!(rec.id, "gsd");
+        assert_eq!(rec.version, "1.37.1");
+        assert_eq!(rec.status, "healthy");
+
+        // Present and ours, but empty → present-but-broken, not absent.
+        std::fs::write(&f, "   \n\t\n").unwrap();
+        let rec = gsd_version_file_record(&me(), f.to_str().unwrap())
+            .expect("an empty file is still a presence signal");
+        assert_eq!(rec.version, "");
+        assert_eq!(rec.status, "broken");
+
+        // Owned by someone else → refused. A name with no passwd entry cannot
+        // match the file's uid, which is the same rejection path a foreign owner
+        // takes, without needing a second real account on the runner.
+        assert!(
+            gsd_version_file_record("no-such-user-agentlinux-fixture", f.to_str().unwrap())
+                .is_none(),
+            "a file not owned by the install user must be refused"
+        );
+
+        assert!(
+            gsd_version_file_record(&me(), dir.path().join("absent").to_str().unwrap()).is_none(),
+            "a missing VERSION file is absent, not broken"
+        );
+    }
+
+    /// The child env for the login-shell probe hop. Five mutants survived here,
+    /// every one of them replacing the whole vector — empty, or a fabricated
+    /// pair. An empty env means the probe child gets no PATH, so `command -v`
+    /// fails for every agent and a fully-provisioned host reports as greenfield.
+    ///
+    /// Also pins the documented invariant that only `AGENTLINUX_*` is forwarded:
+    /// the comment above the function reasons that those are all path/config
+    /// seams and never secrets, and nothing enforced the filter that makes the
+    /// claim true.
+    #[test]
+    fn the_probe_child_env_carries_path_home_and_only_agentlinux_seams() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_CATALOG_DIR", "/opt/fixture/catalog");
+        env_scope.set("NOT_AGENTLINUX_SECRET", "hunter2");
+
+        let env = probe_env("/home/agent");
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+
+        assert_eq!(get("HOME").as_deref(), Some("/home/agent"));
+        let path = get("PATH").expect("the child must get a PATH");
+        assert!(
+            path.contains("/home/agent/.local/bin") && path.contains("/home/agent/.npm-global/bin"),
+            "both agent-owned bin dirs must resolve before the profile loads, got {path:?}"
+        );
+
+        assert_eq!(
+            get("AGENTLINUX_CATALOG_DIR").as_deref(),
+            Some("/opt/fixture/catalog"),
+            "the seams the parent runs under must reach the probe child"
+        );
+        assert!(
+            get("NOT_AGENTLINUX_SECRET").is_none(),
+            "only AGENTLINUX_* is forwarded — the invariant the doc comment rests on"
+        );
+    }
+
     #[test]
     fn extract_semver_finds_first_match() {
         assert_eq!(extract_semver("1.2.3").as_deref(), Some("1.2.3"));
@@ -578,6 +745,36 @@ mod detect_tests {
         // No 3-part semver → None (adversarial / non-version output).
         assert_eq!(extract_semver("no version here 12.9"), None);
         assert_eq!(extract_semver(""), None);
+    }
+
+    /// Each of the three digit runs must consume at least one digit.
+    ///
+    /// `replace > with >=` survived on the `digits` closure's "did I consume
+    /// anything?" return. Relaxed, an EMPTY digit run counts as a match, so a
+    /// dotted string with missing components parses as a version: `1..2` becomes
+    /// the reported version of an installed agent, and every downstream semver
+    /// comparison — divergence, the compatibility window, the upgrade decision —
+    /// is then made against a string that is not a version.
+    #[test]
+    fn a_component_with_no_digits_is_not_a_version() {
+        for text in [
+            "1..2",   // MINOR empty
+            "1.2..",  // PATCH empty
+            "1..",    // both empty
+            "1..2.3", // empty MINOR, digits after
+            "v1..0",  // the leading-v form the probes actually emit
+        ] {
+            assert_eq!(
+                extract_semver(text),
+                None,
+                "{text:?} has an empty component and is not a semver"
+            );
+        }
+
+        // The neighbouring well-formed cases still match, so the guard is not
+        // merely rejecting everything.
+        assert_eq!(extract_semver("1.0.2").as_deref(), Some("1.0.2"));
+        assert_eq!(extract_semver("x1.2.3y").as_deref(), Some("1.2.3"));
     }
 
     #[test]

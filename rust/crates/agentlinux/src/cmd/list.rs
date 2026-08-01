@@ -386,6 +386,107 @@ mod list_tests {
         }
     }
 
+    /// The INSTALLED cell is a priority chain, and the ORDER is the contract:
+    /// broken-after-remediate beats reused-with-warning beats reused beats drift
+    /// beats present. Deleting either of the first two match arms survived —
+    /// each silently demotes a row to the next suffix down, so a
+    /// half-uninstalled agent needing manual recovery renders as an ordinary
+    /// reuse, and an operator is told nothing is wrong.
+    #[test]
+    fn the_installed_cell_branch_order_is_the_contract() {
+        // Every flag below is set at once, so each case can only be produced by
+        // its OWN arm winning — not by being the last one standing.
+        let loaded = |status: Option<&str>| {
+            let mut r = row("claude-code");
+            r.installed = "2.1.0".to_string();
+            r.sentinel_status = status.map(str::to_string);
+            r.decline_reason = Some("npm prefix busy".to_string());
+            r.reused = true;
+            r.drifted = true;
+            r.sentinel_version = Some("2.0.0".to_string());
+            r.present = true;
+            r.present_adoptable = true;
+            r
+        };
+
+        assert_eq!(
+            installed_cell(&loaded(Some("broken-after-remediate"))),
+            format!("2.1.0{BROKEN_AFTER_REMEDIATE_SUFFIX}"),
+            "broken-after-remediate outranks every other signal"
+        );
+        assert_eq!(
+            installed_cell(&loaded(Some("reused-with-warning"))),
+            format!("2.1.0{}", reused_with_warning_suffix("npm prefix busy")),
+            "reused-with-warning outranks plain reuse, and carries the reason"
+        );
+        assert_eq!(
+            installed_cell(&loaded(None)),
+            format!("2.1.0{REUSED_SUFFIX}"),
+            "with neither status set, plain reuse wins over drift and present"
+        );
+
+        // Drift is only reportable when there is a recorded version to name.
+        let mut d = row("gsd");
+        d.installed = "1.8.0".to_string();
+        d.drifted = true;
+        d.sentinel_version = Some("1.7.0".to_string());
+        assert_eq!(
+            installed_cell(&d),
+            format!("1.8.0{}", drift_suffix("1.7.0")),
+            "drift names the version AgentLinux recorded"
+        );
+        d.sentinel_version = None;
+        assert_eq!(
+            installed_cell(&d),
+            "1.8.0",
+            "drift with no recorded version has nothing to report — the `&&` in \
+             that guard is what stops it printing `self-updated from `"
+        );
+    }
+
+    /// The three generated suffixes are byte-exact acceptance contracts: the
+    /// bats suite greps them with `grep -qF`. Each could be replaced wholesale
+    /// with an empty or junk string and nothing noticed.
+    #[test]
+    fn the_generated_suffixes_are_byte_exact() {
+        assert_eq!(
+            reused_with_warning_suffix("EACCES on prefix"),
+            " (reused — declined remediation: EACCES on prefix; manual fix needed)"
+        );
+        assert_eq!(
+            drift_suffix("1.2.3"),
+            " (self-updated from 1.2.3 — run: agentlinux upgrade to reconcile)"
+        );
+        assert_eq!(
+            present_reconcile_suffix("rtk"),
+            " (detected out-of-window — run: agentlinux install rtk to manage)"
+        );
+        // The em-dash is load-bearing in all three, as it is in REUSED_SUFFIX.
+        for suffix in [
+            reused_with_warning_suffix("x"),
+            drift_suffix("x"),
+            present_reconcile_suffix("x"),
+        ] {
+            assert!(suffix.contains('\u{2014}'), "{suffix:?} lost its em-dash");
+        }
+    }
+
+    /// Every `Status` renders as the kebab string the JSON and the text table
+    /// both carry. Replacing the whole function with "" or junk survived.
+    #[test]
+    fn every_status_has_its_kebab_string() {
+        for (s, want) in [
+            (Status::NotInstalled, "not-installed"),
+            (Status::Synced, "synced"),
+            (Status::DriftUndeclared, "drift-undeclared"),
+            (Status::OverrideAhead, "override-ahead"),
+            (Status::OverrideBehind, "override-behind"),
+            (Status::PinnedOverride, "pinned-override"),
+        ] {
+            assert_eq!(status_str(s), want);
+        }
+    }
+
     #[test]
     fn reused_suffix_carries_the_literal_em_dash() {
         // U+2014 em-dash is a load-bearing byte.
