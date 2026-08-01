@@ -938,6 +938,140 @@ mod upgrade_tests {
 
     // --- reconcile loop: continue-on-failure never aborts, exit 0 ---
 
+    /// Drive the reconcile loop and hand back what the operator would have seen.
+    fn run_upgrade(o_args: UpgradeArgs, deps: UpgradeDeps) -> (ExitCode, String, String) {
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = upgrade_with(
+            &o_args,
+            deps,
+            &mut crate::cmd::install::Out {
+                out: &mut out,
+                err: &mut err,
+            },
+        );
+        (
+            code,
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        )
+    }
+
+    /// The reconcile loop's per-sentinel notices and its failure reporting.
+    /// Seven mutants lived in here, every one of them only observable in what
+    /// the operator is told:
+    ///
+    /// * the two `status ==` tests decide WHICH notice fires — a reused install
+    ///   being upgraded, versus one deliberately left alone because the operator
+    ///   declined its remediation. Swapping them tells the operator the opposite
+    ///   of what happened.
+    /// * `delete !` on the two `is_empty` checks either drops a failing recipe's
+    ///   stderr — the only diagnosis of why an upgrade failed — or prints an
+    ///   empty line in its place on every success.
+    #[test]
+    fn the_reconcile_loop_reports_what_it_did_to_each_sentinel() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog_two(cat.path());
+        env_scope.set("AGENTLINUX_CATALOG_DIR", cat.path());
+        env_scope.set("AGENTLINUX_STATE_DIR", state.path());
+        env_scope.set("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+
+        // a-agent was adopted; b-agent's remediation was declined.
+        let mut a = Sentinel::new("a-agent".into(), "1.0.0".into(), "override".into(), false);
+        a.status = Some("reused".to_string());
+        a.binary_path = Some("/nonexistent/gone".to_string());
+        sentinel::write_sentinel(&a).unwrap();
+        let mut b = Sentinel::new("b-agent".into(), "1.0.0".into(), "override".into(), false);
+        b.status = Some("reused-with-warning".to_string());
+        b.decline_reason = Some("prefix busy".to_string());
+        sentinel::write_sentinel(&b).unwrap();
+
+        let (code, out, _err) = run_upgrade(
+            opts(true, false, false, false, false),
+            UpgradeDeps {
+                dispatch: |_u, _p, _e, _s| DispatchResult {
+                    exit_code: 0,
+                    stdout: "recipe said hello".to_string(),
+                    stderr: String::new(),
+                    streamed: false,
+                },
+                query_global_npm: empty_npm,
+                query_npm_view_latest: no_latest,
+            },
+        );
+        assert_eq!(code, ExitCode::SUCCESS);
+        assert!(
+            out.contains("a-agent: upgrading reused install"),
+            "an adopted install being upgraded must say so:\n{out}"
+        );
+        assert!(
+            out.contains("b-agent: skipping upgrade for reused-with-warning")
+                && out.contains("prefix busy"),
+            "a declined remediation must be reported as SKIPPED, with its reason:\n{out}"
+        );
+        assert!(
+            out.contains("recipe said hello"),
+            "a recipe's own stdout reaches the operator:\n{out}"
+        );
+
+        // Re-seed: the successful run above rewrote both sentinels to curated, so
+        // nothing would be diverged for the next one to reconcile.
+        sentinel::write_sentinel(&a).unwrap();
+        sentinel::write_sentinel(&b).unwrap();
+
+        // A failing recipe: its stderr is the only diagnosis there is.
+        let (code, _out, err) = run_upgrade(
+            opts(true, false, false, false, false),
+            UpgradeDeps {
+                dispatch: |_u, _p, _e, _s| DispatchResult {
+                    exit_code: 3,
+                    stdout: String::new(),
+                    stderr: "npm EACCES on prefix".to_string(),
+                    streamed: false,
+                },
+                query_global_npm: empty_npm,
+                query_npm_view_latest: no_latest,
+            },
+        );
+        assert_eq!(
+            code,
+            ExitCode::SUCCESS,
+            "per-entry failure never aborts the run"
+        );
+        assert!(
+            err.contains("recipe failed (exit 3)") && err.contains("npm EACCES on prefix"),
+            "the failure and its cause must both reach the operator:\n{err}"
+        );
+    }
+
+    /// A catalog that will not load is a hard exit 1, not a silent success.
+    /// `replace upgrade_with -> ExitCode with Default::default()` survived, and
+    /// `Default` is SUCCESS — so a broken catalog would report as a clean run.
+    #[test]
+    fn an_unreadable_catalog_fails_the_run() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let empty = tempdir().unwrap();
+        env_scope.set("AGENTLINUX_CATALOG_DIR", empty.path()); // no catalog.json
+        env_scope.set("AGENTLINUX_STATE_DIR", empty.path());
+
+        let (code, _out, err) = run_upgrade(
+            opts(false, false, false, false, false),
+            UpgradeDeps {
+                dispatch: |_u, _p, _e, _s| DispatchResult {
+                    exit_code: 0,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    streamed: false,
+                },
+                query_global_npm: empty_npm,
+                query_npm_view_latest: no_latest,
+            },
+        );
+        assert_eq!(code, ExitCode::from(1), "a missing catalog is a failure");
+        assert!(!err.is_empty(), "and it says why:\n{err}");
+    }
+
     fn write_catalog_two(dir: &std::path::Path) {
         // Two script agents so a first-entry recipe failure can be observed to NOT
         // abort the second.
