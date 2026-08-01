@@ -1828,7 +1828,14 @@ for a in "$@"; do
   if [ "$a" = "--list" ]; then echo "src/x.rs:1:1: replace a with b"; exit 0; fi
 done
 trap '' TERM
-sleep 30
+# Short slices rather than one `sleep 30`. GNU timeout signals the child's
+# PROCESS GROUP, so a single long sleep normally dies with its parent — but that
+# is a platform detail, and where it does not hold the orphaned sleep keeps the
+# gate's stdout pipe open for its full duration and the gate appears un-killed.
+# ubuntu-26.04 took the whole 30s on exactly this. Slices bound any orphan to
+# ~0.2s, so the assertion measures the KILL, not the process-group semantics.
+deadline=$((SECONDS + 30))
+while [ "$SECONDS" -lt "$deadline" ]; do sleep 0.2; done
 EOF
   chmod +x "$BIN/cargo"
   local start end
