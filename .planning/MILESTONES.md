@@ -26,7 +26,7 @@ rounds of maintainer dogfood UX fixes and a Codex-driven QA remediation pass.
 - **Codex QA campaign (phases 50–52):** OpenAI's Codex CLI ran the black-box
   `qa-testing` skill against the full catalog — 129 test ideas, 5 confirmed product
   bugs fixed (incl. F-006 Playwright silent exit-0, remediated with a status
-  adapter). Documented in `CODEX-QA-HACKATHON-REPORT.md` (referenced from README).
+  adapter). Documented in `docs/CODEX-QA-HACKATHON-REPORT.md` (referenced from README).
 - **Passive-autoupdate freeze (ENABLE-08):** background self-update paths for
   opencode/gemini-class tools are frozen via each tool's own config, preserving the
   AgentLinux self-update-without-sudo invariant.

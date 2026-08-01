@@ -73,7 +73,6 @@ agent-linux/                            # Workspace root
 │       ├── test.yml                    # Docker test matrix on every PR
 │       ├── nightly-qemu.yml            # QEMU release-gate suite
 │       └── release.yml                 # Tag → build reproducible musl tarball → GitHub Release
-└── packer/                             # (existing v0.2.0 — retired with pivot, keep for reference)
 ```
 
 **Key decisions:**
@@ -82,7 +81,6 @@ agent-linux/                            # Workspace root
 - **`plugin/` is the shippable artifact.** Everything in `plugin/` is what goes into the release tarball. `packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux provision`.
 - **`tests/` is separate from `plugin/`.** Tests never ship. Black-box: they run against an *installed* `plugin/`, not against source.
 - **`docs/` for reference, `.planning/` for workflow state.** Identical routing rule to the reference: if the output of a task is a document intended to be read later (ADR, research report, design proposal, review summary), it goes in `docs/`, even as a draft. `.planning/` holds PLAN.md, STATE.md, config — workflow machinery, not documentation.
-- **Existing `packer/` stays in-tree as read-only reference** until v0.3.1 when we can decide whether to delete it. It documents the retired distro path and contains provisioner scripts that inform the plugin's installer logic.
 
 ### 1.2 Code Quality: Pre-commit
 
