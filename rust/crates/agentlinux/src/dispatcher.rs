@@ -48,6 +48,18 @@ const KILL_GRACE: Duration = Duration::from_millis(2000);
 /// deadlock the child.
 const MAX_CAPTURE: usize = 10 * 1024 * 1024;
 
+/// Whether the capture buffer may still grow.
+///
+/// A named predicate rather than an inline `acc.len() < MAX_CAPTURE`, because
+/// the BOUNDARY is the contract and it is otherwise only reachable by producing
+/// ten megabytes of child output: `<` vs `<=` differ on exactly one byte, at a
+/// size no test is going to generate. Past the cap the live tee still forwards
+/// every byte and the pipe is still drained to EOF — only the retained String
+/// stops growing.
+const fn may_accumulate(len: usize) -> bool {
+    len < MAX_CAPTURE
+}
+
 /// How a dispatched child's output is handled — and, as a direct consequence,
 /// what a timeout reports as its exit code.
 ///
@@ -393,6 +405,11 @@ enum TeeSink {
 
 impl TeeSink {
     /// Forward one chunk to the parent stream.
+    ///
+    /// Not mutation-tested: it writes to the process's real stdout/stderr
+    /// (ADR-019 §5). Which sink a stream tees to is decided by the caller and
+    /// asserted there; there is nothing here but the write itself.
+    #[cfg_attr(test, mutants::skip)]
     fn write(self, bytes: &[u8]) {
         use std::io::Write;
         match self {
@@ -433,7 +450,7 @@ fn spawn_reader<R: Read + Send + 'static>(
                 match r.read(&mut buf) {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
-                        if acc.len() < MAX_CAPTURE {
+                        if may_accumulate(acc.len()) {
                             acc.push_str(&String::from_utf8_lossy(&buf[..n]));
                         }
                         if let Some(sink) = sink {
@@ -476,6 +493,57 @@ pub fn dispatch_recipe(
 mod dispatcher_tests {
     use super::*;
     use nix::unistd::{getuid, User};
+
+    /// The capture cap is a memory bound on an unattended path — the buffered
+    /// `npm ls -g --json` probe that `upgrade` runs. Its arithmetic could be
+    /// mutated (`*` to `+` or `/`) to 10250 bytes or 10240 KiB with nothing
+    /// noticing, and the `<` could become `<=`.
+    ///
+    /// Ten megabytes of child output is not something a test will generate, so
+    /// the bound and its boundary are asserted directly instead.
+    #[test]
+    fn the_capture_cap_is_ten_megabytes_and_stops_at_it() {
+        assert_eq!(MAX_CAPTURE, 10 * 1024 * 1024, "10 MiB, not 10 KiB or 10250");
+
+        assert!(may_accumulate(0));
+        assert!(may_accumulate(MAX_CAPTURE - 1), "one byte short still fits");
+        assert!(
+            !may_accumulate(MAX_CAPTURE),
+            "AT the cap the buffer stops growing — `<=` would let it exceed"
+        );
+        assert!(!may_accumulate(MAX_CAPTURE + 1));
+    }
+
+    /// `is_streamed` is what `DispatchResult::streamed` carries, and callers use
+    /// it to decide whether output already reached the console. Both constant
+    /// replacements survived.
+    #[test]
+    fn only_the_streamed_capture_reports_as_streamed() {
+        assert!(Capture::Streamed.is_streamed());
+        assert!(!Capture::Buffered.is_streamed());
+    }
+
+    /// The sudo hop is skipped only when the invoker IS the target user.
+    /// `replace == with !=` survived because every test that goes through
+    /// `as_user` necessarily runs as the current user and takes the
+    /// short-circuit — so the sudo arm was never executed by any assertion that
+    /// looked at it. Inverted, a same-user call gets a pointless sudo hop and a
+    /// cross-user call runs as the WRONG user.
+    #[test]
+    fn the_sudo_hop_is_taken_only_when_the_user_differs() {
+        let argv = vec!["node".to_string(), "--version".to_string()];
+
+        let same = resolve_argv_for("agent", "agent", &argv);
+        assert_eq!(same, argv, "no hop when the invoker is already the target");
+
+        let cross = resolve_argv_for("root", "agent", &argv);
+        assert_eq!(cross[0], "sudo");
+        assert_eq!(&cross[1..4], &["-u", "agent", "-H"]);
+        assert!(
+            cross.ends_with(&argv),
+            "the original argv must survive the hop intact, got {cross:?}"
+        );
+    }
 
     /// The current username — invoker==target so `as_user` runs argv directly
     /// (no sudo), keeping these tests unprivileged and host-portable.
