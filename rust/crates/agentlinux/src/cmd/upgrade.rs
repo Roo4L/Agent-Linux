@@ -247,6 +247,11 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         agents.iter().map(|e| (e.id.clone(), e)).collect();
     let user = resolve_install_user();
 
+    // Counted over entries that actually reached a reinstall attempt — a `continue`
+    // above the dispatch is a decision not to touch that entry, not a failure.
+    let mut attempted = 0usize;
+    let mut failures = 0usize;
+
     for row in &rows {
         let id = &row.report.id;
         let sentinel = by_sentinel.get(id);
@@ -295,11 +300,12 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
 
         let recipe = recipe_path(&catalog_dir, id, &entry.install_recipe_path);
         println!("{id}: reinstalling at {version} ({source})");
+        attempted += 1;
         let env = recipe_child_env(entry, &version, &catalog_dir, &user);
-        // PARITY: the unattended upgrade sweep dispatches recipes UN-timed
-        // (matches upgradeCmd in TS). A hung recipe wedges the sweep; a future
-        // sweep-scoped timeout (NOT dispatcher-global — interactive install needs
-        // TTY prompts) would target these stream=false calls.
+        // Bounded: the production `dispatch` is `dispatcher::dispatch_recipe`,
+        // which carries `recipe_timeout_ms()` (default 30 min,
+        // `AGENTLINUX_RECIPE_TIMEOUT_MS`), so one wedged recipe can no longer
+        // wedge the sweep.
         let result = (deps.dispatch)(&user, &recipe, &env, Capture::Buffered);
         if result.exit_code != 0 {
             crate::plog!("{id}: recipe failed (exit {})", result.exit_code);
@@ -307,7 +313,9 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
                 crate::plog!("{}", result.stderr);
             }
             // Preserve the pre-upgrade sentinel — never mark "installed" on failure.
-            // continue — NEVER abort the whole run.
+            // continue — NEVER abort the whole run, but DO remember, so the final
+            // exit code tells an unattended caller the sweep was not clean.
+            failures += 1;
             continue;
         }
         if !result.stdout.is_empty() {
@@ -327,9 +335,28 @@ pub fn upgrade_with(opts: &UpgradeArgs, deps: UpgradeDeps) -> ExitCode {
         if let Err(e) = sentinel::write_sentinel(&s) {
             crate::plog!("agentlinux: failed to write sentinel for {id}: {e}");
             // Non-fatal for the run (a single write failure shouldn't abort the
-            // sweep) — continue like a per-entry recipe failure.
+            // sweep) — continue like a per-entry recipe failure. The recipe DID
+            // succeed, but the host now disagrees with its own record, which is
+            // exactly the kind of drift the exit code has to surface.
+            failures += 1;
             continue;
         }
+    }
+
+    // Continue-on-failure and report-success-afterwards are separable, and only
+    // the first is wanted. A scheduler reads the exit code and nothing else: an
+    // `upgrade --reset-all-curated` from a timer that reinstalled nothing because
+    // the registry was wedged wrote its diagnosis to stderr, where — the CLI verbs
+    // having no transcript — it reached the journal or an unread cron mail, and
+    // then reported success. Every entry is still attempted; the sweep just tells
+    // the truth at the end.
+    if failures > 0 {
+        crate::plog!(
+            "agentlinux upgrade: {failures} of {attempted} entr{} failed — see the \
+             per-entry lines above",
+            if attempted == 1 { "y" } else { "ies" }
+        );
+        return ExitCode::FAILURE;
     }
 
     ExitCode::SUCCESS
@@ -422,7 +449,6 @@ mod upgrade_tests {
             all_latest,
             check_upstream,
             json,
-            wait_lock: false,
         }
     }
 
@@ -611,7 +637,7 @@ mod upgrade_tests {
     }
 
     #[test]
-    fn reconcile_continue_on_failure_exits_zero_and_preserves_sentinel() {
+    fn reconcile_continue_on_failure_reports_failure_and_preserves_sentinel() {
         let _g = crate::test_support::env_guard();
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
@@ -641,10 +667,12 @@ mod upgrade_tests {
             query_global_npm: empty_npm,
             query_npm_view_latest: no_latest,
         };
-        // Overall exit 0 despite per-entry failures (continue, never abort).
+        // The sweep still visits EVERY entry (continue, never abort) — but a run in
+        // which every reinstall failed must not report success, because the exit
+        // code is the only signal an unattended scheduler reads.
         assert_eq!(
             upgrade_with(&opts(true, false, false, false, false), deps),
-            ExitCode::SUCCESS
+            ExitCode::FAILURE
         );
         // Sentinels PRESERVED (source stays override, not overwritten to curated).
         assert_eq!(
@@ -653,6 +681,66 @@ mod upgrade_tests {
         );
         assert_eq!(
             sentinel::read_sentinel("b-agent").unwrap().unwrap().source,
+            "override"
+        );
+
+        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+    }
+
+    /// The two halves of the contract, together: a partly-failing sweep must still
+    /// finish every entry (so one wedged agent cannot strand the rest) AND report
+    /// non-zero (so a timer or CI job sees that it was not clean). Asserting only
+    /// one of those lets the other regress silently — which is how the exit-0-on-
+    /// total-failure bug survived: `continue` was tested, the exit code was not.
+    #[test]
+    fn reconcile_finishes_every_entry_but_still_reports_partial_failure() {
+        let _g = crate::test_support::env_guard();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog_two(cat.path());
+        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+
+        for id in ["a-agent", "b-agent"] {
+            let mut s = Sentinel::new(id.into(), "1.0.0".into(), "override".into(), false);
+            s.status = Some("installed".to_string());
+            sentinel::write_sentinel(&s).unwrap();
+        }
+
+        // `a-agent` fails, `b-agent` succeeds — and a-agent sorts FIRST, so if the
+        // sweep aborted on failure b-agent would never be reached.
+        fn mixed(_u: &str, path: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
+            let fails = path.contains("a-agent");
+            DispatchResult {
+                exit_code: if fails { 9 } else { 0 },
+                stdout: String::new(),
+                stderr: if fails { "boom".into() } else { String::new() },
+                streamed: false,
+            }
+        }
+        let deps = UpgradeDeps {
+            dispatch: mixed,
+            query_global_npm: empty_npm,
+            query_npm_view_latest: no_latest,
+        };
+        assert_eq!(
+            upgrade_with(&opts(true, false, false, false, false), deps),
+            ExitCode::FAILURE,
+            "a sweep with a failed entry must not report success"
+        );
+        // The failure did not strand the entry behind it: b-agent was reinstalled
+        // and its sentinel rewritten to the curated source.
+        assert_eq!(
+            sentinel::read_sentinel("b-agent").unwrap().unwrap().source,
+            "curated",
+            "the sweep aborted instead of continuing past the failed entry"
+        );
+        // And the failed entry's own sentinel is untouched — never marked installed.
+        assert_eq!(
+            sentinel::read_sentinel("a-agent").unwrap().unwrap().source,
             "override"
         );
 

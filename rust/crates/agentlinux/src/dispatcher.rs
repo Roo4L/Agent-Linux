@@ -139,7 +139,7 @@ pub struct DispatchResult {
 
 /// Resolve the invoker's username: prefer the passwd entry for the real uid
 /// (matches Node's `userInfo().username`), fall back to `$USER`, else empty.
-fn invoker_username() -> String {
+pub(crate) fn invoker_username() -> String {
     if let Ok(Some(user)) = User::from_uid(getuid()) {
         return user.name;
     }

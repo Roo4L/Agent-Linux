@@ -309,6 +309,11 @@ fn install_file(src: &Path, dst: &Path, mode: u32, owner: &str) -> io::Result<()
     chown_path(&tmp, owner)?;
     fs::rename(&tmp, dst)?;
     guard.disarm();
+    // The content is durable (sync_all above); the directory entry the rename
+    // created is not until the directory itself is synced. Without this, a power
+    // loss can leave the staged `agentlinux` binary absent on the next boot even
+    // though provisioning reported success.
+    crate::sysio::sync_parent_dir(dst);
     Ok(())
 }
 
@@ -374,6 +379,10 @@ fn ln_sfn(target: &Path, link: &Path) -> io::Result<()> {
     std::os::unix::fs::symlink(target, &staging)?;
     fs::rename(&staging, link)?;
     guard.disarm();
+    // A symlink has no content to sync — the entry IS the object, so the directory
+    // fsync is the only thing that makes it durable. Losing it drops `agentlinux`
+    // off the install user's PATH on the next boot.
+    sysio::sync_parent_dir(link);
     Ok(())
 }
 

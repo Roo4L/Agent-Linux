@@ -202,8 +202,26 @@ fn node_major_version() -> io::Result<u32> {
     // also looked like — a node binary on a stalled NFS mount, or one that a
     // botched install left waiting on stdin, would hang the provisioner here with
     // no timeout and no diagnostic. 30s is far past any real answer.
+    //
+    // Dispatched at the INVOKER's own identity, which `resolve_argv` short-circuits
+    // to a direct spawn — no sudo hop, no dependency on any account existing yet.
+    // Two reasons this must not become a `sudo -u <install_user>` hop:
+    //
+    //   1. RT-01 asks whether the NodeSource install put the right `node` on the
+    //      SYSTEM path. Resolving it through a login shell's environment could
+    //      answer for some other runtime on that user's PATH instead — the gate
+    //      would then pass or fail for a binary it was never meant to judge.
+    //   2. Step 30 runs BEFORE step 40 writes `/etc/agentlinux.env`. Any resolution
+    //      that consults that file (`recipe_env::resolve_install_user`) still
+    //      reports the default `agent` here, so `--user claude` on a greenfield
+    //      host would probe an account step 10 never created, and RT-01 would
+    //      hard-fail naming the Node version rather than the real cause. That was
+    //      a live deterministic brick, not a hypothetical.
+    //
+    // `provision` is `guard::require_root`-gated, so the invoker is root and this
+    // is the direct branch in practice.
     let r = crate::dispatcher::as_user(
-        &crate::recipe_env::resolve_install_user(),
+        &crate::dispatcher::invoker_username(),
         &["node".to_string(), "--version".to_string()],
         &[],
         crate::dispatcher::Capture::Buffered,
@@ -261,6 +279,36 @@ mod nodejs_tests {
                 npm_prefix,
             },
         }
+    }
+
+    /// REGRESSION: the RT-01 probe must not resolve its identity from
+    /// `AGENTLINUX_USER` / `/etc/agentlinux.env`.
+    ///
+    /// Step 30 runs BEFORE step 40 writes `/etc/agentlinux.env`, so any resolution
+    /// that consults it reports the default `agent` no matter what `--user` said.
+    /// On a greenfield `provision --user claude`, step 10 creates `claude`, then
+    /// this probe would `sudo -u agent -- node --version` against an account that
+    /// does not exist, get a non-zero exit, map it to major 0, and hard-fail RT-01
+    /// with `node v0 installed but v22 LTS required` — an error naming the Node
+    /// version for what is really a user-resolution bug, and permanent, since step
+    /// 40 never runs to write the file that would have fixed the resolution.
+    ///
+    /// Pinned by pointing `AGENTLINUX_USER` at an account that cannot exist: the
+    /// probe must still answer for the node on THIS process's PATH.
+    #[test]
+    fn rt01_probe_ignores_agentlinux_user_and_answers_for_the_system_node() {
+        let _g = crate::test_support::env_guard();
+        if crate::sysio::which("node").is_none() {
+            return; // no node on PATH — the assertion below would be vacuous
+        }
+        std::env::set_var("AGENTLINUX_USER", "no-such-user-cf19a4");
+        let major = node_major_version().expect("probe must not error");
+        std::env::remove_var("AGENTLINUX_USER");
+        assert!(
+            major > 0,
+            "RT-01 probe resolved through AGENTLINUX_USER and got major 0 for a \
+             node that is on PATH — the greenfield --user brick is back"
+        );
     }
 
     // The RT-01 version parse: `v22.x` → 22, and a sub-22 / missing / garbage

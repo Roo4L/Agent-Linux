@@ -467,7 +467,24 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
         return exit;
     }
 
-    // 6. DECIDE phase: probe the host for the core components (REMEDIATE-01
+    // 6. --dry-run: print the pre-flight report, exit 0, ZERO mutation. The
+    //  per-agent decisions are computed by `emit_report` — the one place that
+    //  probe+gate loop runs.
+    //
+    //  This returns BEFORE the DECIDE phase, and must stay there. `decide_core`
+    //  resolves a `NeedsPrompt` verdict by asking the operator on /dev/tty, and
+    //  `check_flag_contradictions` forbids `--dry-run --yes`, so under `--dry-run`
+    //  consent can never be pre-granted. Running DECIDE first therefore let a
+    //  preview BLOCK indefinitely on a brownfield host with a drifted sudoers
+    //  drop-in or a mis-owned npm prefix — waiting for consent to a change it was
+    //  never going to apply, and then discarding the answer, since
+    //  `dry_run_report` takes no resolutions. A preview must never be able to
+    //  wedge an unattended orchestration step.
+    if args.dry_run {
+        return dry_run_report(&install_user, &install_home, &distro);
+    }
+
+    // 7. DECIDE phase: probe the host for the core components (REMEDIATE-01
     //  npm-prefix chown/rebase + REMEDIATE-03 sudoers drift), overwriting the
     //  default `Create` tokens with the real verdict and aggregating a bail when
     //  a state-overwriting remediation is refused (non-TTY, no --yes). ZERO
@@ -482,14 +499,6 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
         &mut resolutions,
         &mut bails,
     );
-
-    // 7. --dry-run: print the pre-flight report, exit 0, ZERO mutation. After the
-    //  DECIDE phase so the report reflects every decision the real install would
-    //  make. The per-agent decisions are computed by `emit_report` — the one
-    //  place that probe+gate loop runs.
-    if args.dry_run {
-        return dry_run_report(&install_user, &install_home, &distro);
-    }
 
     // 7b. Flush aggregated bails: if any core component resolved to an
     //  unconsented state-overwrite, print the [BAIL] lines + exit 65 (EX_DATAERR)
@@ -563,8 +572,12 @@ pub fn provision(args: &ProvisionArgs) -> ExitCode {
 /// Every rm target is a LITERAL absolute path; the ONLY `$VAR`'d target is the
 /// charset-validated install-user home, fed to `userdel -r` (NEVER `rm -rf $VAR`).
 /// Recipe paths derive from the catalog snapshot keyed by the sentinel BASENAME
-/// (a tampered sentinel cannot pick scripts to run as agent). Always
-/// exits 0.
+/// (a tampered sentinel cannot pick scripts to run as agent).
+///
+/// Never aborts early — every step runs whatever the ones before it did, because a
+/// half-torn-down host is worse than a fully-attempted one. But the exit code is
+/// honest: 0 only when nothing the purge targeted is still present, 1 when
+/// something survived (the account, `/opt/agentlinux`, or a `/etc` drop-in).
 fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
     crate::plog!("agentlinux provision: running --purge (destructive) — install user '{user}'");
 
@@ -624,8 +637,20 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
         }
     }
 
+    // A teardown that leaves something behind must not report success: the operator
+    // reads `$?`, and an automated teardown-then-reprovision has nothing else to go
+    // on. Every removal below still runs regardless of what failed before it —
+    // `--purge` gets the host as clean as it can — but each one that leaves its
+    // target in place is recorded here and turns the final exit code non-zero.
+    // "Already absent" is the goal state, not a failure; only a path that still
+    // EXISTS after we tried to remove it counts.
+    let mut leftovers: Vec<String> = Vec::new();
+
     // Step 2: remove /opt/agentlinux (CLI dist, catalog snapshot, state) — LITERAL.
     let _ = std::fs::remove_dir_all("/opt/agentlinux");
+    if std::path::Path::new("/opt/agentlinux").exists() {
+        leftovers.push("/opt/agentlinux".to_string());
+    }
 
     // Step 3 + 3.5: PATH artefacts + the sudoers drop-in — all LITERAL paths.
     for f in [
@@ -635,6 +660,12 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
         "/etc/sudoers.d/agentlinux",
     ] {
         let _ = std::fs::remove_file(f);
+        // The sudoers drop-in is the one that matters most: a surviving
+        // `NOPASSWD: ALL` grant on a host the operator believes is torn down is a
+        // standing privilege the purge was supposed to revoke.
+        if std::path::Path::new(f).exists() {
+            leftovers.push(f.to_string());
+        }
     }
 
     // Step 4: NodeSource repo files — the single source of truth shared with the
@@ -655,11 +686,29 @@ fn run_purge(user: &str, home: &str, remove_nodejs: bool) -> ExitCode {
     // Step 6: remove the install user + its home. The name is charset-validated
     // upstream, so it is safe as a `userdel -r` argument (NEVER `rm -rf $VAR`).
     remove_install_user(user);
+    // Re-probe rather than trusting the exit code: `userdel -rf` can report failure
+    // while having removed the account, and can report success on some paths while
+    // leaving it. What the next run cares about is whether the account is gone.
+    if crate::provision::probe::user_exists(user) {
+        leftovers.push(format!("user '{user}'"));
+    }
 
-    // Step 7: LAST — remove the install log (LITERAL path).
+    // Step 7: LAST — remove the install log (LITERAL path). Note this unlinks the
+    // transcript this function has been writing to, so anything below reaches
+    // stderr only — which is why the verdict is computed and logged FIRST.
+    if leftovers.is_empty() {
+        crate::plog!("agentlinux provision: --purge complete");
+        let _ = std::fs::remove_file(log::log_path());
+        return ExitCode::SUCCESS;
+    }
+
+    crate::plog!(
+        "agentlinux provision: --purge INCOMPLETE — still present: {}. The host is \
+         NOT fully torn down; re-run --purge or remove these by hand.",
+        leftovers.join(", ")
+    );
     let _ = std::fs::remove_file(log::log_path());
-    crate::plog!("agentlinux provision: --purge complete");
-    ExitCode::SUCCESS
+    ExitCode::FAILURE
 }
 
 /// Remove the install user + home via `userdel -r` (run_purge:438-445). `pkill -u`
@@ -781,7 +830,6 @@ mod provision_tests {
             remove_nodejs: false,
             report_format: None,
             verbose: false,
-            wait_lock: false,
         }
     }
 

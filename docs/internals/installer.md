@@ -151,9 +151,11 @@ from the run that failed.
 **One install at a time.** Provisioning and the commands that change state —
 `agentlinux install`, `remove`, `upgrade`, `adopt`, `pin` — take a host-wide lock
 at `/run/lock/agentlinux.lock`. A second one started while the first is running is
-refused immediately, and the error names that file, rather than interleaving two
-runs over the same npm prefix. Pass `--wait-lock` to queue behind the running
-operation instead — the form to use from automation. `agentlinux list` takes no
+refused immediately with exit code 75 (`EX_TEMPFAIL`, the conventional "try again
+later"), and the error names that file, rather than interleaving two runs over the
+same npm prefix. There is deliberately no queue-and-wait flag: from automation,
+wrap the call — `until agentlinux install x; do sleep 10; done` — which is more
+flexible than any retry cap the tool could hardcode. `agentlinux list` takes no
 lock, and neither do `--dry-run` or `--report-only`, so you can always ask what is
 installed or what a run would do while something else is in flight.
 

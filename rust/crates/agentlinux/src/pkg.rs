@@ -433,9 +433,8 @@ pub fn nodesource_module_reset_cmd(family: Family) -> Option<PkgCmd> {
 pub fn nodesource_module_reset(family: Family) -> io::Result<()> {
     if let Some(cmd) = nodesource_module_reset_cmd(family) {
         // Non-fatal (Bash `|| true`) — a host with no `nodejs` module to reset is
-        // the normal case. `run` rather than `run`: retrying a command whose
-        // failure we are about to ignore only costs backoff. Reported, not
-        // swallowed: if the Node install later loses to AppStream, this says why.
+        // the normal case. Reported, not swallowed: if the Node install later
+        // loses to AppStream, this line says why.
         let outcome = cmd.run()?;
         if !outcome.success() {
             crate::plog!(
@@ -517,9 +516,8 @@ pub fn locale_ensure(family: Family, loc: &str) -> io::Result<()> {
 
 /// Run the `locale -a` availability gate, mapping a miss to an `Err`.
 ///
-/// Deliberately `run`, not `run`: this is a read-only probe of state the
-/// caller just finished writing. Retrying it three times with backoff would add
-/// 15 seconds to every failure without changing the answer.
+/// A read-only probe of state the caller just finished writing — a miss is a real
+/// answer, not a transient one.
 fn require_locale_available() -> io::Result<()> {
     if !locale_available_cmd().run()?.success() {
         return Err(io::Error::other(
@@ -791,7 +789,7 @@ mod pkg_tests {
     }
 
     // A package command is bounded: a wedged child is killed rather than hanging
-    // the provision. `run` so the retry backoff doesn't lengthen the test.
+    // the provision.
     #[test]
     fn a_wedged_package_command_is_killed_not_awaited() {
         let _g = crate::test_support::env_guard();

@@ -468,7 +468,6 @@ mod install_tests {
             include_test,
             yes,
             dry_run,
-            wait_lock: false,
         }
     }
 

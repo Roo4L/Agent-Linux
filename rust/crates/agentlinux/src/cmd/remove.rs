@@ -168,7 +168,6 @@ mod remove_tests {
                 &RemoveArgs {
                     name: "ghost".into(),
                     force: false,
-                    wait_lock: false,
                 },
                 ok_dispatch
             ),
@@ -190,7 +189,6 @@ mod remove_tests {
                 &RemoveArgs {
                     name: "test-dummy".into(),
                     force: false,
-                    wait_lock: false,
                 },
                 ok_dispatch
             ),
@@ -212,7 +210,6 @@ mod remove_tests {
                 &RemoveArgs {
                     name: "test-dummy".into(),
                     force: true,
-                    wait_lock: false,
                 },
                 ok_dispatch
             ),
@@ -241,7 +238,6 @@ mod remove_tests {
                 &RemoveArgs {
                     name: "test-dummy".into(),
                     force: false,
-                    wait_lock: false,
                 },
                 ok_dispatch
             ),
@@ -272,7 +268,6 @@ mod remove_tests {
                 &RemoveArgs {
                     name: "test-dummy".into(),
                     force: false,
-                    wait_lock: false,
                 },
                 fail_dispatch
             ),

@@ -234,7 +234,6 @@ mod adopt_tests {
             all,
             include_test,
             json,
-            wait_lock: false,
         }
     }
 

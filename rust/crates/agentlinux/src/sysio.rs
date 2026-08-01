@@ -138,7 +138,27 @@ pub fn write_file_atomic(mode: u32, dest: &Path, body: &[u8]) -> io::Result<()> 
     // The rename consumed the tmpfile — disarm so Drop does not try to unlink a
     // now-nonexistent path.
     guard.disarm();
+    // fsync the DIRECTORY, not just the file. `sync_all` above made the tmpfile's
+    // CONTENT durable; it says nothing about the directory entry the rename created.
+    // Lose that entry to a power cut and a first-time create — /etc/sudoers.d/
+    // agentlinux, /etc/agentlinux.env — is simply absent on the next boot, after
+    // the provisioner printed "complete". (An overwrite degrades more gently: the
+    // old entry survives.) Narrow on ext4's default data=ordered, wide open on XFS
+    // and on data=writeback.
+    sync_parent_dir(dest);
     Ok(())
+}
+
+/// fsync a file's parent directory, making a just-created or just-renamed directory
+/// entry durable. Best-effort by design: some filesystems refuse `O_RDONLY` fsync on
+/// a directory, and a provisioner must not abort a correct write because the kernel
+/// declined a durability hint. Failures are silent because the caller has already
+/// succeeded at the part that matters — this only narrows a crash window.
+pub(crate) fn sync_parent_dir(dest: &Path) {
+    let dir = dest.parent().unwrap_or_else(|| Path::new("."));
+    if let Ok(handle) = fs::File::open(dir) {
+        let _ = handle.sync_all();
+    }
 }
 
 /// Wrap an `io::Error` with the operation that failed and the path it failed on,
@@ -493,20 +513,70 @@ pub fn chown_by_name(path: &Path, owner: &str) -> io::Result<()> {
 /// present file completely untouched (the caller's `ensure_line_in_file` mutates
 /// it). Mirrors `install -m 0644 -o <u> -g <g> /dev/null <path>`.
 ///
-/// KNOWN LIMITATION: `path.exists()` FOLLOWS symlinks, and so do `File::create`
-/// and the chown. A dangling symlink at `path` therefore causes the target to be
-/// created and chowned to `owner` — no race required. Callers run this as root
-/// against paths inside the agent's own home, so an agent that plants
-/// `~/.npmrc -> /etc/ld.so.preload` gets that file created and handed to it. The
-/// fix is `O_NOFOLLOW` plus `fchmod`/`fchown` on the open handle.
+/// Refuses to traverse a symlink at the final component. This runs as ROOT against
+/// paths inside the install user's own home (`~/.npmrc`, `~/.bashrc`) on every
+/// converge run, so the previous `exists()` + `File::create` + path-based chown —
+/// all three of which follow symlinks — let an agent that plants
+/// `~/.npmrc -> /etc/ld.so.preload` have that file created and chowned to itself.
+/// No race was required, just a dangling symlink sitting there before a re-run.
+///
+/// `O_CREAT|O_EXCL|O_NOFOLLOW` collapses the check and the create into one atomic
+/// syscall: EEXIST covers both "already a real file, leave it alone" and "something
+/// is in the way", and `lstat` then tells those apart WITHOUT following. Mode and
+/// owner are applied to the file DESCRIPTOR, so they cannot be redirected onto a
+/// different inode between the create and the chown.
 pub fn create_if_absent_0644(path: &Path, owner: &str) -> io::Result<()> {
-    if path.exists() {
-        return Ok(());
-    }
-    fs::File::create(path).map_err(|e| context(&e, "create", path, None))?;
-    fs::set_permissions(path, fs::Permissions::from_mode(0o644))
-        .map_err(|e| context(&e, "chmod 0644", path, None))?;
-    chown_by_name(path, owner)
+    use std::os::unix::fs::OpenOptionsExt;
+
+    let file = match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true) // O_CREAT | O_EXCL
+        .custom_flags(libc_o_nofollow())
+        .open(path)
+    {
+        Ok(f) => f,
+        Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
+            // Something occupies the path. A regular file is the normal re-run case
+            // — leave it completely untouched, as documented. Anything else (a
+            // symlink, a FIFO, a device) is refused loudly rather than written
+            // through: this is a root-owned write, and the caller cannot tell from
+            // a silent success that it landed somewhere else.
+            let md = fs::symlink_metadata(path)
+                .map_err(|e| context(&e, "stat the existing", path, None))?;
+            if md.file_type().is_symlink() || !md.is_file() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "refusing to write {} as root: it is a {}, not a regular file",
+                        path.display(),
+                        if md.file_type().is_symlink() {
+                            "symlink"
+                        } else {
+                            "non-regular file"
+                        }
+                    ),
+                ));
+            }
+            return Ok(());
+        }
+        Err(e) => return Err(context(&e, "create", path, None)),
+    };
+
+    nix::sys::stat::fchmod(&file, nix::sys::stat::Mode::from_bits_truncate(0o644))
+        .map_err(|e| context(&io::Error::from(e), "chmod 0644", path, None))?;
+    let (uid, gid) = resolve_owner(owner)?;
+    nix::unistd::fchown(
+        &file,
+        Some(nix::unistd::Uid::from_raw(uid)),
+        Some(nix::unistd::Gid::from_raw(gid)),
+    )
+    .map_err(|e| context(&io::Error::from(e), &format!("chown to {owner}"), path, None))?;
+    Ok(())
+}
+
+/// `O_NOFOLLOW` as a raw flag for `custom_flags`.
+fn libc_o_nofollow() -> i32 {
+    nix::fcntl::OFlag::O_NOFOLLOW.bits()
 }
 
 /// `command -v <name>` — resolve a program on PATH, `None` if absent.
@@ -548,6 +618,51 @@ mod sysio_tests {
 
     fn mode_of(p: &Path) -> u32 {
         fs::metadata(p).unwrap().permissions().mode() & 0o7777
+    }
+
+    // --- create_if_absent_0644 symlink safety ---
+
+    /// This helper runs as ROOT against `~/.npmrc` and `~/.bashrc` — paths the
+    /// install user controls the directory of. A symlink planted there must never
+    /// be written through, or a re-provision hands the agent any file on the host.
+    /// The owner argument is deliberately a name that cannot resolve: the refusal
+    /// has to happen BEFORE any ownership work, so the test proves the symlink was
+    /// rejected rather than that the chown merely failed afterwards.
+    #[test]
+    fn create_if_absent_refuses_to_follow_a_planted_symlink() {
+        let td = TempDir::new().unwrap();
+        let victim = td.path().join("victim-must-not-be-created");
+        let link = td.path().join(".npmrc");
+        std::os::unix::fs::symlink(&victim, &link).unwrap();
+
+        let err = create_if_absent_0644(&link, "no-such-user-cf19a4:no-such-group")
+            .expect_err("a symlink at the target must be refused, not followed");
+        assert!(
+            err.to_string().contains("symlink"),
+            "the error must name the real cause; got: {err}"
+        );
+        assert!(
+            !victim.exists(),
+            "followed the symlink and created the target — as root this is an \
+             arbitrary-file-create primitive"
+        );
+    }
+
+    /// The normal re-run case must still be a silent no-op, and must NOT rewrite
+    /// mode or owner on a file the operator may have deliberately adjusted.
+    #[test]
+    fn create_if_absent_leaves_an_existing_regular_file_untouched() {
+        let td = TempDir::new().unwrap();
+        let p = td.path().join(".npmrc");
+        fs::write(&p, b"prefix=/custom\n").unwrap();
+        fs::set_permissions(&p, fs::Permissions::from_mode(0o600)).unwrap();
+
+        // Owner is unresolvable on purpose — an existing file must return before
+        // any ownership work is attempted.
+        create_if_absent_0644(&p, "no-such-user-cf19a4:no-such-group").unwrap();
+
+        assert_eq!(fs::read(&p).unwrap(), b"prefix=/custom\n");
+        assert_eq!(mode_of(&p), 0o600, "an existing file's mode was rewritten");
     }
 
     // --- write_file_atomic ---
