@@ -923,9 +923,11 @@ fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&
         home,
         distro,
         format,
-        crate::detect::scan_and_write,
-        crate::detect::scan_persist_report_json,
-        provision::probe::probe_agent,
+        ReportDeps {
+            rescan: crate::detect::scan_and_write,
+            rescan_json: crate::detect::scan_persist_report_json,
+            probe: provision::probe::probe_agent,
+        },
     )
 }
 
@@ -948,18 +950,29 @@ fn report_only(user: &str, home: &str, distro: &distro::Distro, format: Option<&
 /// stdout and breaks every DET-04 test, while `--report-format=json` prints
 /// human prose. `Out<'a>` is the sink `cmd/install.rs` already defines for
 /// exactly this reason (ADR-019); it had not been applied to the provisioner.
+/// The ambient reads [`report_only_to`] makes: the detect re-scan in its two
+/// shapes, and the PATH probe. Bundled rather than passed individually so the
+/// signature stays under clippy's argument ceiling; each field is a seam for the
+/// same reason as its counterpart in [`ProvisionDeps`] — left ambient, the
+/// report's verdict became a function of the developer's own `$PATH` and
+/// `~/.agentlinux` cache.
+#[derive(Clone, Copy)]
+struct ReportDeps {
+    rescan: fn(&str, &str),
+    rescan_json: fn(&str, &str) -> serde_json::Value,
+    probe: fn(&str) -> provision::probe::AgentProbe,
+}
+
 fn report_only_to(
     o: &mut Out<'_>,
     user: &str,
     home: &str,
     distro: &distro::Distro,
     format: Option<&str>,
-    rescan: fn(&str, &str),
-    rescan_json: fn(&str, &str) -> serde_json::Value,
-    probe: fn(&str) -> provision::probe::AgentProbe,
+    deps: ReportDeps,
 ) -> ExitCode {
     if format == Some("json") {
-        let report = rescan_json(user, home);
+        let report = (deps.rescan_json)(user, home);
         // STDOUT only, nothing else — the DET-04 tests pipe the whole output to jq.
         outln!(
             o,
@@ -968,8 +981,8 @@ fn report_only_to(
                 .unwrap_or_else(|_| String::from("{\"components\":{\"agents\":[]}}"))
         );
     } else {
-        rescan(user, home);
-        emit_report(o, user, distro, probe);
+        (deps.rescan)(user, home);
+        emit_report(o, user, distro, deps.probe);
     }
     ExitCode::SUCCESS
 }
@@ -1745,9 +1758,11 @@ mod provision_tests {
                 "/home/agent",
                 &d,
                 Some("json"),
-                no_rescan,
-                fake_json,
-                fixed_probe
+                ReportDeps {
+                    rescan: no_rescan,
+                    rescan_json: fake_json,
+                    probe: fixed_probe,
+                },
             ),
             ExitCode::SUCCESS
         );
@@ -1772,9 +1787,11 @@ mod provision_tests {
                 "/home/agent",
                 &d,
                 None,
-                no_rescan,
-                fake_json,
-                fixed_probe
+                ReportDeps {
+                    rescan: no_rescan,
+                    rescan_json: fake_json,
+                    probe: fixed_probe,
+                },
             ),
             ExitCode::SUCCESS
         );
