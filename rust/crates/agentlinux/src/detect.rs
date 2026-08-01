@@ -566,6 +566,100 @@ mod detect_tests {
         );
     }
 
+    /// Each id has its own version-flag chain, and the legacy split is real:
+    /// claude-code/playwright-cli answer `--version` only, gsd answers `--help`
+    /// only, everything else tries three flags in turn until a semver appears.
+    ///
+    /// `delete match arm "claude-code" | "playwright-cli"` survived — it drops
+    /// those two into the generic chain. That is not obviously wrong until you
+    /// notice the generic chain also runs `--help`, and the probe would then
+    /// accept a version parsed out of a HELP BANNER for the two agents whose
+    /// banners carry unrelated version numbers.
+    #[test]
+    fn each_id_probes_the_flags_its_binary_actually_answers() {
+        // Record every script the probe tried, so the chain is observable rather
+        // than inferred from the answer.
+        thread_local! {
+            static TRIED: std::cell::RefCell<Vec<String>> =
+                const { std::cell::RefCell::new(Vec::new()) };
+        }
+        fn record_nothing(_u: &str, _h: &str, script: &str) -> (i32, String) {
+            TRIED.with(|t| t.borrow_mut().push(script.to_string()));
+            (0, String::new())
+        }
+        let flags_for = |id: &str| {
+            TRIED.with(|t| t.borrow_mut().clear());
+            probe_version(record_nothing, "agent", "/home/agent", id, "tool");
+            TRIED.with(|t| t.borrow().clone())
+        };
+
+        assert_eq!(
+            flags_for("claude-code"),
+            vec!["tool --version 2>/dev/null"],
+            "claude-code answers --version and must not fall through to --help"
+        );
+        assert_eq!(
+            flags_for("playwright-cli"),
+            vec!["tool --version 2>/dev/null"],
+            "playwright-cli shares that arm"
+        );
+        assert_eq!(
+            flags_for("gsd"),
+            vec!["tool --help 2>/dev/null"],
+            "gsd has no --version flag at all"
+        );
+        assert_eq!(
+            flags_for("rtk"),
+            vec![
+                "tool --version 2>/dev/null",
+                "tool version 2>/dev/null",
+                "tool --help 2>/dev/null",
+            ],
+            "an unknown id tries all three, in order"
+        );
+
+        // And the chain STOPS at the first flag that yields a semver.
+        fn version_on_first(_u: &str, _h: &str, script: &str) -> (i32, String) {
+            TRIED.with(|t| t.borrow_mut().push(script.to_string()));
+            (0, "9.9.9".to_string())
+        }
+        TRIED.with(|t| t.borrow_mut().clear());
+        assert_eq!(
+            probe_version(version_on_first, "agent", "/home/agent", "rtk", "tool"),
+            "9.9.9"
+        );
+        assert_eq!(
+            TRIED.with(|t| t.borrow().len()),
+            1,
+            "first semver wins — the later flags must not run"
+        );
+    }
+
+    /// The cache writer and the `--report-format=json` report share this one
+    /// projection so the two shapes cannot drift. Replacing it wholesale with
+    /// `Default::default()` — JSON `null` — survived, which empties every agent
+    /// row in both the cache REUSE-03 reads and the operator-facing report.
+    #[test]
+    fn a_record_serializes_to_the_five_cache_fields() {
+        let v = record_value(&AgentRecord {
+            id: "claude-code".to_string(),
+            binary: "claude".to_string(),
+            path: "/home/agent/.local/bin/claude".to_string(),
+            version: "2.1.0".to_string(),
+            status: "healthy".to_string(),
+        });
+        assert_eq!(v["id"], "claude-code");
+        assert_eq!(v["binary"], "claude");
+        assert_eq!(v["path"], "/home/agent/.local/bin/claude");
+        assert_eq!(v["version"], "2.1.0");
+        assert_eq!(v["status"], "healthy");
+        assert_eq!(
+            v.as_object().map(serde_json::Map::len),
+            Some(5),
+            "exactly the five fields the cache reader expects, no more"
+        );
+    }
+
     // --- probe_one: the resolve gate, the legacy --help gate, the gsd fallback ---
 
     fn found(_u: &str, _h: &str, script: &str) -> (i32, String) {

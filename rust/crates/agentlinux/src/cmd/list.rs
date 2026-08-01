@@ -293,10 +293,7 @@ pub fn list(opts: &ListArgs) -> ExitCode {
     };
     let sentinels = sentinel::list_sentinels().unwrap_or_default();
 
-    let visible: Vec<FullCatalogEntry> = agents
-        .into_iter()
-        .filter(|a| opts.include_test || !a.test_only)
-        .collect();
+    let visible = visible_entries(agents, opts.include_test);
     let rows = build_rows(&visible, &sentinels);
 
     if opts.json {
@@ -313,42 +310,7 @@ pub fn list(opts: &ListArgs) -> ExitCode {
 
     let mut lines: Vec<String> = Vec::new();
     if opts.by_category {
-        // Group by category, ordered by category_order (ties by key).
-        let mut keys: Vec<String> = Vec::new();
-        for r in &rows {
-            if !keys.contains(&r.category) {
-                keys.push(r.category.clone());
-            }
-        }
-        keys.sort_by(|a, b| {
-            let oa = rows
-                .iter()
-                .find(|r| &r.category == a)
-                .map_or(100, |r| r.category_order);
-            let ob = rows
-                .iter()
-                .find(|r| &r.category == b)
-                .map_or(100, |r| r.category_order);
-            oa.cmp(&ob).then_with(|| a.cmp(b))
-        });
-        let mut first = true;
-        for key in &keys {
-            let mut group: Vec<Row> = rows
-                .iter()
-                .filter(|r| &r.category == key)
-                .cloned()
-                .collect();
-            group.sort_by(|a, b| a.id.cmp(&b.id));
-            if !first {
-                lines.push(String::new());
-            }
-            first = false;
-            let label = group
-                .first()
-                .map_or_else(|| key.clone(), |r| r.category_label.clone());
-            lines.push(format!("## {label}"));
-            render_table(&group, &mut lines, opts.descriptions);
-        }
+        render_by_category(&rows, opts.descriptions, &mut lines);
     } else {
         render_table(&rows, &mut lines, opts.descriptions);
     }
@@ -356,6 +318,63 @@ pub fn list(opts: &ListArgs) -> ExitCode {
         println!("{line}");
     }
     ExitCode::SUCCESS
+}
+
+/// The catalog entries `list` will show: `test_only` fixtures are hidden unless
+/// `--include-test` asks for them.
+///
+/// Extracted from `list` because inside it the filter was only reachable by
+/// running the whole verb against the real catalog and reading real stdout.
+/// `delete !` and `replace || with &&` both survived there — one shows the
+/// fixtures to every user, the other hides every REAL agent unless
+/// `--include-test` is passed.
+fn visible_entries(agents: Vec<FullCatalogEntry>, include_test: bool) -> Vec<FullCatalogEntry> {
+    agents
+        .into_iter()
+        .filter(|a| include_test || !a.test_only)
+        .collect()
+}
+
+/// Render the `--by-category` grouping: categories in `category_order` (ties
+/// broken by key), agents within a category by id, a blank line between groups
+/// and never before the first.
+///
+/// Extracted for the same reason as [`visible_entries`] — five mutants survived
+/// in here behind `println!`: the dedup that builds the key list, both halves of
+/// the order lookup, the per-group membership test, and the blank-line guard.
+fn render_by_category(rows: &[Row], descriptions: bool, lines: &mut Vec<String>) {
+    let mut keys: Vec<String> = Vec::new();
+    for r in rows {
+        if !keys.contains(&r.category) {
+            keys.push(r.category.clone());
+        }
+    }
+    keys.sort_by(|a, b| {
+        let order_of = |k: &String| {
+            rows.iter()
+                .find(|r| &r.category == k)
+                .map_or(100, |r| r.category_order)
+        };
+        order_of(a).cmp(&order_of(b)).then_with(|| a.cmp(b))
+    });
+    let mut first = true;
+    for key in &keys {
+        let mut group: Vec<Row> = rows
+            .iter()
+            .filter(|r| &r.category == key)
+            .cloned()
+            .collect();
+        group.sort_by(|a, b| a.id.cmp(&b.id));
+        if !first {
+            lines.push(String::new());
+        }
+        first = false;
+        let label = group
+            .first()
+            .map_or_else(|| key.clone(), |r| r.category_label.clone());
+        lines.push(format!("## {label}"));
+        render_table(&group, lines, descriptions);
+    }
 }
 
 #[cfg(test)]
@@ -384,6 +403,116 @@ mod list_tests {
             category_label: "Coding agents".to_string(),
             category_order: 1,
         }
+    }
+
+    fn entry(id: &str, test_only: bool) -> FullCatalogEntry {
+        FullCatalogEntry {
+            id: id.to_string(),
+            display_name: id.to_string(),
+            description: "d".to_string(),
+            homepage: None,
+            license: None,
+            source_kind: Some("script".to_string()),
+            npm_package_name: None,
+            requires_secret: None,
+            secret_env: None,
+            endpoint_url: None,
+            pinned_version: "1.0.0".to_string(),
+            version_constraint: None,
+            compatibility_window: None,
+            install_recipe_path: "install.sh".to_string(),
+            uninstall_recipe_path: "uninstall.sh".to_string(),
+            rewire_recipe_path: None,
+            post_install_verify: None,
+            preserve_paths_file: None,
+            preserve_paths: None,
+            tags: Vec::new(),
+            test_only,
+        }
+    }
+
+    /// `test_only` fixtures are hidden by default and shown on --include-test.
+    /// `delete !` and `replace || with &&` both survived: one offers the test
+    /// fixtures to every user, the other hides every REAL agent unless
+    /// --include-test is passed.
+    #[test]
+    fn test_only_entries_are_hidden_unless_asked_for() {
+        let catalog = || vec![entry("claude-code", false), entry("test-dummy", true)];
+
+        let ids = |v: Vec<FullCatalogEntry>| v.into_iter().map(|e| e.id).collect::<Vec<_>>();
+        assert_eq!(
+            ids(visible_entries(catalog(), false)),
+            vec!["claude-code"],
+            "the default list must not offer test fixtures"
+        );
+        assert_eq!(
+            ids(visible_entries(catalog(), true)),
+            vec!["claude-code", "test-dummy"],
+            "--include-test adds them WITHOUT dropping the real ones"
+        );
+    }
+
+    /// `--by-category` orders groups by `category_order`, agents inside a group
+    /// by id, and separates groups with exactly one blank line — never one
+    /// before the first group.
+    ///
+    /// Five mutants survived in here while it lived inside `list` behind
+    /// `println!`: the key dedup, both halves of the order lookup, the group
+    /// membership test, and the blank-line guard.
+    #[test]
+    fn by_category_orders_groups_and_separates_them_exactly_once() {
+        let mk = |id: &str, cat: &str, label: &str, order: u32| {
+            let mut r = row(id);
+            r.category = cat.to_string();
+            r.category_label = label.to_string();
+            r.category_order = order;
+            r
+        };
+        // Deliberately out of order, and with two members in the later group so
+        // the within-group sort is observable.
+        let rows = vec![
+            mk("zebra", "mcp", "MCP servers", 2),
+            mk("alpha", "coding-agent", "Coding agents", 1),
+            mk("beta", "mcp", "MCP servers", 2),
+        ];
+
+        let mut lines = Vec::new();
+        render_by_category(&rows, false, &mut lines);
+
+        let headers: Vec<&String> = lines.iter().filter(|l| l.starts_with("## ")).collect();
+        assert_eq!(
+            headers,
+            vec!["## Coding agents", "## MCP servers"],
+            "groups run in category_order, not first-seen order"
+        );
+
+        // Each category appears exactly once — the dedup that builds the key
+        // list is what guarantees it.
+        assert_eq!(
+            lines
+                .iter()
+                .filter(|l| l.as_str() == "## MCP servers")
+                .count(),
+            1,
+            "a category with two members must still print one header"
+        );
+
+        assert!(
+            !lines.is_empty() && !lines[0].is_empty(),
+            "no blank line before the FIRST group"
+        );
+        assert_eq!(
+            lines.iter().filter(|l| l.is_empty()).count(),
+            1,
+            "exactly one blank line between two groups"
+        );
+
+        // Within the group, ids sort — beta before zebra despite input order.
+        let joined = lines.join("\n");
+        assert!(
+            joined.find("beta").unwrap() < joined.find("zebra").unwrap(),
+            "agents inside a category sort by id, got:\n{joined}"
+        );
     }
 
     /// The INSTALLED cell is a priority chain, and the ORDER is the contract:
