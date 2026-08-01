@@ -75,24 +75,37 @@ pub(crate) fn host_paths<'a>(
 /// EX_USAGE (sysexits.h) — the exit code a clap parse failure maps to.
 const EX_USAGE: u8 = 64;
 
+/// The exit code a clap parse outcome deserves.
+///
+/// `--version`/`--help` arrive as DisplayVersion/DisplayHelp "errors" that clap
+/// prints to stdout; those exit 0. A genuine usage error prints to stderr and
+/// exits EX_USAGE (64), mirroring Commander.
+///
+/// Extracted from `main` because it is the only decision `main` makes, and
+/// inside `main` it was unreachable from a unit test: `Cli::try_parse()` reads
+/// the real process argv. `replace main -> ExitCode with Default::default()`
+/// survived, which is `agentlinux --nonsense` exiting 0.
+fn parse_error_exit(kind: clap::error::ErrorKind) -> ExitCode {
+    use clap::error::ErrorKind;
+    match kind {
+        ErrorKind::DisplayVersion | ErrorKind::DisplayHelp => ExitCode::SUCCESS,
+        _ => ExitCode::from(EX_USAGE),
+    }
+}
+
+/// Not mutation-tested: the process entrypoint (ADR-019 §5). It reads the real
+/// argv and writes the real streams; its one decision is
+/// [`parse_error_exit`] and its routing is [`dispatch_with`], both asserted
+/// directly.
+#[cfg_attr(test, mutants::skip)]
 fn main() -> ExitCode {
-    // Everything else parses via clap. `--version`/`--help` are DisplayVersion/
-    // DisplayHelp "errors" that clap prints to stdout and we exit 0 on; a genuine
-    // usage error prints to stderr and exits EX_USAGE (64), mirroring Commander.
     let cli = match Cli::try_parse() {
         Ok(cli) => cli,
         Err(e) => {
-            let clean_exit = matches!(
-                e.kind(),
-                clap::error::ErrorKind::DisplayVersion | clap::error::ErrorKind::DisplayHelp
-            );
+            let code = parse_error_exit(e.kind());
             // clap writes version/help to stdout, usage errors to stderr.
             let _ = e.print();
-            return if clean_exit {
-                ExitCode::SUCCESS
-            } else {
-                ExitCode::from(EX_USAGE)
-            };
+            return code;
         }
     };
 
@@ -126,17 +139,57 @@ fn verb_name(command: &Command) -> &'static str {
     }
 }
 
+/// Route a parsed verb to its handler, against the real guards and verb bodies.
+///
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5). The routing it
+/// hands to — which guard each verb sits behind, and that a refusing guard stops
+/// the verb — is asserted through [`dispatch_with`].
+#[cfg_attr(test, mutants::skip)]
+fn dispatch(command: Command) -> ExitCode {
+    dispatch_with(command, DispatchDeps::default())
+}
+
+/// The four things [`dispatch_with`] does that are not routing: the two guards,
+/// and running the verb behind each of them.
+///
+/// A seam because the routing contract is a SECURITY contract — which guard each
+/// verb sits behind, and that a refusing guard stops the verb running — and none
+/// of it was assertable. Both guards read the real EUID and passwd DB, and every
+/// verb body performs real I/O, so a test of `dispatch` was a test of the
+/// machine it ran on. `replace != with ==` survived on both guard checks: inverted,
+/// a refusing guard runs the verb anyway and a passing one returns early. That is
+/// `sudo agentlinux provision` accepted from a non-root invoker, and the CLI-05
+/// invoker guard bypassed for all six user-facing verbs, with the suite green.
+#[derive(Clone, Copy)]
+struct DispatchDeps {
+    require_root: fn() -> ExitCode,
+    guard_agent_user: fn(&str) -> ExitCode,
+    run_provision: fn(&cli::ProvisionArgs) -> ExitCode,
+    run_verb: fn(Command) -> ExitCode,
+}
+
+impl Default for DispatchDeps {
+    fn default() -> Self {
+        Self {
+            // Production passes `None` → resolve the real EUID / passwd entry.
+            require_root: || guard::require_root(None),
+            guard_agent_user: |verb| guard::guard_agent_user(verb, None),
+            run_provision: cmd::provision::provision,
+            run_verb: run_guarded_verb,
+        }
+    }
+}
+
 /// Route a parsed verb to its handler.
 ///
-/// CLI-05: the guard runs BEFORE any verb — including the
-/// read-only `list` — so a non-install-user invoker fails fast (exit 64) before
-/// any command body runs. `guard_agent_user` returns `SUCCESS` on a match; on a
-/// mismatch it prints the diagnostic and returns `ExitCode::from(64)`, which we
-/// propagate immediately.
+/// CLI-05: the guard runs BEFORE any verb — including the read-only `list` — so
+/// a non-install-user invoker fails fast (exit 64) before any command body runs.
+/// `guard_agent_user` returns `SUCCESS` on a match; on a mismatch it prints the
+/// diagnostic and returns `ExitCode::from(64)`, which we propagate immediately.
 ///
-/// All seven verbs are wired. `provision` takes the root-guarded arm below;
-/// the other six run behind the CLI-05 invoker guard.
-fn dispatch(command: Command) -> ExitCode {
+/// All seven verbs are wired. `provision` takes the root-guarded arm below; the
+/// other six run behind the CLI-05 invoker guard.
+fn dispatch_with(command: Command, deps: DispatchDeps) -> ExitCode {
     // `provision` is the PRE-Node provisioner entrypoint: it runs privileged
     // systems I/O BEFORE any agent user exists, so it dispatches through
     // `require_root` (EUID==0), NOT the CLI-05 `guard_agent_user` (which resolves
@@ -145,20 +198,28 @@ fn dispatch(command: Command) -> ExitCode {
     // every real `sudo agentlinux provision` exit 64. Handled BEFORE the blanket
     // guard so the six user-facing verbs keep their CLI-05 guard.
     if let Command::Provision(args) = &command {
-        let guard = guard::require_root(None);
+        let guard = (deps.require_root)();
         if guard != ExitCode::SUCCESS {
             return guard;
         }
-        return cmd::provision::provision(args);
+        return (deps.run_provision)(args);
     }
 
-    // The CLI-05 guard runs for every OTHER verb. Production passes `None` →
-    // resolve the real EUID username.
-    let guard = guard::guard_agent_user(verb_name(&command), None);
+    // The CLI-05 guard runs for every OTHER verb.
+    let guard = (deps.guard_agent_user)(verb_name(&command));
     if guard != ExitCode::SUCCESS {
         return guard;
     }
 
+    (deps.run_verb)(command)
+}
+
+/// The six user-facing verb bodies, reached only once the CLI-05 guard passed.
+/// Not mutation-tested: a production wiring adapter (ADR-019 §5) — every arm is
+/// one call into a `cmd::*` module that owns its own tests, and the routing
+/// decision that precedes it is asserted through [`dispatch_with`].
+#[cfg_attr(test, mutants::skip)]
+fn run_guarded_verb(command: Command) -> ExitCode {
     match command {
         Command::List(args) => cmd::list::list(&args),
         Command::Adopt(args) => cmd::adopt::adopt(args.name.as_deref(), &args),
@@ -301,5 +362,180 @@ mod canonical_map_tests {
             let cli = Cli::try_parse_from(&argv).expect("argv parses");
             assert_eq!(verb_name(&cli.command), expected, "argv={argv:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod dispatch_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    // Which seam ran, in order. A thread_local rather than a static: cargo runs
+    // each test on its own thread, so the log is per-test without a lock, and a
+    // fn pointer cannot capture a local.
+    thread_local! {
+        static CALLS: RefCell<Vec<&'static str>> = const { RefCell::new(Vec::new()) };
+    }
+
+    fn note(what: &'static str) {
+        CALLS.with(|c| c.borrow_mut().push(what));
+    }
+    fn calls() -> Vec<&'static str> {
+        CALLS.with(|c| c.borrow().clone())
+    }
+
+    const REFUSED: u8 = 64;
+
+    fn root_ok() -> ExitCode {
+        note("require_root");
+        ExitCode::SUCCESS
+    }
+    fn root_refuses() -> ExitCode {
+        note("require_root");
+        ExitCode::from(REFUSED)
+    }
+    fn user_ok(verb: &str) -> ExitCode {
+        note("guard_agent_user");
+        // The verb name the guard is given reaches its diagnostic; assert it is
+        // the real one, not a placeholder.
+        assert_eq!(verb, "list", "guard must receive the parsed verb name");
+        ExitCode::SUCCESS
+    }
+    fn user_refuses(_verb: &str) -> ExitCode {
+        note("guard_agent_user");
+        ExitCode::from(REFUSED)
+    }
+    fn provision_ran(_args: &cli::ProvisionArgs) -> ExitCode {
+        note("provision");
+        ExitCode::SUCCESS
+    }
+    fn verb_ran(_command: Command) -> ExitCode {
+        note("verb");
+        ExitCode::SUCCESS
+    }
+
+    fn parse(argv: &[&str]) -> Command {
+        Cli::try_parse_from(argv).expect("argv parses").command
+    }
+
+    fn deps() -> DispatchDeps {
+        DispatchDeps {
+            require_root: root_ok,
+            guard_agent_user: user_ok,
+            run_provision: provision_ran,
+            run_verb: verb_ran,
+        }
+    }
+
+    /// `provision` is routed through the ROOT guard and never through CLI-05.
+    /// Routing it through `guard_agent_user` — which rejects root — would make
+    /// every real `sudo agentlinux provision` exit 64.
+    #[test]
+    fn provision_goes_through_the_root_guard_only() {
+        let code = dispatch_with(parse(&["agentlinux", "provision"]), deps());
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::SUCCESS),
+            "a passing root guard must run provision"
+        );
+        assert_eq!(calls(), vec!["require_root", "provision"]);
+    }
+
+    /// The mutation this exists for: `replace != with ==` on the root guard
+    /// check. Inverted, a REFUSING guard falls through and provision runs
+    /// anyway — an unprivileged invoker driving the privileged provisioner.
+    #[test]
+    fn a_refusing_root_guard_stops_provision_running() {
+        let mut d = deps();
+        d.require_root = root_refuses;
+        let code = dispatch_with(parse(&["agentlinux", "provision"]), d);
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::from(REFUSED)),
+            "the guard's refusal must be the exit code"
+        );
+        assert_eq!(
+            calls(),
+            vec!["require_root"],
+            "provision must NOT run behind a refused guard"
+        );
+    }
+
+    /// Every other verb sits behind the CLI-05 invoker guard, and never touches
+    /// the root guard.
+    #[test]
+    fn a_user_verb_goes_through_the_cli05_guard_only() {
+        let code = dispatch_with(parse(&["agentlinux", "list"]), deps());
+        assert_eq!(format!("{code:?}"), format!("{:?}", ExitCode::SUCCESS));
+        assert_eq!(calls(), vec!["guard_agent_user", "verb"]);
+    }
+
+    /// The same mutation on the CLI-05 check. Inverted, a non-install-user
+    /// invoker runs the verb body — the guard CLI-05 exists to enforce, gone.
+    #[test]
+    fn a_refusing_cli05_guard_stops_the_verb_running() {
+        let mut d = deps();
+        d.guard_agent_user = user_refuses;
+        let code = dispatch_with(parse(&["agentlinux", "list"]), d);
+        assert_eq!(
+            format!("{code:?}"),
+            format!("{:?}", ExitCode::from(REFUSED)),
+            "the guard's refusal must be the exit code"
+        );
+        assert_eq!(
+            calls(),
+            vec!["guard_agent_user"],
+            "the verb must NOT run behind a refused guard"
+        );
+    }
+}
+
+#[cfg(test)]
+mod parse_error_tests {
+    use super::*;
+    use clap::error::ErrorKind;
+
+    /// `--version` and `--help` are successes wearing an error's clothes; every
+    /// other parse failure is EX_USAGE. Driven through the REAL parser rather
+    /// than by naming the enum variants, so a clap upgrade that reclassifies
+    /// either one fails here instead of silently changing `agentlinux --help`'s
+    /// exit code.
+    #[test]
+    fn version_and_help_exit_zero_and_a_usage_error_exits_64() {
+        let cases: &[(&[&str], ExitCode, &str)] = &[
+            (&["agentlinux", "--version"], ExitCode::SUCCESS, "--version"),
+            (&["agentlinux", "--help"], ExitCode::SUCCESS, "--help"),
+            (
+                &["agentlinux", "--nonsense"],
+                ExitCode::from(EX_USAGE),
+                "unknown flag",
+            ),
+            (
+                &["agentlinux", "nosuchverb"],
+                ExitCode::from(EX_USAGE),
+                "unknown subcommand",
+            ),
+        ];
+        for (argv, want, what) in cases {
+            let err = Cli::try_parse_from(*argv).expect_err("must not parse to a command");
+            assert_eq!(
+                format!("{:?}", parse_error_exit(err.kind())),
+                format!("{want:?}"),
+                "{what} ({argv:?}) mapped to the wrong exit code; clap kind={:?}",
+                err.kind()
+            );
+        }
+    }
+
+    /// The EX_USAGE constant is the sysexits value the bats contract greps for.
+    /// Pinned so a stray edit to it is a test failure rather than a silent
+    /// change to every usage error the CLI emits.
+    #[test]
+    fn usage_errors_use_the_sysexits_value() {
+        assert_eq!(EX_USAGE, 64);
+        assert_eq!(
+            format!("{:?}", parse_error_exit(ErrorKind::InvalidValue)),
+            format!("{:?}", ExitCode::from(64u8))
+        );
     }
 }
