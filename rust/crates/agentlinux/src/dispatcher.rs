@@ -494,6 +494,42 @@ mod dispatcher_tests {
     use super::*;
     use nix::unistd::{getuid, User};
 
+    /// A command that finishes well inside its timeout must not be reported as
+    /// timed out. Three mutants survived on the waiting path and every one of
+    /// them makes the deadline already-expired: `poll_until -> None`, `>=`
+    /// flipped to `<` in its deadline check, and `Instant::now() + ms` becoming
+    /// a subtraction. All three turn every dispatch into an instant timeout —
+    /// `install` would report exit 124 for a recipe that ran fine.
+    #[test]
+    fn a_fast_command_under_a_generous_timeout_is_not_a_timeout() {
+        let start = Instant::now();
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", "exit 0"]),
+            &[],
+            Capture::Buffered,
+            Some(10_000),
+        );
+        assert_eq!(r.exit_code, 0, "a command that exits 0 in time reports 0");
+        assert!(
+            start.elapsed() < Duration::from_secs(3),
+            "and it must return promptly, not sit out the timeout"
+        );
+
+        // A non-zero exit is still not a timeout: the child chose that code.
+        let r = as_user(
+            &self_user(),
+            &argv(&["bash", "-c", "exit 7"]),
+            &[],
+            Capture::Buffered,
+            Some(10_000),
+        );
+        assert_eq!(
+            r.exit_code, 7,
+            "the child's own exit code must survive, not become the timeout code"
+        );
+    }
+
     /// The capture cap is a memory bound on an unattended path — the buffered
     /// `npm ls -g --json` probe that `upgrade` runs. Its arithmetic could be
     /// mutated (`*` to `+` or `/`) to 10250 bytes or 10240 KiB with nothing
@@ -792,11 +828,22 @@ mod dispatcher_tests {
         );
         assert_eq!(r.exit_code, 124, "escalation still maps to 124");
         assert!(r.streamed);
-        // Must have been killed via escalation well before the 30s sleep — the
+        // Must have been killed via escalation well before the 8s sleep — the
         // 200ms timeout + 2000ms grace bounds it comfortably under ~5s.
+        let elapsed = start.elapsed();
         assert!(
-            start.elapsed() < Duration::from_secs(5),
-            "escalation should terminate the child within the grace window"
+            elapsed < Duration::from_secs(5),
+            "escalation should terminate the child within the grace window, took {elapsed:?}"
+        );
+        // …and NOT instantly. SIGTERM comes first and the child gets its full
+        // grace period before SIGKILL. `Instant::now() + KILL_GRACE` becoming a
+        // subtraction survived: the grace deadline is then already past, so
+        // SIGKILL fires immediately and a child that WOULD have cleaned up on
+        // SIGTERM never gets the chance. This child ignores SIGTERM, so the only
+        // witness is the clock.
+        assert!(
+            elapsed >= Duration::from_millis(1_500),
+            "the child must get its SIGTERM grace before SIGKILL, took {elapsed:?}"
         );
     }
 
