@@ -294,14 +294,22 @@ docker exec "$CID" "$RUST_PROVISION_BIN_IN_CONTAINER" provision --user agent --y
 echo "== seed BHV-02 ssh keypair + sshd (idempotent; unblocks the six-mode iteration) =="
 docker exec "$CID" bash -c '
   set -e
+  # Two INDEPENDENT guards, deliberately. Nesting the authorized_keys install
+  # inside the keypair check made "the keypair exists" stand in for "the agent
+  # can be reached over ssh" — and at this point in the run the agent user does
+  # NOT exist yet (bats provisions it), so `id agent` fails, authorized_keys is
+  # skipped, and the keypair is left behind. Every later guard then sees the key
+  # present and short-circuits, including 20-agent-user.bats setup(). The result
+  # was BHV-02 failing with `Permission denied (publickey,password)` on a host
+  # that was otherwise provisioned correctly.
   if [[ ! -f /root/.ssh/id_ed25519 ]]; then
     install -d -m 0700 -o root -g root /root/.ssh
     ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519 -q
-    if id agent >/dev/null 2>&1; then
-      install -d -m 0700 -o agent -g agent /home/agent/.ssh
-      install -m 0600 -o agent -g agent \
-        /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
-    fi
+  fi
+  if id agent >/dev/null 2>&1 && [[ ! -f /home/agent/.ssh/authorized_keys ]]; then
+    install -d -m 0700 -o agent -g agent /home/agent/.ssh
+    install -m 0600 -o agent -g agent \
+      /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
   fi
   # Best-effort sshd start (family unit: ssh on Debian, sshd on EL9). Silent on a
   # non-systemd container — the ssh-mode tests then diagnose the connection error.
