@@ -280,7 +280,14 @@ expected_file="$(mktemp)"
 list_err="$(mktemp)"
 trap 'rm -f "$expected_file" "$list_err"' EXIT
 
-list_args=(--no-config --list)
+# --colors=never because the comparison below is byte-exact against
+# mutants.json, and cargo-mutants colourises `--list` on the GitHub runner even
+# with stdout redirected to a file — mutants.json stays plain, so every name
+# mismatches and the gate reports "scored a mutant this scope does not contain"
+# on every PR. The flag rather than CARGO_TERM_COLOR: the expectation must not
+# be a function of the environment the gate happens to run in, which is the
+# whole reason the query exists.
+list_args=(--no-config --colors=never --list)
 [[ -n $diff_file ]] && list_args+=(--in-diff "$diff_file")
 
 if ! cargo mutants "${list_args[@]}" >"$expected_file" 2>"$list_err"; then

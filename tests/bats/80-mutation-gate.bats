@@ -90,16 +90,31 @@ printf '%s\n' "\$*" >>"$WORK/argv.log"
 # --no-config makes that the HONEST expectation: what the scope contains, not
 # what a .cargo/mutants.toml left behind. This stub answers differently for the
 # two so a gate that dropped --no-config is visible.
+#
+# It also colourises the listing unless told not to, because the real tool does:
+# on the GitHub runner \`--list\` emits SGR codes around the function name and the
+# replacement even with stdout redirected to a file, while mutants.json stays
+# plain. The set comparison then comes apart and the gate reports "scored a
+# mutant this scope does not contain" on every PR. Modelling the hostile case
+# here means every case that exercises the comparison also pins the flag.
 listing=0
 noconfig=0
+plain=0
 for a in "\$@"; do
   [ "\$a" = "--list" ] && listing=1
   [ "\$a" = "--no-config" ] && noconfig=1
+  [ "\$a" = "--colors=never" ] && plain=1
 done
 if [ "\$listing" = 1 ]; then
   n=$list_cfg_n
   [ "\$noconfig" = 1 ] && n=$list_n
-  for i in \$(seq 1 "\$n"); do echo "src/x.rs:\$i:1: replace a with b"; done
+  for i in \$(seq 1 "\$n"); do
+    if [ "\$plain" = 1 ]; then
+      echo "src/x.rs:\$i:1: replace a with b"
+    else
+      printf 'src/x.rs:%s:1: replace \033[38;5;13ma\033[0m with \033[33mb\033[0m\n' "\$i"
+    fi
+  done
   exit 0
 fi
 
@@ -480,7 +495,10 @@ RS
   # stdout alone. If cargo-mutants ever adds an INFO line to --list, reading the
   # merged stream would fail this contract test while the gate is healthy — a
   # false red on the check whose job is to report a real contract break.
-  cargo mutants --no-config --list >listed.txt
+  # --colors=never for the same reason the gate passes it: the runner colourises
+  # this listing and mutants.json stays plain. Without it this case reproduces
+  # the production break rather than testing the shape it means to test.
+  cargo mutants --no-config --colors=never --list >listed.txt
   run cargo mutants --output . --minimum-test-timeout 20
   local run_log="$output"
   # Whatever the verdict, the results file must carry the shape the gate reads.
@@ -1071,7 +1089,27 @@ EOF
   [[ "$output" != *"PASS"* ]]
 
   # And the query really did carry both flags.
-  [[ "$(cargo_argv_log)" == *"--no-config --list"* ]]
+  [[ "$(cargo_argv_log)" == *"--no-config --colors=never --list"* ]]
+}
+
+@test "MUT-26b: the expectation does not depend on whether the tool colourises" {
+  # cargo-mutants colourises `--list` on the GitHub runner even with stdout
+  # redirected to a file; mutants.json stays plain. The set comparison is
+  # byte-exact, so without --colors=never every name mismatches and the gate
+  # fails every PR with "scored a mutant this scope does not contain" — a false
+  # RED on a healthy tree, which is how this was found (MUT-14 on CI).
+  #
+  # Every case here exercises the comparison against a stub that colourises
+  # unless asked not to, so dropping the flag reddens thirty of them at once.
+  # This case exists so the diagnosis is one line rather than thirty.
+  mk_cargo list_n=6 total=6 caught=6
+  run "$GATE" enforce
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"PASS"* ]]
+  [[ "$(cargo_argv_log)" == *"--colors=never"* ]]
+  # The verdict must be free of escape sequences too — a job summary is read by
+  # a human through GitHub's renderer, not a terminal.
+  [[ "$output" != *$'\033['* ]]
 }
 
 @test "MUT-27: an advisory shard reports PARTIAL, never an unqualified PASS" {
@@ -1112,7 +1150,7 @@ EOF
 
   local log
   log="$(cargo_argv_log)"
-  [[ "$log" == *"mutants --no-config --list --in-diff real.diff"* ]]
+  [[ "$log" == *"mutants --no-config --colors=never --list --in-diff real.diff"* ]]
   [[ "$log" == *"--in-place --minimum-test-timeout 20 --in-diff real.diff"* ]]
   # …and the run writes where the gate reads.
   [[ "$log" == *"--output ."* ]]
