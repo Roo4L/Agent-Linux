@@ -152,10 +152,7 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
         }
         vec![entry.clone()]
     } else if opts.all {
-        agents
-            .into_iter()
-            .filter(|a| opts.include_test || !a.test_only)
-            .collect()
+        adopt_all_targets(agents, opts.include_test)
     } else {
         eprintln!("agentlinux adopt: specify an agent name or --all");
         return ExitCode::from(EX_USAGE);
@@ -175,35 +172,131 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
     }
 
     for r in &results {
-        match r.action.as_str() {
-            "adopted" => println!(
-                "[ADOPT] {}: adopted pre-existing install {} (status=reused — managed by agentlinux upgrade/remove)",
-                r.id,
-                r.version.as_deref().unwrap_or("")
-            ),
-            "already-managed" => println!(
-                "{}: already managed at {}; no-op",
-                r.id,
-                r.version.as_deref().unwrap_or("")
-            ),
-            "migrate-available" => println!(
-                "[MIGRATE] {}: {}",
-                r.id,
-                r.reason.as_deref().unwrap_or("")
-            ),
-            _ => println!(
-                "{}: nothing to adopt — {}",
-                r.id,
-                r.reason.as_deref().unwrap_or("")
-            ),
-        }
+        println!("{}", adopt_line(r));
     }
     ExitCode::SUCCESS
+}
+
+/// The `--all` target set: every catalog agent, with `test_only` fixtures
+/// excluded unless `--include-test` asks for them.
+///
+/// Extracted from `adopt` because inside it the filter was only reachable by
+/// running the whole verb. `delete !` offers the fixtures to everyone;
+/// `|| -> &&` drops every REAL agent unless --include-test is passed, so a
+/// plain `adopt --all` silently adopts nothing.
+fn adopt_all_targets(agents: Vec<FullCatalogEntry>, include_test: bool) -> Vec<FullCatalogEntry> {
+    agents
+        .into_iter()
+        .filter(|a| include_test || !a.test_only)
+        .collect()
+}
+
+/// The operator-facing line for one adopt result.
+///
+/// Extracted for the same reason: all four arms went straight to `println!`, so
+/// deleting any of the three named arms silently demoted its result to the
+/// catch-all "nothing to adopt" — telling an operator that an agent AgentLinux
+/// just adopted was not adopted at all.
+fn adopt_line(r: &AdoptResult) -> String {
+    let version = r.version.as_deref().unwrap_or("");
+    let reason = r.reason.as_deref().unwrap_or("");
+    match r.action.as_str() {
+        "adopted" => format!(
+            "[ADOPT] {}: adopted pre-existing install {version} (status=reused — managed by agentlinux upgrade/remove)",
+            r.id
+        ),
+        "already-managed" => format!("{}: already managed at {version}; no-op", r.id),
+        "migrate-available" => format!("[MIGRATE] {}: {reason}", r.id),
+        _ => format!("{}: nothing to adopt — {reason}", r.id),
+    }
 }
 
 #[cfg(test)]
 mod adopt_tests {
     use super::*;
+
+    fn result(id: &str, action: &str) -> AdoptResult {
+        AdoptResult {
+            id: id.to_string(),
+            action: action.to_string(),
+            version: Some("2.1.0".to_string()),
+            reason: Some("because".to_string()),
+        }
+    }
+
+    /// Each action renders as its OWN line. Deleting any of the three named
+    /// match arms survived, and each deletion demotes that result to the
+    /// catch-all "nothing to adopt" — so an agent AgentLinux just adopted is
+    /// reported as not adopted.
+    #[test]
+    fn every_adopt_action_renders_as_its_own_line() {
+        let adopted = adopt_line(&result("claude-code", "adopted"));
+        assert!(
+            adopted.starts_with("[ADOPT] claude-code:") && adopted.contains("2.1.0"),
+            "got {adopted:?}"
+        );
+        assert!(
+            adopted.contains("status=reused"),
+            "the adopt line states what management it just took on: {adopted:?}"
+        );
+
+        let managed = adopt_line(&result("gsd", "already-managed"));
+        assert!(
+            managed.contains("already managed") && managed.contains("no-op"),
+            "got {managed:?}"
+        );
+
+        let migrate = adopt_line(&result("rtk", "migrate-available"));
+        assert!(
+            migrate.starts_with("[MIGRATE] rtk:") && migrate.contains("because"),
+            "got {migrate:?}"
+        );
+
+        let nothing = adopt_line(&result("other", "skipped"));
+        assert!(
+            nothing.contains("nothing to adopt") && nothing.contains("because"),
+            "got {nothing:?}"
+        );
+
+        // And the four are genuinely distinct — a deleted arm would collapse one
+        // into another.
+        let all = [adopted, managed, migrate, nothing];
+        for (i, a) in all.iter().enumerate() {
+            for b in all.iter().skip(i + 1) {
+                assert_ne!(a, b, "two actions must not render identically");
+            }
+        }
+    }
+
+    /// `--all` adopts every real agent, and the test fixtures only when asked.
+    /// `|| -> &&` survived, which drops every REAL agent unless --include-test
+    /// is passed — so a plain `adopt --all` silently adopts nothing.
+    #[test]
+    fn adopt_all_covers_real_agents_and_fixtures_only_on_request() {
+        let entry = |id: &str, test_only: bool| -> FullCatalogEntry {
+            serde_json::from_value(serde_json::json!({
+                "id": id, "display_name": id, "description": "d",
+                "source_kind": "script", "pinned_version": "1.0.0",
+                "install_recipe_path": "install.sh",
+                "uninstall_recipe_path": "uninstall.sh",
+                "test_only": test_only,
+            }))
+            .unwrap()
+        };
+        let catalog = || vec![entry("claude-code", false), entry("test-dummy", true)];
+        let ids = |v: Vec<FullCatalogEntry>| v.into_iter().map(|e| e.id).collect::<Vec<_>>();
+
+        assert_eq!(
+            ids(adopt_all_targets(catalog(), false)),
+            vec!["claude-code"],
+            "a plain --all must still cover the real agents"
+        );
+        assert_eq!(
+            ids(adopt_all_targets(catalog(), true)),
+            vec!["claude-code", "test-dummy"],
+            "--include-test ADDS the fixtures, it does not replace the list"
+        );
+    }
     use tempfile::tempdir;
 
     fn write_catalog(dir: &std::path::Path) {
