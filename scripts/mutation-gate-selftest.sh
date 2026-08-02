@@ -53,7 +53,7 @@ set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 readonly GATE="scripts/mutation-gate.sh"
-readonly SUITE="tests/bats/80-mutation-gate.bats"
+readonly SUITE="tests/harness/80-mutation-gate.bats"
 readonly PRISTINE=".mutation-gate-selftest-pristine"
 readonly LOCKDIR=".mutation-gate-selftest-lock"
 # Generous: the suite is ~15s, so this only fires on a genuine hang.

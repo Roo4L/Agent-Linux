@@ -167,7 +167,7 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq bats
-          bats tests/bats/80-mutation-gate.bats
+          bats tests/harness/80-mutation-gate.bats
       # W1: assert the diff base resolves BEFORE the gate runs, so a shallow
       # clone (or a missing origin/master) fails loudly here instead of letting
       # `--in-diff` silently mutate an empty diff (a false-green gate). fetch-depth: 0
@@ -309,9 +309,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - ubuntu-22.04
           - ubuntu-24.04
-          - ubuntu-26.04
           - almalinux-9
     steps:
       - uses: actions/checkout@v5

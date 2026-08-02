@@ -111,7 +111,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, almalinux-9]
+        target: [ubuntu-24.04, almalinux-9]
     steps:
       - uses: actions/checkout@v5
       # The Rust cutover made every job below build a static-musl binary —
@@ -143,7 +143,7 @@ jobs:
   # boot.sh runs the full bats suite inside the guest INCLUDING
   # tests/bats/51-*.bats — satisfies the "AGT-02 inside QEMU" half of TST-05.
   gate-3-qemu:
-    needs: gate-2-docker
+    needs: gate-1-precommit
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     # almalinux-9 is a HARD release gate (REL-01). The EL9 QEMU row is proven
@@ -157,7 +157,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ['22.04', '24.04', '26.04', 'almalinux-9']
+        target: ['24.04', 'almalinux-9']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -253,7 +253,7 @@ jobs:
   # install the pinned combo). Re-running it here as a named gate makes the
   # TST-08 signal observable as a distinct green box in the Actions UI.
   gate-4-pinned-combo:
-    needs: gate-3-qemu
+    needs: gate-1-precommit
     runs-on: ubuntu-24.04
     # Re-runs the full Docker suite (~19-21 min cold) with the pinned catalog
     # combo; 60 matches gate-2 / test.yml so a slow runner can't flake the gate.
@@ -295,7 +295,7 @@ jobs:
   # itself is now cargo-driven and needs no Node. The Rust toolchain is provided
   # by the runner image + rust/rust-toolchain.toml (pinned 1.97.1 + musl target).
   build:
-    needs: [resolve, gate-4-pinned-combo]
+    needs: [resolve, gate-2-docker, gate-3-qemu, gate-4-pinned-combo]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

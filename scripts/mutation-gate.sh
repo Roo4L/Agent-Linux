@@ -413,7 +413,7 @@ print(
 ' "$outcomes" "$OUT_DIR/mutants.json"
 ); then
   die "could not read $outcomes — malformed JSON, a missing key, or no python3.
-  cargo-mutants may have changed its results schema; see tests/bats/80-mutation-gate.bats
+  cargo-mutants may have changed its results schema; see tests/harness/80-mutation-gate.bats
   MUT-14, the contract test that pins it."
 fi
 
@@ -427,7 +427,7 @@ case $planned in
   comparison below can be trusted." ;;
   "$NOT_A_LIST") die "$OUT_DIR/mutants.json is valid JSON but not an array —
   cargo-mutants has changed its results schema. Update this gate and
-  tests/bats/80-mutation-gate.bats MUT-14 (the contract test that pins it)
+  tests/harness/80-mutation-gate.bats MUT-14 (the contract test that pins it)
   together; do NOT read this as an interrupted run." ;;
 esac
 

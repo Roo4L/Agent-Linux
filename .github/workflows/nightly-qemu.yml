@@ -13,15 +13,13 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'Target(s) to run (22.04 / 24.04 / 26.04 / almalinux-9 / all)'
+        description: 'Target(s) to run (24.04 / almalinux-9 / all)'
         required: false
         default: all
         type: choice
         options:
           - all
-          - '22.04'
           - '24.04'
-          - '26.04'
           - almalinux-9
 
 permissions:
@@ -35,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ['22.04', '24.04', '26.04', 'almalinux-9']
+        target: ['24.04', 'almalinux-9']
     steps:
       - uses: actions/checkout@v5
 

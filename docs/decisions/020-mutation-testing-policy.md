@@ -107,7 +107,7 @@ Corollaries, each of which was a real false-green:
   neither could ever see the config file. Delegating to the tool needs no model
   of its grammar and survives flags it has not shipped yet.
 
-The gate script has its own bats suite (`tests/bats/80-mutation-gate.bats`).
+The gate script has its own bats suite (`tests/harness/80-mutation-gate.bats`).
 Testing the thing that judges the tests is not ceremony here: an untested gate
 is precisely what failed.
 
@@ -290,4 +290,4 @@ skipped it, delete-the-function mutants survived on `install_or_overwrite`,
 
 - ADR-002 — behavior contract framing; bats remains the spec, this is the check on the checkers
 - ADR-019 — the provisioner seams that make the bin crate mutable-and-testable at all
-- `scripts/mutation-gate.sh`, `tests/bats/80-mutation-gate.bats`
+- `scripts/mutation-gate.sh`, `tests/harness/80-mutation-gate.bats`
