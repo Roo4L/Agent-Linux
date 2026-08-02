@@ -717,11 +717,24 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   # Run the bash entrypoint first so the canonical baseline (agent user,
   # sudoers, Node, PATH wiring, sentinel dirs) is in place. Use --yes since
   # brownfield baseline has no defects that would bail.
-  "$INSTALLER" provision --yes >/dev/null 2>&1 || true
+  # Output CAPTURED, not discarded. This provision re-runs detect and writes the
+  # cache these tests depend on, so when it fails to record the brownfield
+  # binary the only evidence is here — and `>/dev/null 2>&1` threw it away,
+  # leaving the REMEDIATE-04 assertion below failing for reasons nothing in the
+  # transcript could explain. Diagnosing exactly that on almalinux-9/QEMU is why
+  # this exists.
+  local prov_out
+  prov_out=$("$INSTALLER" provision --yes 2>&1) || true
 
   # Sanity: PATH-MISMATCH binary still present at brownfield location.
   [[ -x /home/agent/.npm-global/bin/claude ]] \
     || skip "npm install -g claude-code didn't populate ~/.npm-global/bin/claude (sandbox npm issue)"
+
+  # Assert the PRECONDITION instead of letting it surface as a confusing
+  # symptom: REMEDIATE-04 can only fire if detect recorded claude-code at the
+  # brownfield path. Absent from the cache, the CLI correctly does a plain
+  # install and the marker assertion fails while naming nothing useful.
+  assert_detect_cache_has claude-code "$prov_out"
 
   # Sanity: marker still present after baseline install.
   [[ -f /home/agent/.claude/test-marker-file ]] \
@@ -763,12 +776,25 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   setup_brownfield_remediate04_uninstall_fail
 
   # Run the bash entrypoint baseline first.
-  "$INSTALLER" provision --yes >/dev/null 2>&1 || true
+  # Output CAPTURED, not discarded. This provision re-runs detect and writes the
+  # cache these tests depend on, so when it fails to record the brownfield
+  # binary the only evidence is here — and `>/dev/null 2>&1` threw it away,
+  # leaving the REMEDIATE-04 assertion below failing for reasons nothing in the
+  # transcript could explain. Diagnosing exactly that on almalinux-9/QEMU is why
+  # this exists.
+  local prov_out
+  prov_out=$("$INSTALLER" provision --yes 2>&1) || true
 
   if [[ ! -x /home/agent/.npm-global/bin/claude ]]; then
     teardown_brownfield_remediate04_catalog
     skip "npm install -g claude-code didn't populate brownfield binary"
   fi
+
+  # Assert the PRECONDITION instead of letting it surface as a confusing
+  # symptom: REMEDIATE-04 can only fire if detect recorded claude-code at the
+  # brownfield path. Absent from the cache, the CLI correctly does a plain
+  # install and the marker assertion fails while naming nothing useful.
+  assert_detect_cache_has claude-code "$prov_out"
 
   local cli_out cli_rc=0
   cli_out=$(sudo -u agent -H \
@@ -794,12 +820,25 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
 @test "REMEDIATE-04 E2E: brownfield uninstall OK + install.sh exit 1 → broken-after-remediate sentinel + list suffix" {
   setup_brownfield_remediate04_install_fail_post_uninstall
 
-  "$INSTALLER" provision --yes >/dev/null 2>&1 || true
+  # Output CAPTURED, not discarded. This provision re-runs detect and writes the
+  # cache these tests depend on, so when it fails to record the brownfield
+  # binary the only evidence is here — and `>/dev/null 2>&1` threw it away,
+  # leaving the REMEDIATE-04 assertion below failing for reasons nothing in the
+  # transcript could explain. Diagnosing exactly that on almalinux-9/QEMU is why
+  # this exists.
+  local prov_out
+  prov_out=$("$INSTALLER" provision --yes 2>&1) || true
 
   if [[ ! -x /home/agent/.npm-global/bin/claude ]]; then
     teardown_brownfield_remediate04_catalog
     skip "npm install -g claude-code didn't populate brownfield binary"
   fi
+
+  # Assert the PRECONDITION instead of letting it surface as a confusing
+  # symptom: REMEDIATE-04 can only fire if detect recorded claude-code at the
+  # brownfield path. Absent from the cache, the CLI correctly does a plain
+  # install and the marker assertion fails while naming nothing useful.
+  assert_detect_cache_has claude-code "$prov_out"
 
   local cli_out cli_rc=0
   cli_out=$(sudo -u agent -H \
@@ -832,11 +871,24 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
 @test "REMEDIATE-04 E2E: brownfield PATH-MISMATCH WITHOUT --yes in non-TTY → [BAIL] + exit 65" {
   setup_brownfield_broken_claude_code
 
-  "$INSTALLER" provision --yes >/dev/null 2>&1 || true
+  # Output CAPTURED, not discarded. This provision re-runs detect and writes the
+  # cache these tests depend on, so when it fails to record the brownfield
+  # binary the only evidence is here — and `>/dev/null 2>&1` threw it away,
+  # leaving the REMEDIATE-04 assertion below failing for reasons nothing in the
+  # transcript could explain. Diagnosing exactly that on almalinux-9/QEMU is why
+  # this exists.
+  local prov_out
+  prov_out=$("$INSTALLER" provision --yes 2>&1) || true
 
   if [[ ! -x /home/agent/.npm-global/bin/claude ]]; then
     skip "npm install -g claude-code didn't populate brownfield binary"
   fi
+
+  # Assert the PRECONDITION instead of letting it surface as a confusing
+  # symptom: REMEDIATE-04 can only fire if detect recorded claude-code at the
+  # brownfield path. Absent from the cache, the CLI correctly does a plain
+  # install and the marker assertion fails while naming nothing useful.
+  assert_detect_cache_has claude-code "$prov_out"
 
   local cli_out cli_rc=0
   cli_out=$(sudo -u agent -H bash --login -c 'agentlinux install claude-code </dev/null' 2>&1) || cli_rc=$?

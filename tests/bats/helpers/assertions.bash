@@ -129,3 +129,34 @@ assert_user_prefix_in_home() {
       ;;
   esac
 }
+
+# assert_detect_cache_has <agent-id> <provision-output>
+#
+# The REMEDIATE-04 / REUSE-03 E2E tests all depend on one precondition: the
+# provision that ran just before them re-ran detect and RECORDED the brownfield
+# binary in the detect cache. When that does not happen the CLI is correct to do
+# a plain install — so the test fails several assertions later, on a missing
+# `[REMEDIATE-04]` marker, describing a symptom rather than the cause.
+#
+# Written after four such tests failed on almalinux-9 under QEMU while passing
+# on the same distro under Docker and on Ubuntu under QEMU. The provision output
+# that would have explained it was being sent to /dev/null by the tests
+# themselves, so the transcript held no evidence at all. Hence both halves here:
+# name the missing precondition, AND quote the provision run that was supposed
+# to establish it.
+#
+# `$AGENTLINUX_DETECT_CACHE` else the /run default, matching cache.rs.
+assert_detect_cache_has() {
+  local id=$1 prov_out=${2:-<not captured>}
+  local cache=${AGENTLINUX_DETECT_CACHE:-/run/agentlinux-detect.json}
+
+  [[ -f $cache ]] || __fail "REMEDIATE-04" \
+    "detect cache $cache exists after provision" \
+    "absent — provision did not persist it; its output was:
+$prov_out" "$cache"
+
+  grep -q "\"$id\"" "$cache" || __fail "REMEDIATE-04" \
+    "detect cache records '$id' (the brownfield binary detect was meant to find)" \
+    "not in $cache. cache=$(cat "$cache" 2>&1). provision output was:
+$prov_out" "$cache"
+}
