@@ -268,7 +268,20 @@ const PROBE_TIMEOUT_MS: u64 = 20_000;
 /// host answers in seconds because absent agents fail `command -v` immediately)
 /// while capping the pathological case at a duration an operator will sit through
 /// rather than assume is a hang.
-const SCAN_BUDGET: std::time::Duration = std::time::Duration::from_secs(180);
+///
+/// Raised 180s -> 300s IN LOCKSTEP with `PROBE_TIMEOUT_MS` (5s -> 20s), and the
+/// two must keep moving together. Raising the per-probe ceiling alone would have
+/// traded one silent failure for another: the catalog is 26 rows and each row
+/// costs up to five shell-outs, so a host slow enough to have been hitting the
+/// old 5s bound can exhaust a 180s loop partway through — and a skipped agent is
+/// ABSENT FROM THE CACHE, which REMEDIATE-04 and REUSE-03 read exactly as
+/// "not installed". That is the same wrong answer the probe bound was raised to
+/// prevent, arrived at down a different path.
+///
+/// The one improvement over the old failure mode: an exhausted budget NAMES the
+/// remainder it skipped, so this degradation is legible in the transcript
+/// instead of silent. A timed-out probe still is not.
+const SCAN_BUDGET: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Probe an agent's version via its id-specific flag(s). The legacy three parse
 /// `--version` (gsd: `--help`, no `--version` flag); the rest try
