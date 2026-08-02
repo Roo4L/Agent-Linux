@@ -175,6 +175,14 @@ impl Write for TranscriptErr {
         Ok(buf.len())
     }
 
+    /// Skipped per ADR-020 §4 (unobservable mutants). `std::io::Stderr` is
+    /// unbuffered — its `flush` is a no-op returning `Ok(())` — and this sink
+    /// flushes the transcript handle inside `write`, so the durability contract
+    /// does not run through here either. `flush -> Ok(())` is therefore
+    /// byte-for-byte the same behaviour, not a weak test. The call stays because
+    /// `Write` requires the method and delegating states where the sink's data
+    /// actually goes. This skip covers ONE mutant; `write` above is fully tested.
+    #[cfg_attr(test, mutants::skip)]
     fn flush(&mut self) -> std::io::Result<()> {
         std::io::stderr().flush()
     }
@@ -214,6 +222,45 @@ mod log_tests {
             .unwrap();
         assert!(body.contains("agentlinux-install v0.3.6 starting"));
         assert!(body.contains("agentlinux-install complete"));
+
+        env_scope.unset("AGENTLINUX_LOG");
+    }
+
+    // The whole reason this sink exists: what a verb writes through its `err`
+    // seam must reach the transcript, ONCE and in full.
+    //
+    // The byte count is the contract, not a detail. `Write::write` reporting
+    // fewer bytes than it consumed sends `write_all` back around the loop from
+    // that offset — so a short count duplicates the tail in the transcript, and a
+    // zero count makes `write_all` fail with `WriteZero` and record nothing. Both
+    // are silent: stderr still looks right, because `write_all` already handed
+    // the full buffer to stderr before returning.
+    #[test]
+    fn the_error_sink_records_exactly_what_was_written_to_it() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("install.log");
+        env_scope.set("AGENTLINUX_LOG", &path);
+        init();
+
+        let mut sink = err_sink();
+        let first = b"agentlinux: gsd recipe failed\n";
+        assert_eq!(
+            sink.write(first).unwrap(),
+            first.len(),
+            "a sink that under-reports its write makes write_all retry the tail"
+        );
+        writeln!(sink, "agentlinux: and the reason why").unwrap();
+
+        let mut body = String::new();
+        File::open(&path)
+            .unwrap()
+            .read_to_string(&mut body)
+            .unwrap();
+        assert_eq!(
+            body, "agentlinux: gsd recipe failed\nagentlinux: and the reason why\n",
+            "the transcript must hold each line once, whole, in order"
+        );
 
         env_scope.unset("AGENTLINUX_LOG");
     }

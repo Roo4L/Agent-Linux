@@ -231,10 +231,13 @@ fn tee_and_keep_tail(pipe: Option<std::process::ChildStderr>) -> String {
                 let _ = std::io::stderr().write_all(&buf[..n]);
                 let _ = std::io::stderr().flush();
                 kept.extend_from_slice(&buf[..n]);
-                if kept.len() > STDERR_TAIL {
-                    // Drop from the front, keeping the most recent bytes.
-                    kept.drain(..kept.len() - STDERR_TAIL);
-                }
+                // Drop from the front, keeping the most recent bytes.
+                // `saturating_sub` rather than an `if kept.len() > STDERR_TAIL`
+                // guard: at exactly the cap the guarded form drains `..0`, which
+                // is the same no-op the `>=` mutant produces — an equivalent
+                // mutant no test can kill. ADR-020 §4 forbids skipping one, so
+                // the operator goes instead of the annotation.
+                kept.drain(..kept.len().saturating_sub(STDERR_TAIL));
             }
         }
     }
@@ -418,8 +421,17 @@ impl Drop for AptConfGuard {
 /// `Ok(None)` when the path is unusable — the setup script still runs, just without
 /// the extended wait, which is strictly what happened before this existed. A
 /// staging failure must not be why a provision aborts.
-fn write_apt_lock_conf() -> io::Result<Option<AptConfGuard>> {
-    let dir = std::path::Path::new("/run");
+/// Where the fragment is staged. A tmpfs, so it cannot outlive the boot even if
+/// the guard's unlink is somehow missed.
+const APT_CONF_DIR: &str = "/run";
+
+/// The directory is a parameter, not a hardcoded `/run`, because `/run` is
+/// root-owned: without it nothing about the guard was reachable from a test —
+/// staging, the path handed to `APT_CONFIG`, and the unlink-on-drop were all
+/// exercised only through the real NodeSource pipe. Injected at the call site
+/// rather than behind a defaulting wrapper, since a one-line wrapper no test can
+/// reach is itself a mutant nothing can kill.
+fn write_apt_lock_conf(dir: &std::path::Path) -> io::Result<Option<AptConfGuard>> {
     if !dir.is_dir() {
         return Ok(None);
     }
@@ -480,7 +492,7 @@ pub fn nodesource_setup(family: Family) -> io::Result<()> {
     // and `-o` needs an argv we do not own here. A guard keeps the file's lifetime
     // tied to this call.
     let apt_conf = match family {
-        Family::Debian => write_apt_lock_conf().map_err(|e| {
+        Family::Debian => write_apt_lock_conf(std::path::Path::new(APT_CONF_DIR)).map_err(|e| {
             io::Error::other(format!(
                 "nodesource_setup: could not stage the apt lock-timeout config: {e}"
             ))
@@ -969,6 +981,57 @@ mod pkg_tests {
         std::env::remove_var(PKG_TIMEOUT_ENV);
     }
 
+    // The default is a duration written as arithmetic, and every wrong reading of
+    // it is silently plausible: `20 + 60 * 1000` is 20 seconds, which aborts a
+    // legitimate cold `apt-get update` on a slow mirror, and no assertion on
+    // "some bound exists" would notice.
+    #[test]
+    fn the_default_package_bound_is_twenty_minutes() {
+        assert_eq!(
+            DEFAULT_PKG_TIMEOUT_MS, 1_200_000,
+            "20 minutes in milliseconds, not 20 seconds or 20 hours"
+        );
+    }
+
+    // Staging is the whole `APT_CONFIG` mechanism: the file must carry the lock
+    // timeout, `path_str` must name the file that was actually written (apt reads
+    // whatever path it is handed and silently ignores an unreadable one), and the
+    // guard must unlink on drop — `/run` is a tmpfs, but a leaked fragment per
+    // provision is still a host mutation the purge never accounts for.
+    #[test]
+    fn the_apt_lock_config_is_staged_readable_and_removed_on_drop() {
+        let dir = tempfile::tempdir().unwrap();
+        let staged = write_apt_lock_conf(dir.path())
+            .expect("staging must not fail on a writable directory")
+            .expect("a writable directory must yield a guard");
+
+        let named = std::path::PathBuf::from(staged.path_str());
+        assert_eq!(
+            std::fs::read_to_string(&named).unwrap(),
+            "DPkg::Lock::Timeout \"300\";\n",
+            "APT_CONFIG must point at the fragment carrying the lock timeout"
+        );
+
+        drop(staged);
+        assert!(
+            !named.exists(),
+            "the fragment must be unlinked when the guard goes out of scope"
+        );
+    }
+
+    // An unusable staging directory degrades to "no extended wait", not to a
+    // failed provision. This is the arm the doc comment promises and the one that
+    // decides whether a missing `/run` aborts step 30 on a half-provisioned host.
+    #[test]
+    fn an_unusable_staging_directory_yields_no_guard_rather_than_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let absent = dir.path().join("no-such-run");
+        assert!(
+            write_apt_lock_conf(&absent).unwrap().is_none(),
+            "a missing directory must produce Ok(None), never an error"
+        );
+    }
+
     // A failing command's stderr reaches the error message. Previously the error
     // carried only the argv, so `apt-get update` failing on an expired mirror key
     // read as "pkg verb failed" with the explanation discarded.
@@ -1016,20 +1079,30 @@ mod pkg_tests {
 
     // A package command is bounded: a wedged child is killed rather than hanging
     // the provision.
+    //
+    // Run on a worker thread with a bounded join rather than asserting on
+    // `Instant::elapsed` afterwards. Both forms FAIL when the bound is lost, but
+    // the in-line form only fails after waiting out the full `sleep 60` — long
+    // enough that the mutation harness kills the whole suite first and records a
+    // timeout, which this project's gate counts as a survivor. Bounding the wait
+    // here turns "the suite hung" into "this assertion failed", in 10s.
     #[test]
     fn a_wedged_package_command_is_killed_not_awaited() {
         let _g = crate::test_support::EnvScope::new();
         std::env::set_var(PKG_TIMEOUT_ENV, "200");
-        let start = std::time::Instant::now();
-        let outcome = PkgCmd::new(&[], &["bash", "-c", "sleep 60"]).run().unwrap();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let outcome = PkgCmd::new(&[], &["bash", "-c", "sleep 60"]).run().unwrap();
+            let _ = tx.send((outcome.timed_out, outcome.success()));
+        });
+        let (timed_out, success) = rx
+            .recv_timeout(Duration::from_secs(10))
+            .expect("a bounded command must not outlive its bound");
+
         std::env::remove_var(PKG_TIMEOUT_ENV);
-        assert!(outcome.timed_out, "must report the timeout");
-        assert!(!outcome.success());
-        assert!(
-            start.elapsed() < Duration::from_secs(10),
-            "took {:?}",
-            start.elapsed()
-        );
+        assert!(timed_out, "must report the timeout");
+        assert!(!success);
     }
 
     // A package command that exits cleanly while leaking a background process

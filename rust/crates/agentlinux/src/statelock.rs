@@ -371,4 +371,84 @@ mod statelock_tests {
             std::env::remove_var(LOCK_INHERITED_ENV);
         });
     }
+
+    // An EMPTY override is not an override. Without the non-empty guard,
+    // `AGENTLINUX_LOCK_FILE=` — which is what an unset shell variable expands to
+    // in `FOO="$BAR"` — resolves the lock to the empty path, which can never be
+    // opened, so every verb on that host silently drops to `Unavailable` and
+    // runs unserialized.
+    #[test]
+    fn an_empty_override_falls_back_to_the_default_path() {
+        let _g = crate::test_support::EnvScope::new();
+        std::env::set_var(LOCK_PATH_ENV, "");
+        assert_eq!(lock_path(), PathBuf::from(DEFAULT_LOCK_PATH));
+        std::env::set_var(LOCK_PATH_ENV, "/tmp/elsewhere.lock");
+        assert_eq!(lock_path(), PathBuf::from("/tmp/elsewhere.lock"));
+    }
+
+    // A symlink at the lock path must fail CLOSED. This is the fail-open/
+    // fail-closed split in one test: were the symlink followed (no `O_NOFOLLOW`)
+    // or its ELOOP classified as `Unavailable`, the run would proceed —
+    // locking the attacker's target file instead, or nothing at all — and no
+    // future run would ever repair the planted link.
+    #[test]
+    fn a_symlink_at_the_lock_path_is_refused_rather_than_followed() {
+        with_temp_lock(|path| {
+            let target = path.with_file_name("attacker-target");
+            std::fs::write(&target, b"").unwrap();
+            std::os::unix::fs::symlink(&target, path).unwrap();
+
+            let err = acquire("install").expect_err("a symlinked lock path must be refused");
+            let msg = err.to_string();
+            assert!(msg.contains("symlink"), "message must name the cause: {msg}");
+            assert!(
+                msg.contains("install"),
+                "message must name the refused verb: {msg}"
+            );
+        });
+    }
+
+    // `O_NOFOLLOW` says nothing about file TYPE, so the type check is a separate
+    // guard with its own failure mode: a directory opens and `flock`s perfectly
+    // well, so accepting one hands a local user a lockable object they can hold
+    // indefinitely — every privileged verb refused, forever, by a `mkdir`.
+    #[test]
+    fn a_directory_at_the_lock_path_is_refused_rather_than_locked() {
+        with_temp_lock(|path| {
+            std::fs::create_dir(path).unwrap();
+            let err = acquire("upgrade").expect_err("a directory must not be lockable");
+            assert!(
+                err.to_string().contains("not a regular file"),
+                "message must say what was wrong: {err}"
+            );
+        });
+    }
+
+    // The other half of `lock_open_flags`. Without `O_NONBLOCK`, `open()` on a
+    // FIFO blocks in the kernel until a writer appears — no timeout, no signal
+    // escape, before the transcript is even open. Run on a worker thread with a
+    // bounded join so a regression fails this test in 10s instead of hanging the
+    // suite the way it would hang the CLI.
+    #[test]
+    fn a_fifo_at_the_lock_path_is_refused_without_blocking() {
+        with_temp_lock(|path| {
+            nix::unistd::mkfifo(path, nix::sys::stat::Mode::from_bits_truncate(0o644)).unwrap();
+
+            let (tx, rx) = std::sync::mpsc::channel();
+            let owned = path.to_path_buf();
+            std::thread::spawn(move || {
+                std::env::set_var(LOCK_PATH_ENV, &owned);
+                let _ = tx.send(acquire("remove").map(|l| format!("{l:?}")));
+            });
+
+            match rx.recv_timeout(std::time::Duration::from_secs(10)) {
+                Ok(Err(e)) => assert!(
+                    e.to_string().contains("not a regular file"),
+                    "a FIFO must be refused as the wrong file type: {e}"
+                ),
+                Ok(Ok(lock)) => panic!("a FIFO must not be lockable, got {lock}"),
+                Err(_) => panic!("acquire() blocked on a FIFO — O_NONBLOCK is missing"),
+            }
+        });
+    }
 }

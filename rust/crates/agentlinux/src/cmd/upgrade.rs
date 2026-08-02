@@ -374,7 +374,11 @@ pub fn upgrade_with(
         .iter()
         .any(|e| !e.test_only && e.source_kind.as_deref() == Some("npm"));
     if npm_query_failed && any_npm_entry {
-        crate::plog!(
+        // `o.err`, like the per-entry lines and the sweep summary — production
+        // binds it to the same `err_sink()` `plog!` writes through, so the
+        // operator-visible output is unchanged and the refusal becomes assertable.
+        let _ = writeln!(
+            o.err,
             "agentlinux upgrade: refusing to reconcile — the global npm query failed, \
              so every npm entry's installed version is unknown and would be treated \
              as a reinstall candidate. The report above is still valid. Re-run once \
@@ -496,7 +500,13 @@ pub fn upgrade_with(
     // then reported success. Every entry is still attempted; the sweep just tells
     // the truth at the end.
     if failures > 0 {
-        crate::plog!(
+        // Through `o.err`, not `plog!`. Production binds `o.err` to the same
+        // `err_sink()` that `plog!` writes through, so the operator sees exactly
+        // what they saw before — but the counts become observable, and until they
+        // were, both could be pinned at zero with the whole suite green: a sweep
+        // in which every entry failed would then print nothing and exit 0.
+        let _ = writeln!(
+            o.err,
             "agentlinux upgrade: {failures} of {attempted} entr{} failed — see the \
              per-entry lines above",
             if attempted == 1 { "y" } else { "ies" }
@@ -1259,8 +1269,203 @@ mod upgrade_tests {
         .unwrap();
     }
 
+    /// One non-test npm agent — the shape the reconcile refusal guards.
+    fn write_catalog_one_npm(dir: &std::path::Path) {
+        std::fs::write(
+            dir.join("catalog.json"),
+            r#"{"version":"0.3.6","agents":[
+                {"id":"n-agent","display_name":"N","description":"d","source_kind":"npm",
+                 "npm_package_name":"n-pkg",
+                 "pinned_version":"2.0.0","install_recipe_path":"install.sh","uninstall_recipe_path":"uninstall.sh","tags":["x"]}
+            ]}"#,
+        )
+        .unwrap();
+    }
+
     fn empty_npm() -> Result<NpmMap, String> {
         Ok(NpmMap::new())
+    }
+
+    fn npm_query_fails() -> Result<NpmMap, String> {
+        Err("npm ls -g timed out".to_string())
+    }
+
+    fn ok_dispatch(_u: &str, _p: &str, _e: &[(String, String)], _s: Capture) -> DispatchResult {
+        DispatchResult {
+            exit_code: 0,
+            stdout: String::new(),
+            stderr: String::new(),
+            streamed: false,
+        }
+    }
+
+    /// Drive one reconcile against a caller-written catalog and npm query, and
+    /// return the exit code with whatever reached stderr.
+    fn reconcile(
+        write_catalog: fn(&std::path::Path),
+        query: fn() -> Result<NpmMap, String>,
+        o: &mut UpgradeArgs,
+    ) -> (ExitCode, String) {
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+
+        let mut err: Vec<u8> = Vec::new();
+        let code = upgrade_with(
+            o,
+            UpgradeDeps {
+                dispatch: ok_dispatch,
+                query_global_npm: query,
+                query_npm_view_latest: no_latest,
+            },
+            &mut crate::cmd::install::Out {
+                out: &mut Vec::new(),
+                err: &mut err,
+            },
+        );
+        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+        (code, String::from_utf8(err).unwrap())
+    }
+
+    // A failed npm query makes every npm entry read installed=None, which
+    // `--reset-all-curated` would treat as "reinstall the lot". Refusing is the
+    // whole point: EX_TEMPFAIL says "ask again later", so a scheduler retries
+    // instead of recording a successful sweep that reinstalled the host's entire
+    // npm agent set over a 30-second registry blip.
+    #[test]
+    fn a_failed_npm_query_refuses_to_reconcile_when_an_npm_entry_exists() {
+        let _g = crate::test_support::EnvScope::new();
+        let (code, err) = reconcile(
+            write_catalog_one_npm,
+            npm_query_fails,
+            &mut opts(true, false, false, false, false),
+        );
+        assert_eq!(
+            code,
+            ExitCode::from(crate::EX_TEMPFAIL),
+            "must be the retryable code, not a generic failure"
+        );
+        assert!(
+            err.contains("refusing to reconcile"),
+            "and must say why:\n{err}"
+        );
+    }
+
+    // The other side of the same guard, and the reason it is narrowed to npm
+    // entries at all: a host whose catalog has none is unaffected by an npm
+    // outage. Refusing there would strand every script agent on an unrelated
+    // failure — the guard would be a global outage switch rather than a
+    // correctness one.
+    #[test]
+    fn a_failed_npm_query_does_not_block_a_catalog_with_no_npm_entries() {
+        let _g = crate::test_support::EnvScope::new();
+        let (code, err) = reconcile(
+            write_catalog_two,
+            npm_query_fails,
+            &mut opts(true, false, false, false, false),
+        );
+        assert_eq!(code, ExitCode::SUCCESS, "stderr was:\n{err}");
+        assert!(
+            !err.contains("refusing to reconcile"),
+            "no npm entry means nothing to refuse over:\n{err}"
+        );
+    }
+
+    // The two counters are only ever observable through this one line, and both
+    // are wrong in a way that reads as success: pinned at zero, `failures > 0` is
+    // false and a sweep in which everything failed exits 0 in silence. Asserted
+    // as an exact substring, because "1 of 0 entries failed" is what a pinned
+    // `attempted` prints — a sentence that looks like a summary and counts nothing.
+    #[test]
+    fn the_sweep_summary_reports_how_many_of_how_many_failed() {
+        let _g = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog_two(cat.path());
+        std::env::set_var("AGENTLINUX_CATALOG_DIR", cat.path());
+        std::env::set_var("AGENTLINUX_STATE_DIR", state.path());
+        std::env::set_var("AGENTLINUX_DETECT_CACHE", "/nonexistent/detect.json");
+
+        for id in ["a-agent", "b-agent"] {
+            let mut s = Sentinel::new(id.into(), "1.0.0".into(), "override".into(), false);
+            s.status = Some("installed".to_string());
+            sentinel::write_sentinel(&s).unwrap();
+        }
+        // Break the sentinel WRITE for exactly one entry, leaving its recipe to
+        // succeed: a directory where the record belongs. That is the arm where the
+        // recipe worked but the host now disagrees with its own record — the one
+        // failure path that is invisible in the per-entry recipe output.
+        let record = sentinel::installed_dir().join("b-agent.json");
+        std::fs::remove_file(&record).unwrap();
+        std::fs::create_dir(&record).unwrap();
+
+        let mut err: Vec<u8> = Vec::new();
+        let code = upgrade_with(
+            &opts(true, false, false, false, false),
+            UpgradeDeps {
+                dispatch: ok_dispatch,
+                query_global_npm: empty_npm,
+                query_npm_view_latest: no_latest,
+            },
+            &mut crate::cmd::install::Out {
+                out: &mut Vec::new(),
+                err: &mut err,
+            },
+        );
+        let err = String::from_utf8(err).unwrap();
+
+        assert_eq!(code, ExitCode::FAILURE, "stderr was:\n{err}");
+        assert!(
+            err.contains("1 of 2 entries failed"),
+            "both counts must be real — one failure out of two attempts:\n{err}"
+        );
+
+        std::env::remove_var("AGENTLINUX_CATALOG_DIR");
+        std::env::remove_var("AGENTLINUX_STATE_DIR");
+        std::env::remove_var("AGENTLINUX_DETECT_CACHE");
+    }
+
+    // `--all-latest` against a registry that resolves nothing is NOT a benign
+    // no-op: it is the shape a blackholed or rate-limited registry takes, and
+    // every entry takes the skip arm. Uncounted, the sweep exits 0 having done
+    // nothing at all — "told the scheduler it succeeded", which is the exact
+    // failure the exit code exists to prevent.
+    #[test]
+    fn an_all_latest_sweep_that_resolves_nothing_counts_every_entry_as_failed() {
+        let _g = crate::test_support::EnvScope::new();
+        let (code, err) = reconcile(
+            write_catalog_two,
+            empty_npm,
+            &mut opts(false, false, true, false, false),
+        );
+        assert_eq!(code, ExitCode::FAILURE, "stderr was:\n{err}");
+        assert!(
+            err.contains("2 of 2 entries failed"),
+            "an unresolved entry is attempted AND failed:\n{err}"
+        );
+    }
+
+    // And a WORKING query must not be refused merely because npm entries exist —
+    // otherwise the guard fires on every reconcile and no npm agent is ever
+    // upgradable again.
+    #[test]
+    fn a_working_npm_query_reconciles_npm_entries_normally() {
+        let _g = crate::test_support::EnvScope::new();
+        let (code, err) = reconcile(
+            write_catalog_one_npm,
+            empty_npm,
+            &mut opts(true, false, false, false, false),
+        );
+        assert_eq!(code, ExitCode::SUCCESS, "stderr was:\n{err}");
+        assert!(
+            !err.contains("refusing to reconcile"),
+            "a successful query has nothing unknown about it:\n{err}"
+        );
     }
     fn no_latest(_e: &FullCatalogEntry) -> Result<Option<String>, String> {
         Ok(None)

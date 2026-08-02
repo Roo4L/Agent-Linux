@@ -248,7 +248,12 @@ fn run_guarded_verb(command: Command) -> ExitCode {
 /// this one alone.
 pub(crate) const EX_TEMPFAIL: u8 = 75;
 
-/// Take the host state lock for a mutating verb, or `None` after printing why.
+/// Does this invocation mutate host state, and so need the lock?
+///
+/// Split out from `hold_state_lock` because it is the whole decision and it is
+/// pure: getting a single arm backwards either serializes a read-only verb
+/// behind a long install or lets two installs interleave, and neither shows up
+/// in any test that has to acquire a real lock file to reach the answer.
 ///
 /// Three kinds of invocation are deliberately exempt:
 ///  - `list` only reads, so serializing it would block the one command an
@@ -258,16 +263,20 @@ pub(crate) const EX_TEMPFAIL: u8 = 75;
 ///    contract those modes exist to offer — and a preview refused while an
 ///    install runs is the same operability problem as a blocked `list`.
 ///  - `install --dry-run`, likewise.
-fn hold_state_lock(command: &Command) -> Option<statelock::HostLock> {
-    let needs_lock = match command {
+fn needs_state_lock(command: &Command) -> bool {
+    match command {
         Command::List(_) => false,
         Command::Provision(a) => !a.dry_run && !a.report_only,
         Command::Install(a) => !a.dry_run,
         // Bare `upgrade` is a report; only the flags below install anything.
         Command::Upgrade(a) => a.reset_all_curated || a.respect_overrides || a.all_latest,
         Command::Adopt(_) | Command::Pin(_) | Command::Remove(_) => true,
-    };
-    if !needs_lock {
+    }
+}
+
+/// Take the host state lock for a mutating verb, or `None` after printing why.
+fn hold_state_lock(command: &Command) -> Option<statelock::HostLock> {
+    if !needs_state_lock(command) {
         return Some(statelock::HostLock::NotRequired);
     }
     match statelock::acquire(verb_name(command)) {
@@ -409,6 +418,72 @@ mod canonical_map_tests {
             let cli = Cli::try_parse_from(&argv).expect("argv parses");
             assert_eq!(verb_name(&cli.command), expected, "argv={argv:?}");
         }
+    }
+
+    // One row per arm AND per exemption flag, because every boolean here has a
+    // failure mode in both directions: a `true` that should be `false` blocks
+    // `list` and every preview mode behind whatever long install is running,
+    // and a `false` that should be `true` lets two mutating runs interleave —
+    // the exact thing the lock exists to stop. Parsed through clap so the rows
+    // are real invocations rather than hand-built structs that could drift from
+    // the flags the CLI accepts.
+    #[test]
+    fn only_the_invocations_that_mutate_host_state_take_the_lock() {
+        for (argv, expected) in [
+            // Reads and previews: exempt.
+            (vec!["agentlinux", "list"], false),
+            (vec!["agentlinux", "provision", "--dry-run"], false),
+            (vec!["agentlinux", "provision", "--report-only"], false),
+            (vec!["agentlinux", "install", "gsd", "--dry-run"], false),
+            // Bare `upgrade` reports what WOULD change; it installs nothing.
+            (vec!["agentlinux", "upgrade"], false),
+            // Mutating: locked.
+            (vec!["agentlinux", "provision"], true),
+            (vec!["agentlinux", "install", "gsd"], true),
+            (vec!["agentlinux", "upgrade", "--reset-all-curated"], true),
+            (vec!["agentlinux", "upgrade", "--respect-overrides"], true),
+            (vec!["agentlinux", "upgrade", "--all-latest"], true),
+            (vec!["agentlinux", "adopt"], true),
+            (vec!["agentlinux", "pin", "gsd=latest"], true),
+            (vec!["agentlinux", "remove", "gsd"], true),
+        ] {
+            let cli = Cli::try_parse_from(&argv).expect("argv parses");
+            assert_eq!(
+                needs_state_lock(&cli.command),
+                expected,
+                "argv={argv:?} — wrong side of the lock decision"
+            );
+        }
+    }
+
+    // The decision above has to reach `acquire`. Asserting only on
+    // `needs_state_lock` would leave the branch that consumes it free to be
+    // inverted: exempt verbs would contend for a real lock file and mutating
+    // ones would sail past it, with every table row above still green.
+    #[test]
+    fn the_lock_decision_is_the_one_acted_on() {
+        let _g = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("AGENTLINUX_LOCK_FILE", dir.path().join("agentlinux.lock"));
+        std::env::remove_var(statelock::LOCK_INHERITED_ENV);
+
+        let exempt = Cli::try_parse_from(["agentlinux", "list"]).unwrap();
+        assert!(
+            matches!(
+                hold_state_lock(&exempt.command),
+                Some(statelock::HostLock::NotRequired)
+            ),
+            "`list` must not seek the lock at all"
+        );
+
+        let mutating = Cli::try_parse_from(["agentlinux", "install", "gsd"]).unwrap();
+        assert!(
+            matches!(
+                hold_state_lock(&mutating.command),
+                Some(statelock::HostLock::Held(_))
+            ),
+            "`install` must actually hold the lock, not merely be told it needs one"
+        );
     }
 }
 
