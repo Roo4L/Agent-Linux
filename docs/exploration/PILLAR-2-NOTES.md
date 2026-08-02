@@ -44,7 +44,7 @@ the framing context.
   prompts. Release-gated by the self-update acceptance test against the live CDN.
 - **T-2 — ADR-011 stability model.** Each catalog agent carries
   `pinned_version`; the curated combo is what we test, ship, and serve as
-  default. A four-gate release pipeline gates every release.
+  default. A multi-gate release pipeline gates every release.
 
 **Differentiators** are the positions our roadmap commits to:
 - **D-1** — compat-guarded default version set: hold last-known-good on
@@ -88,11 +88,12 @@ reaffirmed in this exploration 2026-05-10).
   the live CDN every release. Recipe:
   `plugin/catalog/agents/claude-code/install.sh`.
 - **T-2 — ADR-011 stability model.** `pinned_version` per catalog agent +
-  curated combo (claude-code + gsd + playwright-cli) + the four-gate release
-  pipeline (pre-commit → docker matrix → QEMU matrix → pinned-combo re-run).
-  Docker and QEMU matrices both cover Ubuntu 22.04 + 24.04 + 26.04; the
-  pinned-combo gate re-runs the catalog combo end-to-end on Ubuntu 24.04
-  Docker as a distinct release-gate signal. See
+  curated combo (claude-code + gsd + playwright-cli) + the release pipeline
+  (pre-commit, then the Docker and QEMU matrices concurrently, then build and
+  publish). Both matrices cover Ubuntu 24.04 + AlmaLinux 9 and install the
+  curated combo end-to-end. A fourth "pinned-combo re-run" gate existed until
+  it was found to be byte-identical work to the Docker gate's ubuntu-24.04 leg
+  and deleted. See
   [`docs/STABILITY-MODEL.md`](../STABILITY-MODEL.md).
 
 **Differentiators (forward-looking, voice rule applies):**
@@ -133,11 +134,11 @@ reaffirmed in this exploration 2026-05-10).
 **Today / Direction content seed:**
 
 - **Today (v0.3.0 reality, delivered-fact voice):** zero-EACCES
-  self-update release-gate green; ADR-011 `pinned_version` + the four-gate
+  self-update release-gate green; ADR-011 `pinned_version` + the gated
   release pipeline; curated combo (claude-code + gsd + playwright-cli)
-  tested in Docker + QEMU on Ubuntu 22.04 + 24.04 + 26.04 every release. No
+  tested in Docker + QEMU on Ubuntu 24.04 + AlmaLinux 9 every release. No
   preset framework yet; no profile framework yet; no formal compat-guarded
-  update flow beyond the four-gate release pipeline's manual gate.
+  update flow beyond the release pipeline's manual gate.
 - **Direction (`next-milestone`, forward-looking voice):** Our roadmap
   commits to a preset framework (`bare` / `must-haves` / `optimum`), a
   profile framework (orthogonal use-case bundles), and a compat-guarded
