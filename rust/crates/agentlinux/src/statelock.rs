@@ -438,9 +438,11 @@ mod statelock_tests {
             nix::unistd::mkfifo(path, nix::sys::stat::Mode::from_bits_truncate(0o644)).unwrap();
 
             let (tx, rx) = std::sync::mpsc::channel();
-            let owned = path.to_path_buf();
+            // The worker reads `LOCK_PATH_ENV`; it must not WRITE it. The value is
+            // already set by `with_temp_lock` on this thread, and the env is
+            // process-global — a second thread mutating it while the main thread
+            // lives is the exact hazard `EnvScope` exists to serialize away.
             std::thread::spawn(move || {
-                std::env::set_var(LOCK_PATH_ENV, &owned);
                 let _ = tx.send(acquire("remove").map(|l| format!("{l:?}")));
             });
 

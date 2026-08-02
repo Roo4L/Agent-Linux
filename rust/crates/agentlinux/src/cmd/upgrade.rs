@@ -1304,7 +1304,7 @@ mod upgrade_tests {
     fn reconcile(
         write_catalog: fn(&std::path::Path),
         query: fn() -> Result<NpmMap, String>,
-        o: &mut UpgradeArgs,
+        opts: &UpgradeArgs,
     ) -> (ExitCode, String) {
         let cat = tempdir().unwrap();
         let state = tempdir().unwrap();
@@ -1315,7 +1315,7 @@ mod upgrade_tests {
 
         let mut err: Vec<u8> = Vec::new();
         let code = upgrade_with(
-            o,
+            opts,
             UpgradeDeps {
                 dispatch: ok_dispatch,
                 query_global_npm: query,
@@ -1343,7 +1343,7 @@ mod upgrade_tests {
         let (code, err) = reconcile(
             write_catalog_one_npm,
             npm_query_fails,
-            &mut opts(true, false, false, false, false),
+            &opts(true, false, false, false, false),
         );
         assert_eq!(
             code,
@@ -1367,7 +1367,7 @@ mod upgrade_tests {
         let (code, err) = reconcile(
             write_catalog_two,
             npm_query_fails,
-            &mut opts(true, false, false, false, false),
+            &opts(true, false, false, false, false),
         );
         assert_eq!(code, ExitCode::SUCCESS, "stderr was:\n{err}");
         assert!(
@@ -1441,7 +1441,7 @@ mod upgrade_tests {
         let (code, err) = reconcile(
             write_catalog_two,
             empty_npm,
-            &mut opts(false, false, true, false, false),
+            &opts(false, false, true, false, false),
         );
         assert_eq!(code, ExitCode::FAILURE, "stderr was:\n{err}");
         assert!(
@@ -1459,7 +1459,7 @@ mod upgrade_tests {
         let (code, err) = reconcile(
             write_catalog_one_npm,
             empty_npm,
-            &mut opts(true, false, false, false, false),
+            &opts(true, false, false, false, false),
         );
         assert_eq!(code, ExitCode::SUCCESS, "stderr was:\n{err}");
         assert!(
