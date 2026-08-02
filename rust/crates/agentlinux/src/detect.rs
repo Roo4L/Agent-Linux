@@ -238,9 +238,28 @@ fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
 /// hung binary cannot wedge the whole scan. Kept modest: the scan is serial over
 /// the whole catalog and each present agent fires up to ~5 shell-outs, so a
 /// generous ceiling would let a few pathological binaries add minutes to a
-/// greenfield provision. 5s is ample for any real `--version`/`--help` while
-/// trimming that tail (absent agents fail `command -v` fast and skip the rest).
-const PROBE_TIMEOUT_MS: u64 = 5_000;
+/// greenfield provision.
+///
+/// Raised 5s -> 20s. 5s measures a `--version`, but every probe pays for a
+/// `bash --login` first — sourcing /etc/profile and all of /etc/profile.d —
+/// and on a cold AlmaLinux 9 guest under enforcing SELinux that is not a
+/// sub-second cost. When it overran, `command -v claude` returned non-zero for
+/// a binary that was present, detect recorded the agent `absent`, and
+/// REMEDIATE-04 correctly declined to fire on a host it had been told was
+/// clean: four brownfield E2E tests failed on almalinux-9/QEMU while passing on
+/// the same distro under Docker and on Ubuntu under QEMU. The probe was
+/// re-run unbounded from the failing assertion and resolved the binary
+/// immediately, with PATH, execute permission and SELinux context all correct.
+///
+/// This is a bound, not a fix for the underlying conflation: a timed-out probe
+/// is still indistinguishable from a missing binary, because the buffered
+/// timeout maps to exit 1 — the same code `command -v` returns for "not found"
+/// — and a cleanly-killed child logs nothing. See the module note on
+/// `probe_one`. The aggregate `SCAN_BUDGET` below remains the real protection
+/// against a pathological host: a healthy probe still answers in well under a
+/// second, so raising this ceiling costs nothing on hosts that were already
+/// fast and only buys headroom on the ones that were failing silently.
+const PROBE_TIMEOUT_MS: u64 = 20_000;
 
 /// Aggregate ceiling for the whole detect scan, independent of catalog size.
 ///
@@ -276,6 +295,28 @@ fn probe_version(run: LoginRun, user: &str, home: &str, id: &str, binary: &str) 
 /// Probe a single `(id, binary)` row into an [`AgentRecord`]. Resolves the binary
 /// on the install user's login PATH; on a miss, GSD falls back to its deployed
 /// `~/.claude/gsd-core/VERSION` (owner-gated). Absent everywhere → `status=absent`.
+/// KNOWN DEFECT — a failed probe and an absent binary are the same record.
+///
+/// `run` returns only `(rc, stdout)`. A `command -v` miss is rc=1; a probe the
+/// dispatcher KILLED on its timeout is also rc=1, because
+/// `Capture::Buffered::timeout_exit()` is 1 and a cleanly-killed child logs
+/// nothing. Both land in the `absent` record below, so "the tool is not
+/// installed" and "we could not look" are one value by the time REUSE-03 and
+/// REMEDIATE-04 read it — and those act on it, reinstalling or declining to
+/// remediate on the strength of a guess.
+///
+/// This cost three diagnosis passes on the almalinux-9/QEMU brownfield failure
+/// (AL-124): the cache said `absent` while the binary sat at the probed path,
+/// and nothing anywhere recorded that a probe had been cut short. Raising
+/// `PROBE_TIMEOUT_MS` buys headroom; it does not make the two cases
+/// distinguishable.
+///
+/// Fixing it properly means surfacing the timeout, either by carrying
+/// `timed_out` on `DispatchResult` (the dispatcher already computes it at the
+/// `wait_with_timeout` call and discards it — 68 construction sites) or by
+/// giving the buffered path a distinct timeout code the way the streamed path
+/// already uses 124. Both are larger than a bound change and want their own
+/// review; deliberately not folded in here.
 fn probe_one(run: LoginRun, user: &str, home: &str, id: &str, binary: &str) -> AgentRecord {
     let (rc, bin_path) = run(user, home, &format!("command -v {binary}"));
     let resolved = if rc == 0 && !bin_path.is_empty() {
