@@ -199,10 +199,12 @@ Two escape hatches, both requiring a written reason at the site:
 
 - **`#[mutants::skip]`** on a function whose mutants are unobservable — e.g.
   `TmpGuard::disarm`, where skipping the disarm makes `Drop` unlink a path the
-  rename already consumed, a no-op no test can distinguish. Four of these exist,
-  all in `sysio.rs`, each with a comment. (The other three skips in the tree —
-  `detect.rs`, `cmd/install.rs`, `cmd/provision.rs` — belong to the third case
-  below, not this one.)
+  rename already consumed, a no-op no test can distinguish. **Five** of these
+  exist, each with the reason at the site: four in `sysio.rs` (`TmpGuard::disarm`,
+  `mktemp_in`'s O_EXCL collision-retry arm, `useradd`, `visudo_validate`) and one
+  in `provision/log.rs` (`TranscriptErr::flush` — `Stderr` is unbuffered and the
+  transcript is flushed inside `write`, so `-> Ok(())` is identical behaviour).
+  Every other skip in the tree belongs to the third case below, not this one.
 - **A documented equivalent mutant**, where the mutated code has the same
   observable behavior. `detect_gates::reuse_gate`'s gate 1 (reject an empty
   compatibility window) is the example: `satisfies(v, "")` is already false for
