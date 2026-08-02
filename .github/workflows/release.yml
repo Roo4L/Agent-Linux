@@ -114,6 +114,27 @@ jobs:
         target: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, almalinux-9]
     steps:
       - uses: actions/checkout@v5
+      # The Rust cutover made every job below build a static-musl binary —
+      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
+      # workflow's build job via scripts/build-release.sh. None of them can do
+      # that without the musl TARGET and the musl-gcc LINKER, and this workflow
+      # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
+      # gate-2-docker legs with `linker musl-gcc not found` before any gate had
+      # a chance to test anything. test.yml's bats-docker job already carries
+      # these two steps for the same reason; they are copied verbatim.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)
         run: bash tests/docker/run.sh ${{ matrix.target }}
 
@@ -147,6 +168,27 @@ jobs:
       # user is NOT in the kvm group. A udev rule with MODE=0666 exposes the
       # device without group membership. Fail fast if the device is still
       # inaccessible — TCG fallback would silently blow past the timeout.
+      # The Rust cutover made every job below build a static-musl binary —
+      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
+      # workflow's build job via scripts/build-release.sh. None of them can do
+      # that without the musl TARGET and the musl-gcc LINKER, and this workflow
+      # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
+      # gate-2-docker legs with `linker musl-gcc not found` before any gate had
+      # a chance to test anything. test.yml's bats-docker job already carries
+      # these two steps for the same reason; they are copied verbatim.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Enable /dev/kvm access (Pitfall 4)
         run: |
           set -euo pipefail
@@ -218,6 +260,27 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v5
+      # The Rust cutover made every job below build a static-musl binary —
+      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
+      # workflow's build job via scripts/build-release.sh. None of them can do
+      # that without the musl TARGET and the musl-gcc LINKER, and this workflow
+      # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
+      # gate-2-docker legs with `linker musl-gcc not found` before any gate had
+      # a chance to test anything. test.yml's bats-docker job already carries
+      # these two steps for the same reason; they are copied verbatim.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Pinned catalog combo + 50-agents.bats + 51-*.bats (TST-08)
         run: bash tests/docker/run.sh ubuntu-24.04
 
@@ -241,6 +304,27 @@ jobs:
         with:
           node-version: '22'
 
+      # The Rust cutover made every job below build a static-musl binary —
+      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
+      # workflow's build job via scripts/build-release.sh. None of them can do
+      # that without the musl TARGET and the musl-gcc LINKER, and this workflow
+      # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
+      # gate-2-docker legs with `linker musl-gcc not found` before any gate had
+      # a chance to test anything. test.yml's bats-docker job already carries
+      # these two steps for the same reason; they are copied verbatim.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Build release artifacts
         env:
           TAG: ${{ needs.resolve.outputs.tag }}
