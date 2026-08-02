@@ -734,7 +734,7 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   # symptom: REMEDIATE-04 can only fire if detect recorded claude-code at the
   # brownfield path. Absent from the cache, the CLI correctly does a plain
   # install and the marker assertion fails while naming nothing useful.
-  assert_detect_cache_has claude-code "$prov_out"
+  assert_detect_cache_has claude-code "$prov_out" "/home/agent/.npm-global/bin/claude"
 
   # Sanity: marker still present after baseline install.
   [[ -f /home/agent/.claude/test-marker-file ]] \
@@ -794,7 +794,7 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   # symptom: REMEDIATE-04 can only fire if detect recorded claude-code at the
   # brownfield path. Absent from the cache, the CLI correctly does a plain
   # install and the marker assertion fails while naming nothing useful.
-  assert_detect_cache_has claude-code "$prov_out"
+  assert_detect_cache_has claude-code "$prov_out" "/home/agent/.npm-global/bin/claude"
 
   local cli_out cli_rc=0
   cli_out=$(sudo -u agent -H \
@@ -838,7 +838,7 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   # symptom: REMEDIATE-04 can only fire if detect recorded claude-code at the
   # brownfield path. Absent from the cache, the CLI correctly does a plain
   # install and the marker assertion fails while naming nothing useful.
-  assert_detect_cache_has claude-code "$prov_out"
+  assert_detect_cache_has claude-code "$prov_out" "/home/agent/.npm-global/bin/claude"
 
   local cli_out cli_rc=0
   cli_out=$(sudo -u agent -H \
@@ -888,7 +888,7 @@ CATALOG_DIR=/opt/agentlinux-src/plugin/catalog
   # symptom: REMEDIATE-04 can only fire if detect recorded claude-code at the
   # brownfield path. Absent from the cache, the CLI correctly does a plain
   # install and the marker assertion fails while naming nothing useful.
-  assert_detect_cache_has claude-code "$prov_out"
+  assert_detect_cache_has claude-code "$prov_out" "/home/agent/.npm-global/bin/claude"
 
   local cli_out cli_rc=0
   cli_out=$(sudo -u agent -H bash --login -c 'agentlinux install claude-code </dev/null' 2>&1) || cli_rc=$?

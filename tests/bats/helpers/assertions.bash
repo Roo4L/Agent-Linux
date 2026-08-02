@@ -147,7 +147,7 @@ assert_user_prefix_in_home() {
 #
 # `$AGENTLINUX_DETECT_CACHE` else the /run default, matching cache.rs.
 assert_detect_cache_has() {
-  local id=$1 prov_out=${2:-<not captured>}
+  local id=$1 prov_out=${2:-<not captured>} want_path=${3:-}
   local cache=${AGENTLINUX_DETECT_CACHE:-/run/agentlinux-detect.json}
 
   [[ -f $cache ]] || __fail "REMEDIATE-04" \
@@ -159,4 +159,20 @@ $prov_out" "$cache"
     "detect cache records '$id' (the brownfield binary detect was meant to find)" \
     "not in $cache. cache=$(cat "$cache" 2>&1). provision output was:
 $prov_out" "$cache"
+
+  # The PATH is the whole point, not merely the id. REMEDIATE-04 fires on a
+  # MISMATCH between the detected path and the canonical one, so a cache that
+  # records the agent at its canonical location is indistinguishable from a
+  # clean install — the CLI then correctly declines to remediate and the marker
+  # assertion downstream fails with nothing to explain it. Checking only the id
+  # let exactly that through on almalinux-9/QEMU.
+  if [[ -n $want_path ]]; then
+    grep -q "$want_path" "$cache" || __fail "REMEDIATE-04" \
+      "detect cache records '$id' at the BROWNFIELD path '$want_path'" \
+      "recorded elsewhere — REMEDIATE-04 cannot fire without a path mismatch.
+cache=$(cat "$cache" 2>&1)
+also on host: .local/bin/claude=$(ls -l /home/agent/.local/bin/claude 2>&1), .npm-global/bin/claude=$(ls -l /home/agent/.npm-global/bin/claude 2>&1)
+provision output was:
+$prov_out" "$cache"
+  fi
 }
