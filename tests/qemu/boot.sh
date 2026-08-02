@@ -569,7 +569,8 @@ if head -c2 "$BIN" | grep -q '#!'; then
   exit 1
 fi
   # Assert statically-linked ELF via readelf (no PT_INTERP) — fall back to
-  # `file` (reports 'statically linked') or `ldd` ('not a dynamic executable')
+  # `file` (reports 'statically linked' or 'static-pie linked') or `ldd`
+  # ('not a dynamic executable')
   # on a minimal image where readelf is absent.
 IDENTITY_OK=0
 if command -v readelf >/dev/null 2>&1; then
@@ -580,7 +581,15 @@ if command -v readelf >/dev/null 2>&1; then
   echo "provisioner-identity: readelf confirms $BIN has NO PT_INTERP (statically linked)"
   IDENTITY_OK=1
 elif command -v file >/dev/null 2>&1; then
-  if ! file "$BIN" | grep -q 'statically linked'; then
+  # `statically linked` OR `static-pie linked`: rustc's x86_64-unknown-linux-musl
+  # target emits a static-PIE, which file(1) labels `static-pie linked` — no
+  # PT_INTERP, exactly the property the readelf tier above asserts, so accepting
+  # it is not a weakening of the guard. scripts/build-release.sh's own
+  # static-link assertion already matches both; this copy was never updated, so
+  # the guard rejected every correctly-built binary the moment it fell through
+  # to the file(1) tier — which is what happens in a cloud guest with no
+  # binutils, i.e. every QEMU gate run.
+  if ! file "$BIN" | grep -qE 'statically linked|static-pie'; then
     echo "ERROR: provisioner-identity guard FAILED — file(1) does not report '$BIN' as statically linked. Refusing to false-green GATE-02 (Risk #1). file output: $(file "$BIN")" >&2
     exit 1
   fi
