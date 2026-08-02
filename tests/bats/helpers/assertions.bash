@@ -167,11 +167,33 @@ $prov_out" "$cache"
   # assertion downstream fails with nothing to explain it. Checking only the id
   # let exactly that through on almalinux-9/QEMU.
   if [[ -n $want_path ]]; then
-    grep -qF "$want_path" "$cache" || __fail "REMEDIATE-04" \
+    grep -qF "$want_path" "$cache" && return 0
+
+    # Built up step by step rather than interpolated into one multi-line
+    # string: a wall of `$(...)` inside a single quoted argument is fragile and
+    # unreadable, and the first version of this silently rendered nothing.
+    local probe_path probe_cmdv probe_exec ctx enforce
+    probe_path=$(sudo -u agent -H bash --login -c 'printf %s "$PATH"' 2>&1)
+    probe_cmdv=$(sudo -u agent -H bash --login -c 'command -v claude' 2>&1)
+    if sudo -u agent -H test -x /home/agent/.npm-global/bin/claude 2>/dev/null; then
+      probe_exec="agent CAN execute it"
+    else
+      probe_exec="agent CANNOT execute it"
+    fi
+    ctx=$(ls -Zd /home/agent/.npm-global/bin 2>&1)
+    enforce=$(getenforce 2>/dev/null || echo "n/a")
+
+    __fail "REMEDIATE-04" \
       "detect cache records '$id' at the BROWNFIELD path '$want_path'" \
-      "recorded elsewhere — REMEDIATE-04 cannot fire without a path mismatch.
+      "not recorded there — REMEDIATE-04 cannot fire without a path mismatch.
 cache=$(cat "$cache" 2>&1)
-also on host: .local/bin/claude=$(ls -l /home/agent/.local/bin/claude 2>&1), .npm-global/bin/claude=$(ls -l /home/agent/.npm-global/bin/claude 2>&1)
+on host: .local/bin/claude=$(ls -l /home/agent/.local/bin/claude 2>&1)
+         .npm-global/bin/claude=$(ls -l /home/agent/.npm-global/bin/claude 2>&1)
+what the PROBE sees (detect shells out exactly like this):
+  login PATH = $probe_path
+  command -v claude = ${probe_cmdv:-<empty>}
+  $probe_exec
+  selinux: $ctx (enforce=$enforce)
 provision output was:
 $prov_out" "$cache"
   fi
