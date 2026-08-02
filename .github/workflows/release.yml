@@ -2,14 +2,18 @@ name: release
 # Phase 6 Plan 06-04 — full 4-gate release pipeline + build + publish.
 # Replaces the Phase 1 single-job scaffold. See 06-RESEARCH.md Pattern 6 and
 # .planning/phases/06-distribution-release-pipeline/06-04-PLAN.md for the
-# authoritative design. Gate sequence is enforced by `needs:` — any red gate
-# short-circuits the pipeline before publish.
+# authoritative design. Every gate is a prerequisite of `build`, so any red gate
+# stops the pipeline before publish. They no longer run in SEQUENCE: gates 2-4
+# test disjoint things and each waited on the previous purely to short-circuit
+# early, which cost ~60 minutes of wall-clock on every tag, red or green. They
+# now fan out from gate-1 and `build` joins on all three. The trade: a red gate
+# no longer cancels its siblings, so a bad tag burns more runner-minutes.
 #
-# Gates in order:
+# Gates (2-4 run concurrently):
 #   gate-1-precommit       (pre-commit + CLI unit tests — cheapest/fastest)
-#   gate-2-docker          (tests/docker/run.sh × {ubuntu-22.04, ubuntu-24.04}
+#   gate-2-docker          (tests/docker/run.sh × {ubuntu-24.04, almalinux-9}
 #                           — includes 51-*.bats → TST-05 inside Docker)
-#   gate-3-qemu            (tests/qemu/boot.sh × {22.04, 24.04} with /dev/kvm
+#   gate-3-qemu            (tests/qemu/boot.sh × {24.04, almalinux-9} w/ /dev/kvm
 #                           — includes 51-*.bats → TST-05 inside QEMU)
 #   gate-4-pinned-combo    (tests/docker/run.sh ubuntu-24.04 with pinned catalog
 #                           combo — 50-agents.bats + 51-*.bats → TST-08)

@@ -30,7 +30,7 @@ jobs:
   # .codex/, AGENTS.md, CLAUDE.md, .planning/). The expensive jobs below
   # (bats-docker matrix, rust) read `code` and skip their costly *steps*
   # when it is 'false' — the jobs still run and report green in seconds, so the
-  # required checks (bats-docker (ubuntu-22.04/24.04), rust) always report
+  # required checks (bats-docker (ubuntu-24.04), rust) always report
   # success and the merge gate stays intact. (The cli-unit required check was
   # removed at the Rust cutover — branch protection must drop it.) We gate steps
   # rather than the whole

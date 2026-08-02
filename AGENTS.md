@@ -22,8 +22,10 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
   per-agent Bash recipes) and the shipped musl bin path (`plugin/bin/agentlinux`).
   The provisioner + registry CLI are the Rust workspace under `rust/`.
 - `tests/bats/` — behavior-contract suite (BHV-XX / RT-XX / AGT-XX / CLI-XX / CAT-XX / INST-XX)
-- `tests/harness/` — self-test for the `.planning/` hygiene gate
-- `tests/docker/` — fast CI harness (Ubuntu 22.04 + 24.04 + 26.04 matrix, every PR)
+- `tests/harness/` — repo-level gate self-tests (the `.planning/` hygiene gate, the mutation gate); run on the CI runner, never in a container or guest
+- `tests/docker/` — fast CI harness (Ubuntu 24.04 + AlmaLinux 9 matrix, every PR). The
+  matrix is a COST choice, not a support statement: the installer still accepts
+  22.04 and 26.04, they are just no longer exercised on every push.
 - `tests/qemu/` — release-gate harness (fresh cloud images, nightly + release)
 - `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (the sole distribution channel; the optional fpm .deb wrapper was removed in Phase 58 / DIST-02)
 - `docs/` — reference documentation (`HARNESS.md`, `codex.md`, `decisions/`, `research/`, `internals/`)
