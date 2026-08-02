@@ -155,7 +155,7 @@ assert_detect_cache_has() {
     "absent — provision did not persist it; its output was:
 $prov_out" "$cache"
 
-  grep -q "\"$id\"" "$cache" || __fail "REMEDIATE-04" \
+  grep -qF "\"$id\"" "$cache" || __fail "REMEDIATE-04" \
     "detect cache records '$id' (the brownfield binary detect was meant to find)" \
     "not in $cache. cache=$(cat "$cache" 2>&1). provision output was:
 $prov_out" "$cache"
@@ -167,7 +167,7 @@ $prov_out" "$cache"
   # assertion downstream fails with nothing to explain it. Checking only the id
   # let exactly that through on almalinux-9/QEMU.
   if [[ -n $want_path ]]; then
-    grep -q "$want_path" "$cache" || __fail "REMEDIATE-04" \
+    grep -qF "$want_path" "$cache" || __fail "REMEDIATE-04" \
       "detect cache records '$id' at the BROWNFIELD path '$want_path'" \
       "recorded elsewhere — REMEDIATE-04 cannot fire without a path mismatch.
 cache=$(cat "$cache" 2>&1)
