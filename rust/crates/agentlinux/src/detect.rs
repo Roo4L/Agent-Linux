@@ -386,7 +386,13 @@ fn record_value(r: &AgentRecord) -> serde_json::Value {
 /// `scan_probes_every_non_mcp_agent_in_the_catalog`.
 #[cfg_attr(test, mutants::skip)]
 fn scan(user: &str, home: &str) -> Vec<AgentRecord> {
-    scan_with(login_run, &catalog::resolve_catalog_dir(), user, home)
+    scan_with(
+        login_run,
+        &catalog::resolve_catalog_dir(),
+        user,
+        home,
+        SCAN_BUDGET,
+    )
 }
 
 /// [`scan`] over an injected login runner and catalog dir.
@@ -404,6 +410,11 @@ fn scan_with(
     catalog_dir: &std::path::Path,
     user: &str,
     home: &str,
+    // Injected, not the constant: the expiry arm is otherwise reachable only by
+    // stalling a test for three minutes, so the skip accounting — the thing that
+    // keeps an unprobed agent from being recorded as absent — could not be
+    // asserted at all. Same seam as `migrate_modules`' budget, for the same reason.
+    budget: std::time::Duration,
 ) -> Vec<AgentRecord> {
     let entries = match catalog::load_catalog(catalog_dir, catalog::Validate::Skip) {
         Ok(e) => e,
@@ -429,7 +440,7 @@ fn scan_with(
     // probe that never ran must not be recorded as `absent` — that is the
     // difference between "the tool is not installed" and "we did not look", and
     // REUSE-03 acts on it.
-    let deadline = std::time::Instant::now() + SCAN_BUDGET;
+    let deadline = std::time::Instant::now() + budget;
     let rows = agent_rows(&entries);
     let total = rows.len();
     let mut records = Vec::with_capacity(total);
@@ -447,7 +458,7 @@ fn scan_with(
              {total} agents NOT probed. They are absent from the cache rather than \
              recorded as not-installed, so REUSE-03 will not act on a guess. Re-run \
              `agentlinux provision --report-only` once the host settles.",
-            SCAN_BUDGET.as_secs()
+            budget.as_secs()
         ));
     }
     records
@@ -1314,7 +1325,7 @@ mod scan_tests {
             ]}"#,
         );
 
-        let records = scan_with(found, cat.path(), "agent", "/home/agent");
+        let records = scan_with(found, cat.path(), "agent", "/home/agent", SCAN_BUDGET);
 
         let ids: Vec<&str> = records.iter().map(|r| r.id.as_str()).collect();
         // mcp entries are excluded from the scan; the two agents are probed.
@@ -1325,11 +1336,91 @@ mod scan_tests {
         );
     }
 
+    /// Two agents in the catalog, for the budget tests below.
+    fn write_two_agent_catalog(dir: &std::path::Path) {
+        write_catalog(
+            dir,
+            r#"{"version":"0.3.6","agents":[
+                {"id":"alpha","display_name":"A","description":"d","source_kind":"npm",
+                 "pinned_version":"1.0.0","install_recipe_path":"i.sh",
+                 "uninstall_recipe_path":"u.sh","post_install_verify":"command -v alpha",
+                 "tags":["agent"]},
+                {"id":"beta","display_name":"B","description":"d","source_kind":"npm",
+                 "pinned_version":"1.0.0","install_recipe_path":"i.sh",
+                 "uninstall_recipe_path":"u.sh","post_install_verify":"command -v beta",
+                 "tags":["agent"]}
+            ]}"#,
+        );
+    }
+
+    // An exhausted budget must leave the unprobed agents OUT of the cache and say
+    // how many. Recording them would be a lie the rest of the system acts on:
+    // absent means "not installed" to REUSE-03, so a scan that ran out of time
+    // would report a healthy install as missing and let a plain install write
+    // over it. The count is the operator's only signal that the scan was partial.
+    #[test]
+    fn an_exhausted_scan_budget_probes_nothing_and_says_how_many_it_skipped() {
+        let mut env = crate::test_support::EnvScope::new();
+        let dir = tempdir().unwrap();
+        let transcript = dir.path().join("install.log");
+        env.set("AGENTLINUX_LOG", &transcript);
+        crate::provision::log::init();
+
+        let cat = tempdir().unwrap();
+        write_two_agent_catalog(cat.path());
+
+        let records = scan_with(
+            found,
+            cat.path(),
+            "agent",
+            "/home/agent",
+            std::time::Duration::ZERO,
+        );
+        assert!(
+            records.is_empty(),
+            "an unprobed agent must not be recorded at all: {records:?}"
+        );
+
+        let body = std::fs::read_to_string(&transcript).unwrap();
+        assert!(
+            body.contains("2 of 2 agents NOT probed"),
+            "the skipped remainder must be named:\n{body}"
+        );
+
+        env.unset("AGENTLINUX_LOG");
+    }
+
+    // The negative control. Without it, firing the warning whenever `skipped >= 0`
+    // — that is, on every scan ever — passes every other assertion here, and the
+    // transcript of a completely healthy provision claims the scan was cut short.
+    #[test]
+    fn a_scan_that_finishes_inside_its_budget_reports_no_skips() {
+        let mut env = crate::test_support::EnvScope::new();
+        let dir = tempdir().unwrap();
+        let transcript = dir.path().join("install.log");
+        env.set("AGENTLINUX_LOG", &transcript);
+        crate::provision::log::init();
+
+        let cat = tempdir().unwrap();
+        write_two_agent_catalog(cat.path());
+
+        let records = scan_with(found, cat.path(), "agent", "/home/agent", SCAN_BUDGET);
+        assert_eq!(records.len(), 2, "both agents were probed: {records:?}");
+
+        let body = std::fs::read_to_string(&transcript).unwrap();
+        assert!(
+            !body.contains("NOT probed"),
+            "nothing was skipped, so nothing may be reported:\n{body}"
+        );
+
+        env.unset("AGENTLINUX_LOG");
+    }
+
     #[test]
     fn an_unreadable_catalog_degrades_to_an_empty_scan() {
         // The documented fallback, previously reachable only by breaking the
         // host's real catalog.
         let empty = tempdir().unwrap();
-        assert!(scan_with(found, empty.path(), "agent", "/home/agent").is_empty());
+        assert!(scan_with(found, empty.path(), "agent", "/home/agent", SCAN_BUDGET).is_empty());
     }
 }

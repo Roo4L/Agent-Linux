@@ -594,10 +594,16 @@ pub fn install_into(
                 return ExitCode::SUCCESS;
             }
             if !converged {
-                println!(
+                // `outln!`, like every other line this verb prints. A bare
+                // `println!` bypassed the injected sink, so the one message that
+                // explains why a "no-op" turned into a reinstall was the one
+                // message no test could see.
+                outln!(
+                    o,
                     "{}: sentinel records status={status} at {} — reinstalling rather \
                      than trusting it",
-                    entry.id, ex.version
+                    entry.id,
+                    ex.version
                 );
             }
         }
@@ -1214,6 +1220,50 @@ mod install_tests {
             ),
             ExitCode::from(7),
             "a sentinel recording a broken install was treated as converged"
+        );
+    }
+
+    /// The reinstall NOTICE, both directions. The tests above pin the decision;
+    /// this pins the sentence that explains it, which is the only thing telling an
+    /// operator that the host disagreed with its own record. Printed when it
+    /// should not be, it accuses a perfectly healthy upgrade of being untrusted;
+    /// omitted when it should be there, a `broken-after-remediate` host silently
+    /// reinstalls with no clue why.
+    #[test]
+    fn only_an_untrustworthy_sentinel_is_announced_as_untrusted() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let cat = tempdir().unwrap();
+        let state = tempdir().unwrap();
+        write_catalog(cat.path());
+        set_env(&mut env_scope, cat.path(), state.path());
+
+        // Untrustworthy status, same version — reinstalls, and says why.
+        let mut s = Sentinel::new("test-dummy".into(), "0.0.1".into(), "curated".into(), false);
+        s.status = Some("broken-after-remediate".to_string());
+        sentinel::write_sentinel(&s).unwrap();
+        let (_code, out, _err) = run_capturing(
+            "test-dummy",
+            &args(false, None, true, false, false, "test-dummy"),
+            ok_dispatch,
+        );
+        assert!(
+            out.contains("sentinel records status=broken-after-remediate"),
+            "a declined short-circuit must explain itself; stdout={out:?}"
+        );
+
+        // Trustworthy status at an OLDER version — also reinstalls, but there is
+        // nothing untrustworthy about it, so it must NOT be announced as such.
+        let mut s = Sentinel::new("test-dummy".into(), "0.0.0".into(), "curated".into(), false);
+        s.status = Some("installed".to_string());
+        sentinel::write_sentinel(&s).unwrap();
+        let (_code, out, _err) = run_capturing(
+            "test-dummy",
+            &args(false, None, true, false, false, "test-dummy"),
+            ok_dispatch,
+        );
+        assert!(
+            !out.contains("rather than trusting it"),
+            "an ordinary version bump is not a trust problem; stdout={out:?}"
         );
     }
 

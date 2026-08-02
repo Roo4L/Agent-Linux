@@ -343,7 +343,7 @@ fn run(spawn: &Spawn, out_sink: Option<TeeSink>, err_sink: Option<TeeSink>) -> D
     // ONE deadline shared by both pipes: the bound belongs to the dispatch, not
     // to each reader. Draining them with a grace apiece would let a single leaked
     // process hold the call for twice as long as the constant advertises.
-    let drain_deadline = Instant::now() + READER_DRAIN_GRACE;
+    let drain_deadline = deadline_in(READER_DRAIN_GRACE);
     let stdout = collect(out_rx, drain_deadline, &spawn.label, "stdout");
     let stderr = collect(err_rx, drain_deadline, &spawn.label, "stderr");
 
@@ -399,6 +399,19 @@ const POLL_INTERVAL: Duration = Duration::from_millis(10);
 /// are "watch this child until a deadline", and they used to be two hand-rolled
 /// copies of this loop plus a third mechanism (the `wait-timeout` crate) on the
 /// buffered path.
+/// A deadline `grace` from now.
+///
+/// Named rather than written inline at each site because inline it is
+/// untestable: every caller passes the result straight into a wait, where the
+/// difference between a deadline `grace` ahead and one `grace` BEHIND shows up
+/// only as a race — the wait returns early exactly when the thing it waits for
+/// has not happened yet. A sign flip here silently converts every bounded wait
+/// in this module into a poll that gives up immediately, which reads in the log
+/// as "the child never exited".
+fn deadline_in(grace: Duration) -> Instant {
+    Instant::now() + grace
+}
+
 fn poll_until(child: &mut std::process::Child, deadline: Instant) -> Option<i32> {
     loop {
         match child.try_wait() {
@@ -438,7 +451,7 @@ pub(crate) fn wait_with_timeout(
             Err(_) => (1, false),
         };
     };
-    match poll_until(child, Instant::now() + Duration::from_millis(ms)) {
+    match poll_until(child, deadline_in(Duration::from_millis(ms))) {
         Some(code) => (code, false),
         None => {
             escalate_kill(child, label);
@@ -446,7 +459,7 @@ pub(crate) fn wait_with_timeout(
             // EPERM case `escalate_kill` now logs), an unbounded wait here would
             // turn the timeout into an unlogged infinite block — a bound that
             // cannot fire is worse than no bound, because the log claims one does.
-            if poll_until(child, Instant::now() + REAP_GRACE).is_none() {
+            if poll_until(child, deadline_in(REAP_GRACE)).is_none() {
                 crate::plog!(
                     "agentlinux: `{label}` has not exited {}s after SIGKILL; \
                      abandoning the wait. Check for a stuck process before retrying.",
@@ -501,7 +514,7 @@ fn escalate_kill(child: &mut std::process::Child, label: &str) {
     if let Err(e) = kill(group, Signal::SIGTERM) {
         crate::plog!("agentlinux: SIGTERM to `{label}`'s process group failed: {e}");
     }
-    if poll_until(child, Instant::now() + KILL_GRACE).is_none() {
+    if poll_until(child, deadline_in(KILL_GRACE)).is_none() {
         // Still alive after the grace period — it ignored SIGTERM.
         if let Err(e) = kill(group, Signal::SIGKILL) {
             crate::plog!("agentlinux: SIGKILL to `{label}`'s process group failed: {e}");
@@ -659,8 +672,8 @@ mod dispatcher_tests {
     /// A command that finishes well inside its timeout must not be reported as
     /// timed out. Three mutants survived on the waiting path and every one of
     /// them makes the deadline already-expired: `poll_until -> None`, `>=`
-    /// flipped to `<` in its deadline check, and `Instant::now() + ms` becoming
-    /// a subtraction. All three turn every dispatch into an instant timeout —
+    /// flipped to `<` in its deadline check, and the `+` in `deadline_in`
+    /// becoming a subtraction. All three turn every dispatch into an instant timeout —
     /// `install` would report exit 124 for a recipe that ran fine.
     #[test]
     fn a_fast_command_under_a_generous_timeout_is_not_a_timeout() {
@@ -998,7 +1011,7 @@ mod dispatcher_tests {
             "escalation should terminate the child within the grace window, took {elapsed:?}"
         );
         // …and NOT instantly. SIGTERM comes first and the child gets its full
-        // grace period before SIGKILL. `Instant::now() + KILL_GRACE` becoming a
+        // grace period before SIGKILL. `deadline_in(KILL_GRACE)` computing a
         // subtraction survived: the grace deadline is then already past, so
         // SIGKILL fires immediately and a child that WOULD have cleaned up on
         // SIGTERM never gets the chance. This child ignores SIGTERM, so the only
@@ -1126,6 +1139,85 @@ mod dispatcher_tests {
 
     // The recipe bound is on by default, overridable, and disengaged by an
     // explicit 0. An unparseable value falls back rather than failing the run.
+    // ESRCH from the post-exit group sweep is the NORMAL outcome, not a failure:
+    // the child has already been reaped, and if it left no grandchildren the
+    // group is empty and the pid may be gone. Reporting it would put a scary
+    // "group sweep failed" line in the transcript of every single timeout that
+    // tore down cleanly — teaching operators to ignore the one message that
+    // means a recipe's grandchildren outlived it.
+    #[test]
+    fn a_clean_group_sweep_says_nothing() {
+        let mut env = crate::test_support::EnvScope::new();
+        let dir = tempfile::tempdir().unwrap();
+        let transcript = dir.path().join("install.log");
+        env.set("AGENTLINUX_LOG", &transcript);
+        crate::provision::log::init();
+
+        // Its OWN process group — `escalate_kill` signals the negated pid, so a
+        // child sharing our group would send SIGTERM to the test runner.
+        let mut cmd = std::process::Command::new("sh");
+        cmd.arg("-c").arg("exit 0");
+        own_process_group(&mut cmd);
+        let mut child = cmd.spawn().expect("sh is present");
+
+        escalate_kill(&mut child, "clean-exit");
+
+        let body = std::fs::read_to_string(&transcript).unwrap();
+        assert!(
+            !body.contains("group sweep"),
+            "an empty group is the expected outcome, not something to report:\n{body}"
+        );
+
+        env.unset("AGENTLINUX_LOG");
+    }
+
+    // Same reasoning as the capture cap: the default is arithmetic, and every
+    // misreading of it is plausible. `30 + 60 * 1000` is 30 seconds, which kills
+    // the Playwright recipe mid-download every time; `30 * 60 / 1000` is under
+    // two seconds, which kills every recipe. Neither is visible to a test that
+    // only asserts "a bound exists".
+    #[test]
+    fn the_default_recipe_bound_is_thirty_minutes() {
+        assert_eq!(
+            DEFAULT_RECIPE_TIMEOUT_MS, 1_800_000,
+            "30 minutes in milliseconds, not 30 seconds or 30 hours"
+        );
+    }
+
+    // A deadline must be AHEAD of now. Asserted directly because at the call
+    // sites the difference is only a race: a deadline in the past makes every
+    // bounded wait give up on its first poll, which looks exactly like the child
+    // never exiting.
+    #[test]
+    fn a_deadline_is_in_the_future_by_the_grace_it_was_given() {
+        let grace = Duration::from_secs(30);
+        let remaining = deadline_in(grace).saturating_duration_since(Instant::now());
+        assert!(
+            remaining > Duration::from_secs(29),
+            "a deadline computed by subtraction saturates to zero, got {remaining:?}"
+        );
+        assert!(remaining <= grace, "and it is not longer than asked for");
+    }
+
+    // The username reaches `sudo -u` and the CLI-05 diagnostic, so a wrong or
+    // empty one produces an uncopyable hint and a sudo invocation for a user that
+    // does not exist. Checked against `id -un`, which is an independent route to
+    // the same answer rather than a restatement of this function's own logic.
+    #[test]
+    fn the_invoker_is_the_user_the_system_says_it_is() {
+        let out = std::process::Command::new("id")
+            .arg("-un")
+            .output()
+            .expect("id(1) is present on every supported host");
+        let expected = String::from_utf8(out.stdout).unwrap().trim().to_string();
+        assert!(!expected.is_empty(), "id -un printed nothing");
+        assert_eq!(
+            invoker_username(),
+            expected,
+            "the invoker name must match the passwd entry for the real uid"
+        );
+    }
+
     #[test]
     fn recipe_timeout_reads_env_with_a_safe_default() {
         let _g = crate::test_support::EnvScope::new();

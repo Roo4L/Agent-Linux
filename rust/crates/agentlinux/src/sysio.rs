@@ -1468,6 +1468,60 @@ mod sysio_tests {
         );
     }
 
+    // The error must name the operation that actually failed. Only the
+    // already-exists error means "something is there, go look at it"; treating
+    // every open failure that way sends a missing PARENT DIRECTORY down the
+    // inspect-the-existing-object path, and the operator is told the stat or the
+    // reopen failed for a file that was never there to begin with. On a
+    // half-provisioned host that is the difference between "create the directory"
+    // and a hunt for a file that does not exist.
+    #[test]
+    fn ensure_line_reports_the_create_that_failed_not_a_reopen() {
+        let d = TempDir::new().unwrap();
+        let missing = d.path().join("no-such-dir").join("sudoers-fragment");
+        let err =
+            ensure_line_in_owned_file("x", &missing, &self_owner(), 0o644, chown_by_name_nofollow)
+                .unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(
+            err.to_string().contains("failed to create"),
+            "the create is what failed; err={err}"
+        );
+    }
+
+    // Same contract on the other writer.
+    #[test]
+    fn create_if_absent_reports_the_create_that_failed_not_a_stat() {
+        let d = TempDir::new().unwrap();
+        let missing = d.path().join("no-such-dir").join("marker");
+        let err =
+            create_if_absent_0644(&missing, &self_owner(), chown_by_name_nofollow).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(
+            err.to_string().contains("failed to create"),
+            "the create is what failed, not a stat of something that exists; err={err}"
+        );
+    }
+
+    // A directory where a root-owned file belongs must be refused, not reported
+    // as the ordinary re-run case. A symlink is caught by BOTH halves of that
+    // check, so only a non-symlink irregular file proves the second half is
+    // doing anything: without it, `create_if_absent_0644` returns Ok having
+    // written nothing, and the caller believes a root-owned 0644 file now exists.
+    #[test]
+    fn create_if_absent_refuses_an_irregular_file_that_is_not_a_symlink() {
+        let d = TempDir::new().unwrap();
+        let as_dir = d.path().join("marker");
+        fs::create_dir(&as_dir).unwrap();
+        let err = create_if_absent_0644(&as_dir, &self_owner(), chown_by_name_nofollow)
+            .expect_err("a directory is not a regular file and must be refused");
+        assert!(
+            err.to_string().contains("non-regular file"),
+            "the refusal must say what it found; err={err}"
+        );
+        assert!(as_dir.is_dir(), "and must leave it alone");
+    }
+
     /// A FIFO planted where a config file is expected. Without the regular-file
     /// check this blocks in the read forever — an unbounded root-side hang inside
     /// step 30, which is precisely what ADR-022 forbids. Guarded by a worker

@@ -190,17 +190,34 @@ pub fn adopt(name: Option<&str>, opts: &AdoptArgs) -> ExitCode {
     // dispatches `adopt --all` and only reacts to a non-zero status, so returning
     // SUCCESS unconditionally meant a run in which every adoption failed still
     // printed `agentlinux-install complete`.
-    let failed = results.iter().filter(|r| r.action == "failed").count();
-    if failed > 0 {
-        crate::plog!(
-            "agentlinux adopt: {failed} of {} entr{} failed — see the [ADOPT:fail] \
-             lines above",
-            results.len(),
-            if failed == 1 { "y" } else { "ies" }
-        );
+    if let Some(summary) = failure_summary(&results) {
+        crate::plog!("{summary}");
         return ExitCode::FAILURE;
     }
     ExitCode::SUCCESS
+}
+
+/// The operator-facing summary for a finished result set, or `None` when every
+/// entry is clean.
+///
+/// Extracted from `adopt` for the same reason as [`adopt_all_targets`]: inside
+/// the verb the decision was reachable only by running the whole thing against a
+/// real catalog, so nothing pinned the count OR the threshold. Both matter —
+/// `provision` reads this verb's exit code and nothing else, so a sweep that
+/// counts wrong, or a threshold that never trips, ends with
+/// `agentlinux-install complete` printed over a host where every adoption
+/// failed.
+fn failure_summary(results: &[AdoptResult]) -> Option<String> {
+    let failed = results.iter().filter(|r| r.action == "failed").count();
+    if failed == 0 {
+        return None;
+    }
+    Some(format!(
+        "agentlinux adopt: {failed} of {} entr{} failed — see the [ADOPT:fail] \
+         lines above",
+        results.len(),
+        if failed == 1 { "y" } else { "ies" }
+    ))
 }
 
 /// The `--all` target set: every catalog agent, with `test_only` fixtures
@@ -289,14 +306,49 @@ mod adopt_tests {
             "got {nothing:?}"
         );
 
-        // And the four are genuinely distinct — a deleted arm would collapse one
+        // "failed" is emphatically NOT the catch-all: demoted to it, an adoption
+        // that ERRORED renders as "nothing to adopt", which reads as a clean skip.
+        let failed = adopt_line(&result("broken", "failed"));
+        assert!(
+            failed.starts_with("[ADOPT:fail] broken:") && failed.contains("because"),
+            "a failed adoption must be marked as one; got {failed:?}"
+        );
+
+        // And all five are genuinely distinct — a deleted arm would collapse one
         // into another.
-        let all = [adopted, managed, migrate, nothing];
+        let all = [adopted, managed, migrate, nothing, failed];
         for (i, a) in all.iter().enumerate() {
             for b in all.iter().skip(i + 1) {
                 assert_ne!(a, b, "two actions must not render identically");
             }
         }
+    }
+
+    /// The exit-code verdict, which `provision` reads and nothing else does.
+    ///
+    /// A threshold that never trips and a count pinned at zero fail the same way
+    /// and are equally invisible: `agentlinux-install complete` printed over a
+    /// host where every adoption failed. Both counts appear in the summary
+    /// because both are wrong in ways the other would mask.
+    #[test]
+    fn the_adopt_verdict_counts_only_failures_and_only_reports_them() {
+        assert_eq!(
+            failure_summary(&[result("a", "adopted"), result("b", "skipped")]),
+            None,
+            "a clean sweep has nothing to report and must exit 0"
+        );
+
+        let one = failure_summary(&[
+            result("a", "adopted"),
+            result("b", "failed"),
+            result("c", "skipped"),
+        ])
+        .expect("one failure is a failed sweep");
+        assert!(one.contains("1 of 3 entry failed"), "got {one:?}");
+
+        let two = failure_summary(&[result("a", "failed"), result("b", "failed")])
+            .expect("two failures is a failed sweep");
+        assert!(two.contains("2 of 2 entries failed"), "got {two:?}");
     }
 
     /// `--all` adopts every real agent, and the test fixtures only when asked.

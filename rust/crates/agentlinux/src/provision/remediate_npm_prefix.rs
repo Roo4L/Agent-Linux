@@ -978,6 +978,15 @@ mod remediate_npm_prefix_tests {
         let tally = migrate_modules(&ctx, FIXTURE_USER, &modules, MIGRATION_BUDGET, &mut |m| {
             lines.push(m.to_string())
         });
+        // The budget is a duration written as arithmetic, and every misreading is
+        // plausible in the wrong direction: `20 + 60` is 80 seconds, which starts
+        // abandoning modules mid-migration on any prefix bigger than a handful —
+        // and an abandoned module is one the agent user no longer owns.
+        assert_eq!(
+            MIGRATION_BUDGET,
+            std::time::Duration::from_secs(1_200),
+            "20 minutes, not 80 seconds"
+        );
 
         assert_eq!((tally.migrated, tally.failed, tally.skipped), (2, 1, 0));
         assert_eq!(

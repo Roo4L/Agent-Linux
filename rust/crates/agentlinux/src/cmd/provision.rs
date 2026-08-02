@@ -1344,11 +1344,22 @@ mod provision_tests {
         // inherit them (the login shell would have sourced /etc/agentlinux.env).
         let mut env_scope = crate::test_support::EnvScope::new();
         env_scope.set("AGENTLINUX_STATE_DIR", "/tmp/fixture-state");
+        env_scope.set("UNRELATED_FIXTURE_VAR", "leak-me");
         let env = adoption_child_env("/home/agent");
         env_scope.unset("AGENTLINUX_STATE_DIR");
+        env_scope.unset("UNRELATED_FIXTURE_VAR");
         assert!(env
             .iter()
             .any(|(k, v)| k == "AGENTLINUX_STATE_DIR" && v == "/tmp/fixture-state"));
+
+        // And ONLY those seams. `&& -> ||` forwards the entire parent
+        // environment into a `sudo -u` child: the invoking root shell's
+        // variables, anything a CI job exported, and whatever credentials were
+        // in scope when provision started.
+        assert!(
+            !env.iter().any(|(k, _)| k == "UNRELATED_FIXTURE_VAR"),
+            "a non-seam variable must not be forwarded: {env:?}"
+        );
     }
 
     #[test]

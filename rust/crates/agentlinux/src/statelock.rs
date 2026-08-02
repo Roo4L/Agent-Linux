@@ -400,7 +400,10 @@ mod statelock_tests {
 
             let err = acquire("install").expect_err("a symlinked lock path must be refused");
             let msg = err.to_string();
-            assert!(msg.contains("symlink"), "message must name the cause: {msg}");
+            assert!(
+                msg.contains("symlink"),
+                "message must name the cause: {msg}"
+            );
             assert!(
                 msg.contains("install"),
                 "message must name the refused verb: {msg}"

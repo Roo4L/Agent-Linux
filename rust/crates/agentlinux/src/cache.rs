@@ -205,4 +205,53 @@ mod cache_tests {
         let _dir = with_cache(&mut env_scope, "{not valid json");
         assert!(read_cache_agents().is_none());
     }
+
+    /// Both halves of the absent-vs-broken split, which the return value cannot
+    /// express: a missing cache and an unreadable one both yield `None`, and the
+    /// only difference is whether the transcript explains it.
+    ///
+    /// That difference matters because `None` disables the whole REMEDIATE-04
+    /// gate — `install` then writes over whatever the operator already had. On a
+    /// greenfield host that is correct and routine, so it stays silent; when the
+    /// cache exists but cannot be read (a full `/run` tmpfs truncating it), the
+    /// same silence is what left an operator with no way to find out why
+    /// remediation never fired. One test, because `LOG` is process-global and two
+    /// tests asserting opposite transcript states would be order-dependent.
+    #[test]
+    fn an_absent_cache_is_silent_and_an_unreadable_one_is_not() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        let dir = tempdir().unwrap();
+        let transcript = dir.path().join("install.log");
+        env_scope.set("AGENTLINUX_LOG", &transcript);
+
+        // Absent: the ordinary greenfield case.
+        crate::provision::log::init();
+        env_scope.set(
+            "AGENTLINUX_DETECT_CACHE",
+            dir.path().join("no-such-cache.json"),
+        );
+        assert!(read_cache_agents().is_none());
+        assert_eq!(
+            std::fs::read_to_string(&transcript).unwrap(),
+            "",
+            "a host with no cache yet has nothing to report"
+        );
+
+        // Present but unreadable — a directory stands in for the truncated-tmpfs
+        // case, since both surface as a read error that is not NotFound.
+        crate::provision::log::init();
+        let blocked = dir.path().join("detect.json");
+        std::fs::create_dir(&blocked).unwrap();
+        env_scope.set("AGENTLINUX_DETECT_CACHE", &blocked);
+        assert!(read_cache_agents().is_none());
+        assert!(
+            std::fs::read_to_string(&transcript)
+                .unwrap()
+                .contains("unreadable"),
+            "a cache that exists but cannot be read must say so"
+        );
+
+        env_scope.unset("AGENTLINUX_DETECT_CACHE");
+        env_scope.unset("AGENTLINUX_LOG");
+    }
 }
