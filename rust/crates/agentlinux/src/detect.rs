@@ -190,18 +190,50 @@ fn classify(id: &str, version: &str, legacy_help_ok: bool) -> &'static str {
 /// `_DETECT_CACHE`, `_STATE_DIR`, …), NOT a secret — so forwarding them into an
 /// unprivileged child shell leaks nothing. A future `AGENTLINUX_*TOKEN`-style var
 /// would break this assumption and must NOT be forwarded here.
+///
+/// That invariant was about SECRECY and missed a second class entirely: a
+/// forwarded var that the child's login profile itself READS, and that changes
+/// the profile's control flow. [`PROFILE_CONTROL_VARS`] is that class.
 fn probe_env(home: &str) -> Vec<(String, String)> {
     let mut env: Vec<(String, String)> = vec![
         ("PATH".to_string(), crate::recipe_env::canonical_path(home)),
         ("HOME".to_string(), home.to_string()),
     ];
     for (k, v) in std::env::vars() {
-        if k.starts_with("AGENTLINUX_") {
+        if k.starts_with("AGENTLINUX_") && !PROFILE_CONTROL_VARS.contains(&k.as_str()) {
             env.push((k, v));
         }
     }
     env
 }
+
+/// `AGENTLINUX_*` variables that `/etc/profile.d/agentlinux.sh` READS to decide
+/// what to do, as opposed to the config seams it ignores. These must never be
+/// inherited by the probe's login shell.
+///
+/// `AGENTLINUX_PROFILE_SOURCED` is the profile's re-source guard
+/// (`provision/path_wiring.rs`): set, the profile `return`s on its first line,
+/// BEFORE the two `case`-guarded prepends that put `~/.npm-global/bin` and
+/// `~/.local/bin` on PATH. Forwarding it therefore hands the probe a login shell
+/// that never wires the agent's own bin directories.
+///
+/// This is the almalinux-9 root cause (AL-124), and it is worth stating exactly
+/// why it presented as "detection is broken on EL9 only":
+///
+/// * sudo's `secure_path` overrides the `PATH` this function sets — on EL9 that
+///   is `/sbin:/bin:/usr/sbin:/usr/bin`, with no agent directories at all — so
+///   the child depends ENTIRELY on the profile to restore them.
+/// * `~/.local/bin` survives anyway, because EL9's stock `~/.bash_profile` adds
+///   it independently of anything AgentLinux writes.
+/// * `~/.npm-global/bin` has no such fallback.
+///
+/// So an agent installed at the CANONICAL `~/.local/bin` was still found, while
+/// a brownfield one at `~/.npm-global/bin` reported `absent` — which is why the
+/// four REMEDIATE-04 brownfield tests failed and every other detect test passed
+/// on the same host. Diagnosed from the probe's own login PATH after two wrong
+/// inferences (a per-probe timeout, then a refused `sudo -E`) cost two full
+/// QEMU cycles each.
+const PROFILE_CONTROL_VARS: &[&str] = &["AGENTLINUX_PROFILE_SOURCED"];
 
 /// Run `script` as `user` through a login shell (sourcing the agent profile so
 /// PATH resolves agent-owned bins), returning `(exit_code, trimmed_stdout)`.
@@ -1267,6 +1299,52 @@ mod detect_tests {
             get("NOT_AGENTLINUX_SECRET").is_none(),
             "only AGENTLINUX_* is forwarded — the invariant the doc comment rests on"
         );
+    }
+
+    /// AL-124 root cause. `/etc/profile.d/agentlinux.sh` opens with
+    ///
+    /// ```sh
+    /// [ -n "${AGENTLINUX_PROFILE_SOURCED:-}" ] && return
+    /// ```
+    ///
+    /// and only AFTER that does it prepend `~/.npm-global/bin` and
+    /// `~/.local/bin`. Inheriting the guard makes the probe's login shell skip
+    /// its own PATH wiring, so an agent installed at `~/.npm-global/bin` reports
+    /// `absent` while one at `~/.local/bin` — which EL9's stock `.bash_profile`
+    /// adds independently — is still found. That asymmetry is exactly what the
+    /// four REMEDIATE-04 brownfield tests hit.
+    ///
+    /// The forwarding filter was written to keep SECRETS out. It never
+    /// considered a var the child's own profile reads to decide what to do.
+    #[test]
+    fn the_profiles_own_re_source_guard_is_never_inherited_by_the_probe() {
+        let mut env_scope = crate::test_support::EnvScope::new();
+        env_scope.set("AGENTLINUX_PROFILE_SOURCED", "1");
+        env_scope.set("AGENTLINUX_CATALOG_DIR", "/opt/fixture/catalog");
+
+        let env = probe_env("/home/agent");
+        let get = |k: &str| env.iter().find(|(n, _)| n == k).map(|(_, v)| v.clone());
+
+        assert!(
+            get("AGENTLINUX_PROFILE_SOURCED").is_none(),
+            "forwarding it makes the child's login profile return before it wires PATH"
+        );
+        assert_eq!(
+            get("AGENTLINUX_CATALOG_DIR").as_deref(),
+            Some("/opt/fixture/catalog"),
+            "the ordinary config seams must still be forwarded"
+        );
+    }
+
+    #[test]
+    fn every_profile_control_var_is_actually_in_the_forwarded_namespace() {
+        // A control var outside the AGENTLINUX_ prefix would never have been
+        // forwarded in the first place, so listing it here would be dead
+        // config that reads as protection.
+        for v in PROFILE_CONTROL_VARS {
+            assert!(v.starts_with("AGENTLINUX_"), "{v} is not forwarded anyway");
+        }
+        assert!(!PROFILE_CONTROL_VARS.is_empty(), "the list is load-bearing");
     }
 
     #[test]
