@@ -213,6 +213,34 @@ fn probe_env(home: &str) -> Vec<(String, String)> {
 /// `cargo test`, and surfaces as a wrong REUSE verdict in QEMU.
 pub type LoginRun = fn(user: &str, home: &str, script: &str) -> (i32, String);
 
+/// The longest probe diagnostic worth a transcript line. Sized for the failures
+/// that actually occur here — `sudo: sorry, you are not allowed to preserve the
+/// environment`, `bash: command not found`, a spawn ENOENT — all well under it.
+const DIAG_MAX: usize = 200;
+
+/// The first non-empty line of `stderr`, trimmed and capped at [`DIAG_MAX`];
+/// `None` when there is nothing to report.
+///
+/// Two reasons this is not just `stderr.trim()`. `dispatcher::run` accumulates
+/// stderr to EOF with no bound (it drains the pipe to keep a chatty child from
+/// wedging), so a raw log call hands an arbitrarily large blob to both stderr
+/// and the install log. And the transcript is line-oriented: a multi-line
+/// diagnostic would put continuation lines in the log with no prefix, which is
+/// the same "cannot tell what happened" failure this logging exists to fix.
+///
+/// The first line is the whole message for every failure mode above; the rest
+/// is a usage dump at best.
+fn first_line_bounded(stderr: &str) -> Option<String> {
+    let line = stderr.lines().map(str::trim).find(|l| !l.is_empty())?;
+    // Truncate on a CHAR boundary — `&line[..DIAG_MAX]` panics mid-UTF-8, and a
+    // child's stderr is arbitrary bytes, so the panic is reachable in
+    // production from any non-ASCII locale message.
+    match line.char_indices().nth(DIAG_MAX) {
+        None => Some(line.to_string()),
+        Some((cut, _)) => Some(format!("{}…", &line[..cut])),
+    }
+}
+
 /// Not mutation-tested: the production adapter behind [`LoginRun`] (ADR-019 §5).
 /// It shells out through `dispatcher::as_user`, i.e. a real `sudo -u` hop to a
 /// login shell — which is exactly why `LoginRun` is a type alias and not a
@@ -249,12 +277,13 @@ fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
     // A non-zero rc with no stderr is the ORDINARY miss (`command -v` on an
     // absent binary), and logging that for every uninstalled catalog row would
     // bury the signal. Stderr is the discriminator: a plain miss is silent.
-    let diag = r.stderr.trim();
-    if r.exit_code != 0 && !diag.is_empty() {
-        plog!(
-            "detect: probe failed as {user}: `{script}` -> rc={} {diag}",
-            r.exit_code
-        );
+    if r.exit_code != 0 {
+        if let Some(diag) = first_line_bounded(&r.stderr) {
+            plog!(
+                "detect: probe failed as {user}: `{script}` -> rc={} {diag}",
+                r.exit_code
+            );
+        }
     }
     (r.exit_code, r.stdout.trim().to_string())
 }
@@ -1210,6 +1239,65 @@ mod detect_tests {
         // Generic: version alone is the health signal (--help conventions vary).
         assert_eq!(classify("gitleaks", "8.18.0", false), "healthy");
         assert_eq!(classify("gitleaks", "", true), "broken");
+    }
+}
+
+#[cfg(test)]
+mod probe_diagnostic_tests {
+    //! The probe-failure diagnostic. What makes this worth asserting is not the
+    //! string it builds but the two ways it must NOT behave: a silent ordinary
+    //! miss has to stay silent (or every uninstalled catalog row logs a line and
+    //! buries the real signal), and an arbitrary child's stderr must not be able
+    //! to flood or panic the transcript.
+    use super::*;
+
+    #[test]
+    fn an_ordinary_silent_miss_reports_nothing() {
+        // `command -v` on an absent binary: rc=1, stderr empty. This is the
+        // common case on every host — it must not produce a transcript line.
+        assert_eq!(first_line_bounded(""), None);
+        assert_eq!(first_line_bounded("   \n\n  \t \n"), None);
+    }
+
+    #[test]
+    fn the_first_meaningful_line_is_what_gets_reported() {
+        // The real EL9 shape: sudo's refusal, then a usage dump nobody needs.
+        let stderr = "\n  sudo: sorry, you are not allowed to preserve the environment\nusage: sudo -h | -K | -k | -V\nusage: sudo -v [-ABknS]\n";
+        assert_eq!(
+            first_line_bounded(stderr).unwrap(),
+            "sudo: sorry, you are not allowed to preserve the environment"
+        );
+    }
+
+    #[test]
+    fn a_flooding_child_is_capped_not_passed_through() {
+        // dispatcher::run drains stderr to EOF with no bound, so this is the
+        // only thing standing between a chatty probe and the install log.
+        let flood = "x".repeat(10_000);
+        let got = first_line_bounded(&flood).unwrap();
+        assert_eq!(got.chars().count(), DIAG_MAX + 1, "capped + ellipsis");
+        assert!(got.ends_with('…'), "truncation is visible: {got}");
+    }
+
+    #[test]
+    fn a_line_exactly_at_the_cap_is_not_truncated() {
+        // Pins the boundary: DIAG_MAX chars is whole, DIAG_MAX+1 is cut. A
+        // mutant that swaps the comparison has to change one of these.
+        let exact = "y".repeat(DIAG_MAX);
+        assert_eq!(first_line_bounded(&exact).unwrap(), exact);
+        let over = "y".repeat(DIAG_MAX + 1);
+        assert!(first_line_bounded(&over).unwrap().ends_with('…'));
+    }
+
+    #[test]
+    fn a_non_ascii_diagnostic_truncates_without_panicking() {
+        // A child's stderr is arbitrary bytes and any non-C locale emits
+        // multi-byte characters. Slicing by byte index would panic mid-UTF-8
+        // HERE, in production, inside the error path — the worst place for it.
+        let cyrillic = "и".repeat(10_000);
+        let got = first_line_bounded(&cyrillic).unwrap();
+        assert_eq!(got.chars().count(), DIAG_MAX + 1);
+        assert!(got.starts_with('и'));
     }
 }
 
