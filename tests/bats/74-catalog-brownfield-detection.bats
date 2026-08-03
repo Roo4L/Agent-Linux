@@ -19,6 +19,14 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 # version probe classifies it healthy.
 FAKE_BIN=/home/agent/.local/bin/rtk
 
+# The same fixture at the OTHER agent-owned bin dir. `~/.local/bin` is a poor
+# regression guard on its own: EL9's stock ~/.bash_profile puts it on PATH
+# independently of anything AgentLinux writes, so a probe whose login shell
+# never ran /etc/profile.d/agentlinux.sh still finds it. `~/.npm-global/bin`
+# has no such fallback and is therefore the honest test of whether the profile
+# actually loaded. See the AGENTLINUX_PROFILE_SOURCED test below.
+FAKE_NPM_BIN=/home/agent/.npm-global/bin/rtk
+
 # Scoped sentinel store so the adopt/pin management tests don't pollute the real
 # /opt/agentlinux/state — agent-owned (under $HOME), auto-created by writeSentinel,
 # torn down per test. AGENTLINUX_STATE_DIR is the installed.d dir itself.
@@ -42,8 +50,50 @@ SH
 }
 
 teardown() {
-  rm -f "$FAKE_BIN" 2>/dev/null || true
+  rm -f "$FAKE_BIN" "$FAKE_NPM_BIN" 2>/dev/null || true
   rm -rf /home/agent/.al-brownfield-test 2>/dev/null || true
+}
+
+# AL-124 regression guard.
+#
+# /etc/profile.d/agentlinux.sh opens with a re-source guard:
+#
+#   [ -n "${AGENTLINUX_PROFILE_SOURCED:-}" ] && return
+#
+# and only AFTER that prepends ~/.npm-global/bin and ~/.local/bin. detect's
+# probe forwarded every AGENTLINUX_* var into its login-shell child, so a
+# provisioner running with the guard already in its own environment handed the
+# probe a shell that returned before wiring PATH — and every tool installed at
+# ~/.npm-global/bin reported `absent` on a host where it was plainly present.
+#
+# This went undiagnosed through two wrong hypotheses and four QEMU cycles
+# because the only tests that caught it were the four REMEDIATE-04 brownfield
+# E2E cases, and they caught it ONLY on almalinux-9 — on Ubuntu the probe's own
+# PATH survives sudo, so the profile bailing costs nothing. That is an accident
+# of distro, not a specification. This test pins the contract directly on every
+# platform: the probe must see the agent's bin dirs no matter what the
+# provisioner inherited.
+@test "DET-04: an inherited profile re-source guard does not blind the probe (AL-124)" {
+  # REQ: DET-04
+  install -d -m 0755 -o agent -g agent /home/agent/.npm-global/bin
+  cp "$FAKE_BIN" "$FAKE_NPM_BIN"
+  chown agent:agent "$FAKE_NPM_BIN"
+  # Remove the canonical copy so ~/.bash_profile's independent PATH entry
+  # cannot mask a profile that never loaded — ~/.npm-global/bin is reachable
+  # ONLY via /etc/profile.d/agentlinux.sh.
+  rm -f "$FAKE_BIN"
+
+  # `env` rather than a `VAR=1 run ...` prefix: `run` is a shell function, and a
+  # prefix assignment on a function is not reliably exported to the process it
+  # spawns. If the variable failed to reach the installer this test would pass
+  # whether or not the bug was fixed — which is worse than no test.
+  run env AGENTLINUX_PROFILE_SOURCED=1 "$INSTALLER" provision --report-only --report-format=json
+  assert_exit_zero "DET-04/profile-guard"
+  printf '%s' "$output" \
+    | jq -e '(.components.agents // .agents) | map(select(.id == "rtk" and .status == "healthy")) | length == 1' >/dev/null \
+    || __fail "DET-04/profile-guard" \
+      "rtk at ~/.npm-global/bin is still detected when the provisioner inherits AGENTLINUX_PROFILE_SOURCED=1" \
+      "$output" "$LOG"
 }
 
 @test "DET-04: a brownfield catalog CLI tool (rtk) is detected healthy with its version" {
