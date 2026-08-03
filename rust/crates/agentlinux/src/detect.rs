@@ -617,7 +617,56 @@ fn persist(records: &[AgentRecord]) {
 /// real login-shell scan to [`persist`], which is asserted directly.
 #[cfg_attr(test, mutants::skip)]
 pub fn scan_and_write(user: &str, home: &str) {
-    persist(&scan(user, home));
+    let records = scan(user, home);
+    persist(&records);
+    crate::provision::log::line(&scan_summary(
+        &records,
+        user,
+        home,
+        &catalog::resolve_catalog_dir(),
+        &crate::cache::detect_cache_path(),
+    ));
+}
+
+/// The one transcript line the detect step emits. It ran silently before, which
+/// is why an all-`absent` cache on almalinux-9 could be stared at for three
+/// diagnosis passes without anyone being able to say WHICH user was probed,
+/// against WHICH catalog, or WHERE the answer was written — the provision
+/// transcript went straight from `50-registry-cli: done` to adoption.
+///
+/// Every value here discriminates a hypothesis that was otherwise guessed at:
+/// the wrong `user`/`home` would probe the wrong login PATH; the wrong catalog
+/// dir would enumerate the wrong rows; the wrong cache path would mean the file
+/// being read is not the file being written; and the present/absent split says
+/// whether the scan found anything at all.
+///
+/// `catalog_dir` and `cache_path` are PARAMETERS, not ambient reads, so this is
+/// assertable from literals. Resolving them inside would make the function
+/// reachable only by a test that manipulates process-global env — the same trap
+/// that left the survivors this suite was built to close.
+fn scan_summary(
+    records: &[AgentRecord],
+    user: &str,
+    home: &str,
+    catalog_dir: &std::path::Path,
+    cache_path: &std::path::Path,
+) -> String {
+    let present: Vec<&str> = records
+        .iter()
+        .filter(|r| r.status != "absent")
+        .map(|r| r.id.as_str())
+        .collect();
+    let found = if present.is_empty() {
+        "none".to_string()
+    } else {
+        present.join(",")
+    };
+    format!(
+        "detect: probed {} catalog rows as {user} (home={home}, catalog={}) -> present={found}; cache={}",
+        records.len(),
+        catalog_dir.display(),
+        cache_path.display(),
+    )
 }
 
 /// Scan the host, persist the cache, AND return the detection report body as the
@@ -635,6 +684,13 @@ pub fn scan_and_write(user: &str, home: &str) {
 pub fn scan_persist_report_json(user: &str, home: &str) -> serde_json::Value {
     let records = scan(user, home);
     persist(&records);
+    crate::provision::log::line(&scan_summary(
+        &records,
+        user,
+        home,
+        &catalog::resolve_catalog_dir(),
+        &crate::cache::detect_cache_path(),
+    ));
     report_body(&records)
 }
 
@@ -1287,6 +1343,65 @@ mod probe_diagnostic_tests {
         assert_eq!(first_line_bounded(&exact).unwrap(), exact);
         let over = "y".repeat(DIAG_MAX + 1);
         assert!(first_line_bounded(&over).unwrap().ends_with('…'));
+    }
+
+    fn rec(id: &str, status: &str) -> AgentRecord {
+        AgentRecord {
+            id: id.to_string(),
+            binary: id.to_string(),
+            path: String::new(),
+            version: String::new(),
+            status: status.to_string(),
+        }
+    }
+
+    #[test]
+    fn the_scan_summary_names_every_input_a_wrong_answer_would_come_from() {
+        // The almalinux-9 transcript could not answer any of these, which is
+        // why each one got guessed at instead of read.
+        let s = scan_summary(
+            &[rec("claude-code", "healthy"), rec("gsd", "absent")],
+            "agent",
+            "/home/agent",
+            std::path::Path::new("/opt/agentlinux/catalog"),
+            std::path::Path::new("/run/agentlinux-detect.json"),
+        );
+        assert_eq!(
+            s,
+            "detect: probed 2 catalog rows as agent (home=/home/agent, \
+             catalog=/opt/agentlinux/catalog) -> present=claude-code; \
+             cache=/run/agentlinux-detect.json"
+        );
+    }
+
+    #[test]
+    fn a_scan_that_found_nothing_says_so_explicitly() {
+        // The exact EL9 failure shape. `present=` with an empty tail would read
+        // as a truncated line; `present=none` is a statement.
+        let s = scan_summary(
+            &[rec("claude-code", "absent"), rec("gsd", "absent")],
+            "agent",
+            "/home/agent",
+            std::path::Path::new("/c"),
+            std::path::Path::new("/k"),
+        );
+        assert!(s.contains("probed 2 catalog rows"), "{s}");
+        assert!(s.contains("present=none"), "{s}");
+    }
+
+    #[test]
+    fn a_broken_agent_counts_as_present_not_missing() {
+        // `broken` means the binary WAS resolved on PATH — folding it in with
+        // `absent` would report "found nothing" on a host where detection
+        // actually worked, sending the next diagnosis down the wrong path.
+        let s = scan_summary(
+            &[rec("rtk", "broken")],
+            "agent",
+            "/home/agent",
+            std::path::Path::new("/c"),
+            std::path::Path::new("/k"),
+        );
+        assert!(s.contains("present=rtk"), "{s}");
     }
 
     #[test]
