@@ -183,17 +183,33 @@ $prov_out" "$cache"
     ctx=$(ls -Zd /home/agent/.npm-global/bin 2>&1)
     enforce=$(getenforce 2>/dev/null || echo "n/a")
 
+    # The two probes above are NOT what detect runs, and believing they were
+    # cost a wrong diagnosis: they inherit the caller's environment and omit
+    # `-E`. detect goes through dispatcher::as_user, which env_clear()s to just
+    # PATH/HOME/AGENTLINUX_* and adds `-E --` (see dispatcher::resolve_argv_for
+    # and detect::probe_env). Reproduce THAT argv byte-for-byte, and keep its
+    # stderr — login_run used to discard it, so an environmental refusal (sudo
+    # declining to preserve the environment, a missing shell, a killed child)
+    # was indistinguishable from "the binary is not installed".
+    local exact_path exact_out exact_rc
+    exact_path="/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin"
+    exact_out=$(env -i "PATH=$exact_path" HOME=/home/agent \
+      sudo -u agent -H -E -- bash --login -c 'command -v claude' 2>&1)
+    exact_rc=$?
+
     __fail "REMEDIATE-04" \
       "detect cache records '$id' at the BROWNFIELD path '$want_path'" \
       "not recorded there — REMEDIATE-04 cannot fire without a path mismatch.
 cache=$(cat "$cache" 2>&1)
 on host: .local/bin/claude=$(ls -l /home/agent/.local/bin/claude 2>&1)
          .npm-global/bin/claude=$(ls -l /home/agent/.npm-global/bin/claude 2>&1)
-what the PROBE sees (detect shells out exactly like this):
+a plain login shell (NOT detect's argv — inherits env, no -E):
   login PATH = $probe_path
   command -v claude = ${probe_cmdv:-<empty>}
   $probe_exec
   selinux: $ctx (enforce=$enforce)
+detect's ACTUAL argv (env_clear + sudo -u agent -H -E --), stderr kept:
+  rc=$exact_rc out=${exact_out:-<empty>}
 provision output was:
 $prov_out" "$cache"
   fi

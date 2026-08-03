@@ -30,6 +30,7 @@
 
 use crate::catalog::{self, FullCatalogEntry};
 use crate::dispatcher::{self, Capture};
+use crate::plog;
 
 /// The original three carry bespoke version-probe flags + a strict `--help`-exit-0
 /// health gate their behavior contract asserts; every other tool uses the generic
@@ -218,6 +219,20 @@ pub type LoginRun = fn(user: &str, home: &str, script: &str) -> (i32, String);
 /// direct call, so the fallback chain in [`probe_one`] is reachable from a test
 /// without one. The env it hands the child is asserted through [`probe_env`],
 /// and the argv shape through the dispatcher's own tests.
+///
+/// [`LoginRun`] carries `(rc, stdout)` only, so a probe that fails for an
+/// ENVIRONMENTAL reason — the sudo hop refused, the shell missing, the child
+/// killed — used to reach [`probe_one`] byte-identical to "the binary is not
+/// installed", and its stderr was dropped on the floor here. That is what made
+/// the almalinux-9 brownfield failure (AL-124) cost three diagnosis passes:
+/// every agent came back `absent` and NOTHING in the transcript said why.
+///
+/// So the stderr is logged instead of discarded. Deliberately at the adapter
+/// and not on the type: widening [`LoginRun`] to a 3-tuple would churn every
+/// injected fake for no gain, because a fake has no environmental failure to
+/// report. This does not make the two cases distinguishable to the CALLER —
+/// see the note on [`probe_one`] — it makes them distinguishable to a HUMAN
+/// reading the transcript, which is the gap that actually cost the time.
 #[cfg_attr(test, mutants::skip)]
 fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
     let argv: Vec<String> = ["bash", "--login", "-c", script]
@@ -231,6 +246,16 @@ fn login_run(user: &str, home: &str, script: &str) -> (i32, String) {
         Capture::Buffered,
         Some(PROBE_TIMEOUT_MS),
     );
+    // A non-zero rc with no stderr is the ORDINARY miss (`command -v` on an
+    // absent binary), and logging that for every uninstalled catalog row would
+    // bury the signal. Stderr is the discriminator: a plain miss is silent.
+    let diag = r.stderr.trim();
+    if r.exit_code != 0 && !diag.is_empty() {
+        plog!(
+            "detect: probe failed as {user}: `{script}` -> rc={} {diag}",
+            r.exit_code
+        );
+    }
     (r.exit_code, r.stdout.trim().to_string())
 }
 
