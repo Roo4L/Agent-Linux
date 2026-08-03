@@ -597,14 +597,17 @@ fn write_cache(records: &[AgentRecord]) -> std::io::Result<()> {
 
 /// Persist a set of records to the detect cache, logging (not propagating) an I/O
 /// failure — the shared best-effort write both `scan_and_write` and the
-/// report path use.
-fn persist(records: &[AgentRecord]) {
+/// report path use. Returns whether the cache was actually written, so the
+/// summary line cannot claim a path it failed to produce.
+fn persist(records: &[AgentRecord]) -> bool {
     if let Err(e) = write_cache(records) {
         crate::provision::log::line(&format!(
             "agentlinux provision: detect cache write failed ({e}); \
              REUSE-03/REMEDIATE-04 will see an absent cache"
         ));
+        return false;
     }
+    true
 }
 
 /// Scan the host for every catalog agent + write the detect cache's `.agents`
@@ -618,11 +621,12 @@ fn persist(records: &[AgentRecord]) {
 #[cfg_attr(test, mutants::skip)]
 pub fn scan_and_write(user: &str, home: &str) {
     let records = scan(user, home);
-    persist(&records);
+    let written = persist(&records);
     crate::provision::log::line(&scan_summary(
         &records,
         user,
         home,
+        written,
         &catalog::resolve_catalog_dir(),
         &crate::cache::detect_cache_path(),
     ));
@@ -648,6 +652,7 @@ fn scan_summary(
     records: &[AgentRecord],
     user: &str,
     home: &str,
+    written: bool,
     catalog_dir: &std::path::Path,
     cache_path: &std::path::Path,
 ) -> String {
@@ -661,11 +666,19 @@ fn scan_summary(
     } else {
         present.join(",")
     };
+    // `persist` already logged WHY a write failed; this says the consequence,
+    // so the summary never asserts a cache path it did not produce. A line
+    // reading `cache=/run/...` next to a file that does not exist is the same
+    // class of misleading transcript this whole change set is closing.
+    let cache = if written {
+        format!("cache={}", cache_path.display())
+    } else {
+        format!("cache=NOT WRITTEN ({})", cache_path.display())
+    };
     format!(
-        "detect: probed {} catalog rows as {user} (home={home}, catalog={}) -> present={found}; cache={}",
+        "detect: probed {} catalog rows as {user} (home={home}, catalog={}) -> present={found}; {cache}",
         records.len(),
         catalog_dir.display(),
-        cache_path.display(),
     )
 }
 
@@ -683,11 +696,12 @@ fn scan_summary(
 #[cfg_attr(test, mutants::skip)]
 pub fn scan_persist_report_json(user: &str, home: &str) -> serde_json::Value {
     let records = scan(user, home);
-    persist(&records);
+    let written = persist(&records);
     crate::provision::log::line(&scan_summary(
         &records,
         user,
         home,
+        written,
         &catalog::resolve_catalog_dir(),
         &crate::cache::detect_cache_path(),
     ));
@@ -851,9 +865,27 @@ mod detect_tests {
         // `persist` is the best-effort wrapper the scan paths share: it must
         // actually write, not merely not-panic.
         std::fs::remove_file(&cache).unwrap();
-        persist(&[record("rtk", "healthy")]);
+        assert!(
+            persist(&[record("rtk", "healthy")]),
+            "a successful write reports success"
+        );
         let body = std::fs::read_to_string(&cache).expect("persist must write the cache");
         assert!(body.contains("rtk"));
+
+        // And it must report FAILURE when it fails. `persist` swallows the I/O
+        // error by design — a provision that already did the real work must not
+        // die because detection could not persist — so its return value is the
+        // only thing standing between a failed write and a summary line that
+        // names a cache path holding nothing. `persist -> true` survived a
+        // hand-applied mutant until this existed.
+        env_scope.set(
+            "AGENTLINUX_DETECT_CACHE",
+            dir.path().join("no-such-dir").join("detect.json"),
+        );
+        assert!(
+            !persist(&[record("rtk", "healthy")]),
+            "an unwritable cache path reports failure"
+        );
     }
 
     /// The DET-04 report shape: agents under `.components.agents`, which the
@@ -1363,6 +1395,7 @@ mod probe_diagnostic_tests {
             &[rec("claude-code", "healthy"), rec("gsd", "absent")],
             "agent",
             "/home/agent",
+            true,
             std::path::Path::new("/opt/agentlinux/catalog"),
             std::path::Path::new("/run/agentlinux-detect.json"),
         );
@@ -1382,11 +1415,32 @@ mod probe_diagnostic_tests {
             &[rec("claude-code", "absent"), rec("gsd", "absent")],
             "agent",
             "/home/agent",
+            true,
             std::path::Path::new("/c"),
             std::path::Path::new("/k"),
         );
         assert!(s.contains("probed 2 catalog rows"), "{s}");
         assert!(s.contains("present=none"), "{s}");
+    }
+
+    #[test]
+    fn a_cache_that_could_not_be_written_is_not_reported_as_written() {
+        // `persist` swallows an I/O failure (a provision that did the real work
+        // must not fail because detection could not persist), so without this
+        // the summary would print `cache=/run/...` beside a file that does not
+        // exist — pointing the next diagnosis at a path with nothing in it.
+        let s = scan_summary(
+            &[rec("claude-code", "healthy")],
+            "agent",
+            "/home/agent",
+            false,
+            std::path::Path::new("/c"),
+            std::path::Path::new("/run/agentlinux-detect.json"),
+        );
+        assert!(
+            s.contains("cache=NOT WRITTEN (/run/agentlinux-detect.json)"),
+            "{s}"
+        );
     }
 
     #[test]
@@ -1398,6 +1452,7 @@ mod probe_diagnostic_tests {
             &[rec("rtk", "broken")],
             "agent",
             "/home/agent",
+            true,
             std::path::Path::new("/c"),
             std::path::Path::new("/k"),
         );
