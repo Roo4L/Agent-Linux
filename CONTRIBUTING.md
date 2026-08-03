@@ -3,18 +3,6 @@
 Thanks for considering a contribution. AgentLinux is small, opinionated, and
 behavior-test-driven — that shapes how we accept changes.
 
-## Why this project exists
-
-AgentLinux is framed around two pillars: **Time-to-productive** (the
-work that gets a user from `curl | bash` to a first useful agent run on
-a fresh box) and **Stability** (the curated toolchain holds compatible
-across upstream churn). See [docs/VISION.md](docs/VISION.md) for the
-full framing. Pillar 1 is what v0.3.0 already shipped — contributions
-landing in the agent-user / runtime / catalog surface area are welcome
-today. Pillar 2 is early-stage — the supply-chain monitoring and curated
-catalog admission work is intentionally staged for a later milestone. Pillar-2
-contributions are welcome with that sequencing in mind.
-
 ## Quick start
 
 1. **File an issue first** for anything non-trivial. We avoid surprise PRs that
@@ -56,28 +44,6 @@ subagent mechanism with the skill's read-only contract. Manual review of the
 same dimensions (correctness, security, test coverage, behavior-spec
 alignment) is an acceptable limited fallback when native subagents are not
 available, but do not substitute another agent's CLI.
-
-## Conventions
-
-- **Never `sudo npm install -g` anywhere.** Always `sudo -u agent -H npm
-  install -g`. This is the bug class AgentLinux exists to eliminate.
-- **No agent is installed by default.** New catalog entries ship as
-  *available*; users opt in via `agentlinux install <name>`.
-- **Behavior tests are the spec, not the implementation.** Don't pin
-  implementation details (`npm` vs native installer, shim layout, etc.) as
-  requirements unless behavior depends on it.
-- **No wrapper shims at `/usr/local/bin/` pointing at agent-owned binaries.**
-  That's the recursive-shim anti-pattern that breaks self-update.
-- **Pre-commit must stay green.** If a hook fires on your change, fix the
-  underlying issue rather than skipping the hook.
-- **`plugin/catalog/schema.json` is generated — never hand-edit it (TEST-03).**
-  It is emitted from the Rust catalog types in
-  `rust/crates/agentlinux-core/src/schema_gen.rs` (the single source of truth).
-  After changing a catalog field or constraint there, regenerate and commit the
-  result with `UPDATE_SCHEMA=1 cargo test -p agentlinux-core schema` (run from
-  `rust/`). A CI drift-check fails if the committed `schema.json` differs from
-  freshly-generated output, so a hand-edit or a forgotten regeneration is caught
-  at review time.
 
 ## License & contributor agreement
 

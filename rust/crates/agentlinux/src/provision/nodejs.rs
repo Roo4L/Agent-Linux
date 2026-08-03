@@ -552,10 +552,9 @@ mod nodejs_tests {
     /// 40 never runs to write the file that would have fixed the resolution.
     ///
     /// A stub `node` printing `version`, marked executable. Removes the dependency
-    /// on whichever real node the build host has, and on where it lives — the
-    /// earlier version of this test skipped when `node` was absent from PATH, which
-    /// meant a container without node turned it into a silent no-op with libtest
-    /// still printing `ok`.
+    /// on whichever real node the build host has, and on where it lives, so the
+    /// test asserts on every host instead of skipping to a silent `ok` on a
+    /// container with no `node` in PATH.
     fn stub_node(dir: &Path, version: &str) -> String {
         use std::os::unix::fs::PermissionsExt;
         let p = dir.join("node");

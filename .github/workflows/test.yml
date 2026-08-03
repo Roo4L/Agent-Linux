@@ -30,9 +30,11 @@ jobs:
   # .codex/, AGENTS.md, CLAUDE.md, .planning/). The expensive jobs below
   # (bats-docker matrix, rust) read `code` and skip their costly *steps*
   # when it is 'false' — the jobs still run and report green in seconds, so the
-  # required checks (bats-docker (ubuntu-24.04), rust) always report
-  # success and the merge gate stays intact. (The cli-unit required check was
-  # removed at the Rust cutover — branch protection must drop it.) We gate steps
+  # required checks always report success and the merge gate stays intact. Those
+  # are, on master branch protection: pre-commit, gitleaks, bats-docker
+  # (ubuntu-24.04), and rust (added at the v0.4.0 cutover — the musl binary is
+  # the product, so nothing may merge without it). The other bats-docker arms
+  # run and must be read, but are not required contexts. We gate steps
   # rather than the whole
   # job on purpose: a matrix job skipped by a job-level `if:` can leave its
   # per-arm required contexts unreported and block the PR forever — the same
@@ -81,15 +83,14 @@ jobs:
       - name: Run pre-commit
         run: pre-commit run --all-files --show-diff-on-failure
 
-  # RUST-02 (v0.4.0 Phase 53 spike): gated Rust job. Mirrors the cli-unit
-  # guard-then-steps shape — the job always runs and reports (so the required
-  # check context stays reported), but its costly steps are gated behind a
-  # guard that sets ready=false when no AgentLinux code changed OR rust/Cargo.toml
-  # is absent. GATE-05: gating means a red Rust spike can NEVER block a master
-  # hotfix that touches no Rust — the rust track is additive and revertible.
-  # This is the LITERAL RUST-02 reading (research Open-Q1/A6): a separate gated
-  # rust job on every PR. The per-distro in-container musl build is Phase 59's
-  # GATE-02 endgame, explicitly out of scope here.
+  # RUST-02: the Rust job. The job always runs and reports (so its required check
+  # context stays reported), but its costly steps are gated behind a guard that
+  # sets ready=false when no AgentLinux code changed — a docs-only PR has no Rust
+  # to test. The pre-cutover "or rust/ is absent" arm of that guard is gone: the
+  # musl binary is now the shipped product, not an additive revertible track, so
+  # a missing workspace fails the job instead of skipping it (see the guard step).
+  # The per-distro in-container musl build is Phase 59's GATE-02 endgame,
+  # explicitly out of scope here.
   rust:
     needs: changes
     runs-on: ubuntu-24.04
@@ -114,14 +115,26 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - name: Skip if no AgentLinux code changed or rust/ absent
+      # rust/Cargo.toml missing is a HARD FAILURE, not a skip. Pre-cutover it was
+      # a legitimate escape hatch (the Rust track was additive and revertible, so
+      # its absence meant "the spike isn't here yet"). Post-cutover the musl binary
+      # IS the product, so an absent manifest means the workspace is gone or the
+      # checkout is broken — and treating that as ready=false would report this
+      # job green having compiled, tested and mutation-scored nothing.
+      # CODE_CHANGED stays a skip: a docs-only PR legitimately has no Rust to test.
+      - name: Skip if no AgentLinux code changed (rust/ absent is a hard failure)
         id: guard
         env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if [ "$CODE_CHANGED" != "true" ] || [ ! -f rust/Cargo.toml ]; then
+          if [ ! -f rust/Cargo.toml ]; then
+            echo "RUST-02 FAIL: rust/Cargo.toml is absent — the Rust workspace is the"
+            echo "shipped product post-cutover; refusing to report green without it."
+            exit 1
+          fi
+          if [ "$CODE_CHANGED" != "true" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "No AgentLinux code changed or rust/ absent — skipping Rust steps"
+            echo "No AgentLinux code changed — skipping Rust steps"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
           fi

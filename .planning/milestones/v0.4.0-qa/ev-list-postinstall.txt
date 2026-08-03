@@ -1,3 +1,0 @@
-NAME                 STATUS         CURATED    INSTALLED
-claude-code          synced         2.1.98     2.1.98
-opencode             synced         1.18.3     1.18.3

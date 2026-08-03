@@ -125,3 +125,15 @@ __pycache__/
 .mutation-gate-selftest-pristine
 .mutation-gate-selftest-pristine.sha256
 .mutation-gate-selftest-lock/
+
+# v0.4.0 QA raw evidence transcripts (ev-* scenario evidence, prov-* provisioner
+# logs). Same policy as .planning/audits/ above: acceptance transcripts and
+# scanner output stay local; the durable conclusions live in the sibling *.md
+# reports (QA-REPORT, SCENARIO-LEDGER, OBS-01-root-cause), which ARE committed.
+.planning/milestones/*/ev-*
+.planning/milestones/*/prov-*
+
+# Branch-scoped code-review reports. Kept local while a PR is open; anything
+# durable belongs in docs/audits/ or an ADR, not the repo root.
+/CODE-QUALITY-REVIEW.md
+/CODE-QUALITY-REVIEW-APPENDIX.md

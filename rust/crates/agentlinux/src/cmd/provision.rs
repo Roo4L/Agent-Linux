@@ -87,17 +87,13 @@ fn resolve_provision_user(user_flag: Option<&str>, default_user: &str) -> Result
 /// bail-with-hint or an EOF decline, 64 for 3 invalid names. On a TTY the accepted
 /// alternate is a fresh user provisioned via the normal Create path.
 /// A production wiring adapter (ADR-019 §5) whose PASS-THROUGH is nonetheless
-/// assertable, so it carries no blanket skip.
-///
-/// An earlier revision skipped it claiming both its `Ok` mutants "need a real
-/// passwd DB, a real terminal and a real stdin". That is false for the dominant
-/// path: `resolve_wrong_shell_with` returns before consulting `is_tty` or the
-/// prompt whenever the state is not `WrongShell`, and a name no passwd DB holds
-/// resolves to `Absent` on every host, root or not, tty or not. One line kills
-/// both — the same fabricate-a-user-nobody-has technique this tree already uses
-/// as `FIXTURE_USER`. ADR-020 §4 forbids a skip that hides a killable mutant,
-/// and a wrong justification is worse than none: it is the paragraph a triager
-/// reads instead of writing the test.
+/// assertable, so it carries no blanket skip: `resolve_wrong_shell_with` returns
+/// before consulting `is_tty` or the prompt whenever the state is not
+/// `WrongShell`, and a name no passwd DB holds resolves to `Absent` on every
+/// host — root or not, tty or not. So both `Ok` mutants die to a single line
+/// using a fabricated user (the `FIXTURE_USER` technique), with no real passwd
+/// DB, terminal, or stdin required. ADR-020 §4 forbids a skip that would hide a
+/// killable mutant like these.
 ///
 /// The `Err` arms genuinely do need a terminal and are covered from literals
 /// through [`resolve_wrong_shell_with`]. Its RETURN is re-validated by the

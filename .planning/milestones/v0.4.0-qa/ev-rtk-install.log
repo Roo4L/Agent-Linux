@@ -1,6 +1,0 @@
-▸ installing rtk 0.42.4…
-rtk: installing rtk-ai/rtk@v0.42.4 (source_kind binary) to /home/agent/.local/bin
-prebuilt-binary: rtk installed (rtk 0.42.4)
-rtk: installed at /home/agent/.local/bin/rtk
-rtk: no supported coding agent present yet — rtk wires in automatically when you install one
-rtk: installed 0.42.4 (curated)
