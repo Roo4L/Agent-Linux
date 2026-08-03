@@ -630,6 +630,56 @@ pub fn scan_and_write(user: &str, home: &str) {
         &catalog::resolve_catalog_dir(),
         &crate::cache::detect_cache_path(),
     ));
+    if scan_found_nothing(&records) {
+        crate::provision::log::line(&empty_scan_diagnosis(
+            login_run,
+            user,
+            home,
+            &probe_env(home),
+        ));
+    }
+}
+
+/// Whether a scan resolved nothing at all.
+///
+/// Extracted rather than left inline in [`scan_and_write`], which is an
+/// ADR-019 §5 wiring adapter and therefore mutation-skipped: a predicate
+/// written inline there is logic no test can reach, sitting inside a skip —
+/// the precise shape that produced the survivors this suite was built to
+/// close. `broken` is NOT nothing: the binary resolved on PATH, so a host with
+/// one broken tool has a working probe and must not be told otherwise.
+fn scan_found_nothing(records: &[AgentRecord]) -> bool {
+    records.iter().all(|r| r.status == "absent")
+}
+
+/// The follow-up line an all-`absent` scan emits: the login PATH the probe child
+/// actually resolved against, and which `AGENTLINUX_*` seams were forwarded into
+/// it.
+///
+/// Not phrased as an error. On a greenfield provision every row IS absent and
+/// that is correct — this says "here is where I looked", which is useful either
+/// way. It costs one extra shell-out, and only on a scan that found nothing.
+///
+/// It exists because the almalinux-9 investigation kept coming back to a
+/// question the transcript could not answer: the probe reported `absent` for a
+/// binary sitting at a path that WAS on the login PATH when the same argv was
+/// re-run by hand afterwards. The two differ only in the forwarded seams and in
+/// when they ran, and neither was recorded.
+fn empty_scan_diagnosis(run: LoginRun, user: &str, home: &str, env: &[(String, String)]) -> String {
+    let (rc, path) = run(user, home, "printf %s \"$PATH\"");
+    let seams: Vec<&str> = env
+        .iter()
+        .map(|(k, _)| k.as_str())
+        .filter(|k| k.starts_with("AGENTLINUX_"))
+        .collect();
+    let forwarded = if seams.is_empty() {
+        "none".to_string()
+    } else {
+        seams.join(",")
+    };
+    format!(
+        "detect: no catalog tool resolved — probe login PATH (rc={rc}) was `{path}`; forwarded seams: {forwarded}"
+    )
 }
 
 /// The one transcript line the detect step emits. It ran silently before, which
@@ -693,18 +743,17 @@ fn scan_summary(
 /// Not mutation-tested: a production wiring adapter (ADR-019 §5) binding the
 /// real login-shell scan. The persisted bytes are asserted through
 /// [`write_cache`] and the returned shape through [`report_body`].
+///
+/// Emits NO summary line, unlike [`scan_and_write`]. `--report-only
+/// --report-format=json` is consumed by piping to `jq`, and the DET-04 suite
+/// captures stdout and stderr together, so ANY additional line here is a parse
+/// error on the caller's side — which is exactly how adding one broke DET-04
+/// 232/233/235. The returned JSON document IS this path's observability; the
+/// summary exists for the provision path, which has no machine-readable output.
 #[cfg_attr(test, mutants::skip)]
 pub fn scan_persist_report_json(user: &str, home: &str) -> serde_json::Value {
     let records = scan(user, home);
-    let written = persist(&records);
-    crate::provision::log::line(&scan_summary(
-        &records,
-        user,
-        home,
-        written,
-        &catalog::resolve_catalog_dir(),
-        &crate::cache::detect_cache_path(),
-    ));
+    persist(&records);
     report_body(&records)
 }
 
@@ -1421,6 +1470,57 @@ mod probe_diagnostic_tests {
         );
         assert!(s.contains("probed 2 catalog rows"), "{s}");
         assert!(s.contains("present=none"), "{s}");
+    }
+
+    #[test]
+    fn only_a_scan_that_resolved_no_binary_at_all_asks_for_the_path() {
+        assert!(scan_found_nothing(&[]), "an empty catalog resolved nothing");
+        assert!(scan_found_nothing(&[
+            rec("claude-code", "absent"),
+            rec("gsd", "absent")
+        ]));
+        assert!(
+            !scan_found_nothing(&[rec("claude-code", "absent"), rec("rtk", "healthy")]),
+            "one healthy tool means the probe worked"
+        );
+        assert!(
+            !scan_found_nothing(&[rec("rtk", "broken")]),
+            "broken means the binary WAS resolved on PATH — the probe worked"
+        );
+    }
+
+    #[test]
+    fn an_empty_scan_reports_the_path_it_looked_at_and_the_seams_it_forwarded() {
+        fn fake(_u: &str, _h: &str, script: &str) -> (i32, String) {
+            assert_eq!(script, r#"printf %s "$PATH""#, "asks the shell for PATH");
+            (0, "/home/agent/.local/bin:/usr/bin".to_string())
+        }
+        let env = vec![
+            ("PATH".to_string(), "ignored".to_string()),
+            ("HOME".to_string(), "/home/agent".to_string()),
+            ("AGENTLINUX_CATALOG_DIR".to_string(), "/c".to_string()),
+            ("AGENTLINUX_DETECT_CACHE".to_string(), "/k".to_string()),
+        ];
+        let s = empty_scan_diagnosis(fake, "agent", "/home/agent", &env);
+        assert!(s.contains("rc=0"), "{s}");
+        assert!(s.contains("`/home/agent/.local/bin:/usr/bin`"), "{s}");
+        // Only the seams — PATH and HOME are already named by the summary line,
+        // and repeating them here would bury the part that is new.
+        assert!(
+            s.contains("forwarded seams: AGENTLINUX_CATALOG_DIR,AGENTLINUX_DETECT_CACHE"),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn an_empty_scan_with_no_seams_says_none_rather_than_trailing_off() {
+        fn fake(_u: &str, _h: &str, _s: &str) -> (i32, String) {
+            (1, String::new())
+        }
+        let s = empty_scan_diagnosis(fake, "agent", "/home/agent", &[]);
+        assert!(s.contains("forwarded seams: none"), "{s}");
+        // A failed PATH read is itself the answer — it must survive to the log.
+        assert!(s.contains("rc=1"), "{s}");
     }
 
     #[test]
