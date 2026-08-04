@@ -1,9 +1,42 @@
 name: test
+# One run per commit, and exactly one owner of the required contexts.
+#
+# This workflow used to fire on BOTH `push: branches-ignore: [master]` and
+# `pull_request: branches: [master]`. Every commit on a branch with an open PR
+# therefore produced two full runs — measured over 40 runs, 15 of 17 sampled
+# commits ran twice, ~2513 redundant runner-minutes, because each run carries
+# the bats matrix AND the mutation-scored `rust` job.
+#
+# The tempting fix — keep both triggers and let the push run skip its expensive
+# steps when a PR already covers the commit — was implemented, measured, and
+# REJECTED. It makes two check runs of the SAME NAME on the same SHA *disagree*:
+# a 5-second vacuous `rust` / `bats-docker (ubuntu-24.04)` success from the push
+# run alongside the real result from the PR run. Branch protection then has to
+# pick one, and which it picks depends on check-run creation order — runner
+# scheduling, a sub-second race no workflow setting controls. Measured on PR #62:
+# push-run check runs created 15:57:41, PR-run 15:57:42, gate BLOCKED. That
+# observation is consistent with BOTH "latest check run wins" and "all check runs
+# must pass", so it does NOT prove the gate is safe. Under the first model a
+# genuinely FAILING bats arm merges green whenever the ordering flips. Silent
+# green is the one outcome this repo's test philosophy exists to prevent, so the
+# saving is not worth resting the merge gate on an unverified tie-break.
+#
+# Dropping `pull_request` instead is not an option: push events never reach the
+# base repo for a FORK, so pull_request is the only signal an external
+# contributor ever gets, and this is a public repo.
+#
+# So `pull_request` is the sole automatic trigger. It fires on opened,
+# synchronize and reopened (the defaults), covering drafts and fork PRs, and it
+# tests the merge commit rather than the branch tip. Nothing else emits the four
+# required contexts, so there is no duplicate to resolve.
+#
+# What this gives up is automatic CI on a branch with no PR open yet.
+# workflow_dispatch covers the deliberately-PR-less case (the AL-124 negative
+# control was one) — run it by hand against any branch.
 on:
-  push:
-    branches-ignore: [master]
   pull_request:
     branches: [master]
+  workflow_dispatch:
 
 # v0.4.0 CIPUB-01: explicit least-privilege default. Individual jobs may
 # narrow further (or, in the publish-only path of release.yml, escalate
@@ -51,7 +84,6 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
-      duplicate: ${{ steps.dedupe.outputs.duplicate }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
@@ -63,86 +95,6 @@ jobs:
               - '.github/workflows/**'
               - '.pre-commit-config.yaml'
               - '.gitleaks.toml'
-
-      # Collapse the push/pull_request double-run. This workflow fires on BOTH
-      # `push` (branches-ignore: master) and `pull_request` (branches: master),
-      # so every commit on a branch with an open PR spawned two identical full
-      # runs — measured at ~168 redundant runner-minutes per commit, since each
-      # run carries the bats matrix AND the mutation-scored `rust` job.
-      #
-      # Why not just drop a trigger:
-      #   - Dropping `push` loses CI on branches that have no PR yet (and on
-      #     deliberate no-PR branches such as the AL-124 negative control).
-      #   - Dropping `pull_request` (or its `synchronize` type) breaks FORK PRs
-      #     outright: push events never reach the base repo for a fork, so
-      #     pull_request is the only signal an external contributor ever gets.
-      #     This is a public repo; that path has to keep working.
-      #
-      # So both triggers stay and the PUSH side stands down when a PR already
-      # covers the same commit. Same shape as the `code` filter below it: the
-      # jobs still RUN and still report, only their costly steps are skipped —
-      # never a job-level `if:`, which would leave the four required contexts
-      # unreported and block the PR forever (see the header note).
-      #
-      # pull_request events are never marked duplicate: that run is the one
-      # whose checks gate the merge, and it tests the merge commit rather than
-      # the branch tip.
-      #
-      # The obvious worry: a suppressed push run reports the four required
-      # contexts green in ~1 minute while the pull_request run is still
-      # testing for real — does that green open a merge window? Measured on
-      # PR #62, no. With the push run COMPLETED/SUCCESS for `rust` and
-      # `bats-docker (ubuntu-24.04)` and the PR run still IN_PROGRESS on the
-      # same contexts and the same SHA, `gh pr view --json mergeStateStatus`
-      # reported BLOCKED. GitHub does not let the faster duplicate satisfy the
-      # gate; the still-running check keeps it shut. Re-verify this if the
-      # branch-protection contexts are ever reconfigured.
-      - name: Detect a push run already covered by an open PR
-        id: dedupe
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ github.ref_name }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [ "$EVENT_NAME" != "push" ]; then
-            echo "duplicate=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          # --base master is load-bearing, not decoration: it makes this query
-          # mirror the `pull_request` trigger, which is scoped to
-          # `branches: [master]`. Without it a STACKED PR (feature-b based on
-          # feature-a) would match here, mark the push run duplicate, and skip
-          # the expensive steps — while no pull_request run fires at all,
-          # because that PR's base is not master. Two required contexts would
-          # then report green having tested nothing. Silent green is the one
-          # outcome this workflow must never produce.
-          #
-          # --repo keeps this correct regardless of the checked-out remote.
-          # stderr is folded into the value so a failure is DIAGNOSED rather
-          # than swallowed: anything non-numeric (API error body, empty
-          # response, gh missing) is reported and treated as "no PR", so the
-          # expensive jobs run. Only a clean positive integer suppresses them.
-          open_prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" \
-                       --base master --state open --json number --jq 'length' 2>&1) \
-            || true  # `|| true`, not `|| open_prs=""` — blanking it would discard
-                     # the very output the diagnostic below prints. Needed at all
-                     # because GitHub runs steps under `bash -e`, where a failing
-                     # command substitution in an assignment aborts the step.
-          case "$open_prs" in
-            ''|*[!0-9]*)
-              echo "dedupe: PR lookup failed or returned non-numeric output — running"
-              echo "everything. Raw output: $open_prs"
-              open_prs=0
-              ;;
-          esac
-          if [ "$open_prs" -gt 0 ]; then
-            echo "duplicate=true" >> "$GITHUB_OUTPUT"
-            echo "Open PR already covers $BRANCH — the pull_request run owns the"
-            echo "expensive steps; this push run reports without repeating them."
-          else
-            echo "duplicate=false" >> "$GITHUB_OUTPUT"
-            echo "No open PR for $BRANCH — this push run is the only CI signal."
-          fi
 
   pre-commit:
     runs-on: ubuntu-24.04
@@ -202,20 +154,13 @@ jobs:
         id: guard
         env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
-          DUPLICATE: ${{ needs.changes.outputs.duplicate }}
         run: |
           if [ ! -f product/rust/Cargo.toml ]; then
             echo "RUST-02 FAIL: product/rust/Cargo.toml is absent — the Rust workspace is the"
             echo "shipped product post-cutover; refusing to report green without it."
             exit 1
           fi
-          # The absent-workspace check above stays ahead of the duplicate check:
-          # it is a hard failure about the tree, not a cost optimisation, and
-          # must fire on every run.
-          if [ "$DUPLICATE" = "true" ]; then
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "Push run superseded by the open PR's run — skipping Rust steps"
-          elif [ "$CODE_CHANGED" != "true" ]; then
+          if [ "$CODE_CHANGED" != "true" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "No AgentLinux code changed — skipping Rust steps"
           else
@@ -417,12 +362,8 @@ jobs:
         id: guard
         env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
-          DUPLICATE: ${{ needs.changes.outputs.duplicate }}
         run: |
-          if [ "$DUPLICATE" = "true" ]; then
-            echo "has_bats=false" >> "$GITHUB_OUTPUT"
-            echo "Push run superseded by the open PR's run — skipping Docker bats matrix"
-          elif [ "$CODE_CHANGED" != "true" ]; then
+          if [ "$CODE_CHANGED" != "true" ]; then
             echo "has_bats=false" >> "$GITHUB_OUTPUT"
             echo "No AgentLinux code changed — skipping Docker bats matrix (dev-only change)"
           elif compgen -G "product/tests/bats/*.bats" > /dev/null; then
