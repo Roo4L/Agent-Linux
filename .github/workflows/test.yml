@@ -2,20 +2,8 @@ name: test
 on:
   push:
     branches-ignore: [master]
-    paths-ignore:
-      - 'index.html'
-      - 'assets/**'
-      - 'CNAME'
-      - 'sitemap.xml'
-      - 'robots.txt'
   pull_request:
     branches: [master]
-    paths-ignore:
-      - 'index.html'
-      - 'assets/**'
-      - 'CNAME'
-      - 'sitemap.xml'
-      - 'robots.txt'
 
 # v0.4.0 CIPUB-01: explicit least-privilege default. Individual jobs may
 # narrow further (or, in the publish-only path of release.yml, escalate
@@ -38,8 +26,19 @@ jobs:
   # rather than the whole
   # job on purpose: a matrix job skipped by a job-level `if:` can leave its
   # per-arm required contexts unreported and block the PR forever — the same
-  # trap as trigger-level paths-ignore. Website files (index.html, assets/**, …)
-  # are already excluded at the trigger level and covered by pr-preview.yml.
+  # trap as trigger-level paths-ignore.
+  #
+  # That is why this workflow has NO trigger-level paths-ignore, and why
+  # `site/**` must stay OUT of the `code:` filter below. All four required
+  # contexts (pre-commit, gitleaks, bats-docker (ubuntu-24.04), rust) live in
+  # this workflow, so a trigger-level skip leaves every one of them pending
+  # forever and a website-only PR can never merge — not hypothetical now that
+  # site/ is a directory people edit on its own. Instead the workflow always
+  # runs: `site/**` matches none of the `code:` patterns, so `code` is false
+  # and the two GATED contexts (bats-docker, rust) report green in seconds.
+  # pre-commit and gitleaks still run in full, which is the point — site/
+  # index.html is 32 KB of hand-authored HTML, exactly where an inline
+  # analytics key or form endpoint would land.
   # pre-commit + gitleaks stay ungated so lint and full-history secret scanning
   # run on every change, docs included.
   changes:

@@ -20,6 +20,14 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # checkout + cp + one push. The cap matters because of the concurrency
+    # block above: cancel-in-progress:false means a stalled deploy does not
+    # fail alone, it holds the `pages` lock and queues every later push to
+    # master behind it — for up to GitHub's 360-minute default. The realistic
+    # stall is inside the deploy action retrying against a degraded
+    # github.com, and the symptom is the undiagnosable kind: agentlinux.org
+    # silently stops updating.
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -32,16 +40,42 @@ jobs:
       #   2. Repo bloat (plugin/, .planning/, docs/, etc.) does not get
       #      published at agentlinux.org/<dir>/.
       # Pattern 5 (Pitfall 7 anti-drift): install.sh comes from the single
-      # editable source at packaging/curl-installer/install.sh.
+      # editable source at packaging/curl-installer/install.sh. It is copied
+      # LAST so packaging/ always wins over anything staged under site/.
+      #
+      # Two assertions below, because the two ways this publish has broken are
+      # not the same failure:
+      #
+      #   - Missing file. The explicit per-file copies this replaced failed the
+      #     step when a served file went missing; `cp -r` exits 0 on a partly
+      #     populated site/. With single-commit + clean:true, publishing a
+      #     bundle without CNAME DELETES CNAME from gh-pages, unsetting the
+      #     Pages custom domain and taking agentlinux.org — and the advertised
+      #     install URL — down until it is re-added by hand.
+      #   - Present but unstageable. Reason (1) above: a .gitignore inside the
+      #     deployed tree makes the action's `git add --all` skip the very file
+      #     we are publishing. The file IS in _site/ and non-empty, so the
+      #     missing-file check cannot see it. This is what actually broke
+      #     production after #4, and `cp -r site/.` copies dotfiles, so the
+      #     wholesale copy would carry a site/.gitignore straight back in.
       - name: Assemble site bundle
         run: |
           mkdir -p _site
+          cp -r site/. _site/
           cp packaging/curl-installer/install.sh _site/install.sh
-          cp index.html _site/
-          cp CNAME _site/
-          cp sitemap.xml _site/
-          cp robots.txt _site/
-          cp -r assets _site/
+          for f in index.html CNAME install.sh; do
+            [ -s "_site/$f" ] || {
+              echo "deploy FAIL: _site/$f missing or empty — refusing to publish" >&2
+              exit 1
+            }
+          done
+          ignores=$(find _site -name .gitignore)
+          if [ -n "$ignores" ]; then
+            echo "deploy FAIL: .gitignore inside the deployed tree ($ignores) —" >&2
+            echo "  git add --all would silently skip served files. Nothing may be" >&2
+            echo "  committed under site/ that is not meant to be served." >&2
+            exit 1
+          fi
 
       - name: Deploy to gh-pages branch
         # Pinned to v4.8.0 — the first release on Node.js 24 runtime.

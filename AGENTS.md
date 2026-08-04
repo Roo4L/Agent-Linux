@@ -11,30 +11,42 @@
 
 ## Project Identity
 
-AgentLinux v0.3.0 — installable Ubuntu plugin. Provisions an agent user with a
+AgentLinux v0.4.0 — installable Ubuntu plugin. Provisions an agent user with a
 correctly-owned Node.js runtime + a registry CLI for installing agent tools.
 Pivoted from custom distro (v0.2.0) on 2026-04-18. See
 `@.planning/PROJECT.md` for full scope.
 
 ## Where Things Live
 
-- `plugin/` — shippable code: the catalog (`plugin/catalog/` — catalog.json + the
-  per-agent Bash recipes) and the shipped musl bin path (`plugin/bin/agentlinux`).
-  The provisioner + registry CLI are the Rust workspace under `rust/`.
+Three concerns share this repo — the product (`rust/` `plugin/` `packaging/`
+`tests/` `scripts/`), the website (`site/`), and the slide deck (`deck/`) —
+plus the docs and agent harness they all use. Start from the concern, not from
+a file search. Their one coupling: the published site bundle includes
+`packaging/curl-installer/install.sh`, so the `curl | bash` one-liner is edited
+under `packaging/`, never under `site/`.
+
+- `rust/` — Cargo workspace: the `agentlinux` bin (provisioner + registry CLI) and the I/O-free `agentlinux-core` logic crate
+- `plugin/` — shippable non-Rust assets: the catalog (`plugin/catalog/` — catalog.json + the
+  per-agent Bash recipes) and the shipped musl bin path (`plugin/bin/agentlinux`,
+  a build output, not in git)
+- `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (sole distribution channel)
 - `tests/bats/` — behavior-contract suite (BHV-XX / RT-XX / AGT-XX / CLI-XX / CAT-XX / INST-XX)
 - `tests/harness/` — repo-level gate self-tests (the `.planning/` hygiene gate, the mutation gate); run on the CI runner, never in a container or guest
-- `tests/docker/` — fast CI harness (Ubuntu 24.04 + AlmaLinux 9 matrix, every PR). The
-  matrix is a COST choice, not a support statement: the installer still accepts
-  22.04 and 26.04, they are just no longer exercised on every push.
+- `tests/docker/` — fast CI harness (Ubuntu 24.04 + AlmaLinux 9 every PR; 22.04 and 26.04 are still supported, just not exercised on every push)
 - `tests/qemu/` — release-gate harness (fresh cloud images, nightly + release)
-- `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (the sole distribution channel; the optional fpm .deb wrapper was removed in Phase 58 / DIST-02)
+- `scripts/` — release build (`build-release.sh`), repo gates (`check-*.sh`), mutation gate
+- `site/` — everything served at agentlinux.org; adding a page or asset needs no CI edit
+- `deck/` — `brand-style.md` (the reusable brand DNA) plus the pptxgenjs generator.
+  Its house motif was hand-derived from `site/assets/crab-mascot.svg`, but the
+  build reads only its own committed `deck-house.png` — editing the SVG does not
+  change the deck.
 - `docs/` — reference documentation (`HARNESS.md`, `codex.md`, `decisions/`, `research/`, `internals/`)
 - `.planning/` — GSD workflow state (PLAN.md, STATE.md, ROADMAP.md) — not documentation
 - `.claude/agents/` — portable project-scoped reviewer role prompts used by the
   shared `$review` skill (kept here for Claude Code compatibility)
 - `.claude/skills/` — project-scoped skills (canonical copy; Codex loads the same
   skills via symlinks under `.codex/skills/`)
-- `.github/workflows/` — CI (test, nightly-qemu, nightly-mutation, release)
+- `.github/workflows/` — product CI (test, nightly-qemu, nightly-mutation, release) and website CI (deploy, pr-preview)
 - `agents/software-engineer/AGENTS.md` — Paperclip SoftwareEngineer agent type
   contract (per-issue lifecycle, back-pressure checklist, GSD reconciliation
   rules). Read by every engineer worktree on wake. Edits ride in normal PRs.

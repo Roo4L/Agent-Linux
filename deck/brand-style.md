@@ -2,7 +2,7 @@
 brand: AgentLinux
 slug: agentlinux
 website: https://agentlinux.org
-extracted_via: manual — from agentlinux.org + the Agent-Linux repo (assets/, docs/VISION.md)
+extracted_via: manual — from agentlinux.org + the Agent-Linux repo (site/assets/, docs/VISION.md)
 ---
 
 # AgentLinux — Brand Style
@@ -82,7 +82,7 @@ labels are UPPERCASE with wide letter-spacing, often prefixed `// ` like a code 
 
 Chunky **pixel art** (`shape-rendering: crispEdges`). A little **house** = an environment
 that's already set up and maintained for you (rendered grayscale, extracted from
-`assets/crab-mascot.svg`). The **crab "Clawd"** (terracotta `#D97757`) is the character
+`site/assets/crab-mascot.svg`). The **crab "Clawd"** (terracotta `#D97757`) is the character
 mascot. Commit to **one** motif and repeat it sparingly — a cover, a hero moment, a small
 footer mark — never on every element. A blinking block cursor (`█`) and `$`/`#` terminal
 prompts are on-brand accents.
@@ -111,5 +111,5 @@ prompts are on-brand accents.
 ## Reference
 
 **Website:** [https://agentlinux.org](https://agentlinux.org)
-**Source repo:** [github.com/Roo4L/Agent-Linux](https://github.com/Roo4L/Agent-Linux) — brand assets in `assets/`, framing in `docs/VISION.md`
+**Source repo:** [github.com/Roo4L/Agent-Linux](https://github.com/Roo4L/Agent-Linux) — brand assets in `site/assets/`, framing in `docs/VISION.md`
 **Slide principles applied:** [power-design](https://github.com/ItsssssJack/power-design) (20 codified slide rules)

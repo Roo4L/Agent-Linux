@@ -3,6 +3,29 @@
 Thanks for considering a contribution. AgentLinux is small, opinionated, and
 behavior-test-driven — that shapes how we accept changes.
 
+## Repository layout
+
+Three concerns share the repo:
+
+| Directory | What it is |
+|---|---|
+| `site/` | **The website** — everything served at agentlinux.org |
+| `deck/` | **The deck** — presentation design code and its generator |
+| everything else at the root | **The product** — the installable AgentLinux plugin (`rust/`, `plugin/`, `packaging/`, `tests/`, `scripts/`) |
+
+The site bundle pulls `install.sh` from `packaging/` — its only tie to the
+product tree, so edit the `curl | bash` one-liner there, never under `site/`.
+
+`docs/` is reference documentation and is fair game for PRs. `.planning/` holds
+the maintainer's roadmap and planning notes; contributions never need to touch
+it. `agents/`, `.claude/`, and `.codex/` configure the coding agents we develop
+*with* — they are not part of the shipped product.
+
+A fuller annotated tree is in
+[`docs/HARNESS.md` §1.1](docs/HARNESS.md#11-repository-structure) — that
+document is mostly about how we run agent-assisted development, but §1.1 is the
+canonical layout.
+
 ## Quick start
 
 1. **File an issue first** for anything non-trivial. We avoid surprise PRs that
@@ -11,17 +34,20 @@ behavior-test-driven — that shapes how we accept changes.
 2. **Fork the repo, create a feature branch off `master`.** We do not accept
    force-pushes to `master`; branch protection is on.
 3. **Run `pre-commit run --all-files` locally** before pushing. CI runs the
-   same hooks (shellcheck, shfmt, biome, catalog-schema validation, gitleaks);
-   pushing without running them locally just delays the round-trip.
+   same hooks — shellcheck, shfmt, gitleaks, the catalog-schema and
+   version-lockstep gates, and several repo-hygiene checks; run the command
+   rather than guessing which apply. Pushing without running them locally just
+   delays the round-trip.
 4. **Run the Docker bats matrix** for any change that touches `plugin/`:
 
    ```bash
-   ./tests/docker/run.sh ubuntu-22.04
    ./tests/docker/run.sh ubuntu-24.04
+   ./tests/docker/run.sh almalinux-9
    ```
 
-   Both must pass. The Docker matrix is fast enough (~2-3 minutes per image)
-   that there is no reason to skip it.
+   Both must pass — they are the two arms CI gates every PR on. The Docker
+   matrix is fast enough (~2-3 minutes per image) that there is no reason to
+   skip it.
 
 5. **Open a PR.** Reference the issue. Describe what behavior changed and
    which `tests/bats/*.bats` test files cover it.
