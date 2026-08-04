@@ -12,9 +12,13 @@ extracted_via: manual — from agentlinux.org + the Agent-Linux repo (site/asset
 Terminal-native and unapologetically technical. A near-black canvas, monospace type
 everywhere, and a single white accent — it reads like a well-lit shell. Flat and quiet:
 no gradients, no drop shadows, no decorative color, no accent stripes. Hierarchy comes from
-size, weight, and whitespace, not hue. The one reserve of warmth is the pixel-art mascot
-(a terracotta crab, "Clawd", and a little house), used sparingly. Mood: precise, calm,
-confident — developer-tool seriousness with dry wit.
+size, weight, and whitespace, not hue. The one moment of character is the pixel-art house
+mascot, used sparingly. Mood: precise, calm, confident — developer-tool seriousness with
+dry wit.
+
+The website hero additionally runs a one-off illustration — a small terracotta crab arriving
+at the house. That crab is scene-only set dressing, not the mark: it never appears in the
+favicon, the OG card, or the deck.
 
 ## Colors
 
@@ -28,13 +32,13 @@ confident — developer-tool seriousness with dry wit.
 | Text — secondary | `#A8A8A8` | captions, secondary copy (~7:1 on bg) |
 | Text — body | `#E0E0E0` | body text (~13:1 on bg) |
 | Accent (one only) | `#FFFFFF` | pure white — the single emphasis color |
-| Signature warm | `#D97757` | terracotta from the crab mascot; mascot-only, optional |
+| Hero-scene warm | `#D97757` | terracotta; the website hero crab only — never in the deck |
 
 **Color scheme:** dark
-**Accent rule:** one accent per surface, and it is **white**. Monochrome by default —
-never introduce a second hue for emphasis; use weight/size/whitespace and the white
-highlight. `#D97757` belongs to the mascot art only; the core system is strictly monochrome.
-Split roughly 60-30-10 (background / grays / white).
+**Accent rule:** one accent per surface, and it is **white**. The system is strictly
+monochrome, mascot included — never introduce a hue for emphasis; use weight/size/whitespace
+and the white highlight. `#D97757` is confined to the website hero illustration; it is not
+available to the deck or to any mark. Split roughly 60-30-10 (background / grays / white).
 
 ## Typography
 
@@ -81,11 +85,11 @@ labels are UPPERCASE with wide letter-spacing, often prefixed `// ` like a code 
 ## Motif
 
 Chunky **pixel art** (`shape-rendering: crispEdges`). A little **house** = an environment
-that's already set up and maintained for you (rendered grayscale, extracted from
-`site/assets/crab-mascot.svg`). The **crab "Clawd"** (terracotta `#D97757`) is the character
-mascot. Commit to **one** motif and repeat it sparingly — a cover, a hero moment, a small
-footer mark — never on every element. A blinking block cursor (`█`) and `$`/`#` terminal
-prompts are on-brand accents.
+that's already set up and maintained for you (grayscale, same geometry as the house in
+`site/assets/hero-scene.svg`). It is the sole mascot and the only motif that carries the
+mark — the favicon and the OG card are the house alone. Repeat it sparingly — a cover, a
+hero moment, a small footer mark — never on every element. A blinking block cursor (`█`)
+and `$`/`#` terminal prompts are on-brand accents.
 
 ## Quick Reference (for Claude)
 
