@@ -51,6 +51,7 @@ jobs:
       pull-requests: read
     outputs:
       code: ${{ steps.filter.outputs.code }}
+      duplicate: ${{ steps.dedupe.outputs.duplicate }}
     steps:
       - uses: actions/checkout@v5
       - uses: dorny/paths-filter@v3
@@ -62,6 +63,53 @@ jobs:
               - '.github/workflows/**'
               - '.pre-commit-config.yaml'
               - '.gitleaks.toml'
+
+      # Collapse the push/pull_request double-run. This workflow fires on BOTH
+      # `push` (branches-ignore: master) and `pull_request` (branches: master),
+      # so every commit on a branch with an open PR spawned two identical full
+      # runs — measured at ~168 redundant runner-minutes per commit, since each
+      # run carries the bats matrix AND the mutation-scored `rust` job.
+      #
+      # Why not just drop a trigger:
+      #   - Dropping `push` loses CI on branches that have no PR yet (and on
+      #     deliberate no-PR branches such as the AL-124 negative control).
+      #   - Dropping `pull_request` (or its `synchronize` type) breaks FORK PRs
+      #     outright: push events never reach the base repo for a fork, so
+      #     pull_request is the only signal an external contributor ever gets.
+      #     This is a public repo; that path has to keep working.
+      #
+      # So both triggers stay and the PUSH side stands down when a PR already
+      # covers the same commit. Same shape as the `code` filter below it: the
+      # jobs still RUN and still report, only their costly steps are skipped —
+      # never a job-level `if:`, which would leave the four required contexts
+      # unreported and block the PR forever (see the header note).
+      #
+      # pull_request events are never marked duplicate: that run is the one
+      # whose checks gate the merge, and it tests the merge commit rather than
+      # the branch tip.
+      - name: Detect a push run already covered by an open PR
+        id: dedupe
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.ref_name }}
+        run: |
+          if [ "${{ github.event_name }}" != "push" ]; then
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # --repo keeps this correct regardless of the checked-out remote.
+          # `|| echo 0` so a transient API failure degrades to "run it" rather
+          # than silently skipping the expensive jobs.
+          open_prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" \
+                       --state open --json number --jq 'length' 2>/dev/null || echo 0)
+          if [ "${open_prs:-0}" -gt 0 ]; then
+            echo "duplicate=true" >> "$GITHUB_OUTPUT"
+            echo "Open PR already covers $BRANCH — the pull_request run owns the"
+            echo "expensive steps; this push run reports without repeating them."
+          else
+            echo "duplicate=false" >> "$GITHUB_OUTPUT"
+            echo "No open PR for $BRANCH — this push run is the only CI signal."
+          fi
 
   pre-commit:
     runs-on: ubuntu-24.04
@@ -121,13 +169,20 @@ jobs:
         id: guard
         env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
+          DUPLICATE: ${{ needs.changes.outputs.duplicate }}
         run: |
           if [ ! -f product/rust/Cargo.toml ]; then
             echo "RUST-02 FAIL: product/rust/Cargo.toml is absent — the Rust workspace is the"
             echo "shipped product post-cutover; refusing to report green without it."
             exit 1
           fi
-          if [ "$CODE_CHANGED" != "true" ]; then
+          # The absent-workspace check above stays ahead of the duplicate check:
+          # it is a hard failure about the tree, not a cost optimisation, and
+          # must fire on every run.
+          if [ "$DUPLICATE" = "true" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "Push run superseded by the open PR's run — skipping Rust steps"
+          elif [ "$CODE_CHANGED" != "true" ]; then
             echo "ready=false" >> "$GITHUB_OUTPUT"
             echo "No AgentLinux code changed — skipping Rust steps"
           else
@@ -329,8 +384,12 @@ jobs:
         id: guard
         env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
+          DUPLICATE: ${{ needs.changes.outputs.duplicate }}
         run: |
-          if [ "$CODE_CHANGED" != "true" ]; then
+          if [ "$DUPLICATE" = "true" ]; then
+            echo "has_bats=false" >> "$GITHUB_OUTPUT"
+            echo "Push run superseded by the open PR's run — skipping Docker bats matrix"
+          elif [ "$CODE_CHANGED" != "true" ]; then
             echo "has_bats=false" >> "$GITHUB_OUTPUT"
             echo "No AgentLinux code changed — skipping Docker bats matrix (dev-only change)"
           elif compgen -G "product/tests/bats/*.bats" > /dev/null; then
