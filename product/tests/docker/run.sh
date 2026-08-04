@@ -216,9 +216,22 @@ done
 #      product/. keeps every /opt/agentlinux-src/{plugin,tests,packaging} path
 #      byte-identical after the product/ carve-out — no test churn.
 #   2. .git/ and .planning/ are repo-root siblings, so product/. never sees
-#      them. rust/target IS under product/ — cp -R has no --exclude, so it is
-#      copied and then dropped on the next line. That rm is load-bearing, not
-#      redundant: rust-cache restores a multi-GB target/ before this runs.
+#      them. rust/target IS under product/, and rust-cache restores a multi-GB
+#      target/ before this runs — so it must be excluded UP FRONT, not copied
+#      and then removed.
+#
+#      This is not micro-optimisation. `cp -R` + `rm -rf` writes every one of
+#      those gigabytes into the container's writable overlay layer and then
+#      deletes them, and the deletion does not give the space back cheaply.
+#      Master never paid it: its staging copied the whole /workspace, but its
+#      rust-cache step logged "No cache found", so target/ was empty at copy
+#      time. On a branch where the cache HITS, the same code copies a warm
+#      multi-GB target/ on every run. Measured on this branch vs master, with
+#      the cache hit: the in-container musl build went 38s -> 372s and the
+#      docker step 30s -> 150s, and the ubuntu bats arm stopped finishing
+#      inside its 60-minute cap while almalinux was unaffected.
+#
+#      tar|tar rather than cp because cp -R has no --exclude.
 # docs/ is staged for 69-catalog-growth-kit.bats ENABLE-07, which reads
 # $SRC/docs/CATALOG-CONTRIBUTING.md. Its skip-sentinel is $SRC/tests/docker/run.sh,
 # which now arrives via product/. — so dropping the docs copy makes that @test
@@ -228,8 +241,8 @@ echo "== stage sources into container =="
 docker exec "$CID" bash -c '
   set -e
   mkdir -p /opt/agentlinux-src
-  cp -R /workspace/product/. /opt/agentlinux-src/
-  rm -rf /opt/agentlinux-src/rust/target
+  tar -C /workspace/product --exclude=./rust/target -cf - . \
+    | tar -C /opt/agentlinux-src -xf -
   mkdir -p /opt/agentlinux-src/docs
   cp -R /workspace/docs/. /opt/agentlinux-src/docs/
 '
