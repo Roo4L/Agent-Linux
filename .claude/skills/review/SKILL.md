@@ -46,21 +46,21 @@ for every change.
 | Changed file pattern | Reviewer roles |
 |---|---|
 | `^product/rust/crates/.+\.rs$` | `security-engineer`, `qa-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
-| `^product/rust/(Cargo\.toml|crates/.+/Cargo\.toml|rust-toolchain\.toml)$` | `reliability-reviewer`, `simplicity-reviewer` |
+| `^product/rust/(Cargo\.toml\|crates/.+/Cargo\.toml\|rust-toolchain\.toml)$` | `reliability-reviewer`, `simplicity-reviewer` |
 | `^product/scripts/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` |
 | `^scripts/.+\.sh$` | `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
 | `^product/plugin/catalog/lib/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
 | `^product/packaging/curl-installer/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` |
 | `^product/tests/bats/.+\.bats$` | `qa-engineer` |
 | `^product/tests/bats/helpers/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
-| `^product/tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
-| `^product/plugin/catalog/(agents/.+/.+\.(sh|json)|catalog\.json|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` (add `bash-engineer` for shell recipes) |
-| `^product/plugin/catalog/agents/.+/.+\.(js|mjs|ts)$` | `node-engineer`, `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^product/tests/(docker\|qemu\|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
+| `^product/plugin/catalog/(agents/.+/.+\.(sh\|json)\|catalog\.json\|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` (add `bash-engineer` for shell recipes) |
+| `^product/plugin/catalog/agents/.+/.+\.(js\|mjs\|ts)$` | `node-engineer`, `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
 | `^docs/.+\.md$` (not ADRs/research) | `technical-writer`, `fact-checker`, `ai-deslop` |
 | `^docs/decisions/.+\.md$` or `^docs/research/.+\.md$` | `technical-writer`, `fact-checker` |
-| `^(AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md)$` | `technical-writer`, `fact-checker` (add `external-audience-auditor` for contributor/public copy) |
+| `^(AGENTS\.md\|CLAUDE\.md\|CONTRIBUTING\.md)$` | `technical-writer`, `fact-checker` (add `external-audience-auditor` for contributor/public copy) |
 | `^README\.md$` | `technical-writer`, `fact-checker`, `ai-deslop`, `external-audience-auditor` |
-| `^\.(claude|codex)/(hooks|skills)/.+$` | `technical-writer`, `fact-checker`, `ai-deslop` (add `bash-engineer` and `security-engineer` for hooks) |
+| `^\.(claude\|codex)/(hooks\|skills)/.+$` | `technical-writer`, `fact-checker`, `ai-deslop` (add `bash-engineer` and `security-engineer` for hooks) |
 | `^\.claude/agents/.+\.md$` | `technical-writer`, `fact-checker`, `ai-deslop` (add the role's domain reviewer when its rubric changes) |
 
 `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, and
