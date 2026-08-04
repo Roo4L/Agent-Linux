@@ -34,11 +34,11 @@ jobs:
   # this workflow, so a trigger-level skip leaves every one of them pending
   # forever and a website-only PR can never merge — not hypothetical now that
   # site/ is a directory people edit on its own. Instead the workflow always
-  # runs: `site/**` matches none of the `code:` patterns, so `code` is false,
-  # the costly steps self-skip, and the required contexts report green in
-  # seconds. The residual cost on a site-only PR is pre-commit + gitleaks,
-  # which we WANT — site/index.html is 32 KB of hand-authored HTML, exactly
-  # where an inline analytics key or form endpoint would land.
+  # runs: `site/**` matches none of the `code:` patterns, so `code` is false
+  # and the two GATED contexts (bats-docker, rust) report green in seconds.
+  # pre-commit and gitleaks still run in full, which is the point — site/
+  # index.html is 32 KB of hand-authored HTML, exactly where an inline
+  # analytics key or form endpoint would land.
   # pre-commit + gitleaks stay ungated so lint and full-history secret scanning
   # run on every change, docs included.
   changes:
