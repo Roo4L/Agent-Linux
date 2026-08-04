@@ -106,7 +106,7 @@ Codex in this repo is covered in [docs/codex.md](docs/codex.md).
   sudo drop-in, runtime, catalog, and CLI, each in about a minute
 - [Vision](docs/VISION.md) — what AgentLinux is for and where it's going
 - [Contributing](CONTRIBUTING.md) — filing issues, opening PRs, running the
-  tests. The `tests/bats/` suite is the behavior contract.
+  tests. The `product/tests/bats/` suite is the behavior contract.
 - Source and releases: [github.com/Roo4L/Agent-Linux](https://github.com/Roo4L/Agent-Linux)
 
 ## License

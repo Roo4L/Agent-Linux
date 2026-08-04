@@ -68,7 +68,7 @@ a passing result. This supersedes the earlier blanket exclusion of the two
 tools. (Background: keeping a daemon alive is an operational concern, not an
 install one — see `docs/internals/catalog.md` §"Keeping a daemon alive".)
 
-Derive the scenario ledger from `plugin/catalog/catalog.json` at session start.
+Derive the scenario ledger from `product/plugin/catalog/catalog.json` at session start.
 Compare every catalog ID with the one full exclusion (`test-dummy`), the two
 partial (daemon-gated) entries, and the ledger; if the catalog has changed,
 stop and reconcile the scope before testing. Do not silently omit an included
@@ -101,8 +101,8 @@ artifact, productive interval, novelty result, finding ID, and cleanup result.
 Use fresh disposable containers for order-sensitive ideas. Set
 `TERM=xterm-256color`, keep ANSI/color enabled where relevant, and capture both
 an 80-column default terminal and a wider documented geometry for at least one
-real PTY flow. Allocate it with `tests/bats/helpers/tty-driver.py` or the
-interactive session in `tests/docker/rc-sandbox.sh`; preserve their observed
+real PTY flow. Allocate it with `product/tests/bats/helpers/tty-driver.py` or the
+interactive session in `product/tests/docker/rc-sandbox.sh`; preserve their observed
 prompt sentinels and timeout bounds. Gate input on observed prompts and
 distinguish live work from an apparent freeze. A pipe transcript alone is not
 PTY evidence.

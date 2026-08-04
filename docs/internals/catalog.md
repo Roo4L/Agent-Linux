@@ -3,7 +3,7 @@
 The catalog is the JSON-Schema-validated registry of agents AgentLinux
 can install. It ships a growing, curated set of opt-in entries —
 coding-agent CLIs and developer tooling — with zero installed by
-default; the live roster is `plugin/catalog/catalog.json`. New agents
+default; the live roster is `product/plugin/catalog/catalog.json`. New agents
 are added by submitting a catalog entry plus an install recipe — no CLI
 source changes required.
 
@@ -44,7 +44,7 @@ AgentLinux instead of `npm install -g`?" collapses.
 
 The catalog is three pieces working together.
 
-The first is `plugin/catalog/schema.json` — a JSON Schema 2020-12
+The first is `product/plugin/catalog/schema.json` — a JSON Schema 2020-12
 contract with `additionalProperties: false`, so unknown fields are
 a hard fail rather than silently ignored. The schema declares the
 required fields per entry (`id`, `display_name`, `description`,
@@ -55,7 +55,7 @@ to exact semver (no ranges, no partials), `id` is regex-bound to
 `[a-z][a-z0-9-]*`. The schema is the machine-readable spec the
 catalog auditor and the install path both read from.
 
-The second is `plugin/catalog/catalog.json` — the embedded agent list
+The second is `product/plugin/catalog/catalog.json` — the embedded agent list
 shipped in every release tarball. It holds the real entries (the
 originals claude-code, gsd, playwright-cli; the coding-agent CLIs
 codex, antigravity-cli, opencode, qwen-code, and ccusage; the
@@ -70,7 +70,7 @@ through ajv; a malformed entry never reaches `master`, let alone a
 release.
 
 The third is per-agent recipes under
-`plugin/catalog/agents/<id>/install.sh` and `uninstall.sh`. The
+`product/plugin/catalog/agents/<id>/install.sh` and `uninstall.sh`. The
 recipes are plain bash. Each recipe receives
 `AGENTLINUX_PINNED_VERSION` in its environment (with a `:?` fail-fast
 guard at the top), runs as the agent user, and asserts a post-install
@@ -137,7 +137,7 @@ checked, and its published checksum is verified
 without unpacking or replacing a single file.
 
 Most binary recipes use the shared helper
-`plugin/catalog/lib/prebuilt-binary.sh`, which owns the security-critical,
+`product/plugin/catalog/lib/prebuilt-binary.sh`, which owns the security-critical,
 tool-agnostic core:
 the architecture dispatch (x86-64 or ARM64, abort otherwise), the
 verify-before-extract download, the single-member extract, and the
@@ -197,7 +197,7 @@ per-user, with no root, no system Python, and a clean remove. The answer
 is [Astral's `uv`](https://github.com/astral-sh/uv) — a single static
 binary that both manages its own CPython and installs Python CLIs as
 isolated "tools." A second shared helper,
-`plugin/catalog/lib/uv-bootstrap.sh`, packages the pattern so any Python
+`product/plugin/catalog/lib/uv-bootstrap.sh`, packages the pattern so any Python
 tool is again a catalog entry plus a thin recipe.
 
 The helper bootstraps `uv` itself through the *same* checksum-verified
@@ -229,7 +229,7 @@ user's chat channels and coding agents to a model provider. OpenClaw is
 the first, and it exposed a general need: bring up a long-lived per-user
 service with no root, keep it alive across logout, and tear it down on
 remove with nothing left running. A shared helper,
-`plugin/catalog/lib/daemon-lifecycle.sh`, packages that lifecycle so the
+`product/plugin/catalog/lib/daemon-lifecycle.sh`, packages that lifecycle so the
 next daemon tool is again a catalog entry plus a thin recipe.
 
 The service runs under the user's own systemd instance — no root, no
@@ -428,10 +428,10 @@ $ jq '.agents[] | {id, source_kind, pinned_version}' \
 Adding a new agent looks like:
 
 ```
-$ mkdir plugin/catalog/agents/<new-id>
-$ touch plugin/catalog/agents/<new-id>/{install,uninstall}.sh
-$ chmod +x plugin/catalog/agents/<new-id>/{install,uninstall}.sh
-$ $EDITOR plugin/catalog/catalog.json   # add the entry
+$ mkdir product/plugin/catalog/agents/<new-id>
+$ touch product/plugin/catalog/agents/<new-id>/{install,uninstall}.sh
+$ chmod +x product/plugin/catalog/agents/<new-id>/{install,uninstall}.sh
+$ $EDITOR product/plugin/catalog/catalog.json   # add the entry
 $ pre-commit run --all-files            # ajv validation runs here
 ```
 

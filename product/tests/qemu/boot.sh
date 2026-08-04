@@ -482,10 +482,13 @@ fi
 #    sole channel (Phase 58 DIST-02 removed the optional fpm .deb path).
 # ---------------------------------------------------------------------------
 REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
-VERSION=$(jq -r .version "${REPO_ROOT}/plugin/catalog/catalog.json")
+# The product tree lives under product/; the in-GUEST layout it produces is
+# unchanged (plugin/, tests/, packaging/ under /opt/agentlinux-src).
+PRODUCT_ROOT="${REPO_ROOT}/product"
+VERSION=$(jq -r .version "${PRODUCT_ROOT}/plugin/catalog/catalog.json")
 TAG="v${VERSION}"
-printf 'building release tarball for tag=%s via scripts/build-release.sh\n' "$TAG"
-bash "${REPO_ROOT}/scripts/build-release.sh" "$TAG"
+printf 'building release tarball for tag=%s via product/scripts/build-release.sh\n' "$TAG"
+bash "${PRODUCT_ROOT}/scripts/build-release.sh" "$TAG"
 
 TARBALL="${REPO_ROOT}/dist/agentlinux-${TAG}.tar.gz"
 if [[ ! -f "$TARBALL" ]]; then
@@ -504,11 +507,15 @@ fi
 ## in the plugin/ release tarball (06-01 locked decision: tarball ships
 ## ONLY plugin/). Bundle packaging/ alongside tests/ so the in-guest layout
 ## matches what the bats helper expects.
+## Archived paths stay repo-root-relative to the PRODUCT tree (tests/bats,
+## packaging), so the in-guest layout under /opt/agentlinux-src is byte-identical
+## to before the product/ carve-out. node_modules/ is a repo-root concern and
+## needs its own -C.
 TESTS_TAR="${RUN_DIR}/tests.tar.gz"
-tar --create --gzip --file="$TESTS_TAR" -C "$REPO_ROOT" \
+tar --create --gzip --file="$TESTS_TAR" -C "$PRODUCT_ROOT" \
   tests/bats packaging \
-  node_modules/bats 2>/dev/null || tar --create --gzip --file="$TESTS_TAR" \
-  -C "$REPO_ROOT" tests/bats packaging
+  -C "$REPO_ROOT" node_modules/bats 2>/dev/null || tar --create --gzip --file="$TESTS_TAR" \
+  -C "$PRODUCT_ROOT" tests/bats packaging
 
 printf 'scp-ing release tarball + tests into the guest\n'
 scp "${SCP_OPTS[@]}" "$TARBALL" "root@localhost:/tmp/"

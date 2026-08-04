@@ -23,44 +23,46 @@ agent-linux/                            # Workspace root
 ├── AGENTS.md                           # Shared project context and critical rules
 ├── CLAUDE.md                           # Claude Code host adapter (< 150 lines)
 ├── README.md                           # User-facing README
-├── rust/                               # Cargo workspace — provisioner + registry CLI
-│   ├── Cargo.toml                      # Workspace root; Cargo.lock is committed
-│   └── crates/
-│       ├── agentlinux/                 # The `agentlinux` bin (static x86_64-musl)
-│       │   └── src/
-│       │       ├── cli.rs              # clap arg definitions
-│       │       ├── cmd/                # list / adopt / install / remove / upgrade / pin / provision
-│       │       ├── catalog.rs          # JSON Schema-validated catalog reader
-│       │       └── dispatcher.rs       # Dispatches to catalog/agents/<name>/install.sh
-│       └── agentlinux-core/            # I/O-free logic (classify, divergence, semver shim)
-├── plugin/                             # Shippable non-Rust assets
-│   ├── bin/agentlinux                  # Build output — staged into the tarball, not in git
-│   └── catalog/                        # Agent recipe catalog
-│       ├── schema.json                 # JSON Schema 2020-12 contract
-│       ├── catalog.json                # Curated catalog entries (none installed by default)
-│       └── agents/
-│           ├── claude-code/install.sh            # ~28 recipes; one directory each
-│           ├── gsd/install.sh
-│           └── playwright-cli/install.sh         # Browser-access tool for agents
-├── packaging/                          # Distribution wrapper (sole channel)
-│   └── curl-installer/
-│       └── install.sh                  # SHA256-verified downloader for the reproducible musl tarball
-├── tests/                              # Behavior-contract test suite (primary v0.3.0 deliverable)
-│   ├── bats/                           # Behavior-contract files (IDs in test names)
-│   │   └── helpers/                    # Shared assertions and fixtures
-│   ├── docker/                         # Fast CI harness — one Dockerfile per distro
-│   │   ├── Dockerfile.ubuntu-24.04     # gated on every PR, with almalinux-9
-│   │   ├── Dockerfile.almalinux-9
-│   │   ├── Dockerfile.ubuntu-22.04     # supported, not exercised on every push
-│   │   ├── Dockerfile.ubuntu-26.04
-│   │   └── run.sh                      # Orchestrates: build image → run installer → run bats
-│   ├── qemu/                           # Definitive release-gate harness — cloud-image VMs
-│   │   ├── boot.sh                     # Fresh cloud image → SSH → install → bats
-│   │   └── cloud-init/
-│   └── harness/                        # Repo-level gate self-tests (run on the CI runner)
-├── site/                               # Landing page — agentlinux.org (see Key decisions below)
-├── deck/                               # Presentation design code + pptx generator (standalone)
-├── scripts/                            # Release build, repo gates, mutation gate
+├── product/                            # THE PRODUCT — everything that ships or tests what ships
+│   ├── rust/                           # Cargo workspace — provisioner + registry CLI
+│   │   ├── Cargo.toml                  # Workspace root; Cargo.lock is committed
+│   │   └── crates/
+│   │       ├── agentlinux/             # The `agentlinux` bin (static x86_64-musl)
+│   │       │   └── src/
+│   │       │       ├── cli.rs          # clap arg definitions
+│   │       │       ├── cmd/            # list / adopt / install / remove / upgrade / pin / provision
+│   │       │       ├── catalog.rs      # JSON Schema-validated catalog reader
+│   │       │       └── dispatcher.rs   # Dispatches to catalog/agents/<name>/install.sh
+│   │       └── agentlinux-core/        # I/O-free logic (classify, divergence, semver shim)
+│   ├── plugin/                         # Shippable non-Rust assets
+│   │   ├── bin/agentlinux              # Build output — staged into the tarball, not in git
+│   │   └── catalog/                    # Agent recipe catalog
+│   │       ├── schema.json             # JSON Schema 2020-12 contract
+│   │       ├── catalog.json            # Curated catalog entries (none installed by default)
+│   │       └── agents/                 # ~28 recipes; one directory each
+│   │           ├── claude-code/install.sh
+│   │           ├── gsd/install.sh
+│   │           └── playwright-cli/install.sh     # Browser-access tool for agents
+│   ├── packaging/                      # Distribution wrapper (sole channel)
+│   │   └── curl-installer/
+│   │       └── install.sh              # SHA256-verified downloader for the musl tarball
+│   ├── tests/                          # Behavior-contract test suite
+│   │   ├── bats/                       # Behavior-contract files (IDs in test names)
+│   │   │   └── helpers/                # Shared assertions and fixtures
+│   │   ├── docker/                     # Fast CI harness — one Dockerfile per distro
+│   │   │   ├── Dockerfile.ubuntu-24.04 # gated on every PR, with almalinux-9
+│   │   │   ├── Dockerfile.almalinux-9
+│   │   │   ├── Dockerfile.ubuntu-22.04 # supported, not exercised on every push
+│   │   │   ├── Dockerfile.ubuntu-26.04
+│   │   │   └── run.sh                  # build image → run installer → run bats
+│   │   ├── qemu/                       # Release-gate harness — cloud-image VMs
+│   │   │   ├── boot.sh                 # Fresh cloud image → SSH → install → bats
+│   │   │   └── cloud-init/
+│   │   └── harness/                    # Repo-gate self-tests (run on the CI runner)
+│   └── scripts/                        # build-release.sh, product gates, mutation gate
+├── site/                               # THE WEBSITE — agentlinux.org (see Key decisions)
+├── deck/                               # THE DECK — presentation design code + pptx generator
+├── scripts/                            # Repo-harness gates (planning hygiene, codex-agent sync)
 ├── agents/                             # Contracts for the coding agents we develop WITH
 │                                       #   (not shipped product)
 ├── docs/                               # All reference documentation (see §2)
@@ -86,10 +88,12 @@ agent-linux/                            # Workspace root
 
 **Key decisions:**
 
-- **Root is a workspace, not a single Cargo project.** No `Cargo.toml` at the root; the cargo workspace lives under `rust/`. This keeps the root clean for peer repos we may clone during development (Claude Code repo, example installers, scratch Ubuntu test images).
-- **`plugin/` is the shippable artifact.** Everything in `plugin/` is what goes into the release tarball. `packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux provision`.
-- **`tests/` is separate from `plugin/`.** Tests never ship. Black-box: they run against an *installed* `plugin/`, not against source.
-- **The website and the deck are separate top-level concerns, and only `site/` is published.** `_site/` is assembled from two sources: `site/` copied wholesale, plus `packaging/curl-installer/install.sh` copied last — the same Pattern 5 anti-drift rule the deploy workflow enforces, so the `curl | bash` one-liner has exactly one editable source. Two consequences: adding a page or asset needs no CI edit, and nothing may be committed under `site/` that is not meant to be served (a `site/.gitignore` would ship to gh-pages and break the `install.sh` publish).
+- **Three concerns, three top-level directories.** `product/` is everything that ships or tests what ships, `site/` is the website, `deck/` is the slide deck. Nothing outside `product/` is part of the shipped artifact. Root also stays clean for peer repos we may clone during development (Claude Code repo, example installers, scratch Ubuntu test images).
+- **Root is a workspace, not a single Cargo project.** No `Cargo.toml` at the root; the cargo workspace lives under `product/rust/`.
+- **`product/plugin/` is the shippable artifact.** Its contents are what goes into the release tarball — *under an unchanged `plugin/` payload prefix*, so the installed layout is independent of where the sources sit in the repo. `product/packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux provision`.
+- **The staging root is the contract, not the repo path.** The test harnesses assemble `/opt/agentlinux-src/{plugin,tests,packaging}` — the same three names `product/` holds. That is why `product/` could be introduced without touching a single one of the ~34 bats files that hardcode those paths.
+- **`product/tests/` is separate from `product/plugin/`.** Tests never ship. Black-box: they run against an *installed* `product/plugin/`, not against source.
+- **The website and the deck are separate top-level concerns, and only `site/` is published.** `_site/` is assembled from two sources: `site/` copied wholesale, plus `product/packaging/curl-installer/install.sh` copied last — the same Pattern 5 anti-drift rule the deploy workflow enforces, so the `curl | bash` one-liner has exactly one editable source. Two consequences: adding a page or asset needs no CI edit, and nothing may be committed under `site/` that is not meant to be served (a `site/.gitignore` would ship to gh-pages and break the `install.sh` publish).
 - **`docs/` for reference, `.planning/` for workflow state.** Identical routing rule to the reference: if the output of a task is a document intended to be read later (ADR, research report, design proposal, review summary), it goes in `docs/`, even as a draft. `.planning/` holds PLAN.md, STATE.md, config — workflow machinery, not documentation.
 
 ### 1.2 Code Quality: Pre-commit
@@ -138,9 +142,9 @@ repos:
     hooks:
       - id: catalog-schema-validate
         name: Validate catalog.json against schema
-        entry: scripts/check-catalog-schema.sh
+        entry: product/scripts/check-catalog-schema.sh
         language: system
-        files: ^plugin/catalog/catalog\.json$
+        files: ^product/plugin/catalog/catalog\.json$
         pass_filenames: false
       # plus: check-version-lockstep, check-distro-leak, and
       # sync-codex-agents --check — see the real file for their filters.
@@ -171,19 +175,19 @@ cd rust && cargo test --workspace          # all crates
 cargo test -p agentlinux-core parity       # the node-semver parity goldens
 ```
 
-Proptest counterexample seeds under `rust/**/proptest-regressions/` are **committed** — a failure found once must replay on every future run, so that directory is deliberately not gitignored.
+Proptest counterexample seeds under `product/rust/**/proptest-regressions/` are **committed** — a failure found once must replay on every future run, so that directory is deliberately not gitignored.
 
-**Bats assertions:** one file per requirement category (see layout above). Tests execute inside the target environment (a container or a QEMU guest), not on the developer's host. A shared `tests/bats/helpers/` provides assertion helpers (`assert_agent_can_run`, `assert_no_eacces_in_log`, `assert_self_update_succeeds`, etc.) so individual tests stay short and readable.
+**Bats assertions:** one file per requirement category (see layout above). Tests execute inside the target environment (a container or a QEMU guest), not on the developer's host. A shared `product/tests/bats/helpers/` provides assertion helpers (`assert_agent_can_run`, `assert_no_eacces_in_log`, `assert_self_update_succeeds`, etc.) so individual tests stay short and readable.
 
 **Docker harness:** `tests/docker/run.sh` builds a clean image per Ubuntu version, copies in the plugin tarball, executes the installer, then runs the bats suite inside the container. Defaults to running inside a non-root user to avoid Docker's most common false-positive category. ~90s per Ubuntu version on GitHub Actions' free tier.
 
-**QEMU harness:** `tests/qemu/boot.sh` downloads a fresh Ubuntu cloud image, boots it under QEMU, waits for SSH, scps the plugin in, runs the installer, runs bats over SSH, shuts down. ~5min per run. Must be green before every release. Catches issues Docker can't (systemd, locale generation, real cloud-init paths, non-trivial UID allocation).
+**QEMU harness:** `product/tests/qemu/boot.sh` downloads a fresh Ubuntu cloud image, boots it under QEMU, waits for SSH, scps the plugin in, runs the installer, runs bats over SSH, shuts down. ~5min per run. Must be green before every release. Catches issues Docker can't (systemd, locale generation, real cloud-init paths, non-trivial UID allocation).
 
 ### 1.4 Build Configuration
 
-- **Catalog Bash recipes:** no build step. `plugin/catalog/agents/*/{install,uninstall}.sh` + `plugin/catalog/lib/` ship as-is (after `shfmt` check).
-- **Provisioner + registry CLI:** the Rust workspace under `rust/` (built to a static x86_64-musl `agentlinux` bin). The TypeScript CLI + Bash provisioner/entrypoint were retired at the cutover; the shipped `agentlinux` is the Rust musl bin and `cargo test` is the unit-test oracle alongside the bats behavior suite.
-- **Release tarball:** `scripts/build-release.sh` builds the static `x86_64-unknown-linux-musl` `agentlinux` bin and assembles `plugin/bin/agentlinux` (the bin) + `plugin/catalog/` (catalog.json + the ~25 Bash recipes) + a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`. The tarball is byte-reproducible (SOURCE_DATE_EPOCH-pinned tar + `strip`/`--remap-path-prefix`/`--build-id=none` on the bin).
+- **Catalog Bash recipes:** no build step. `product/plugin/catalog/agents/*/{install,uninstall}.sh` + `product/plugin/catalog/lib/` ship as-is (after `shfmt` check).
+- **Provisioner + registry CLI:** the Rust workspace under `product/rust/` (built to a static x86_64-musl `agentlinux` bin). The TypeScript CLI + Bash provisioner/entrypoint were retired at the cutover; the shipped `agentlinux` is the Rust musl bin and `cargo test` is the unit-test oracle alongside the bats behavior suite.
+- **Release tarball:** `product/scripts/build-release.sh` builds the static `x86_64-unknown-linux-musl` `agentlinux` bin and assembles `plugin/bin/agentlinux` (the bin) + `plugin/catalog/` (catalog.json + the ~25 Bash recipes) + a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`. The tarball is byte-reproducible (SOURCE_DATE_EPOCH-pinned tar + `strip`/`--remap-path-prefix`/`--build-id=none` on the bin).
 - **Distribution channel:** the reproducible musl tarball + `.sha256` is the **sole** channel. The optional fpm `.deb` wrapper was removed at the Rust cutover (ADR-006 is flagged superseded-in-part).
 - **GitHub Releases workflow:** tag `vX.Y.Z` → build tarball → upload tarball + sha256 + catalog snapshot to the release.
 
@@ -369,8 +373,8 @@ Project-scoped skills that encode AgentLinux-specific knowledge:
 | Skill | Domain | Key Content | Source |
 |-------|--------|-------------|--------|
 | `agentlinux-installer` | Bash installer conventions | `set -euo pipefail`, idempotency primitives (`ensure_user`, `ensure_line_in_file`, `ensure_npm_prefix`), `as_user` pattern, distro-detection helpers, logging pattern, error propagation | Codify from installer code as it stabilizes |
-| `behavior-test-contract` | Bats test authoring | How to write a BHV-XX test, shared assertion helpers, how to test non-interactive invocation modes (cron, systemd, sudo-u, non-interactive SSH), how to assert no-EACCES | Codify from `tests/bats/` as the first suite ships |
-| `catalog-schema` | Agent recipe format | JSON Schema layout, required fields, install.sh/uninstall.sh contract, how to add a new agent | Codify once `plugin/catalog/schema.json` is final |
+| `behavior-test-contract` | Bats test authoring | How to write a BHV-XX test, shared assertion helpers, how to test non-interactive invocation modes (cron, systemd, sudo-u, non-interactive SSH), how to assert no-EACCES | Codify from `product/tests/bats/` as the first suite ships |
+| `catalog-schema` | Agent recipe format | JSON Schema layout, required fields, install.sh/uninstall.sh contract, how to add a new agent | Codify once `product/plugin/catalog/schema.json` is final |
 | `qemu-harness` | QEMU test harness operation | Download + cache cloud image, boot, SSH, teardown; how to add a new Ubuntu version | P1 — needed for local dev parity with CI |
 
 **Scope rule:** If a skill references AgentLinux-specific patterns (installer internals, catalog schema, bats helpers, plugin layout), it's project-scoped. Generic tool interactions (Context7 usage, gh CLI patterns, GSD commands) stay global.
@@ -391,10 +395,10 @@ Project-scoped skills that encode AgentLinux-specific knowledge:
 This section originally noted the project had no CLAUDE.md at the repo root — every agent session started without project context. The context file must be under 150 lines and contain only what agents cannot infer from reading code:
 
 - **Project identity:** "AgentLinux v0.3.0 — installable Ubuntu plugin. Provisions an agent user with correctly-owned Node.js runtime + a registry CLI for installing agent tools. Pivoted from custom distro (v0.2.0) on 2026-04-18."
-- **Where things live:** `plugin/` for shippable code; `tests/bats/` for the behavior contract; `docs/` for reference; `.planning/` for GSD workflow state.
+- **Where things live:** `product/plugin/` for shippable code; `product/tests/bats/` for the behavior contract; `docs/` for reference; `.planning/` for GSD workflow state.
 - **Critical rules (non-obvious):**
   - Never `sudo npm install -g` anywhere in installer code. Always `sudo -u agent -H npm install -g`. This is the bug class AgentLinux exists to eliminate.
-  - Behavior tests (`tests/bats/`) are the spec. Implementation may change freely as long as the suite stays green. Do not pin implementation choices (npm vs native installer; sudo vs no-sudo) as requirements.
+  - Behavior tests (`product/tests/bats/`) are the spec. Implementation may change freely as long as the suite stays green. Do not pin implementation choices (npm vs native installer; sudo vs no-sudo) as requirements.
   - **No agent is installed by default.** Claude Code, GSD, and Playwright are available in the catalog; users opt in via `agentlinux install <name>`. Playwright is the canonical browser-access tool for agents (replaces Chrome DevTools MCP).
   - Docker-only test runs are insufficient. Before any release, QEMU suite must be green.
   - Every release tarball ships with a sibling `.sha256`. `packaging/curl-installer/install.sh` must verify.
@@ -420,8 +424,8 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 
 ### Phase A: Project Infrastructure (do first)
 
-- [ ] Create directory skeleton: `plugin/`, `tests/`, `packaging/`, `docs/` (structure only, empty files or READMEs)
-- [ ] Create the `rust/` cargo workspace — `agentlinux` bin + `agentlinux-core` lib, no real logic yet
+- [ ] Create directory skeleton: `product/plugin/`, `product/tests/`, `product/packaging/`, `docs/` (structure only, empty files or READMEs)
+- [ ] Create the `product/rust/` cargo workspace — `agentlinux` bin + `agentlinux-core` lib, no real logic yet
 - [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, catalog-schema-validate; run `pre-commit install`
 - [x] Create `CLAUDE.md` (< 150 lines) per §6
 - [ ] Create `docs/README.md` index + `docs/decisions/000-template.md` ADR template
@@ -469,7 +473,7 @@ Measurable signals that the harness is working.
 | First-pass review accuracy | > 80% of outputs pass reviewers on first attempt | Review-loop iterations before the agent triages "good enough" |
 | Review catch rate | > 90% of errors caught before reaching human review | Count of errors caught by automated review vs. errors human reviewer flags on the PR |
 | Pre-commit pass rate | > 95% on first commit attempt | Pre-commit hook failure rate from git history |
-| Behavior-test coverage | Every behavior the product promises has at least one bats test | `qa-engineer` review on any change under `tests/` |
+| Behavior-test coverage | Every behavior the product promises has at least one bats test | `qa-engineer` review on any change under `product/tests/` |
 | Mutation score (Rust core) | Zero surviving mutants in the diff — proves new pure-core code is covered by assertions, not just executed | `cargo-mutants --in-diff --package agentlinux-core` on every PR; full-crate score nightly |
 | CI green rate on first push | > 85% of PRs pass CI on first push | GitHub Actions pass/fail on `pr-opened` event |
 | Release-gate QEMU pass rate | 100% — any red QEMU run blocks release | Release workflow dashboard |

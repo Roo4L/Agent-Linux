@@ -52,9 +52,9 @@ jobs:
             echo "workflow_dispatch skipped ${{ matrix.target }}"
           fi
 
-      # Node 22 ships corepack; scripts/build-release.sh activates pnpm via
+      # Node 22 ships corepack; product/scripts/build-release.sh activates pnpm via
       # corepack on-demand. No separate pnpm/action-setup step needed here —
-      # mirrors the pattern in tests/docker/Dockerfile.ubuntu-24.04 cli-builder.
+      # mirrors the pattern in product/tests/docker/Dockerfile.ubuntu-24.04 cli-builder.
       - uses: actions/setup-node@v4
         if: steps.decide.outputs.run == 'true'
         with:
@@ -96,7 +96,7 @@ jobs:
             jq
 
       # Cache the downloaded cloud image. The cache key includes
-      # hashFiles('tests/qemu/cloud-images.txt'), so rotating an image URL in
+      # hashFiles('product/tests/qemu/cloud-images.txt'), so rotating an image URL in
       # that manifest forces a fresh fetch. boot.sh ALSO re-verifies the sha256
       # against the upstream SHA256SUMS on every run (Pitfall 10 belt-and-
       # suspenders — cache poisoning is rejected even if the cache key hash
@@ -106,7 +106,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/agentlinux/qemu
-          key: cloud-image-${{ matrix.target }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
+          key: cloud-image-${{ matrix.target }}-${{ hashFiles('product/tests/qemu/cloud-images.txt') }}
           restore-keys: |
             cloud-image-${{ matrix.target }}-
 
@@ -131,7 +131,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.decide.outputs.run == 'true'
         with:
-          workspaces: rust
+          workspaces: product/rust
 
       - name: QEMU boot + installer + bats
         if: steps.decide.outputs.run == 'true'
@@ -142,7 +142,7 @@ jobs:
           # ssh-forward path (see docs/internals/test-secrets.md). Step-level
           # env (not job-level) keeps the blast radius to this one step.
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bash tests/qemu/boot.sh ${{ matrix.target }}
+        run: bash product/tests/qemu/boot.sh ${{ matrix.target }}
 
       # Artifacts on failure only (Pitfall: preserving green-run serial logs
       # wastes storage and hides signal). serial.log is the primary diagnostic
@@ -153,6 +153,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qemu-artifacts-${{ matrix.target }}
-          path: tests/qemu/artifacts/
+          path: product/tests/qemu/artifacts/
           if-no-files-found: ignore
           retention-days: 14

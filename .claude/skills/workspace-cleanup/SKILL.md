@@ -50,7 +50,7 @@ Classify each path into one of three buckets. Default rules — adjust per user 
 
 | Path pattern | Bucket | Notes |
 |---|---|---|
-| `plugin/`, `tests/`, `packaging/`, `docs/`, `scripts/`, `.github/`, top-level repo files | **feature** | Belongs in this PR. |
+| `product/plugin/`, `product/tests/`, `product/packaging/`, `docs/`, `scripts/`, `.github/`, top-level repo files | **feature** | Belongs in this PR. |
 | `.planning/` durable (`MILESTONES.md`, `PROJECT.md`, `ROADMAP.md`, `RETROSPECTIVE.md`, `STATE.md`, `config.json`, `milestones/`, `research/`, `todos/`) | **feature** — rides with the PR | The durable GSD record. Commit it on the branch with the rest of the work (after the `planning-workflow` close-out sets `STATE.md` `status: complete`). |
 | `.planning/` intermediate (loose `phases/`, `quick/`, `quick-archive/`, in-flight `REQUIREMENTS.md`) | **strip before merge** | Must NOT reach `master`. Run the `planning-workflow` close-out (`/gsd-complete-milestone`, or `git rm` the loose dirs) so the branch is gate-clean. Never route these to `master`. |
 | `.planning/` transient (`.continue-here.md`, `HANDOFF.json`, `tmp/`, `reports/`, `.active-skill`, `.phase-manifest.json`) | **ignore** | `.gitignore`d — never staged. |
@@ -71,7 +71,7 @@ Infra changes (.claude/skills/review/SKILL.md, .claude/agents/qa-engineer.md) �
   b) separate commit straight on master
   c) skip (leave for another session)
 Memory edits (2 files in ~/.claude/.../memory) — already shared, no action needed
-Uncommitted: tests/foo.bats (M) — what do you want to do with this?
+Uncommitted: product/tests/foo.bats (M) — what do you want to do with this?
 ```
 
 Ask the user to pick a destination for each non-feature item before proceeding. Do not assume.

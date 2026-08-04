@@ -142,11 +142,11 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-CAT_V=$(jq -r .version plugin/catalog/catalog.json)
+CAT_V=$(jq -r .version product/plugin/catalog/catalog.json)
 # Cargo.toml has no jq-parseable shape; read the first `version = "X.Y.Z"` line
 # under [package] (the [[bin]]/[dependencies] tables use `version =` too, so
 # anchor on the [package] block being first in the file — Cargo requires it).
-CARGO_TOML="rust/crates/agentlinux/Cargo.toml"
+CARGO_TOML="product/rust/crates/agentlinux/Cargo.toml"
 CARGO_V=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$CARGO_TOML" | head -1)
 
 # Pre-release tags (e.g. v0.3.0-rc1) ship the SAME code as the eventual
@@ -155,7 +155,7 @@ CARGO_V=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$CARGO_TOML" | head -1)
 BASE_VERSION=${VERSION%%-*}
 
 if [[ "$CAT_V" != "$BASE_VERSION" ]]; then
-  printf 'version mismatch: plugin/catalog/catalog.json .version=%s ≠ tag=%s (base=%s)\n' \
+  printf 'version mismatch: product/plugin/catalog/catalog.json .version=%s ≠ tag=%s (base=%s)\n' \
     "$CAT_V" "$TAG" "$BASE_VERSION" >&2
   exit 1
 fi
@@ -179,7 +179,7 @@ fi
 if ((DRY_RUN_FLAG == 1)); then
   cat <<EOF
 dry-run: would build for tag=${TAG} version=${VERSION}
-  plugin/catalog/catalog.json .version=${CAT_V} (matches)
+  product/plugin/catalog/catalog.json .version=${CAT_V} (matches)
   ${CARGO_TOML} version=${CARGO_V} (matches)
 planned artifacts under dist/:
   dist/agentlinux-${TAG}.tar.gz   (payload: plugin/bin/agentlinux musl bin + plugin/catalog/)
@@ -226,7 +226,7 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 
 MUSL_TARGET="x86_64-unknown-linux-musl"
-MUSL_BIN="rust/target/${MUSL_TARGET}/release/agentlinux"
+MUSL_BIN="product/rust/target/${MUSL_TARGET}/release/agentlinux"
 CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
 
 # Reproducible RUSTFLAGS — remap every build-host path prefix to a stable token
@@ -289,7 +289,7 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 install -Dm0755 "$MUSL_BIN" "$STAGE_DIR/plugin/bin/agentlinux"
 # plugin/catalog/ — catalog.json + schema.json + the ~25 Bash recipes, verbatim.
 mkdir -p "$STAGE_DIR/plugin/catalog"
-cp -R plugin/catalog/. "$STAGE_DIR/plugin/catalog/"
+cp -R product/plugin/catalog/. "$STAGE_DIR/plugin/catalog/"
 
 # ---------------------------------------------------------------------------
 # 6. Pin SOURCE_DATE_EPOCH (T-06-01 mitigation — reproducibility).
@@ -356,7 +356,7 @@ tar \
 #    this at install time.
 # ---------------------------------------------------------------------------
 CATALOG_SNAPSHOT="dist/catalog-${TAG}.json"
-cp plugin/catalog/catalog.json "$CATALOG_SNAPSHOT"
+cp product/plugin/catalog/catalog.json "$CATALOG_SNAPSHOT"
 
 # ---------------------------------------------------------------------------
 # 10. VERSION sentinel asset.

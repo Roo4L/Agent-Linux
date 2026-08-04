@@ -85,7 +85,12 @@ if [[ -n $BATS_FILE ]]; then
 fi
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd "$HERE/../.." && pwd)
+# Two roots since the product tree moved under product/: PRODUCT_ROOT is what
+# gets staged into the container (its members ARE the /opt/agentlinux-src
+# layout the bats suite hardcodes); REPO_ROOT is only for repo-level files that
+# deliberately stay outside the product tree, e.g. .env.local.
+PRODUCT_ROOT=$(cd "$HERE/../.." && pwd)
+REPO_ROOT=$(cd "$HERE/../../.." && pwd)
 IMG="agentlinux-test:${TARGET}"
 DF="$HERE/Dockerfile.${TARGET}"
 
@@ -205,10 +210,28 @@ done
 # can place its own files under /etc, /home/agent without cross-mount permission
 # surprises. The bind mount under /workspace is deliberately :ro — it's the
 # repo root on the host, and we don't want container writes leaking back.
+#
+# Staged explicitly rather than `cp -R /workspace`, for two reasons:
+#   1. product/'s members ARE the layout the bats suite hardcodes, so copying
+#      product/. keeps every /opt/agentlinux-src/{plugin,tests,packaging} path
+#      byte-identical after the product/ carve-out — no test churn.
+#   2. It stops dragging rust/target/, .git/ and .planning/ into the container.
+#      The whole-repo copy is also how a stray $SRC/.planning could appear
+#      in-guest, which 69-catalog-growth-kit.bats documents as an unreliable
+#      full-repo sentinel.
+# docs/ is staged too and is NOT optional: 69-catalog-growth-kit.bats ENABLE-07
+# reads $SRC/docs/CATALOG-CONTRIBUTING.md. Drop it and that @test silently
+# skips — green suite, weaker gate.
 echo "== stage sources into container =="
-docker exec "$CID" bash -c 'cp -R /workspace /opt/agentlinux-src'
+docker exec "$CID" bash -c '
+  set -e
+  mkdir -p /opt/agentlinux-src
+  cp -R /workspace/product/. /opt/agentlinux-src/
+  rm -rf /opt/agentlinux-src/rust/target
+  cp -R /workspace/docs /opt/agentlinux-src/docs
+'
 
-HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
+HOST_MUSL_BIN="$PRODUCT_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
 RUST_PROVISION_BIN_IN_CONTAINER=/usr/local/lib/agentlinux/provision/agentlinux
 
 # host_build_musl — ensure the static-musl `agentlinux` bin exists on the host
@@ -232,7 +255,7 @@ host_build_musl() {
     # shellcheck disable=SC1091  # optional, path checked
     [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
     echo "-- building/refreshing host musl binary (cargo incremental) --"
-    if ! (cd "$REPO_ROOT/rust" \
+    if ! (cd "$PRODUCT_ROOT/rust" \
       && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux); then
       echo "ERROR: host musl build FAILED — refusing to run bats against a possibly stale binary" >&2
       exit 1

@@ -35,8 +35,8 @@
 #                                         IS the verbatim Debian command).
 set -euo pipefail
 
-repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
-cd "$repo_root"
+product_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$product_root"
 
 # Files that legitimately reference Debian package tokens (see header).
 is_allowlisted() {

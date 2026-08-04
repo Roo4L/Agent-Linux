@@ -20,8 +20,8 @@ the release workflow.
 
 ## Consequences
 
-- Two CI surfaces to maintain (`tests/docker/`, `tests/qemu/`) with shared bats
-  assertions under `tests/bats/`.
+- Two CI surfaces to maintain (`product/tests/docker/`, `product/tests/qemu/`) with shared bats
+  assertions under `product/tests/bats/`.
 - QEMU runs cost ~5min each; acceptable because they're nightly + release-gate,
   not per-PR.
 - Docker-only would be ~40% of the signal; we treat it as fast feedback, not as

@@ -66,7 +66,7 @@ Concretely:
 
 ## Consequences
 
-- The shared helper `plugin/catalog/lib/mcp-register.sh` becomes credential-free:
+- The shared helper `product/plugin/catalog/lib/mcp-register.sh` becomes credential-free:
   `al_mcp_register_http <server> <url>` writes a bare remote entry; the never-bake
   header/reference machinery and the `secret_env` plumbing are removed. Simpler,
   and there is no secret to leak by construction.

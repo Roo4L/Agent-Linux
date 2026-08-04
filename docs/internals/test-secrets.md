@@ -29,14 +29,14 @@ The local pipeline (developer machine):
 2. `.env.local.example` is the committed template — commented placeholder
    rows, one per supported variable. New developers copy it to `.env.local`
    and fill in real values.
-3. `tests/docker/run.sh` sources `.env.local` (if present) at startup, then
+3. `product/tests/docker/run.sh` sources `.env.local` (if present) at startup, then
    iterates a small `SECRET_ALLOWLIST` bash array at the top of the file.
    Only allowlisted variables that are set and non-empty in the host env
    are forwarded to the bats container, via `docker run -e VAR` (no
    `=value` — Docker reads the value from the daemon's view of the calling
    shell's env, which keeps the secret out of every other process's `ps`
    output).
-4. Inside the container, `tests/bats/helpers/secrets.bash` exposes
+4. Inside the container, `product/tests/bats/helpers/secrets.bash` exposes
    `require_secret <VAR>`. The helper checks the named variable via
    `${!var_name-}` indirect expansion: if it's unset or empty, the test
    yellow-skips with a pointer to this doc; if it's set, the test runs
@@ -67,7 +67,7 @@ to consume it.
    key — green stays green. Developers without a `.env.local` see the same
    skip TAP line locally, with a pointer to this doc.
 2. **Explicit allowlist beats blanket forward.** A two-row bash array in
-   `tests/docker/run.sh` is grep-able in PR review and trivially auditable.
+   `product/tests/docker/run.sh` is grep-able in PR review and trivially auditable.
    The blanket dotenv-file approach is opaque and forwards anything that
    happens to be exported in the calling shell.
 3. **One place for the secret's name.** `.env.local.example`, the
@@ -77,11 +77,11 @@ to consume it.
 
 ## Related
 
-- `tests/bats/helpers/secrets.bash` — the `require_secret` helper.
-- `tests/bats/00-secrets-smoke.bats` — convention example, shows the
+- `product/tests/bats/helpers/secrets.bash` — the `require_secret` helper.
+- `product/tests/bats/00-secrets-smoke.bats` — convention example, shows the
   end-to-end flow with a no-real-secret marker (`FOO=bar`). The `00-`
   filename prefix makes it the first test discovered in any bats run.
-- `tests/docker/run.sh` — the `SECRET_ALLOWLIST` lives at the top of this
+- `product/tests/docker/run.sh` — the `SECRET_ALLOWLIST` lives at the top of this
   file; extend in lockstep with `.env.local.example`.
 - `.github/workflows/nightly-qemu.yml` — release-gate workflow that
   receives the secret from the repo Actions secrets.
@@ -107,7 +107,7 @@ Four lockstep edits, plus the GitHub Actions secret-store step:
    # NEW_TOKEN=
    ```
 
-2. **`tests/docker/run.sh`** — append the variable name to the
+2. **`product/tests/docker/run.sh`** — append the variable name to the
    `SECRET_ALLOWLIST` bash array, with a comment naming what it unblocks:
 
    ```bash

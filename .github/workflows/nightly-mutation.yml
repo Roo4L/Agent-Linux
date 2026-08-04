@@ -24,7 +24,7 @@ jobs:
     # NOT mean "a broken gate is fine". The previous version combined
     # continue-on-error with `|| echo "::warning::"`, so an invalid flag pair
     # (`--in-place` with `--jobs`, which cargo-mutants rejects) reported a
-    # mutation score for a run that generated zero mutants. scripts/mutation-gate.sh
+    # mutation score for a run that generated zero mutants. product/scripts/mutation-gate.sh
     # draws its verdict from mutants.out/outcomes.json precisely so "nothing
     # survived" and "nothing ran" cannot be confused.
     strategy:
@@ -43,14 +43,14 @@ jobs:
         shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v5
-      - name: Skip if rust/ absent
+      - name: Skip if product/rust/ absent
         id: guard
         run: |
-          if [ -f rust/Cargo.toml ]; then
+          if [ -f product/rust/Cargo.toml ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "rust/Cargo.toml absent — skipping rust-mutants (advisory)"
+            echo "product/rust/Cargo.toml absent — skipping rust-mutants (advisory)"
           fi
       - name: Install Rust toolchain
         if: steps.guard.outputs.ready == 'true'
@@ -61,7 +61,7 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         run: cargo install --locked --version 27.1.0 cargo-mutants
       # --in-place is REQUIRED: two agentlinux-core tests read sibling files
-      # under plugin/catalog/, outside the rust/ workspace, so cargo-mutants'
+      # under product/plugin/catalog/, outside the product/rust/ workspace, so cargo-mutants'
       # default copy-tree isolation fails the baseline. Safe here — the runner
       # checkout is disposable and cargo-mutants restores each mutation.
       # MUTATION_GATE_TIMEOUT is REQUIRED here, not optional. The gate defaults to
@@ -69,13 +69,13 @@ jobs:
       # ~45 minutes, so every shard was killed mid-run and reported
       # "a timed-out run is not a pass". That went unnoticed because this job had
       # never executed: the schedule fires on master, master predates the Rust
-      # cutover, and the `rust/` guard above skipped the step every night. The
+      # cutover, and the `product/rust/` guard above skipped the step every night. The
       # first manual dispatch against a branch that HAS the Rust tree failed all
       # four shards. Kept below the job cap so the gate's own SIGTERM wins and
       # renders a verdict, rather than the runner killing the job silently.
       - name: Full-workspace mutation score (shard ${{ matrix.shard }}/4)
         if: steps.guard.outputs.ready == 'true'
-        working-directory: rust
+        working-directory: product/rust
         env:
           MUTATION_GATE_TIMEOUT: 6600
         run: |
@@ -88,5 +88,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mutants-shard-${{ matrix.shard }}
-          path: rust/mutants.out/
+          path: product/rust/mutants.out/
           if-no-files-found: warn

@@ -32,7 +32,7 @@ An artifact is internal-only (you do not audit it) when it is any of:
 - `docs/decisions/**` — ADRs. Authored for the maintainer and future contributors who already know the project. Cross-refs to other ADRs by number are expected.
 - `docs/research/**` — internal artefacts. ADR-style cross-refs and AL-XX keys are appropriate here.
 - `.claude/**`, `CLAUDE.md` — agent harness. Internal plan-execute vocabulary is correct.
-- `tests/**`, `plugin/**`, `packaging/**` source code (you audit user-visible *strings* under packaging/, not source comments).
+- `product/tests/**`, `product/plugin/**`, `product/packaging/**` source code (you audit user-visible *strings* under product/packaging/, not source comments).
 - Anything under `.github/workflows/` — CI infra, no external readers.
 
 If you are unsure whether an artifact is externally-facing, say so in your output and ask the main agent to confirm.

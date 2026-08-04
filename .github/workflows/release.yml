@@ -11,18 +11,18 @@ name: release
 # longer cancels its siblings, so a bad tag burns more runner-minutes.
 #
 # gate-4-pinned-combo was DELETED, not disabled. It ran
-# `tests/docker/run.sh ubuntu-24.04` with no env and no flags — byte-identical
+# `product/tests/docker/run.sh ubuntu-24.04` with no env and no flags — byte-identical
 # work to gate-2's ubuntu-24.04 leg — while its name claimed a pinned-catalog
 # combo (TST-08). No such mode exists in run.sh or the bats suite, so there was
 # nothing to repair: it was a second copy of a gate we already run.
 #
 # Gates (2 and 3 run concurrently):
 #   gate-1-precommit       (pre-commit + CLI unit tests — cheapest/fastest)
-#   gate-2-docker          (tests/docker/run.sh × {ubuntu-24.04, almalinux-9}
+#   gate-2-docker          (product/tests/docker/run.sh × {ubuntu-24.04, almalinux-9}
 #                           — includes 51-*.bats → TST-05 inside Docker)
-#   gate-3-qemu            (tests/qemu/boot.sh × {24.04, almalinux-9} w/ /dev/kvm
+#   gate-3-qemu            (product/tests/qemu/boot.sh × {24.04, almalinux-9} w/ /dev/kvm
 #                           — includes 51-*.bats → TST-05 inside QEMU)
-#   build                  (scripts/build-release.sh <tag> — reproducible musl
+#   build                  (product/scripts/build-release.sh <tag> — reproducible musl
 #                           tarball + .sha256 + catalog snapshot; uploads dist/)
 #   publish                (softprops/action-gh-release@v2.6.2 — Node-20 pin;
 #                           only runs on tag push, skipped on workflow_dispatch)
@@ -89,14 +89,14 @@ jobs:
       - name: Install pre-commit
         run: pip install pre-commit==4.0.1
       # Post-cutover all hooks are bash/jq/python-based (the TS biome hook and the
-      # node ajv catalog validator were removed with plugin/cli/); the Rust CLI's
+      # node ajv catalog validator were removed with product/plugin/cli/); the Rust CLI's
       # own tests run in the test.yml `rust` job + the cargo build gate below.
       - name: Run pre-commit on all files
         run: pre-commit run --all-files --show-diff-on-failure
 
-  # Gate 2 — Docker matrix. Runs tests/docker/run.sh on every supported Ubuntu
-  # LTS image. The Docker harness executes the full tests/bats/ suite INCLUDING
-  # tests/bats/51-agt02-release-gate.bats — this satisfies TST-05's
+  # Gate 2 — Docker matrix. Runs product/tests/docker/run.sh on every supported Ubuntu
+  # LTS image. The Docker harness executes the full product/tests/bats/ suite INCLUDING
+  # product/tests/bats/51-agt02-release-gate.bats — this satisfies TST-05's
   # "AGT-02 inside Docker" half. fail-fast:false so any arm failing still
   # shows the others' signal for faster triage. AGE-11 added 26.04 on
   # 2026-04-26.
@@ -124,8 +124,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       # The Rust cutover made every job below build a static-musl binary —
-      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
-      # workflow's build job via scripts/build-release.sh. None of them can do
+      # product/tests/docker/run.sh via host_build_musl, product/tests/qemu/boot.sh and this
+      # workflow's build job via product/scripts/build-release.sh. None of them can do
       # that without the musl TARGET and the musl-gcc LINKER, and this workflow
       # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
       # gate-2-docker legs with `linker musl-gcc not found` before any gate had
@@ -143,14 +143,14 @@ jobs:
           done
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: product/rust
       - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)
-        run: bash tests/docker/run.sh ${{ matrix.target }}
+        run: bash product/tests/docker/run.sh ${{ matrix.target }}
 
   # Gate 3 — QEMU matrix. Release-gate-only (ADR-007 — Docker alone is
   # disqualified). Mirrors nightly-qemu.yml's KVM udev + image-cache pattern.
   # boot.sh runs the full bats suite inside the guest INCLUDING
-  # tests/bats/51-*.bats — satisfies the "AGT-02 inside QEMU" half of TST-05.
+  # product/tests/bats/51-*.bats — satisfies the "AGT-02 inside QEMU" half of TST-05.
   gate-3-qemu:
     needs: gate-1-precommit
     runs-on: ubuntu-24.04
@@ -178,8 +178,8 @@ jobs:
       # device without group membership. Fail fast if the device is still
       # inaccessible — TCG fallback would silently blow past the timeout.
       # The Rust cutover made every job below build a static-musl binary —
-      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
-      # workflow's build job via scripts/build-release.sh. None of them can do
+      # product/tests/docker/run.sh via host_build_musl, product/tests/qemu/boot.sh and this
+      # workflow's build job via product/scripts/build-release.sh. None of them can do
       # that without the musl TARGET and the musl-gcc LINKER, and this workflow
       # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
       # gate-2-docker legs with `linker musl-gcc not found` before any gate had
@@ -197,7 +197,7 @@ jobs:
           done
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: product/rust
       - name: Enable /dev/kvm access (Pitfall 4)
         run: |
           set -euo pipefail
@@ -228,7 +228,7 @@ jobs:
             netcat-openbsd \
             jq
 
-      # Cache keyed on tests/qemu/cloud-images.txt so rotating an upstream
+      # Cache keyed on product/tests/qemu/cloud-images.txt so rotating an upstream
       # image URL forces a fresh fetch. boot.sh ALSO re-verifies sha256 against
       # upstream SHA256SUMS on every run (Pitfall 10 — belt-and-suspenders:
       # cache poisoning is rejected even if the cache key hash collided).
@@ -236,12 +236,12 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.cache/agentlinux/qemu
-          key: cloud-image-${{ matrix.target }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
+          key: cloud-image-${{ matrix.target }}-${{ hashFiles('product/tests/qemu/cloud-images.txt') }}
           restore-keys: |
             cloud-image-${{ matrix.target }}-
 
       - name: QEMU boot + installer + bats (incl. 51-*.bats — TST-05 inside QEMU)
-        run: bash tests/qemu/boot.sh ${{ matrix.target }}
+        run: bash product/tests/qemu/boot.sh ${{ matrix.target }}
 
       # Artifacts on failure only — serial.log is the primary diagnostic when
       # cloud-init or the installer hangs. 14-day retention keeps storage
@@ -251,7 +251,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: qemu-artifacts-${{ matrix.target }}
-          path: tests/qemu/artifacts/
+          path: product/tests/qemu/artifacts/
           if-no-files-found: ignore
           retention-days: 14
   build:
@@ -265,8 +265,8 @@ jobs:
           node-version: '22'
 
       # The Rust cutover made every job below build a static-musl binary —
-      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
-      # workflow's build job via scripts/build-release.sh. None of them can do
+      # product/tests/docker/run.sh via host_build_musl, product/tests/qemu/boot.sh and this
+      # workflow's build job via product/scripts/build-release.sh. None of them can do
       # that without the musl TARGET and the musl-gcc LINKER, and this workflow
       # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
       # gate-2-docker legs with `linker musl-gcc not found` before any gate had
@@ -284,11 +284,11 @@ jobs:
           done
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: rust
+          workspaces: product/rust
       - name: Build release artifacts
         env:
           TAG: ${{ needs.resolve.outputs.tag }}
-        run: bash scripts/build-release.sh "$TAG"
+        run: bash product/scripts/build-release.sh "$TAG"
 
       # T-06-08 mitigation: explicit verify step. The release MUST have its
       # .sha256 sibling; the catalog snapshot MUST exist. sha256sum -c round-

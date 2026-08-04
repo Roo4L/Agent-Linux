@@ -61,4 +61,4 @@ The "AgentLinux" name and the crab mascot SVG are **not** licensed under MIT. Th
 
 - OSI MIT license text: https://opensource.org/licenses/MIT
 - SPDX identifier convention: https://spdx.dev/learn/handling-license-info/
-- ADR-006 — curl-pipe-bash + .deb (the public install path; LICENSE must ride along on the release tarball so installed copies carry their license too — handled in `scripts/build-release.sh`).
+- ADR-006 — curl-pipe-bash + .deb (the public install path; LICENSE must ride along on the release tarball so installed copies carry their license too — handled in `product/scripts/build-release.sh`).

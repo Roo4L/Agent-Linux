@@ -99,7 +99,7 @@ fi
 # project's bash entrypoint uses for BIN_DIR/LIB_DIR/PROV_DIR.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 readonly HERE
-REPO_ROOT=$(cd "$HERE/../.." && pwd)
+REPO_ROOT=$(cd "$HERE/../../.." && pwd)
 readonly REPO_ROOT
 readonly IMG="agentlinux-dogfood:${UBUNTU_VERSION}"
 

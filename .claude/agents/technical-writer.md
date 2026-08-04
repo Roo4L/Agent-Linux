@@ -58,7 +58,7 @@ When reviewing a document, verify each of these. Flag violations with the specif
 
 - [ ] Every AgentLinux-specific acronym is expanded on first use (BHV, RT, AGT, CLI, CAT, INST, HRN, TST, DOC, EXPL, STRAT, SITE, ADR, EACCES)
 - [ ] Every requirement-ID reference (e.g. `AGT-02`, `EXPL-01`, `STRAT-11`) is anchored to its definition somewhere in the doc, or to a path the reader can resolve (`.planning/REQUIREMENTS.md`)
-- [ ] Every external file reference (e.g. `tests/bats/51-agt02-release-gate.bats`, `docs/STABILITY-MODEL.md`, `plugin/catalog/agents/claude-code/install.sh`) includes a one-line summary of what the file contains, on first reference
+- [ ] Every external file reference (e.g. `product/tests/bats/51-agt02-release-gate.bats`, `docs/STABILITY-MODEL.md`, `product/plugin/catalog/agents/claude-code/install.sh`) includes a one-line summary of what the file contains, on first reference
 - [ ] Every numeric claim (test count, file count, KB sizes, version numbers) is sourced or independently verifiable via grep / `wc`
 - [ ] A reader can understand any section without reading prior sections
 - [ ] Domain terms specific to this project are defined (preset vs profile, curated combo vs default version set, AGT-02 vs the `claude-code` recipe, pillar vs guiding principle)

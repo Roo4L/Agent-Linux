@@ -1,6 +1,6 @@
 ---
 name: review
-description: Runs the AgentLinux review feedback loop on changed files before declaring a task complete. Dispatches portable project-scoped reviewer roles through the host agent's native subagent facility (Claude Code, Codex, or another supported host), aggregates free-form feedback, and iterates until remaining comments are not actionable. Invoke after substantive changes to plugin/, tests/, packaging/, or docs/.
+description: Runs the AgentLinux review feedback loop on changed files before declaring a task complete. Dispatches portable project-scoped reviewer roles through the host agent's native subagent facility (Claude Code, Codex, or another supported host), aggregates free-form feedback, and iterates until remaining comments are not actionable. Invoke after substantive changes to product/plugin/, product/tests/, product/packaging/, or docs/.
 ---
 
 # AgentLinux Review Feedback Loop
@@ -13,8 +13,8 @@ feedback, owns triage, and repeats the relevant passes after valid fixes.
 
 Use after any non-trivial change to:
 
-- `plugin/` or `packaging/`
-- `tests/`
+- `product/plugin/` or `product/packaging/`
+- `product/tests/`
 - durable `docs/`
 - project instructions, skills, hooks, or reviewer-role definitions
 
@@ -45,16 +45,16 @@ for every change.
 
 | Changed file pattern | Reviewer roles |
 |---|---|
-| `^plugin/(bin|lib|provisioner)/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
-| `^plugin/catalog/lib/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
-| `^packaging/curl-installer/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` |
-| `^plugin/cli/(src|test|scripts)/.+\.(ts|mjs|js)$` | `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
-| `^plugin/cli/(package\.json|tsconfig\.json|biome\.json|stryker\.config\.json)$` | `node-engineer` |
-| `^tests/bats/.+\.bats$` | `qa-engineer` |
-| `^tests/bats/helpers/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
-| `^tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
-| `^plugin/catalog/(agents/.+/.+\.(sh|json)|catalog\.json|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` (add `bash-engineer` for shell recipes) |
-| `^plugin/catalog/agents/.+/.+\.(js|mjs|ts)$` | `node-engineer`, `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^product/plugin/(bin|lib|provisioner)/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^product/plugin/catalog/lib/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^product/packaging/curl-installer/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` |
+| `^product/plugin/cli/(src|test|scripts)/.+\.(ts|mjs|js)$` | `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^product/plugin/cli/(package\.json|tsconfig\.json|biome\.json|stryker\.config\.json)$` | `node-engineer` |
+| `^product/tests/bats/.+\.bats$` | `qa-engineer` |
+| `^product/tests/bats/helpers/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
+| `^product/tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
+| `^product/plugin/catalog/(agents/.+/.+\.(sh|json)|catalog\.json|schema\.json)$` | `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` (add `bash-engineer` for shell recipes) |
+| `^product/plugin/catalog/agents/.+/.+\.(js|mjs|ts)$` | `node-engineer`, `catalog-auditor`, `security-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
 | `^docs/.+\.md$` (not ADRs/research) | `technical-writer`, `fact-checker`, `ai-deslop` |
 | `^docs/decisions/.+\.md$` or `^docs/research/.+\.md$` | `technical-writer`, `fact-checker` |
 | `^(AGENTS\.md|CLAUDE\.md|CONTRIBUTING\.md)$` | `technical-writer`, `fact-checker` (add `external-audience-auditor` for contributor/public copy) |

@@ -58,11 +58,7 @@ jobs:
         with:
           filters: |
             code:
-              - 'plugin/**'
-              - 'packaging/**'
-              - 'tests/**'
-              - 'scripts/**'
-              - 'rust/**'
+              - 'product/**'
               - '.github/workflows/**'
               - '.pre-commit-config.yaml'
               - '.gitleaks.toml'
@@ -77,7 +73,7 @@ jobs:
       - name: Install pre-commit
         run: pip install pre-commit==4.0.1
       # All hooks are bash/jq/python-based post-cutover (the TS biome hook and the
-      # node ajv catalog validator were removed with plugin/cli/), so no Node/pnpm
+      # node ajv catalog validator were removed with product/plugin/cli/), so no Node/pnpm
       # setup is needed here.
       - name: Run pre-commit
         run: pre-commit run --all-files --show-diff-on-failure
@@ -85,7 +81,7 @@ jobs:
   # RUST-02: the Rust job. The job always runs and reports (so its required check
   # context stays reported), but its costly steps are gated behind a guard that
   # sets ready=false when no AgentLinux code changed — a docs-only PR has no Rust
-  # to test. The pre-cutover "or rust/ is absent" arm of that guard is gone: the
+  # to test. The pre-cutover "or product/rust/ is absent" arm of that guard is gone: the
   # musl binary is now the shipped product, not an additive revertible track, so
   # a missing workspace fails the job instead of skipping it (see the guard step).
   # The per-distro in-container musl build is Phase 59's GATE-02 endgame,
@@ -114,20 +110,20 @@ jobs:
       - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      # rust/Cargo.toml missing is a HARD FAILURE, not a skip. Pre-cutover it was
+      # product/rust/Cargo.toml missing is a HARD FAILURE, not a skip. Pre-cutover it was
       # a legitimate escape hatch (the Rust track was additive and revertible, so
       # its absence meant "the spike isn't here yet"). Post-cutover the musl binary
       # IS the product, so an absent manifest means the workspace is gone or the
       # checkout is broken — and treating that as ready=false would report this
       # job green having compiled, tested and mutation-scored nothing.
       # CODE_CHANGED stays a skip: a docs-only PR legitimately has no Rust to test.
-      - name: Skip if no AgentLinux code changed (rust/ absent is a hard failure)
+      - name: Skip if no AgentLinux code changed (product/rust/ absent is a hard failure)
         id: guard
         env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if [ ! -f rust/Cargo.toml ]; then
-            echo "RUST-02 FAIL: rust/Cargo.toml is absent — the Rust workspace is the"
+          if [ ! -f product/rust/Cargo.toml ]; then
+            echo "RUST-02 FAIL: product/rust/Cargo.toml is absent — the Rust workspace is the"
             echo "shipped product post-cutover; refusing to report green without it."
             exit 1
           fi
@@ -146,18 +142,18 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.guard.outputs.ready == 'true'
         with:
-          workspaces: rust
+          workspaces: product/rust
       - name: rustfmt --check
         if: steps.guard.outputs.ready == 'true'
-        working-directory: rust
+        working-directory: product/rust
         run: cargo fmt --all -- --check
       - name: clippy (deny warnings)
         if: steps.guard.outputs.ready == 'true'
-        working-directory: rust
+        working-directory: product/rust
         run: cargo clippy --all-targets -- -D warnings
       - name: unit tests
         if: steps.guard.outputs.ready == 'true'
-        working-directory: rust
+        working-directory: product/rust
         run: cargo test --all
       # TEST-02: mutation gate on the WHOLE workspace. Pinned +
       # --locked (T-54-SC: a silent upstream bump cannot change the mutation
@@ -179,7 +175,7 @@ jobs:
         if: steps.guard.outputs.ready == 'true'
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq bats
-          bats tests/harness/80-mutation-gate.bats
+          bats product/tests/harness/80-mutation-gate.bats
       # W1: assert the diff base resolves BEFORE the gate runs, so a shallow
       # clone (or a missing origin/master) fails loudly here instead of letting
       # `--in-diff` silently mutate an empty diff (a false-green gate). fetch-depth: 0
@@ -208,17 +204,17 @@ jobs:
       # produced an empty stream, and an empty --in-diff is a documented
       # cargo-mutants no-op that exits 0 — a false green. With `set -o pipefail`
       # and an explicit file, a git failure fails the step, and
-      # scripts/mutation-gate.sh distinguishes "empty diff" (a legitimate skip it
+      # product/scripts/mutation-gate.sh distinguishes "empty diff" (a legitimate skip it
       # names out loud) from "the file never appeared" (a hard failure).
       #
-      # --relative is REQUIRED: the step runs from rust/, but `git diff` emits
+      # --relative is REQUIRED: the step runs from product/rust/, but `git diff` emits
       # repo-root-relative paths and cargo-mutants matches --in-diff against the
       # WORKSPACE root. Without it nothing matches and the gate passes every PR.
       # The gate script's "0 mutants tested is never a pass" check is the backstop
       # for exactly that class of mistake.
       #
       # --in-place is REQUIRED: two agentlinux-core tests read sibling files at
-      # CARGO_MANIFEST_DIR/../../../plugin/catalog/*, OUTSIDE the rust/ workspace,
+      # CARGO_MANIFEST_DIR/../../../plugin/catalog/*, OUTSIDE the product/rust/ workspace,
       # so cargo-mutants' default copy-tree isolation aborts the baseline.
       # --in-place forbids --jobs, so this run is serial; the cost is bounded by
       # --in-diff (one bin file ≈ 10-35 mutants ≈ 1-3 min). A PR whose diff is the
@@ -227,7 +223,7 @@ jobs:
       # narrowing the gate back.
       - name: cargo-mutants gate (changed lines, --in-diff)
         if: steps.guard.outputs.ready == 'true'
-        working-directory: rust
+        working-directory: product/rust
         run: |
           set -euo pipefail
           # `.` (from working-directory: rust), not 'crates/**': a new or
@@ -248,7 +244,7 @@ jobs:
             --in-place --minimum-test-timeout 20 --in-diff "$RUNNER_TEMP/rust.diff"
       - name: static musl build + ldd assertion (RUST-01)
         if: steps.guard.outputs.ready == 'true'
-        working-directory: rust
+        working-directory: product/rust
         run: |
           # Transient apt mirror hiccups shouldn't fail the whole gate — retry.
           for i in 1 2 3; do
@@ -326,7 +322,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       # Empty-plugin guard from Phase 1: still useful. After Phase 2 lands the
-      # tests/bats/*.bats files the guard falls through to the real run. If a
+      # product/tests/bats/*.bats files the guard falls through to the real run. If a
       # future revert removes the bats suite the job short-circuits rather
       # than fails opaquely in Docker.
       - name: Skip if no AgentLinux code changed or no bats suite yet
@@ -337,13 +333,13 @@ jobs:
           if [ "$CODE_CHANGED" != "true" ]; then
             echo "has_bats=false" >> "$GITHUB_OUTPUT"
             echo "No AgentLinux code changed — skipping Docker bats matrix (dev-only change)"
-          elif compgen -G "tests/bats/*.bats" > /dev/null; then
+          elif compgen -G "product/tests/bats/*.bats" > /dev/null; then
             echo "has_bats=true" >> "$GITHUB_OUTPUT"
           else
             echo "has_bats=false" >> "$GITHUB_OUTPUT"
             echo "No bats suite yet — skipping (lands in Phase 2)"
           fi
-      # tests/docker/run.sh builds the static-musl `agentlinux` bin ON THE HOST
+      # product/tests/docker/run.sh builds the static-musl `agentlinux` bin ON THE HOST
       # runner (host_build_musl) before staging it into the container, so this job
       # needs the same musl toolchain the `rust` job installs — the musl target +
       # the `musl-gcc` linker (musl-tools). Without them the host build fails
@@ -365,15 +361,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         if: steps.guard.outputs.has_bats == 'true'
         with:
-          workspaces: rust
+          workspaces: product/rust
       - name: Run Docker bats matrix
         if: steps.guard.outputs.has_bats == 'true'
-        run: bash tests/docker/run.sh ${{ matrix.target }}
+        run: bash product/tests/docker/run.sh ${{ matrix.target }}
 
   # AL-63: .planning/ hygiene gate — keeps intermediate GSD state (loose phases/,
   # quick/, transient session files; a non-complete STATE.md) off master. Policy +
   # allowlist live in .claude/skills/planning-workflow/SKILL.md; the gate itself is
-  # self-tested by tests/harness/70-planning-clean-gate.bats. Runs on every PR;
+  # self-tested by product/tests/harness/70-planning-clean-gate.bats. Runs on every PR;
   # passes trivially when .planning/ is untouched.
   planning-hygiene:
     runs-on: ubuntu-24.04
@@ -381,7 +377,7 @@ jobs:
       - uses: actions/checkout@v5
       - name: Install bats
         run: sudo apt-get update -qq && sudo apt-get install -y bats
-      - name: Self-test the gate (tests/harness/70-planning-clean-gate.bats)
-        run: bats tests/harness/70-planning-clean-gate.bats
+      - name: Self-test the gate (product/tests/harness/70-planning-clean-gate.bats)
+        run: bats product/tests/harness/70-planning-clean-gate.bats
       - name: Assert .planning/ is in the clean between-milestones state
         run: bash scripts/check-planning-clean.sh

@@ -5,7 +5,7 @@ description: Use when running the QEMU-based behavior-test suite locally or debu
 
 # qemu-harness — QEMU test harness operation
 
-**Status:** Skeleton. The real `tests/qemu/boot.sh` lands in Phase 6. This skill documents the target shape so Phase 6 has a starting point and so Phase 1's `nightly-qemu.yml` workflow knows what entrypoint to invoke. The `nightly-qemu.yml` workflow ships a guard that skips cleanly when `tests/qemu/boot.sh` is missing, so the skeleton-phase repo green-bars without this harness existing yet.
+**Status:** Skeleton. The real `product/tests/qemu/boot.sh` lands in Phase 6. This skill documents the target shape so Phase 6 has a starting point and so Phase 1's `nightly-qemu.yml` workflow knows what entrypoint to invoke. The `nightly-qemu.yml` workflow ships a guard that skips cleanly when `product/tests/qemu/boot.sh` is missing, so the skeleton-phase repo green-bars without this harness existing yet.
 
 Authoritative spec: `docs/HARNESS.md` §1.3 (testing layers), §3 (Systems Access Inventory — row for Ubuntu cloud images names this skill as the P1 deliverable), §5.2 (skill table). Decision: **ADR-007 (Docker + QEMU harness; Docker-only is disqualified).** Requirements this skill helps satisfy: TST-03 (QEMU release gate), TST-05 (AGT-02 blocking release gate), and indirectly every BHV/AGT test because the release gate runs them.
 
@@ -13,13 +13,13 @@ Authoritative spec: `docs/HARNESS.md` §1.3 (testing layers), §3 (Systems Acces
 
 Use when the task touches any file under:
 
-- `tests/qemu/boot.sh` — the boot orchestrator (arrives Phase 6).
-- `tests/qemu/cloud-init/user-data` / `meta-data` — cloud-init seed templates.
+- `product/tests/qemu/boot.sh` — the boot orchestrator (arrives Phase 6).
+- `product/tests/qemu/cloud-init/user-data` / `meta-data` — cloud-init seed templates.
 - `.github/workflows/nightly-qemu.yml` — the CI wrapper.
 - Release-pipeline scripts that invoke the QEMU gate (Phase 6).
 - Developer docs explaining how to run the QEMU suite locally.
 
-Skip for Docker-harness work (`tests/docker/run.sh`) — that is the faster companion layer and does not need cloud images or SSH.
+Skip for Docker-harness work (`product/tests/docker/run.sh`) — that is the faster companion layer and does not need cloud images or SSH.
 
 ## Why QEMU, not Docker-only (ADR-007)
 
@@ -33,14 +33,14 @@ Docker false-positives mask real bugs. The classes Docker-only testing cannot ca
 
 ADR-007 locks this. **Docker tests run every PR (~90s per Ubuntu version); QEMU tests gate every release (~5min per run).** Both must be green before any tag.
 
-## Target boot flow (`tests/qemu/boot.sh`)
+## Target boot flow (`product/tests/qemu/boot.sh`)
 
 1. **Download the Ubuntu cloud image** into a local cache dir (default `~/.cache/agentlinux/qemu/`):
    - `ubuntu-22.04-server-cloudimg-amd64.img`
    - `ubuntu-24.04-server-cloudimg-amd64.img`
    - Source: `https://cloud-images.ubuntu.com/releases/<version>/release/`
    - Skip download if cached file's SHA256 matches the upstream `SHA256SUMS` manifest. Never trust a cached image without SHA verification.
-2. **Generate cloud-init seed ISO** from `tests/qemu/cloud-init/user-data` + `meta-data`:
+2. **Generate cloud-init seed ISO** from `product/tests/qemu/cloud-init/user-data` + `meta-data`:
    - `user-data` creates a root SSH keypair, installs openssh-server, opens port 22, and disables password auth.
    - The keypair is generated per-run into the cache dir; no private key is ever committed to the repo.
    - Built with `cloud-localds seed.iso user-data meta-data` (package: `cloud-image-utils`).
@@ -61,17 +61,17 @@ ADR-007 locks this. **Docker tests run every PR (~90s per Ubuntu version); QEMU 
 5. **scp the plugin tarball** into the guest (`/tmp/agentlinux.tar.gz`).
 6. **Run the installer over SSH** (`ssh root@localhost -p 2222 'tar -xzf /tmp/agentlinux.tar.gz && ./plugin/bin/agentlinux-install'`).
 7. **Run the bats suite over SSH** against the *installed* plugin.
-8. **Collect artifacts** — installer log, bats output, any core dumps — into a local `tests/qemu/artifacts/<run-id>/` directory.
+8. **Collect artifacts** — installer log, bats output, any core dumps — into a local `product/tests/qemu/artifacts/<run-id>/` directory.
 9. **Shutdown gracefully** (`ssh root@localhost -p 2222 poweroff`) and `wait` on the QEMU PID. Cleanup the seed ISO and the ephemeral SSH keypair.
 
 ## Adding a new Ubuntu version
 
 Four touchpoints (kept in sync so new versions land atomically):
 
-1. Add the image URL + SHA256 to `tests/qemu/cloud-images.txt` (Phase 6 will seed this file).
-2. Extend `tests/qemu/boot.sh` with a new `--ubuntu <version>` branch.
+1. Add the image URL + SHA256 to `product/tests/qemu/cloud-images.txt` (Phase 6 will seed this file).
+2. Extend `product/tests/qemu/boot.sh` with a new `--ubuntu <version>` branch.
 3. Add a matrix entry in `.github/workflows/test.yml` (Docker) and `.github/workflows/nightly-qemu.yml` (QEMU).
-4. Add a `tests/docker/Dockerfile.ubuntu-<version>` for the fast-path Docker mirror.
+4. Add a `product/tests/docker/Dockerfile.ubuntu-<version>` for the fast-path Docker mirror.
 
 A version that works in Docker but not in QEMU (or vice versa) is a release-blocker bug, not a skip — that's the whole point of running both harnesses.
 
@@ -103,7 +103,7 @@ When any bats test fails inside the guest, `boot.sh` MUST:
 
 ## Growth plan
 
-- **Phase 6:** Writes the real `tests/qemu/boot.sh` and `tests/qemu/cloud-init/*`. This skill absorbs the concrete flags, the cloud-init template snippets, and the artifact-collection protocol.
+- **Phase 6:** Writes the real `product/tests/qemu/boot.sh` and `product/tests/qemu/cloud-init/*`. This skill absorbs the concrete flags, the cloud-init template snippets, and the artifact-collection protocol.
 - **Phase 6:** The release workflow (`.github/workflows/release.yml`) gates every tag on a green QEMU run (TST-03). This skill documents how the release workflow invokes `boot.sh` and what a red run looks like.
 - **v0.4+:** When Fedora / Alma / Arch land as targets, this skill extends with their cloud-image URLs and any distro-specific cloud-init differences.
 

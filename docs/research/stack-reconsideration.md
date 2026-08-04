@@ -7,8 +7,8 @@ we pick the wrong stack? Would Rust (or Go) have been better, and is a migration
 worth it now?
 
 **Researched:** 2026-07-26 · **Decision recorded:** 2026-07-27
-**Scope:** the registry CLI (`plugin/cli/`, ~2,800 LOC TS) and its Bash boundary
-(`plugin/lib/`, `plugin/provisioner/`, `plugin/catalog/agents/*/install.sh`).
+**Scope:** the registry CLI (`product/plugin/cli/`, ~2,800 LOC TS) and its Bash boundary
+(`product/plugin/lib/`, `product/plugin/provisioner/`, `product/plugin/catalog/agents/*/install.sh`).
 Paths are the pre-rewrite tree; all but the per-agent recipes are gone now.
 **Candidates evaluated:** Rust, Go, "stay on TypeScript, shrink Bash," and a
 fourth surfaced mid-review — "stay TS, expand into the provisioner, ship a
@@ -74,16 +74,16 @@ de-risking step of the Rust migration**.
 
 ### The sync pain is logic-split, in the authors' own words
 
-`plugin/lib/reuse/agents.sh` implements the reuse decision as three
+`product/plugin/lib/reuse/agents.sh` implements the reuse decision as three
 predicates, but stops after two, with this comment (lines 10-13):
 
 > Predicate 3 is NOT done here — semver-range satisfaction is non-trivial in
-> bash. The CLI (plugin/cli/src/detect.ts …) runs semver.satisfies() …
+> bash. The CLI (product/plugin/cli/src/detect.ts …) runs semver.satisfies() …
 
 and hand-maintains a path map that **must** match the TS side (lines 27-28):
 
 > Canonical binary path map — MUST stay byte-identical to the CANONICAL_PATHS
-> object in plugin/cli/src/detect.ts (drift flips reuse→remediate).
+> object in product/plugin/cli/src/detect.ts (drift flips reuse→remediate).
 
 So `CANONICAL_PATHS` is duplicated in `detect.ts:16` and `reuse/agents.sh:31`;
 `GSD_SYSTEM_PATH` in `detect.ts:28` and `reuse/agents.sh:41`. The **cause** is
@@ -94,7 +94,7 @@ of language.
 ### The provisioner Bash is heavy logic, not glue
 
 The `.deb`/curl bootstrap fans out into **~4,363 LOC of provisioner-side Bash**
-(`plugin/bin/agentlinux-install` + `plugin/lib/**` + `plugin/provisioner/**`,
+(`product/plugin/bin/agentlinux-install` + `product/plugin/lib/**` + `product/plugin/provisioner/**`,
 excluding recipes) — and it is *branch-dense decision logic*, not thin idempotent
 glue. `agentlinux-install` alone has ~47 branch-lines and uses `mapfile` in 615
 LOC; `detect/agents.sh`, `remediate.sh`, `idempotency.sh`, `detect/render.sh`, and
@@ -125,7 +125,7 @@ recipe rather than owning one).
 
 ### Testing is unadopted, not blocked
 
-- `plugin/cli/stryker.config.json` exists (advisory, thresholds 85/60/0) but
+- `product/plugin/cli/stryker.config.json` exists (advisory, thresholds 85/60/0) but
   `@stryker-mutator/*` is **not in `devDependencies`** — mutation testing is
   configured on paper and not actually installed.
 - `fast-check` appears **nowhere** in the repo.
@@ -134,7 +134,7 @@ recipe rather than owning one).
   `upgrade/divergence.ts`, `computeDivergence` + `resolveLatestFor`/`maxSatisfying`;
   `catalog/category.ts`) plus the pure gate helpers inside `detect.ts` (the file
   also does I/O, so only its gate functions count) — already unit-tested via DI.
-- The ~11k LOC of `tests/bats/` behavior contracts are the **only** rigor
+- The ~11k LOC of `product/tests/bats/` behavior contracts are the **only** rigor
   available to the Bash layer; bats-core + shellcheck is the ceiling there.
 
 ### One under-appreciated asset
@@ -174,7 +174,7 @@ rewrite's real prize.*
 
 ### 2. Cross-language sync & schema drift — weight: HIGH
 
-- The catalog schema (`plugin/catalog/schema.json`, hand-written 2020-12) and
+- The catalog schema (`product/plugin/catalog/schema.json`, hand-written 2020-12) and
   `types.ts` `CatalogEntry` are **two hand-maintained artifacts** — ajv validates
   against the schema but does not generate it from the type, so they can drift.
 - **Rust `schemars`** is the most airtight: `#[derive(JsonSchema)]` makes the type
@@ -191,7 +191,7 @@ any of the three languages (codegen, not a language property).
 ### 3. Distribution & runtime footprint — weight: MEDIUM
 
 The authoritative release channel is the **curl-installer + tarball + `.sha256`**
-(`scripts/build-release.sh`, `packaging/curl-installer/`), *not* a `.deb` — the
+(`product/scripts/build-release.sh`, `product/packaging/curl-installer/`), *not* a `.deb` — the
 fpm `.deb` is **optional** per ADR-006 and is `Architecture: all` today only
 because the payload is bash + a Node *script*. So the real axis is "how many
 tarballs + how smart the installer," not "deb arch":
@@ -205,7 +205,7 @@ tarballs + how smart the installer," not "deb arch":
 
 Sources: [Go static][gostatic], [Rust musl][rustmusl], [Node SEA][sea] (still
 "active development"; `vercel/pkg` is [archived][pkg]), [Debian arch][deb];
-distribution reconciled against ADR-006 + `scripts/build-release.sh`.
+distribution reconciled against ADR-006 + `product/scripts/build-release.sh`.
 
 **Key findings:** (a) any **binary** (compiled *or* runtime-bundled JS) is
 arch-specific → **per-arch tarballs + an arch-detecting curl-installer**, where

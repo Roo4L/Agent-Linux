@@ -41,12 +41,12 @@ The agent catalog and registry CLI:
 
 ## Test infrastructure
 
-Cross-cutting test-harness machinery — not a plugin/ component, but
+Cross-cutting test-harness machinery — not a product/plugin/ component, but
 documented here so the layout is in one place.
 
 - [Test secrets](test-secrets.md) — where the test suite's sandbox secrets
   live (`.env.local`, GitHub repo secrets, the bats `require_secret`
-  helper, the `SECRET_ALLOWLIST` in `tests/docker/run.sh`), how to add a
+  helper, the `SECRET_ALLOWLIST` in `product/tests/docker/run.sh`), how to add a
   new one, and the rotation + leak-response procedure.
 - [Test interactive](test-interactive.md) — `expect`-based helpers for
   bats tests that need a real TTY (Bun/Ink raw-mode CLIs, idle-session

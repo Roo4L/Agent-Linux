@@ -32,7 +32,7 @@ project beyond v0.3.0.
   spin. The v0.2.0 → v0.3.0 pivot on 2026-04-18 traded the boot-image
   surface for a curl-pipe-bash plugin that meets users where they are.
 - **Behaviors as spec, not implementation.** The behavior tests under
-  `tests/bats/` are the contract. Implementation can change freely as
+  `product/tests/bats/` are the contract. Implementation can change freely as
   long as the tests stay green.
 - **Curated combos over user-assembled stacks.** Every release ships a
   pinned version set we have exercised together on the Docker + QEMU
