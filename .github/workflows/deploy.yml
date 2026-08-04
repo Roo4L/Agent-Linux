@@ -41,7 +41,7 @@ jobs:
       #      published at agentlinux.org/<dir>/.
       # Pattern 5 (Pitfall 7 anti-drift): install.sh comes from the single
       # editable source at product/packaging/curl-installer/install.sh. It is copied
-      # LAST so packaging/ always wins over anything staged under site/.
+      # LAST so product/packaging/ always wins over anything staged under site/.
       #
       # Two assertions below, because the two ways this publish has broken are
       # not the same failure:

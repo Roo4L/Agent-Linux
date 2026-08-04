@@ -52,9 +52,11 @@ jobs:
             echo "workflow_dispatch skipped ${{ matrix.target }}"
           fi
 
-      # Node 22 ships corepack; product/scripts/build-release.sh activates pnpm via
-      # corepack on-demand. No separate pnpm/action-setup step needed here —
-      # mirrors the pattern in product/tests/docker/Dockerfile.ubuntu-24.04 cli-builder.
+      # Kept for the guest-side toolchain only. build-release.sh has needed no
+      # Node since the v0.4.0 cutover — it states "No npm install / pnpm
+      # (DIST-01: the shipped path has no Node prerequisite)". Do not restore the
+      # old claim that it activates pnpm via corepack; that has been false since
+      # the TS bundle was deleted.
       - uses: actions/setup-node@v4
         if: steps.decide.outputs.run == 'true'
         with:

@@ -176,7 +176,7 @@ If solving the issue requires changes to:
 - `.claude/skills/*` (project-scoped skills)
 - `CLAUDE.md` (project context)
 - `product/tests/docker/` or `product/tests/qemu/` (harness)
-- `scripts/*`, `product/packaging/*`, `.pre-commit-config.yaml` (tooling)
+- `scripts/*`, `product/scripts/*`, `product/packaging/*`, `.pre-commit-config.yaml` (tooling)
 - `.planning/intel/*` (codebase intelligence)
 
 Those changes ride in the **same PR** as the feature work. Once merged,

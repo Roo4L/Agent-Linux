@@ -5,22 +5,23 @@ behavior-test-driven — that shapes how we accept changes.
 
 ## Repository layout
 
-Three concerns share the repo:
+Three concerns share the repo, plus the docs and agent harness they all use:
 
 | Directory | What it is |
 |---|---|
-| `product/` | **The product** — the installable AgentLinux plugin: `rust/`, `plugin/`, `packaging/`, `tests/`, `scripts/` |
+| `product/` | **The product** — the installable AgentLinux plugin. Holds `rust/`, `plugin/`, `packaging/`, `tests/` and `scripts/`, all relative to `product/`. |
 | `site/` | **The website** — everything served at agentlinux.org |
 | `deck/` | **The deck** — presentation design code and its generator |
 
-The site bundle pulls `install.sh` from `product/packaging/` — the only tie
-between the two, so edit the `curl | bash` one-liner there, never under `site/`.
+The site bundle pulls `install.sh` from `product/packaging/` — the site's only
+tie to `product/`, so edit the `curl | bash` one-liner there, never under `site/`.
 
 `docs/` is reference documentation and is fair game for PRs. `.planning/` holds
 the maintainer's roadmap and planning notes; contributions never need to touch
 it. `agents/`, `.claude/`, `.codex/` and the root `scripts/` configure the coding
 agents and repo gates we develop *with* — they are not part of the shipped
-product.
+product. (Root `scripts/` vs `product/scripts/`: a script belongs under
+`product/` if it builds, validates or tests the shipped artifact.)
 
 A fuller annotated tree is in
 [`docs/HARNESS.md` §1.1](docs/HARNESS.md#11-repository-structure) — that

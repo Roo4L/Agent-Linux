@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# tests/docker/rc-sandbox.sh — interactive local sandbox for hand-testing a
+# product/tests/docker/rc-sandbox.sh — interactive local sandbox for hand-testing a
 # release candidate you built yourself, without publishing anything to GitHub.
 #
 # >>> USAGE >>>
 # Three-step workflow:
 #
-#   tests/docker/rc-sandbox.sh up          # 1. spin up a systemd Ubuntu container
-#   tests/docker/rc-sandbox.sh install     # 2. install the RC tarball from dist/
-#   tests/docker/rc-sandbox.sh shell       # 3. drop into a shell as the agent user
+#   product/tests/docker/rc-sandbox.sh up          # 1. spin up a systemd Ubuntu container
+#   product/tests/docker/rc-sandbox.sh install     # 2. install the RC tarball from dist/
+#   product/tests/docker/rc-sandbox.sh shell       # 3. drop into a shell as the agent user
 #
 # Then, inside the shell, run whatever you like:
 #   agentlinux list

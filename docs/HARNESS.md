@@ -14,7 +14,7 @@ This document specifies the project structure, tooling, and review processes req
 
 ### 1.1 Repository Structure
 
-The repo root is a **workspace** — an umbrella for the plugin code, distribution wrappers, docs, tests, and any peer repos we clone during development (e.g. the Claude Code repo for reference, GSD for catalog-recipe inspiration, a scratch Ubuntu base image for local debugging). The plugin itself is the top-level subject; tests, packaging, docs, and planning state all live as peer concerns.
+The repo root holds three independent concerns — `product/` (everything that ships or tests what ships), `site/` (the website), and `deck/` (the slide deck) — plus the docs, the agent harness, and any peer repos we clone during development (e.g. the Claude Code repo for reference, GSD for catalog-recipe inspiration, a scratch Ubuntu base image for local debugging).
 
 **Target layout:**
 
@@ -23,23 +23,19 @@ agent-linux/                            # Workspace root
 ├── AGENTS.md                           # Shared project context and critical rules
 ├── CLAUDE.md                           # Claude Code host adapter (< 150 lines)
 ├── README.md                           # User-facing README
-├── product/                            # THE PRODUCT — everything that ships or tests what ships
+├── product/                            # Everything that ships, or tests what ships
 │   ├── rust/                           # Cargo workspace — provisioner + registry CLI
 │   │   ├── Cargo.toml                  # Workspace root; Cargo.lock is committed
 │   │   └── crates/
-│   │       ├── agentlinux/             # The `agentlinux` bin (static x86_64-musl)
-│   │       │   └── src/
-│   │       │       ├── cli.rs          # clap arg definitions
-│   │       │       ├── cmd/            # list / adopt / install / remove / upgrade / pin / provision
-│   │       │       ├── catalog.rs      # JSON Schema-validated catalog reader
-│   │       │       └── dispatcher.rs   # Dispatches to catalog/agents/<name>/install.sh
+│   │       ├── agentlinux/             # The `agentlinux` bin (static x86_64-musl);
+│   │       │                           #   src/: cli.rs, cmd/, catalog.rs, dispatcher.rs
 │   │       └── agentlinux-core/        # I/O-free logic (classify, divergence, semver shim)
 │   ├── plugin/                         # Shippable non-Rust assets
 │   │   ├── bin/agentlinux              # Build output — staged into the tarball, not in git
 │   │   └── catalog/                    # Agent recipe catalog
 │   │       ├── schema.json             # JSON Schema 2020-12 contract
 │   │       ├── catalog.json            # Curated catalog entries (none installed by default)
-│   │       └── agents/                 # ~28 recipes; one directory each
+│   │       └── agents/                 # one directory per catalog entry
 │   │           ├── claude-code/install.sh
 │   │           ├── gsd/install.sh
 │   │           └── playwright-cli/install.sh     # Browser-access tool for agents
@@ -60,8 +56,8 @@ agent-linux/                            # Workspace root
 │   │   │   └── cloud-init/
 │   │   └── harness/                    # Repo-gate self-tests (run on the CI runner)
 │   └── scripts/                        # build-release.sh, product gates, mutation gate
-├── site/                               # THE WEBSITE — agentlinux.org (see Key decisions)
-├── deck/                               # THE DECK — presentation design code + pptx generator
+├── site/                               # Landing page — agentlinux.org (see Key decisions)
+├── deck/                               # Presentation design code + pptx generator (standalone)
 ├── scripts/                            # Repo-harness gates (planning hygiene, codex-agent sync)
 ├── agents/                             # Contracts for the coding agents we develop WITH
 │                                       #   (not shipped product)
@@ -91,9 +87,10 @@ agent-linux/                            # Workspace root
 - **Three concerns, three top-level directories.** `product/` is everything that ships or tests what ships, `site/` is the website, `deck/` is the slide deck. Nothing outside `product/` is part of the shipped artifact. Root also stays clean for peer repos we may clone during development (Claude Code repo, example installers, scratch Ubuntu test images).
 - **Root is a workspace, not a single Cargo project.** No `Cargo.toml` at the root; the cargo workspace lives under `product/rust/`.
 - **`product/plugin/` is the shippable artifact.** Its contents are what goes into the release tarball — *under an unchanged `plugin/` payload prefix*, so the installed layout is independent of where the sources sit in the repo. `product/packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux provision`.
-- **The staging root is the contract, not the repo path.** The test harnesses assemble `/opt/agentlinux-src/{plugin,tests,packaging}` — the same three names `product/` holds. That is why `product/` could be introduced without touching a single one of the ~34 bats files that hardcode those paths.
+- **The staging root is the contract, not the repo path.** The bats suite hardcodes `/opt/agentlinux-src/{plugin,tests,packaging}`; three of the five directories under `product/` carry those names, which is what lets the harnesses stage `product/` directly. Renaming one of those three breaks every test that hardcodes it — rename the staging path and the source directory together, or not at all.
 - **`product/tests/` is separate from `product/plugin/`.** Tests never ship. Black-box: they run against an *installed* `product/plugin/`, not against source.
 - **The website and the deck are separate top-level concerns, and only `site/` is published.** `_site/` is assembled from two sources: `site/` copied wholesale, plus `product/packaging/curl-installer/install.sh` copied last — the same Pattern 5 anti-drift rule the deploy workflow enforces, so the `curl | bash` one-liner has exactly one editable source. Two consequences: adding a page or asset needs no CI edit, and nothing may be committed under `site/` that is not meant to be served (a `site/.gitignore` would ship to gh-pages and break the `install.sh` publish).
+- **`product/scripts/` vs root `scripts/`.** A script goes under `product/` if it builds, validates, or tests the shipped artifact; at the root if it maintains the repo or the agent harness. `product/tests/harness/` is the known exception — those gate self-tests live next to the bats runner for tooling reasons, not because their subjects ship.
 - **`docs/` for reference, `.planning/` for workflow state.** Identical routing rule to the reference: if the output of a task is a document intended to be read later (ADR, research report, design proposal, review summary), it goes in `docs/`, even as a draft. `.planning/` holds PLAN.md, STATE.md, config — workflow machinery, not documentation.
 
 ### 1.2 Code Quality: Pre-commit
@@ -171,7 +168,7 @@ Four test layers. Each answers a different question. Mutation testing is the met
 
 **Running the unit + property suite:**
 ```bash
-cd rust && cargo test --workspace          # all crates
+cd product/rust && cargo test --workspace          # all crates
 cargo test -p agentlinux-core parity       # the node-semver parity goldens
 ```
 
@@ -179,7 +176,7 @@ Proptest counterexample seeds under `product/rust/**/proptest-regressions/` are 
 
 **Bats assertions:** one file per requirement category (see layout above). Tests execute inside the target environment (a container or a QEMU guest), not on the developer's host. A shared `product/tests/bats/helpers/` provides assertion helpers (`assert_agent_can_run`, `assert_no_eacces_in_log`, `assert_self_update_succeeds`, etc.) so individual tests stay short and readable.
 
-**Docker harness:** `tests/docker/run.sh` builds a clean image per Ubuntu version, copies in the plugin tarball, executes the installer, then runs the bats suite inside the container. Defaults to running inside a non-root user to avoid Docker's most common false-positive category. ~90s per Ubuntu version on GitHub Actions' free tier.
+**Docker harness:** `product/tests/docker/run.sh` builds a clean image per Ubuntu version, copies in the plugin tarball, executes the installer, then runs the bats suite inside the container. Defaults to running inside a non-root user to avoid Docker's most common false-positive category. ~90s per Ubuntu version on GitHub Actions' free tier.
 
 **QEMU harness:** `product/tests/qemu/boot.sh` downloads a fresh Ubuntu cloud image, boots it under QEMU, waits for SSH, scps the plugin in, runs the installer, runs bats over SSH, shuts down. ~5min per run. Must be green before every release. Catches issues Docker can't (systemd, locale generation, real cloud-init paths, non-trivial UID allocation).
 
@@ -187,7 +184,7 @@ Proptest counterexample seeds under `product/rust/**/proptest-regressions/` are 
 
 - **Catalog Bash recipes:** no build step. `product/plugin/catalog/agents/*/{install,uninstall}.sh` + `product/plugin/catalog/lib/` ship as-is (after `shfmt` check).
 - **Provisioner + registry CLI:** the Rust workspace under `product/rust/` (built to a static x86_64-musl `agentlinux` bin). The TypeScript CLI + Bash provisioner/entrypoint were retired at the cutover; the shipped `agentlinux` is the Rust musl bin and `cargo test` is the unit-test oracle alongside the bats behavior suite.
-- **Release tarball:** `product/scripts/build-release.sh` builds the static `x86_64-unknown-linux-musl` `agentlinux` bin and assembles `plugin/bin/agentlinux` (the bin) + `plugin/catalog/` (catalog.json + the ~25 Bash recipes) + a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`. The tarball is byte-reproducible (SOURCE_DATE_EPOCH-pinned tar + `strip`/`--remap-path-prefix`/`--build-id=none` on the bin).
+- **Release tarball:** `product/scripts/build-release.sh` builds the static `x86_64-unknown-linux-musl` `agentlinux` bin and assembles `plugin/bin/agentlinux` (the bin) + `plugin/catalog/` (catalog.json + the per-agent Bash recipes) + a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`. The tarball is byte-reproducible (SOURCE_DATE_EPOCH-pinned tar + `strip`/`--remap-path-prefix`/`--build-id=none` on the bin).
 - **Distribution channel:** the reproducible musl tarball + `.sha256` is the **sole** channel. The optional fpm `.deb` wrapper was removed at the Rust cutover (ADR-006 is flagged superseded-in-part).
 - **GitHub Releases workflow:** tag `vX.Y.Z` → build tarball → upload tarball + sha256 + catalog snapshot to the release.
 
@@ -401,14 +398,14 @@ This section originally noted the project had no CLAUDE.md at the repo root — 
   - Behavior tests (`product/tests/bats/`) are the spec. Implementation may change freely as long as the suite stays green. Do not pin implementation choices (npm vs native installer; sudo vs no-sudo) as requirements.
   - **No agent is installed by default.** Claude Code, GSD, and Playwright are available in the catalog; users opt in via `agentlinux install <name>`. Playwright is the canonical browser-access tool for agents (replaces Chrome DevTools MCP).
   - Docker-only test runs are insufficient. Before any release, QEMU suite must be green.
-  - Every release tarball ships with a sibling `.sha256`. `packaging/curl-installer/install.sh` must verify.
+  - Every release tarball ships with a sibling `.sha256`. `product/packaging/curl-installer/install.sh` must verify.
   - No wrapper shims at `/usr/local/bin/` pointing to agent-owned binaries (the exact anti-pattern that breaks Claude Code self-update).
 - **Review loop rule:** "Before reporting any task complete, run the review feedback loop on all changed files" (link to `/review` skill and §4 of this file).
 - **Commands:**
-  - Run bats locally inside Docker: `./tests/docker/run.sh ubuntu-24.04`
-  - Run Rust unit tests: `cd rust && cargo test --workspace`
+  - Run bats locally inside Docker: `./product/tests/docker/run.sh ubuntu-24.04`
+  - Run Rust unit tests: `cd product/rust && cargo test --workspace`
   - Lint bash + catalog: `pre-commit run --all-files`
-  - Build release tarball: `./scripts/build-release.sh vX.Y.Z`
+  - Build release tarball: `./product/scripts/build-release.sh vX.Y.Z`
   - Preview docs: (none yet; docs are plain markdown)
 - **Pointers:** `@.planning/ROADMAP.md`, `@.planning/milestones/`, `@docs/HARNESS.md` (this file), `@docs/research/`, relevant skills (§5).
 
@@ -420,11 +417,15 @@ Everything else — installer internals, schema details, historical v0.2.0 lesso
 
 ## 7. Implementation Checklist
 
+> **Historical (Phase A-D, v0.3.0).** Retained as the record of how the harness
+> was bootstrapped; paths below are the pre-`product/` layout of the time. The
+> current layout is §1.1.
+
 Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Harness Setup" phase at the front of the v0.3.0 roadmap.
 
 ### Phase A: Project Infrastructure (do first)
 
-- [ ] Create directory skeleton: `product/plugin/`, `product/tests/`, `product/packaging/`, `docs/` (structure only, empty files or READMEs)
+- [ ] Create directory skeleton: `plugin/`, `tests/`, `packaging/`, `docs/` (structure only, empty files or READMEs)
 - [ ] Create the `product/rust/` cargo workspace — `agentlinux` bin + `agentlinux-core` lib, no real logic yet
 - [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, catalog-schema-validate; run `pre-commit install`
 - [x] Create `CLAUDE.md` (< 150 lines) per §6

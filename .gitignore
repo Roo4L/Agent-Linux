@@ -1,11 +1,7 @@
 # Node dependencies (bats installed locally for harness tests; no root package.json)
 node_modules/
 
-# product/plugin/cli/ TypeScript build output + test-build tree (tsc emits, not checked in)
-product/plugin/cli/dist/
-product/plugin/cli/dist-test/
-
-# Phase 6: release build output (scripts/build-release.sh produces tarball + sha256 + catalog snapshot + optional .deb here)
+# Release build output (product/scripts/build-release.sh writes tarball + sha256 + catalog snapshot + VERSION here)
 dist/
 
 # Phase 6 Plan 06-03: product/tests/qemu/boot.sh writes serial.log here on failure for CI upload-artifact
@@ -51,7 +47,6 @@ product/tests/qemu/cache/
 !.env.example
 !.env.local.example
 .npmrc
-!product/plugin/cli/.npmrc
 .git-credentials
 .netrc
 *.pem

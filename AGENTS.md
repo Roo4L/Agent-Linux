@@ -24,17 +24,14 @@ Start from the concern, not from a file search. Their one coupling: the
 published site bundle includes `product/packaging/curl-installer/install.sh`, so
 the `curl | bash` one-liner is edited under `product/`, never under `site/`.
 
-- `product/rust/` — Cargo workspace: the `agentlinux` bin (provisioner + registry CLI) and the I/O-free `agentlinux-core` logic crate
-- `product/plugin/` — shippable non-Rust assets: the catalog (`product/plugin/catalog/` — catalog.json + the
-  per-agent Bash recipes) and the shipped musl bin path (`product/plugin/bin/agentlinux`,
-  a build output, not in git)
-- `product/packaging/` — curl-pipe-bash installer for the reproducible musl tarball (sole distribution channel)
-- `product/tests/bats/` — behavior-contract suite (BHV-XX / RT-XX / AGT-XX / CLI-XX / CAT-XX / INST-XX)
-- `product/tests/harness/` — repo-level gate self-tests (the `.planning/` hygiene gate, the mutation gate); run on the CI runner, never in a container or guest
-- `product/tests/docker/` — fast CI harness (Ubuntu 24.04 + AlmaLinux 9 every PR; 22.04 and 26.04 are still supported, just not exercised on every push)
-- `product/tests/qemu/` — release-gate harness (fresh cloud images, nightly + release)
-- `product/scripts/` — release build (`build-release.sh`), product gates (`check-catalog-schema`, `check-version-lockstep`, `check-distro-leak`), mutation gate
-- `scripts/` — repo-harness gates only: `check-planning-clean.sh`, `sync-codex-agents.sh`
+- `product/` — everything that ships, or tests what ships
+  - `rust/` — Cargo workspace: the `agentlinux` bin (provisioner + registry CLI) and the I/O-free `agentlinux-core` crate
+  - `plugin/` — shippable non-Rust assets: `catalog/` (catalog.json + the per-agent Bash recipes). `bin/agentlinux` is a build output, not in git
+  - `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (sole distribution channel)
+  - `tests/` — `bats/` behavior contract (BHV/RT/AGT/CLI/CAT/INST) · `docker/` fast CI (Ubuntu 24.04 + AlmaLinux 9 every PR; 22.04/26.04 supported, not gated) · `qemu/` release gate · `harness/` gate self-tests, CI runner only, never in a container or guest
+  - `scripts/` — `build-release.sh`, the product gates, the mutation gate
+- `scripts/` — repo-harness gates only: `check-planning-clean.sh`, `sync-codex-agents.sh`.
+  Which directory a new script belongs in: `docs/HARNESS.md` §1.1 Key decisions.
 - `site/` — everything served at agentlinux.org; adding a page or asset needs no CI edit
 - `deck/` — `brand-style.md` (the reusable brand DNA) plus the pptxgenjs generator.
   Its house motif was hand-derived from `site/assets/crab-mascot.svg`, but the
@@ -133,4 +130,4 @@ bats product/tests/harness/70-planning-clean-gate.bats  # Self-test the .plannin
   `.claude/skills/qa-testing/`, `.claude/skills/workspace-cleanup/`
 
 ---
-*Last updated: 2026-07-18 — added Codex CLI support alongside Claude Code.*
+*Last updated: 2026-08-04 — repo restructured into `product/`, `site/`, `deck/`.*

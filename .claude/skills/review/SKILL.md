@@ -45,11 +45,12 @@ for every change.
 
 | Changed file pattern | Reviewer roles |
 |---|---|
-| `^product/plugin/(bin|lib|provisioner)/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^product/rust/crates/.+\.rs$` | `security-engineer`, `qa-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
+| `^product/rust/(Cargo\.toml|crates/.+/Cargo\.toml|rust-toolchain\.toml)$` | `reliability-reviewer`, `simplicity-reviewer` |
+| `^product/scripts/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` |
+| `^scripts/.+\.sh$` | `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
 | `^product/plugin/catalog/lib/.+\.sh$` | `bash-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
 | `^product/packaging/curl-installer/.+\.sh$` | `bash-engineer`, `security-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer`, `reliability-reviewer` |
-| `^product/plugin/cli/(src|test|scripts)/.+\.(ts|mjs|js)$` | `node-engineer`, `security-engineer`, `qa-engineer`, `ai-deslop`, `dev-docs-auditor`, `readability-reviewer`, `simplicity-reviewer`, `testability-reviewer`, `reliability-reviewer` |
-| `^product/plugin/cli/(package\.json|tsconfig\.json|biome\.json|stryker\.config\.json)$` | `node-engineer` |
 | `^product/tests/bats/.+\.bats$` | `qa-engineer` |
 | `^product/tests/bats/helpers/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |
 | `^product/tests/(docker|qemu|harness)/.+$` | `qa-engineer`, `bash-engineer`, `ai-deslop`, `readability-reviewer`, `simplicity-reviewer` |

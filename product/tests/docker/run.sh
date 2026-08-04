@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/docker/run.sh — build + run the Docker bats harness for one target.
+# product/tests/docker/run.sh — build + run the Docker bats harness for one target.
 #
 # Invoked by .github/workflows/test.yml and developers locally. This is the
 # single CI entrypoint for Phase 2's acceptance gate: it builds the matching
@@ -15,7 +15,7 @@
 #   - ADR-007 (Docker fast-path + QEMU release-gate two-layer harness)
 #
 # Debugging escape hatch:
-#   AGENTLINUX_DOCKER_KEEP_CONTAINER=1 bash tests/docker/run.sh ubuntu-24.04
+#   AGENTLINUX_DOCKER_KEEP_CONTAINER=1 bash product/tests/docker/run.sh ubuntu-24.04
 # leaves the container running after the script exits so you can
 # `docker exec -it $CID bash` and poke at state. The container is named
 # agentlinux-test-<target> so the ID is easy to find via `docker ps`.
@@ -23,7 +23,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9> [bats-file]
+usage: product/tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9> [bats-file]
 
 Builds the matching Docker image, runs agentlinux-install inside, runs the
 bats suite inside, and exits with the bats exit code.
@@ -63,7 +63,7 @@ case "$TARGET" in
     exit 0
     ;;
   *)
-    printf 'tests/docker/run.sh: unsupported target: %s\n' "$TARGET" >&2
+    printf 'product/tests/docker/run.sh: unsupported target: %s\n' "$TARGET" >&2
     usage
     exit 64
     ;;
@@ -85,17 +85,17 @@ if [[ -n $BATS_FILE ]]; then
 fi
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# Two roots since the product tree moved under product/: PRODUCT_ROOT is what
-# gets staged into the container (its members ARE the /opt/agentlinux-src
-# layout the bats suite hardcodes); REPO_ROOT is only for repo-level files that
-# deliberately stay outside the product tree, e.g. .env.local.
+# REPO_ROOT is the /workspace mount root and the docker build context. Both
+# product/ AND docs/ must be reachable under it — the staging step below copies
+# from each, and narrowing this to PRODUCT_ROOT would make ENABLE-07 skip.
+# PRODUCT_ROOT is only the host-side path to the Rust build tree.
 PRODUCT_ROOT=$(cd "$HERE/../.." && pwd)
 REPO_ROOT=$(cd "$HERE/../../.." && pwd)
 IMG="agentlinux-test:${TARGET}"
 DF="$HERE/Dockerfile.${TARGET}"
 
 if [[ ! -f $DF ]]; then
-  printf 'tests/docker/run.sh: missing Dockerfile %s\n' "$DF" >&2
+  printf 'product/tests/docker/run.sh: missing Dockerfile %s\n' "$DF" >&2
   exit 64
 fi
 
@@ -215,20 +215,23 @@ done
 #   1. product/'s members ARE the layout the bats suite hardcodes, so copying
 #      product/. keeps every /opt/agentlinux-src/{plugin,tests,packaging} path
 #      byte-identical after the product/ carve-out — no test churn.
-#   2. It stops dragging rust/target/, .git/ and .planning/ into the container.
-#      The whole-repo copy is also how a stray $SRC/.planning could appear
-#      in-guest, which 69-catalog-growth-kit.bats documents as an unreliable
-#      full-repo sentinel.
-# docs/ is staged too and is NOT optional: 69-catalog-growth-kit.bats ENABLE-07
-# reads $SRC/docs/CATALOG-CONTRIBUTING.md. Drop it and that @test silently
-# skips — green suite, weaker gate.
+#   2. .git/ and .planning/ are repo-root siblings, so product/. never sees
+#      them. rust/target IS under product/ — cp -R has no --exclude, so it is
+#      copied and then dropped on the next line. That rm is load-bearing, not
+#      redundant: rust-cache restores a multi-GB target/ before this runs.
+# docs/ is staged for 69-catalog-growth-kit.bats ENABLE-07, which reads
+# $SRC/docs/CATALOG-CONTRIBUTING.md. Its skip-sentinel is $SRC/tests/docker/run.sh,
+# which now arrives via product/. — so dropping the docs copy makes that @test
+# FAIL loud rather than skip green. Splitting the two sources hardened the gate;
+# keep them separate.
 echo "== stage sources into container =="
 docker exec "$CID" bash -c '
   set -e
   mkdir -p /opt/agentlinux-src
   cp -R /workspace/product/. /opt/agentlinux-src/
   rm -rf /opt/agentlinux-src/rust/target
-  cp -R /workspace/docs /opt/agentlinux-src/docs
+  mkdir -p /opt/agentlinux-src/docs
+  cp -R /workspace/docs/. /opt/agentlinux-src/docs/
 '
 
 HOST_MUSL_BIN="$PRODUCT_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"

@@ -226,7 +226,7 @@ jobs:
         working-directory: product/rust
         run: |
           set -euo pipefail
-          # `.` (from working-directory: rust), not 'crates/**': a new or
+          # `.` (from working-directory: product/rust), not 'crates/**': a new or
           # relocated crate outside crates/ would otherwise produce an empty
           # diff and a silent skip. Non-Rust lines simply match no mutants.
           # -c core.quotePath=false: git's DEFAULT octal-escapes non-ASCII paths

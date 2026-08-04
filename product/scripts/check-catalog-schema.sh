@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# scripts/check-catalog-schema.sh — commit-time structural gate for the catalog.
+# product/scripts/check-catalog-schema.sh — commit-time structural gate for the catalog.
 #
 # Replaces the pre-cutover `node plugin/cli/scripts/validate-catalog.mjs` (ajv)
 # hook, deleted with the TypeScript CLI.

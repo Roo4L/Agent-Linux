@@ -23,7 +23,7 @@ The motivating example: `docs/internals/` was authored for the project owner so 
 An artifact is externally-facing if any of these are true:
 
 1. **Top-level repo files for the public**: `README.md`, `CONTRIBUTING.md`, `LICENSE`, `SECURITY.md`, `CODE_OF_CONDUCT.md`, `docs/HARNESS.md` (linked from README), the docs directory's `README.md`.
-2. **Public release artifacts**: GitHub Release notes (whether drafted under `.planning/` or pasted into the GH UI), tarball READMEs, the `packaging/curl-installer/install.sh` user-visible echo strings.
+2. **Public release artifacts**: GitHub Release notes (whether drafted under `.planning/` or pasted into the GH UI), tarball READMEs, the `product/packaging/curl-installer/install.sh` user-visible echo strings.
 3. **Developer/contributor docs the public can land on**: `docs/internals/` (the AL-22 deliverable — written for the project owner but read by anyone browsing the public repo) and any other `docs/` file referenced from a public-facing entry point.
 4. **Marketing / outreach drafts staged in the repo**: blog post drafts, email drafts, `agentlinux.org` copy under any `site/` or `website/` tree, SVG/PNG infographic copy.
 

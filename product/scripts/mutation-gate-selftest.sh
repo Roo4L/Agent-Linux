@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# scripts/mutation-gate-selftest.sh — score the mutation gate against its own
+# product/scripts/mutation-gate-selftest.sh — score the mutation gate against its own
 # bats suite.
 #
-# ADR-020 §2 says the number to report when changing `scripts/mutation-gate.sh`
+# ADR-020 §2 says the number to report when changing `product/scripts/mutation-gate.sh`
 # is its OWN mutation score, not its case count. This is the tool that produces
 # that number, so the procedure is reviewable instead of being re-invented in a
 # shell loop each time. It was re-invented three times, and the third helped
@@ -44,15 +44,15 @@
 #     unguarded, before the loop.
 #
 # Usage:
-#   scripts/mutation-gate-selftest.sh            # score every mutation
-#   scripts/mutation-gate-selftest.sh -k skips   # only labels containing "skips"
+#   product/scripts/mutation-gate-selftest.sh            # score every mutation
+#   product/scripts/mutation-gate-selftest.sh -k skips   # only labels containing "skips"
 #
 # Exit: 0 all mutations killed · 1 survivors or drift · 2 aborted (score unknown)
 set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-readonly GATE="scripts/mutation-gate.sh"
+readonly GATE="product/scripts/mutation-gate.sh"
 readonly SUITE="tests/harness/80-mutation-gate.bats"
 readonly PRISTINE=".mutation-gate-selftest-pristine"
 readonly LOCKDIR=".mutation-gate-selftest-lock"
