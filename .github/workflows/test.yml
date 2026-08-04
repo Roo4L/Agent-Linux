@@ -87,22 +87,55 @@ jobs:
       # pull_request events are never marked duplicate: that run is the one
       # whose checks gate the merge, and it tests the merge commit rather than
       # the branch tip.
+      #
+      # The obvious worry: a suppressed push run reports the four required
+      # contexts green in ~1 minute while the pull_request run is still
+      # testing for real — does that green open a merge window? Measured on
+      # PR #62, no. With the push run COMPLETED/SUCCESS for `rust` and
+      # `bats-docker (ubuntu-24.04)` and the PR run still IN_PROGRESS on the
+      # same contexts and the same SHA, `gh pr view --json mergeStateStatus`
+      # reported BLOCKED. GitHub does not let the faster duplicate satisfy the
+      # gate; the still-running check keeps it shut. Re-verify this if the
+      # branch-protection contexts are ever reconfigured.
       - name: Detect a push run already covered by an open PR
         id: dedupe
         env:
           GH_TOKEN: ${{ github.token }}
           BRANCH: ${{ github.ref_name }}
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          if [ "${{ github.event_name }}" != "push" ]; then
+          if [ "$EVENT_NAME" != "push" ]; then
             echo "duplicate=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
+          # --base master is load-bearing, not decoration: it makes this query
+          # mirror the `pull_request` trigger, which is scoped to
+          # `branches: [master]`. Without it a STACKED PR (feature-b based on
+          # feature-a) would match here, mark the push run duplicate, and skip
+          # the expensive steps — while no pull_request run fires at all,
+          # because that PR's base is not master. Two required contexts would
+          # then report green having tested nothing. Silent green is the one
+          # outcome this workflow must never produce.
+          #
           # --repo keeps this correct regardless of the checked-out remote.
-          # `|| echo 0` so a transient API failure degrades to "run it" rather
-          # than silently skipping the expensive jobs.
+          # stderr is folded into the value so a failure is DIAGNOSED rather
+          # than swallowed: anything non-numeric (API error body, empty
+          # response, gh missing) is reported and treated as "no PR", so the
+          # expensive jobs run. Only a clean positive integer suppresses them.
           open_prs=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" \
-                       --state open --json number --jq 'length' 2>/dev/null || echo 0)
-          if [ "${open_prs:-0}" -gt 0 ]; then
+                       --base master --state open --json number --jq 'length' 2>&1) \
+            || true  # `|| true`, not `|| open_prs=""` — blanking it would discard
+                     # the very output the diagnostic below prints. Needed at all
+                     # because GitHub runs steps under `bash -e`, where a failing
+                     # command substitution in an assignment aborts the step.
+          case "$open_prs" in
+            ''|*[!0-9]*)
+              echo "dedupe: PR lookup failed or returned non-numeric output — running"
+              echo "everything. Raw output: $open_prs"
+              open_prs=0
+              ;;
+          esac
+          if [ "$open_prs" -gt 0 ]; then
             echo "duplicate=true" >> "$GITHUB_OUTPUT"
             echo "Open PR already covers $BRANCH — the pull_request run owns the"
             echo "expensive steps; this push run reports without repeating them."
