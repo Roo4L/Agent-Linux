@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 17" width="360" height="255" shape-rendering="crispEdges">
+  <style>
+    .w { fill: #ffffff; }
+    .e { fill: #111111; }
+    .g { fill: #222222; }
+    .r { fill: #888888; }
+    .wl { fill: #4a4a4a; }
+    .rf { fill: #aaaaaa; }
+  </style>
+
+  <!-- Chimney -->
+  <rect class="r" x="14" y="1" width="2" height="3"/>
+
+  <!-- Roof triangle -->
+  <rect class="rf" x="11" y="3" width="2" height="1"/>
+  <rect class="rf" x="10" y="4" width="4" height="1"/>
+  <rect class="rf" x="9" y="5" width="6" height="1"/>
+  <rect class="rf" x="8" y="6" width="8" height="1"/>
+  <rect class="rf" x="7" y="7" width="10" height="1"/>
+  <rect class="rf" x="6" y="8" width="12" height="1"/>
+  <!-- Eaves -->
+  <rect class="r" x="5" y="9" width="14" height="1"/>
+
+  <!-- Walls -->
+  <rect class="wl" x="6" y="10" width="12" height="5"/>
+  <rect class="r" x="6" y="10" width="1" height="5"/>
+  <rect class="r" x="17" y="10" width="1" height="5"/>
+  <rect class="r" x="6" y="10" width="12" height="1"/>
+
+  <!-- Windows (2x2) -->
+  <rect class="w" x="7" y="11" width="2" height="2"/>
+  <rect class="w" x="15" y="11" width="2" height="2"/>
+
+  <!-- Door -->
+  <rect class="e" x="11" y="13" width="2" height="2"/>
+  <rect class="r" x="12" y="14" width="1" height="1"/>
+
+  <!-- Ground -->
+  <rect class="g" x="0" y="15" width="24" height="1"/>
+</svg>
