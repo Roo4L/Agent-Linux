@@ -1,0 +1,26 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+rust-version = "1.97.1"
+
+# Reproducible release profile (Phase 58 DIST-01, Pitfall 6).
+#
+# The shipped x86_64-musl `agentlinux` bin is the tarball payload, and the
+# tarball's `.sha256` must be byte-identical across two builds on the SAME HEAD
+# (build-release.sh asserts this). `cargo build --release` embeds two sources of
+# non-determinism that break that invariant:
+#   1. debuginfo symbols carrying the absolute build-host path
+#      ($HOME/.cargo/..., $PWD/...), and
+#   2. an ELF `.note.gnu.build-id` derived from the linked object hashes.
+# `strip = true` removes (1) at link time (the shipped bin ships no debuginfo).
+# The build-id is zeroed via `-C link-arg=-Wl,--build-id=none` +
+# path-remapping via `--remap-path-prefix`, both exported as RUSTFLAGS by
+# build-release.sh's cargo invocation (kept there so the flags travel with the
+# release build, not every `cargo test`). Together: two builds on different
+# `$PWD` → identical bin bytes → identical tarball `.sha256`.
+[profile.release]
+strip = true

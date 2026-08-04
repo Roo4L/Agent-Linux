@@ -70,7 +70,7 @@ setup_brownfield_host() {
   # not default to --remove-nodejs). Run as root; bats runs as root in the
   # container per the harness contract. Suppress output — the purge transcript
   # is verbose and not load-bearing for the @test.
-  bash /opt/agentlinux-src/plugin/bin/agentlinux-install --purge >/dev/null 2>&1 || true
+  /opt/agentlinux-src/plugin/bin/agentlinux provision --purge >/dev/null 2>&1 || true
 
   # Step 1: Create the agent user manually (NOT via 10-agent-user.sh — that's
   # exactly what we're testing REUSE-01 skips).
@@ -138,7 +138,7 @@ setup_brownfield_host() {
 # baseline to trigger its targeted remediate handler — fixture-isolation
 # invariant carried from Plan 14-01.
 _brownfield_baseline() {
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
   useradd -m -s /bin/bash agent >/dev/null 2>&1 || usermod -s /bin/bash agent
   local tmp
   tmp=$(mktemp)
@@ -297,7 +297,7 @@ setup_brownfield_for_remediate_03_drift() {
 # Plan 14-03 brownfield fixtures for REMEDIATE-04 (broken catalog agent).
 #
 # Each fixture targets the PATH-MISMATCH or broken-status scenarios the CLI's
-# install.ts tryRemediate branch handles. Tests 51-53 exercise:
+# install remediation branch (cmd/install.rs) handles. Tests 51-53 exercise:
 #   - Happy-path PATH-MISMATCH: claude-code installed via `npm install -g`
 #     (canonical mismatch); REMEDIATE-04 uninstalls and reinstalls at the
 #     native canonical path while preserving ~/.claude/ user data.
@@ -333,7 +333,7 @@ setup_brownfield_broken_claude_code() {
   # required because the brownfield npm-prefix (seeded with root /usr from
   # baseline) may trigger REMEDIATE-01 npm-prefix decision (depending on
   # whether _brownfield_baseline reseeded agent ownership).
-  bash "$INSTALLER" --yes >/dev/null 2>&1 || true
+  "$INSTALLER" provision --yes >/dev/null 2>&1 || true
   # Step 3: install claude-code via npm at the PATH-MISMATCH location.
   # Use --no-fund --no-audit for cleaner transcripts; sudo -u agent -H is
   # mandatory (CLAUDE.md critical rule — never `sudo npm install -g`).
@@ -358,10 +358,10 @@ setup_brownfield_broken_claude_code() {
 # the env override (seam used by Plan 13-02 tests too). Restore on cleanup.
 setup_brownfield_remediate04_uninstall_fail() {
   setup_brownfield_broken_claude_code
-  # Stage a tmp catalog copy. The CLI's loader.ts honors
+  # Stage a tmp catalog copy. The CLI's catalog loader honors
   # AGENTLINUX_CATALOG_DIR so we point at the tmp dir for this @test.
   # mktemp -d defaults to 0700 root-owned; agent user (which the CLI runs as)
-  # cannot then readdir or readFile the catalog.json — chmod 0755 + chmod -R
+  # cannot then readdir or read the catalog.json — chmod 0755 + chmod -R
   # go+rX so the agent user can read every file recursively.
   local tmpcat
   tmpcat=$(mktemp -d -t al-cat-fail-XXXXXX)
@@ -444,7 +444,7 @@ setup_brownfield_host_user_wrong_shell() {
   local wrong_shell
   wrong_shell=$(distro_wrong_shell)
   log_brownfield "purging any existing AgentLinux state (idempotent)"
-  bash /opt/agentlinux-src/plugin/bin/agentlinux-install --purge >/dev/null 2>&1 || true
+  /opt/agentlinux-src/plugin/bin/agentlinux provision --purge >/dev/null 2>&1 || true
   log_brownfield "creating agent user with shell=${wrong_shell} (DET-01 incompatible, family-correct non-bash, functional login shell)"
   if ! id -u agent >/dev/null 2>&1; then
     useradd -m -s "$wrong_shell" agent
@@ -455,17 +455,6 @@ setup_brownfield_host_user_wrong_shell() {
   # binary on BOTH families (dash on Debian /bin/sh; tcsh on RHEL), so
   # reuse::user_decision's `readlink -f` shell check bails wrong-shell on both,
   # while still being a real login shell so detection's as_user_login probes run.
-}
-
-# setup_brownfield_host_with_agent2_taken
-# Targets UX-04 numeric-suffix collision handling: agent (wrong-shell) AND a
-# pre-existing agent2 (forces remediate::find_alt_user_name to suggest agent3).
-setup_brownfield_host_with_agent2_taken() {
-  setup_brownfield_host_user_wrong_shell
-  log_brownfield "creating agent2 to force find_alt_user_name to suggest agent3"
-  if ! id -u agent2 >/dev/null 2>&1; then
-    useradd -m -s /bin/bash agent2
-  fi
 }
 
 # -----------------------------------------------------------------------------
@@ -494,10 +483,10 @@ setup_brownfield_host_with_agent2_taken() {
 # this helper as the canonical base. Adding a new brownfield fixture? Call
 # this first.
 _setup_brownfield_apt_layer() {
-  local installer=/opt/agentlinux-src/plugin/bin/agentlinux-install
+  local installer=/opt/agentlinux-src/plugin/bin/agentlinux
 
   log_brownfield "purging any existing AgentLinux state (idempotent)"
-  bash "$installer" --purge >/dev/null 2>&1 || true
+  "$installer" provision --purge >/dev/null 2>&1 || true
 
   if ! id -u agent >/dev/null 2>&1; then
     log_brownfield "creating agent user (useradd -m -s /bin/bash)"
@@ -546,9 +535,9 @@ _setup_brownfield_apt_layer() {
 # The gsd + playwright-cli installs are REUSE fixtures — at canonical paths,
 # healthy. They demonstrate the REUSE-03 short-circuit on a populated host.
 setup_brownfield_host_full() {
-  local installer=/opt/agentlinux-src/plugin/bin/agentlinux-install
+  local installer=/opt/agentlinux-src/plugin/bin/agentlinux
   local pkg_version catalog
-  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
   catalog=/opt/agentlinux/catalog/${pkg_version}/catalog.json
 
   # Step 1-3: shared apt layer (agent user + sudoers + Node 22).
@@ -558,7 +547,7 @@ setup_brownfield_host_full() {
   # subsequent npm-global installs (mirrors setup_brownfield_broken_claude_code).
   # --yes required because brownfield npm-prefix may trigger REMEDIATE-01.
   log_brownfield "running agentlinux-install --yes to wire PATH for agent's login shell"
-  bash "$installer" --yes >/dev/null 2>&1 || true
+  "$installer" provision --yes >/dev/null 2>&1 || true
 
   # Re-resolve catalog path after install (catalog is staged by the installer).
   catalog=/opt/agentlinux/catalog/${pkg_version}/catalog.json
@@ -612,8 +601,7 @@ setup_brownfield_host_full() {
 # capture_transcript_to <dest> [<pre_version> [<post_version>]]
 # Phase 16 / Plan 16-02 / D-16-09 — write the captured `run` $output (the
 # bats subshell's stdout/stderr from the most recent `run` invocation) to
-# <dest>, prepending a stable header block so the committed audit doc is
-# self-describing.
+# <dest>, prepending a stable header block so the transcript is self-describing.
 #
 # Header format (markdown-safe; the file is a .md):
 #   # AGT-02 brownfield acceptance transcript
@@ -645,8 +633,8 @@ capture_transcript_to() {
     distro_ver="${VERSION_ID:-unknown}"
   fi
   kernel=$(uname -r 2>/dev/null || printf 'unknown')
-  if [[ -f /opt/agentlinux-src/plugin/cli/package.json ]]; then
-    pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json 2>/dev/null || printf 'unknown')
+  if [[ -f /opt/agentlinux-src/plugin/catalog/catalog.json ]]; then
+    pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json 2>/dev/null || printf 'unknown')
   fi
 
   mkdir -p "$(dirname "$dest")"

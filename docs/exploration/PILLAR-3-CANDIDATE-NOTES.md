@@ -1,11 +1,10 @@
 # Pillar 3 Candidate Exploration — Security Hardening (declined as a pillar)
 
-> Phase 14 verdict. Phase 15 lifts the `## Decision summary` section verbatim
-> into `docs/STRATEGY.md` Appendix B's "Security Hardening" theme entry (not
-> into a Pillar 3 — verdict (b) means there is no Pillar 3). DOC-05
-> (ADR-012 forward-reference to a Pillar 3) closes as N/A in `15-AUDIT.md`;
-> the unresolved ADR-012 tension is recorded inside Pillar 2's STRATEGY.md
-> section as a known limitation, not via an ADR file edit.
+> Security-pillar verdict. Its `## Decision summary` is the source for the
+> security-hardening theme in `docs/ROADMAP.md` — not for a Pillar 3, since
+> verdict (b) means there is no Pillar 3. The unresolved ADR-012 tension is
+> recorded inside Pillar 2 of `docs/VISION.md` as a known limitation, rather
+> than by editing ADR-012.
 >
 > Locked: 2026-05-10. Source: `.planning/research/SUMMARY.md` §5,
 > `.planning/research/FEATURES.md` Pillar 3 section (lines 97-200),
@@ -19,10 +18,10 @@
 The one substantive forward-looking commitment we draw from the security
 landscape — active supply-chain monitoring + curated catalog admission — folds
 into Pillar 2 as a sub-concern of its compat-guarded version pinning gate.
-Only two pillars ship in `docs/STRATEGY.md`. DOC-05 (ADR-012's forward-reference
-to a Pillar 3) closes as N/A in `15-AUDIT.md`; the unresolved tension is
-recorded inside Pillar 2's section as a known limitation. "Security Hardening"
-stays as a v0.6+ `opportunistic` theme in Appendix B, not as a pillar.
+Only two pillars ship. ADR-012's planned forward-reference to a Pillar 3 is
+moot; the unresolved tension is recorded inside Pillar 2 as a known limitation
+instead. "Security Hardening" stays as an opportunistic longer-range theme,
+not as a pillar.
 
 ## What folds into Pillar 2
 
@@ -42,7 +41,7 @@ with Pillar 2's compat-guarded version pinning gate. Three parts:
    holds the prior pin until upstream re-issues the artifact.
 3. **We keep new, untested, or unreviewed projects out of the catalog by
    default.** Admission criteria in spirit: existing security-research track
-   record + behaviour-tested via the TST-08 4-gate pipeline + maintainer
+   record + behaviour-tested via the four-gate pipeline + maintainer
    reputation. No sight-unseen admission. The codified policy locks at the
    milestone where the catalog admission framework ships.
 
@@ -91,7 +90,7 @@ to any of them as pillar substance under verdict (b). Each lives in Appendix
 B of `docs/STRATEGY.md` as a v0.6+ `opportunistic` theme entry, eligible to
 mature into a milestone if a future user need justifies it.
 
-Each defense below is declined as pillar substance and lives in Appendix B's
+Each defense below is declined as pillar substance and lives in the roadmap's
 Security Hardening theme, eligible to mature into a milestone if a future
 user need justifies it.
 
@@ -112,7 +111,7 @@ user need justifies it.
 - **Capability-scoped sudoers replacing ADR-012 NOPASSWD ALL** (passwordless
   sudo to any command). Microsoft SCOM-style allowlists scoped to
   `/usr/bin/apt-get install *`, `/usr/bin/systemctl restart *`, etc.
-  Phase 5 showed agents need a long tail of commands and the allowlist is
+  Experience showed agents need a long tail of commands and the allowlist is
   its own maintenance burden.
 
 ## ADR-012 tension
@@ -120,7 +119,7 @@ user need justifies it.
 ADR-012 (`agent ALL=(ALL) NOPASSWD: ALL` — passwordless sudo to any command)
 was a defensible scope choice at v0.3.0. The agent was framed as a trusted
 coworker; the alternative (capability-scoped sudoers allowlists) was rejected
-because Phase 5 showed agents need apt + systemctl + many other things and
+because agents proved to need apt + systemctl + many other things and
 an ever-growing allowlist is its own maintenance burden.
 
 After Shai-Hulud, TrustFall, and the Lethal Trifecta framing in late 2025,
@@ -131,7 +130,7 @@ entire host. Anthropic shipped Claude Code sandboxing (bubblewrap + network
 firewall) in 2025 against the same threat class.
 
 Position: defensible v0.3.0 scope choice, recognized debt now. Resolution
-lives in Appendix B's Security Hardening theme as a v0.6+ `opportunistic`
+lives in the roadmap's security-hardening theme as an opportunistic
 entry, not as a pillar commitment.
 
 ## Why verdict (b) and not (a/c/d)
@@ -157,8 +156,8 @@ each get one paragraph so future readers do not re-open the question.
 
 ## Decision summary
 
-> Phase 15 lifts this section verbatim into `docs/STRATEGY.md` Appendix B's
-> "Security Hardening" theme entry (NOT into a Pillar 3 section).
+> This section is the source for the security-hardening theme in
+> `docs/ROADMAP.md` — not for a Pillar 3 section.
 
 Verdict: (b) Fold into Pillar 2 as a sub-concern — security is not a separate
 pillar in v0.3.3.
@@ -171,7 +170,7 @@ adopt OWASP LLM Top 10 v2025 + Lethal Trifecta + Agents Rule of Two as
 reference frames; refuse to bump pinned versions to releases with known
 compromise; keep new, untested, or unreviewed projects out of the catalog
 by default (admission requires existing security-research track record +
-TST-08 4-gate behaviour-test + maintainer reputation).
+four-gate release pipeline + maintainer reputation).
 
 **Table-stakes that the fold subsumes (≥2):**
 
@@ -205,7 +204,7 @@ Pillar 2's STRATEGY.md section, not in a separate Pillar 3.
 
 - The fold inherits Pillar 2's `next-milestone` priority tag. Pillar 3 does
   not exist under verdict (b), so there is no separate pillar-3 tag.
-- Appendix B's Security Hardening theme is tagged `opportunistic` for v0.6+
+- The roadmap's security-hardening theme is tagged opportunistic
   and contains the declined defenses: capability-scoped sudoers replacing
   ADR-012, cosign-signed catalog releases, npm provenance verification in
   CI, bubblewrap-based per-recipe sandbox profile, iptables egress allowlist.

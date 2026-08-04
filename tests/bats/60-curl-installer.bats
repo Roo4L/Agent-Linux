@@ -3,7 +3,7 @@
 #
 # Exercises packaging/curl-installer/install.sh against a LOCAL HTTP fixture
 # served by python3 -m http.server. No live network: the fixture is built in
-# setup_file — fake tarball + sha256 sidecar + a plugin/bin/agentlinux-install
+# setup_file — fake tarball + sha256 sidecar + a plugin/bin/agentlinux (musl-bin)
 # stub that just prints "fake-installer OK" and exits 0. install.sh is invoked
 # with AGENTLINUX_RELEASE_BASE overriding the github.com permalink; when set,
 # install.sh skips the "latest" redirect entirely and fetches directly from
@@ -28,17 +28,23 @@ FIXTURE_PORT=${AGENTLINUX_FIXTURE_PORT:-8889}
 FIXTURE_TAG=v9.9.9-test
 
 setup_file() {
-  # 1. Build a fake tarball containing a plugin/bin/agentlinux-install stub.
-  #    The stub stands in for Phase 2's installer: prints a sentinel + exits 0.
+  # 1. Build a fake tarball containing a plugin/bin/agentlinux stub (DIST-01:
+  #    the shipped artifact is now the static musl bin, not the Bash entrypoint).
+  #    A shell stub stands in for the compiled bin — the test exercises
+  #    install.sh's fetch/verify/extract/EXEC HANDOFF, not the real provision.
+  #    The stub accepts the `provision …` arg install.sh now execs, prints the
+  #    happy-path sentinel, and exits 0.
   FIXTURE_TMP=$(mktemp -d -t agentlinux-fixture.XXXXXX)
   export FIXTURE_TMP
   mkdir -p "$FIXTURE_TMP/build/plugin/bin"
-  cat > "$FIXTURE_TMP/build/plugin/bin/agentlinux-install" <<'STUB'
+  cat > "$FIXTURE_TMP/build/plugin/bin/agentlinux" <<'STUB'
 #!/usr/bin/env bash
+# Fake static-bin stub: install.sh execs `agentlinux provision --user … --yes`.
+# Accept any args (the first is `provision`), print the sentinel, exit 0.
 printf 'fake-installer OK\n'
 exit 0
 STUB
-  chmod +x "$FIXTURE_TMP/build/plugin/bin/agentlinux-install"
+  chmod +x "$FIXTURE_TMP/build/plugin/bin/agentlinux"
 
   local tarball="agentlinux-${FIXTURE_TAG}.tar.gz"
   mkdir -p "$FIXTURE_TMP/releases/${FIXTURE_TAG}"
@@ -126,11 +132,12 @@ teardown_file() {
   fi
 }
 
-@test "INST-03: good SHA256 -> install.sh extracts + execs agentlinux-install (fake-fixture happy path)" {
+@test "INST-03: good SHA256 -> install.sh extracts + execs agentlinux provision (fake-fixture happy path)" {
   # 06-02-02: Invoke the installer against the local HTTP fixture. On
-  # success install.sh must reach `exec "${INST}/plugin/bin/agentlinux-install"`
-  # — the fake stub prints "fake-installer OK" so that sentinel in output
-  # proves both SHA256 verification passed AND exec fired.
+  # success install.sh must reach `exec "${INST}/plugin/bin/agentlinux" provision …`
+  # (DIST-01: the musl bin, not the Bash entrypoint) — the fake stub prints
+  # "fake-installer OK" so that sentinel in output proves both SHA256
+  # verification passed AND the exec handoff to the musl bin fired.
   run env \
     AGENTLINUX_RELEASE_BASE="${FIXTURE_BASE}" \
     AGENTLINUX_VERSION="${FIXTURE_TAG}" \

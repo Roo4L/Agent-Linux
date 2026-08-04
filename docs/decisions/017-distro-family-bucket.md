@@ -64,7 +64,7 @@ operation through **one** dispatch layer.
    truth, three lockstep sites). No call site ever inlines `if [[ $FAMILY == rhel ]]`.
 
 4. **JSON contract field names are preserved while their probes generalize.** The
-   DET-01 field `user.can_sudo_apt` (asserted by `render.sh` and the bats suite) keeps
+   the `user.can_sudo_apt` field (asserted by the bats suite) keeps
    its name; only the *probe binary* branches (`/usr/bin/apt-get --help` on debian,
    `/usr/bin/dnf --version` on rhel, both absolute-path anchored).
 
@@ -108,7 +108,7 @@ operation through **one** dispatch layer.
   path. `nodesource_setup` uses `rpm.nodesource.com/setup_22.x` (which sets
   `module_hotfixes=1`), and `nodesource_module_reset` runs `dnf -y module reset
   nodejs` (rhel-only, no-op on debian) to defuse an already-installed AppStream
-  stream on brownfield hosts. The RT-01 `node --version` ≥ 22 hard-check is retained.
+  stream on brownfield hosts. The `node --version` ≥ 22 hard-check is retained.
 
 - **`localectl set-locale`** for the EL9 locale — rejected. `localectl` needs
   `systemd-localed` over D-Bus, which is absent in Docker test containers and would
@@ -118,7 +118,7 @@ operation through **one** dispatch layer.
 - **Branching on os-release `ID_LIKE`** instead of `ID` — rejected. `ID_LIKE="rhel
   centos fedora"` would silently admit Rocky/RHEL/CentOS/Fedora — out of scope,
   untested, a false promise. The gate matches `ID=almalinux` exactly (project
-  convention; also EL-01).
+  convention).
 
 - **`microdnf` / `almalinux/9-minimal`** as the package manager — rejected. Only full
   `dnf` has the `module` subcommand and weak-deps control the NodeSource defuse and
@@ -135,7 +135,5 @@ operation through **one** dispatch layer.
 - ADR-012 — agent-user full sudo (`20-sudoers.sh` routes only its `sudo`-package
   install through `pkg_install`; the 0440 root:root drop-in install/validate path is
   untouched).
-- `plugin/lib/distro_detect.sh`, `plugin/lib/pkg.sh` — the files this ADR documents.
-- REQUIREMENTS.md — EL-01 (family detection + escape-hatch seed), EL-02 (verb dispatch;
-  all 13 sites routed; Ubuntu byte-for-byte).
-- Phase 18 plans 18-01..18-05 SUMMARY.md — what shipped against this decision.
+- `plugin/lib/distro_detect.sh`, `plugin/lib/pkg.sh` — the files this ADR documented
+  at the time. The logic now lives in the Rust provisioner (`distro.rs`, `pkg.rs`).

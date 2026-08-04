@@ -23,14 +23,26 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9>
+usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9> [bats-file]
 
 Builds the matching Docker image, runs agentlinux-install inside, runs the
 bats suite inside, and exits with the bats exit code.
 
+Arguments:
+  <target>    the distro image to build + boot (required).
+  [bats-file] OPTIONAL: a single bats file to run instead of the whole
+              tests/bats/ directory (dodges the Docker OOM the full suite hits
+              in some VMs). Accepts a bare basename with or without the .bats
+              suffix, e.g. `40-registry-cli` or `40-registry-cli.bats`.
+
 Environment:
   AGENTLINUX_DOCKER_KEEP_CONTAINER=1  Skip cleanup (container kept running for
                                       interactive docker exec debugging).
+
+  The run stages the static-musl Rust `agentlinux` bin and runs `provision` AS
+  the provisioner (the sole distribution path); the bats exercise Rust with no
+  flag. If the musl bin cannot be built/staged the run ABORTS non-zero — it
+  NEVER silently false-greens on a missing artifact.
 
 Exit codes:
   0   installer + bats both green
@@ -57,6 +69,21 @@ case "$TARGET" in
     ;;
 esac
 
+# Optional second positional: a single bats file to run (Docker OOM dodge —
+# MEMORY: the full suite OOMs ~test 131 in this VM). Normalize to a bare
+# basename with a .bats suffix so both `40-registry-cli` and
+# `40-registry-cli.bats` resolve to tests/bats/40-registry-cli.bats. Absent →
+# whole-directory run (today's default, unchanged on master).
+BATS_FILE=${2:-}
+BATS_TARGET_PATH="tests/bats/"
+if [[ -n $BATS_FILE ]]; then
+  # Strip any leading path + trailing .bats, then re-add the suffix so a stray
+  # `tests/bats/40-registry-cli.bats` arg still works.
+  BATS_FILE=${BATS_FILE##*/}
+  BATS_FILE=${BATS_FILE%.bats}
+  BATS_TARGET_PATH="tests/bats/${BATS_FILE}.bats"
+fi
+
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$HERE/../.." && pwd)
 IMG="agentlinux-test:${TARGET}"
@@ -70,7 +97,9 @@ fi
 # Test-secret forwarding. Append rows here in lockstep with .env.local.example
 # and docs/internals/test-secrets.md.
 SECRET_ALLOWLIST=(
-  ANTHROPIC_API_KEY  # interactive Claude Code behavioral tests
+  ANTHROPIC_API_KEY  # interactive Claude Code tests; opencode + qwen-code smokes
+  OPENAI_API_KEY     # codex smoke (OpenAI-only)
+  ANTIGRAVITY_CLI_QA # antigravity-cli smoke
   FOO                # test-secrets convention smoke
 )
 
@@ -107,13 +136,7 @@ final_banner() {
 trap final_banner EXIT
 
 echo "== build ${IMG} from ${DF} =="
-# Build context is the repo root. Phase 4 Plan 04-06 added a multi-stage
-# `cli-builder` stage to each Dockerfile that runs `pnpm install + pnpm run
-# build` against `plugin/cli/`, so the build context needs to include the
-# plugin/ tree. The final image is still small: only the compiled dist/ is
-# copied from the builder stage (COPY --from=cli-builder) into the Ubuntu
-# test image at /opt/cli-prebuilt/dist; source + node_modules stay in the
-# throwaway builder layer.
+# Build context is the repo root (the Dockerfile stages the systemd test image).
 docker build -t "$IMG" -f "$DF" "$REPO_ROOT"
 
 echo "== run systemd container from ${IMG} =="
@@ -185,32 +208,118 @@ done
 echo "== stage sources into container =="
 docker exec "$CID" bash -c 'cp -R /workspace /opt/agentlinux-src'
 
-# Phase 4 Plan 04-06: splice the pre-built CLI bundle from the image's
-# builder stage (staged at /opt/cli-prebuilt/{dist,node_modules,package.json})
-# into the staged source tree. The host's plugin/cli/dist/ and
-# plugin/cli/node_modules/ are gitignored (tsc output + pnpm install output,
-# not checked in), so without this splice the 50-registry-cli.sh provisioner
-# would fail the "CLI dist/index.js missing" sanity check, or the CLI would
-# fail at runtime with ERR_MODULE_NOT_FOUND on `import 'commander'`. The
-# splice is idempotent — it runs once per container startup against a
-# freshly-copied /opt/agentlinux-src.
-echo "== splice pre-built CLI bundle (dist/ + node_modules/ + package.json) into staged sources =="
+HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
+RUST_PROVISION_BIN_IN_CONTAINER=/usr/local/lib/agentlinux/provision/agentlinux
+
+# host_build_musl — ensure the static-musl `agentlinux` bin exists on the host
+# (build it if absent). Shared by the Phase-57 provisioner seam below and the
+# Phase-53 RUST-03 reuse staging further down. Non-fatal by itself: callers that
+# REQUIRE the bin (the provisioner seam) assert `-x $HOST_MUSL_BIN` afterward and
+# fail loud; callers that treat it as optional (the reuse staging) fall back.
+host_build_musl() {
+  # When cargo is available, ALWAYS (re)build — cargo's incremental compilation
+  # makes this a near-noop when nothing changed, and it correctly refreshes a
+  # STALE binary after a source edit. The previous `[[ -x ]] && return 0` early
+  # return silently staged a stale bin across waves (a false green/red risk on
+  # the acceptance oracle). Fall back to an existing prebuilt bin only when cargo
+  # is absent (the CI prebuilt-stage path).
+  #
+  # A FAILED build is fatal here, not a warning. The only downstream guard is
+  # `[[ -x $HOST_MUSL_BIN ]]` — existence, not freshness — so with a warm
+  # rust/target a compile error left yesterday's binary in place, staged it, ran
+  # all 242 tests against code that does not compile, and printed PASS.
+  if command -v cargo >/dev/null 2>&1 || [[ -f "$HOME/.cargo/env" ]]; then
+    # shellcheck disable=SC1091  # optional, path checked
+    [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
+    echo "-- building/refreshing host musl binary (cargo incremental) --"
+    if ! (cd "$REPO_ROOT/rust" \
+      && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux); then
+      echo "ERROR: host musl build FAILED — refusing to run bats against a possibly stale binary" >&2
+      exit 1
+    fi
+  elif [[ -x $HOST_MUSL_BIN ]]; then
+    echo "-- cargo unavailable; using existing prebuilt musl binary --"
+  else
+    echo "-- WARN: cargo unavailable and no prebuilt musl binary --"
+  fi
+}
+
+# Phase 58 (DIST-01 / GATE-01 / GATE-05): the Rust musl `provision` seam is now
+# the DEFAULT provisioner. Wave 2 made the static-musl bin the shipped + staged
+# `agentlinux` artifact (registry_cli.rs stages the bin, install.sh execs the
+# musl `provision`), so run.sh runs the Rust `provision` AS the provisioner (as
+# ROOT — the container exec is root by default; the Rust `provision` uses
+# require_root, NOT the CLI-05 guard_agent_user) with NO override. The forward
+# AGENTLINUX_PROVISION_RUST flag is folded into this default path — the bats now
+# exercise Rust with no flag (GATE-01's intent for this phase).
+#
+# Fail-loud (no false-green / T-58-07): if the musl bin cannot be built/staged,
+# ABORT non-zero rather than silently running bats against a missing artifact.
+echo "== run Rust provisioner (agentlinux provision) [default] =="
+host_build_musl
+if [[ ! -x $HOST_MUSL_BIN ]]; then
+  echo "ERROR: the Rust provisioner musl bin is absent — refusing to run bats against a missing artifact and report false-green" >&2
+  exit 1
+fi
+# Stage the provisioner bin at a ROOT-owned path (it runs as root via
+# require_root — NOT the agent-owned reuse path). Kept distinct from the
+# RUST-03 reuse staging so the two seams never collide.
+docker exec "$CID" install -d /usr/local/lib/agentlinux/provision
+docker cp "$HOST_MUSL_BIN" "$CID:$RUST_PROVISION_BIN_IN_CONTAINER"
+docker exec "$CID" chmod +x "$RUST_PROVISION_BIN_IN_CONTAINER"
+# The Rust provisioner's 50-registry-cli step STAGES the shipped musl bin from
+# $AGENTLINUX_SRC_ROOT/bin/agentlinux (the tarball payload layout,
+# plugin/bin/agentlinux). Splice the built musl bin into the staged src root so
+# the provisioner finds the artifact it stages; without it the sanity-check dies
+# "release tarball malformed?".
+docker exec "$CID" install -d /opt/agentlinux-src/plugin/bin
+docker cp "$HOST_MUSL_BIN" "$CID:/opt/agentlinux-src/plugin/bin/agentlinux"
+docker exec "$CID" chmod 0755 /opt/agentlinux-src/plugin/bin/agentlinux
+# Invoke the `provision` verb as ROOT. The install user defaults to `agent`
+# (the AGENTLINUX_USER contract resolve_install_user() honors); pass it
+# explicitly.
+docker exec "$CID" "$RUST_PROVISION_BIN_IN_CONTAINER" provision --user agent --yes
+
+
+# Seed the BHV-02 SSH keypair + start sshd BEFORE bats. The 20-agent-user /
+# 50-agents suites generate this in their own `setup()`, but 30-runtime.bats does
+# NOT — so a PER-FILE `30-runtime` run has no /root/.ssh/id_ed25519 +
+# ~agent/.ssh/authorized_keys, the `ssh` invocation mode fails to connect, and the
+# INVOKE_MODES loop aborts at `ssh` BEFORE it reaches `sudo_u`/`sudo_u_i` (masking
+# those Docker-runnable modes). Seeding here (idempotent — the bats set()s guard on
+# key presence) lets the six-mode iteration REACH sudo_u/sudo_u_i on a per-file run.
+# This is a TEST-HARNESS seed (mirrors 20-agent-user.bats:29-34); the bats specs are
+# untouched. ssh/systemd_user/cron modes themselves are the Phase-59 QEMU gate — a
+# green here on the privileged systemd container is a bonus, not a QEMU substitute.
+echo "== seed BHV-02 ssh keypair + sshd (idempotent; unblocks the six-mode iteration) =="
 docker exec "$CID" bash -c '
-  set -euo pipefail
-  mkdir -p /opt/agentlinux-src/plugin/cli/dist
-  mkdir -p /opt/agentlinux-src/plugin/cli/node_modules
-  cp -R /opt/cli-prebuilt/dist/. /opt/agentlinux-src/plugin/cli/dist/
-  cp -R /opt/cli-prebuilt/node_modules/. /opt/agentlinux-src/plugin/cli/node_modules/
-  cp /opt/cli-prebuilt/package.json /opt/agentlinux-src/plugin/cli/package.json
-'
+  set -e
+  # Two INDEPENDENT guards, deliberately. Nesting the authorized_keys install
+  # inside the keypair check made "the keypair exists" stand in for "the agent
+  # can be reached over ssh" — and at this point in the run the agent user does
+  # NOT exist yet (bats provisions it), so `id agent` fails, authorized_keys is
+  # skipped, and the keypair is left behind. Every later guard then sees the key
+  # present and short-circuits, including 20-agent-user.bats setup(). The result
+  # was BHV-02 failing with `Permission denied (publickey,password)` on a host
+  # that was otherwise provisioned correctly.
+  if [[ ! -f /root/.ssh/id_ed25519 ]]; then
+    install -d -m 0700 -o root -g root /root/.ssh
+    ssh-keygen -t ed25519 -N "" -f /root/.ssh/id_ed25519 -q
+  fi
+  if id agent >/dev/null 2>&1 && [[ ! -f /home/agent/.ssh/authorized_keys ]]; then
+    install -d -m 0700 -o agent -g agent /home/agent/.ssh
+    install -m 0600 -o agent -g agent \
+      /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
+  fi
+  # Best-effort sshd start (family unit: ssh on Debian, sshd on EL9). Silent on a
+  # non-systemd container — the ssh-mode tests then diagnose the connection error.
+  systemctl start ssh 2>/dev/null || systemctl start sshd 2>/dev/null || true
+' || echo "-- ssh keypair/sshd seed reported a problem (ssh-mode tests will diagnose) --"
 
-echo "== run installer (agentlinux-install) =="
-docker exec "$CID" bash /opt/agentlinux-src/plugin/bin/agentlinux-install
-
-echo "== run bats suite (tests/bats/) =="
+echo "== run bats suite (${BATS_TARGET_PATH}) =="
 # cd into the staged sources so bats discovers helpers/ relatively.
 set +e
-docker exec "$CID" bash -c 'cd /opt/agentlinux-src && bats tests/bats/'
+docker exec "$CID" bash -c 'cd /opt/agentlinux-src && bats '"$BATS_TARGET_PATH"
 BATS_STATUS=$?
 set -e
 

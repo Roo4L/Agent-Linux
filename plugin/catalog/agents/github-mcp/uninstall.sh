@@ -1,12 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
-# github-mcp uninstall.sh — symmetric inverse (Phase 36, MCP-03).
+# github-mcp uninstall.sh — symmetric inverse.
 #
-# Deregisters the GitHub remote MCP server from EVERY present MCP-capable agent
-# via the shared cross-agent helper. Deregistration IS the uninstall — nothing
-# was installed to a prefix; the registration lived only in each agent's config.
-# Idempotent (a no-op where the entry is already absent) and residue-free.
-# AgentLinux never stored a credential (ADR-017 thin installer), so nothing to leak.
+# Deregisters the server from every present MCP-capable agent and asserts no
+# residue. Deregistration IS the uninstall: nothing was installed to a prefix,
+# and AgentLinux never stored a credential (ADR-018 thin installer).
 
 : "${AGENTLINUX_AGENT_HOME:?AGENTLINUX_AGENT_HOME not set}"
 : "${AGENTLINUX_CATALOG_DIR:?AGENTLINUX_CATALOG_DIR not set}"
@@ -14,13 +12,4 @@ set -euo pipefail
 # shellcheck source=../../lib/mcp-register.sh
 source "${AGENTLINUX_CATALOG_DIR}/lib/mcp-register.sh"
 
-server="github-mcp"
-
-echo "${server}: deregistering the GitHub remote MCP server from all present agents"
-
-al_mcp_deregister "$server"
-
-# Truth check: no residue in any present agent's config.
-al_mcp_assert_absent "$server"
-
-echo "${server}: deregistered (no residue in any agent config)"
+al_mcp_uninstall_http "github-mcp" "GitHub remote MCP server"

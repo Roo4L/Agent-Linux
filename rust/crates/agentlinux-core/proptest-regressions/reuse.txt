@@ -1,0 +1,9 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 3e936c6dc5bfaf305a7fb2eb8beaa0947899772aed3de4d0afe08d6f01a148f6 # shrinks to id = "\u{b}", status = "broken", detected_path = None, canonical = Some(""), gsd_system_path = "", align_paths = false
+cc 7e077d64cdc121320623090d001ab1e7adca2402f02820738d8dca576eaf34d6 # shrinks to id = "0", status = "healthy", detected_path = None, canonical = Some(""), gsd_system_path = "", align_paths = true
+cc 8cbc8f041a45fd508703d7dafbcd95ebec5832da50329de65a78d9fee4e5c3f5 # shrinks to id = "0", status = "healthy", detected_path = None, canonical = Some(""), gsd_system_path = "", align_paths = true

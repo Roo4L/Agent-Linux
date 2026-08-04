@@ -3,18 +3,15 @@
 # tests/docker/dogfood.sh — one-command dogfood retest of the curl-pipe-bash
 # install path. AL-36.
 #
-# Replaces the eight-line manual recipe documented in
-# .planning/quick/260503-dtx-.../260503-dtx-SUMMARY.md (Path A). Builds the
-# minimal Dockerfile.dogfood image with curl + ca-certificates preinstalled,
-# runs it under the systemd-in-Docker recipe, exports AGENTLINUX_VERSION
-# so the AL-31 unpinned-resolution bug does not bite users of this script
-# until it lands on a published RC, fires the curl-pipe-bash, and exercises
-# the canonical AGT-02 self-update probe end-to-end.
+# Builds the minimal Dockerfile.dogfood image with curl + ca-certificates
+# preinstalled, runs it under the systemd-in-Docker recipe, fires the real
+# curl-pipe-bash against a published release, and exercises the canonical AGT-02
+# self-update probe end-to-end.
 #
 # Usage:
 #   tests/docker/dogfood.sh                          # ubuntu 24.04, latest stable RC
 #   tests/docker/dogfood.sh ubuntu-22.04             # 22.04, latest
-#   tests/docker/dogfood.sh ubuntu-26.04 v0.3.2-rc2  # 26.04, pinned RC
+#   tests/docker/dogfood.sh ubuntu-26.04 v0.4.0-rc1  # 26.04, pinned RC
 #   tests/docker/dogfood.sh -h | --help              # usage
 #
 # Environment overrides:
@@ -22,15 +19,14 @@
 #                                 debugging — the container ID is printed
 #                                 at end-of-run for follow-up).
 #   AGENTLINUX_DOGFOOD_TAG        synonym for the second arg; arg wins.
+#                                 Unset = install whatever is latest.
 #
 # Exit codes:
 #   0    install + claude install + claude update all green; no EACCES
 #   64   bad/missing argument
 #   >0   install, agent install, or claude update failure (propagated)
 #
-# Refs: AL-36; AL-30 (the four installer fixes that made this image possible);
-#       AL-31 (unpinned-resolution; this wrapper sets AGENTLINUX_VERSION to
-#       sidestep it on retests against pre-AL-31 RCs).
+# Refs: AL-36; AL-30 (the four installer fixes that made this image possible).
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -39,14 +35,12 @@ usage() {
   cat >&2 <<'EOF'
 usage: tests/docker/dogfood.sh [<ubuntu-22.04|ubuntu-24.04|ubuntu-26.04>] [<vX.Y.Z[-suffix]>]
 
-Defaults to ubuntu-24.04 and the v0.3.2-rc2 release tag (AL-31 workaround
-— unpinned curl-pipe-bash 404s against pre-AL-31 published RCs because the
-installer follows the wrong redirect hop; this wrapper exports
-AGENTLINUX_VERSION so the workaround is automatic).
+Defaults to ubuntu-24.04 and whatever release is currently latest — the path a
+real user takes. Pass a tag to install a specific release instead.
 
 Environment overrides:
-  AGENTLINUX_DOGFOOD_TAG=v0.3.x-rcN   override the default tag without
-                                       passing it as the second argument
+  AGENTLINUX_DOGFOOD_TAG=vX.Y.Z-rcN   pin a tag without passing it as the
+                                       second argument
   AGENTLINUX_KEEP_CONTAINER=1          skip teardown for interactive
                                        `docker exec` debugging. WARNING:
                                        leaves a privileged container
@@ -84,13 +78,18 @@ esac
 
 readonly UBUNTU_NUM=${UBUNTU_VERSION#ubuntu-}
 
-# Pinned RC tag. AL-31 documents that unpinned curl-bash currently 404s
-# on the redirect-URL parse path; this wrapper exports a default tag so the
-# dogfood test passes against pre-AL-31 RCs without the user having to
-# remember the workaround. Override via second argument or AGENTLINUX_DOGFOOD_TAG.
-readonly TAG=${2:-${AGENTLINUX_DOGFOOD_TAG:-v0.3.2-rc2}}
+# The release tag to install. EMPTY BY DEFAULT — the installer then resolves
+# "latest" itself, which is the path a real user takes and therefore the one
+# worth dogfooding.
+#
+# This used to default to a pinned v0.3.2-rc2 to route around AL-31, where
+# unpinned resolution 404'd on the redirect-URL parse. That is fixed
+# (`resolve_version` in packaging/curl-installer/install.sh reads
+# `%{redirect_url}` instead of following with -L), so the pin now only served to
+# test an ancient release. Pass a tag explicitly to install a specific one.
+readonly TAG=${2:-${AGENTLINUX_DOGFOOD_TAG:-}}
 readonly TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
-if [[ ! "$TAG" =~ $TAG_REGEX ]]; then
+if [[ -n "$TAG" && ! "$TAG" =~ $TAG_REGEX ]]; then
   printf 'tests/docker/dogfood.sh: tag fails regex %s: %q\n' "$TAG_REGEX" "$TAG" >&2
   exit 64
 fi
@@ -172,11 +171,15 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
-printf '== curl-pipe-bash install (AGENTLINUX_VERSION=%s) ==\n' "$TAG"
-# Pipe AGENTLINUX_VERSION explicitly into the docker exec so the inner bash
-# inherits it (the AL-31 redirect-parse workaround documented at the top).
-docker exec -e "AGENTLINUX_VERSION=$TAG" "$CID" \
-  bash -lc 'curl -fsSL https://agentlinux.org/install.sh | bash'
+printf '== curl-pipe-bash install (%s) ==\n' "${TAG:-latest}"
+# Only pin when a tag was asked for; otherwise let the installer resolve latest.
+if [[ -n "$TAG" ]]; then
+  docker exec -e "AGENTLINUX_VERSION=$TAG" "$CID" \
+    bash -lc 'curl -fsSL https://agentlinux.org/install.sh | bash'
+else
+  docker exec "$CID" \
+    bash -lc 'curl -fsSL https://agentlinux.org/install.sh | bash'
+fi
 
 printf '== agentlinux install claude-code ==\n'
 docker exec "$CID" sudo -u agent -H bash -lc 'agentlinux install claude-code'

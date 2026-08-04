@@ -39,7 +39,9 @@ echo "TEMPLATE: remove exactly what install.sh created"
 #      npm     : npm rm -g "<pkg>" || true
 #      binary  : rm -f "${AGENTLINUX_AGENT_HOME}/.local/bin/<tool>"
 #      uv tool : source .../uv-bootstrap.sh; al_uv_tool_uninstall <pkg>; al_uv_remove_if_managed_and_unused
-#      mcp     : source .../mcp-register.sh; al_mcp_deregister <server>
+#      mcp     : source .../mcp-register.sh
+#                al_mcp_uninstall_http <server> "<display name>"
+#                — deregisters from every present agent and asserts no residue.
 #      daemon  : source .../daemon-lifecycle.sh; <tool> daemon uninstall; al_daemon_unmark <id>; al_daemon_revert_linger_if_unused
 
 # 2. Config/credentials — preserve per CAT-04 (only delete when NOT preserved):

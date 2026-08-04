@@ -8,8 +8,8 @@
 # MUST hold (post-update version >= pre-update version via sort -V).
 #
 # This is v0.3.4's TST-07 equivalent — the release-readiness gate. The captured
-# transcript is written to docs/audits/v0.3.4/AGT-02-brownfield-acceptance.md
-# and committed alongside this test as the milestone-close evidence artifact.
+# transcript is written to .planning/audits/v0.3.4/AGT-02-brownfield-acceptance.md
+# for a human to read after a red run.
 #
 # GREENFIELD INVARIANT (D-16-08): tests/bats/51-agt02-release-gate.bats remains
 # UNCHANGED — this is the brownfield counterpart, additive only.
@@ -32,16 +32,16 @@ load 'helpers/assertions'
 load 'helpers/brownfield'
 
 # AL-29: derive the catalog version from package.json — single SoT (matches 51-*'s pattern).
-PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 # teardown_file invariant — restore canonical post-installer state so downstream
 # bats files see the same shape the docker harness staged for them. Mirrors
 # 14-remediate.bats's teardown discipline + 15-preflight-ux.bats's.
 teardown_file() {
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
-  bash "$INSTALLER" >/dev/null 2>&1 || true
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
+  "$INSTALLER" provision >/dev/null 2>&1 || true
 }
 
 @test "BHV-52a (brownfield-AGT-02 milestone-close gate): pre-populated host + agentlinux install --yes + claude update zero EACCES + version monotonicity + transcript captured" {
@@ -55,7 +55,7 @@ teardown_file() {
   # Step 2: run the installer with --yes to opt into REMEDIATE-04 reinstall
   # of claude-code at the canonical path. Non-TTY context (bats subshell);
   # without --yes this would correctly bail with exit 65 per UX-03.
-  run bash "$INSTALLER" --yes
+  run "$INSTALLER" provision --yes
   [[ "$status" -eq 0 ]] || {
     printf 'agentlinux install --yes FAILED (status=%d):\n%s\n' "$status" "$output" >&2
     false
@@ -89,16 +89,15 @@ teardown_file() {
     false
   }
 
-  # Step 7: capture the transcript to the milestone-close audit doc (D-16-09).
+  # Step 7: capture the transcript as local gate evidence (D-16-09).
   # `run` re-binds $output, so re-read the transcript file into $output via
   # a no-op `run cat` so capture_transcript_to picks it up.
   run cat "$transcript"
   capture_transcript_to \
-    docs/audits/v0.3.4/AGT-02-brownfield-acceptance.md \
+    .planning/audits/v0.3.4/AGT-02-brownfield-acceptance.md \
     "$pre_version" \
     "$post_version"
 
-  # Cleanup the tmp transcript (the committed audit doc holds the canonical copy).
   rm -f "$transcript"
 }
 

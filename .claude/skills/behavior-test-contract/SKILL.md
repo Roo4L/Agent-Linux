@@ -1,6 +1,6 @@
 ---
 name: behavior-test-contract
-description: Use when authoring or modifying bats tests under tests/bats/. Documents how to write BHV/RT/AGT/CLI/CAT/INST tests, shared assertion helpers, the six invocation modes (interactive bash login, non-interactive SSH, cron, systemd User=agent, sudo -u agent, sudo -u agent -i), and the no-EACCES contract. Every @test references its requirement ID so behavior-coverage-auditor can trace coverage. Grows as the first bats suite ships in Phase 2.
+description: Use when authoring or modifying bats tests under tests/bats/. Documents how to write BHV/RT/AGT/CLI/CAT/INST tests, shared assertion helpers, the six invocation modes (interactive bash login, non-interactive SSH, cron, systemd User=agent, sudo -u agent, sudo -u agent -i), and the no-EACCES contract. Every @test references the behavior it defends.
 ---
 
 # behavior-test-contract — Bats test authoring
@@ -62,9 +62,9 @@ Zero occurrences of `EACCES` or `permission denied` on stdout or stderr during t
 - `assert_no_shim <binary>` — follows `readlink -f` to confirm the binary is not a wrapper pointing at a different agent-owned binary.
 - `assert_npm_prefix_is_user_writable` — `npm config get prefix` returns a path the agent user can write to without sudo.
 
-## Test-ID linkage (required)
+## Test naming (required)
 
-Every `@test` line in a `.bats` file MUST reference its requirement ID in the test name. The `behavior-coverage-auditor` subagent greps for this linkage at every phase close (TST-07 gate).
+Every `@test` line in a `.bats` file MUST name the behavior it defends, so a failure says what broke without opening the file.
 
 Good:
 ```bash
@@ -72,7 +72,7 @@ Good:
 @test "AGT-02: agent user self-updates Claude Code without EACCES" { ... }
 ```
 
-Bad (no ID — auditor flags this):
+Bad (names no behavior):
 ```bash
 @test "agent can SSH" { ... }
 ```
@@ -98,7 +98,7 @@ Bad (no ID — auditor flags this):
 
 ## Related
 
-- `docs/HARNESS.md` §1.3 (testing layers), §5.2 (skill table), §4.2 (qa-engineer + behavior-coverage-auditor rubrics).
+- `docs/HARNESS.md` §1.3 (testing layers), §5.2 (skill table), §4.2 (qa-engineer rubric).
 - ADRs: 002 (behavior-contract framing), 007 (Docker + QEMU two-layer harness).
-- Subagents: `qa-engineer` (test authoring review), `behavior-coverage-auditor` (end-of-phase TST-07 gate).
+- Subagents: `qa-engineer` (test authoring review).
 - Sibling skills: `agentlinux-installer` (the installer these tests exercise), `catalog-schema` (catalog recipes tested by `50-registry-cli.bats`), `qemu-harness` (the release-gate environment these tests run in).

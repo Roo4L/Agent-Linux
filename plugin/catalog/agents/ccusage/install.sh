@@ -11,7 +11,8 @@ set -euo pipefail
 # required or accepted, so nothing is baked and there is no per-tool config to
 # preserve (it owns no state of its own) — hence no preserve_paths.json.
 #
-# NPM_CONFIG_PREFIX=/home/agent/.npm-global (runner.ts) keeps the install
+# NPM_CONFIG_PREFIX=/home/agent/.npm-global (injected by the CLI's recipe env,
+# rust/crates/agentlinux/src/recipe_env.rs) keeps the install
 # agent-owned, no root, no /usr/local shim (RT-02, ADR-004).
 
 : "${AGENTLINUX_PINNED_VERSION:?AGENTLINUX_PINNED_VERSION not set}"

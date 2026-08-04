@@ -26,6 +26,15 @@ Ask:
 For code that runs in production, a silent hang or an undiagnosable failure is a
 defect even when the happy path is correct — observability is part of correctness.
 
+AgentLinux's reliability trade-offs live in the decision record, not in this
+prompt. Start from the ADR index at `docs/decisions/README.md`, tag `reliability`.
+Two of them answer questions this rubric asks directly — ADR-021 on why steps
+converge instead of recording completion, and ADR-022 on which waits are bounded
+and how expiry degrades. Re-filing a trade-off those record is noise. Still a
+finding: a new unbounded wait, a bound that cannot fire, an expiry with no
+operator-visible line, a gate whose probe does not cover the actions it guards, or
+an ADR whose claims no longer match the code.
+
 Output: free-form summary, cite `file:line`, lead with the failure mode most
 likely to hang or corrupt state, no BLOCK/FLAG/PASS tags. You are an advisor; the
 main agent triages.

@@ -34,7 +34,7 @@ load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
 # AL-29: derive the catalog version from package.json — single SoT.
-PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 
 setup_file() {
@@ -43,7 +43,7 @@ setup_file() {
   # mirrors 53/57: re-run the raw installer when the symlink is absent so
   # `agentlinux install <id>` has a working dispatch surface.
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
 
   # Defensive scrub of this cluster's binaries + per-tool state BEFORE any test, so

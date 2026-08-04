@@ -25,8 +25,8 @@ in a file that does not is.
   assertion style is intentional.
 - Any file under `packaging/` (the curl-installer, the .deb wrapper).
 - Any file under `docs/` **except** `docs/decisions/*` (ADRs are
-  load-bearing prose) and `docs/research/*/SUMMARY.md` (synthesis docs
-  rely on careful prose framing).
+  load-bearing prose) and `docs/research/*` (decision research relies on
+  careful prose framing).
 - Always skip `.planning/` (GSD workflow state, not project content) and
   vendored / generated files (`plugin/cli/dist/`, `node_modules/`,
   `tests/qemu/cloud-images/*.img`).

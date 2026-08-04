@@ -19,23 +19,8 @@
 # fix lands on every supported version.
 
 # ---------------------------------------------------------------
-# Stage 1: cli-builder — compile plugin/cli/ via pnpm on node:22-slim.
 # Identical to the 22.04 / 24.04 variants — see Dockerfile.ubuntu-24.04 for
 # the rationale (Docker-build hermeticity, source-only cache key, prune --prod).
-# ---------------------------------------------------------------
-FROM node:22-slim AS cli-builder
-WORKDIR /build/cli
-COPY plugin/cli/package.json plugin/cli/pnpm-lock.yaml ./
-COPY plugin/cli/tsconfig.json ./
-COPY plugin/cli/src ./src
-RUN corepack enable \
-    && corepack prepare pnpm@latest --activate \
-    && pnpm install --frozen-lockfile \
-    && pnpm run build \
-    && pnpm prune --prod
-
-# ---------------------------------------------------------------
-# Stage 2: final test image — Ubuntu 26.04 + systemd-in-docker.
 # ---------------------------------------------------------------
 FROM ubuntu:26.04
 
@@ -81,9 +66,6 @@ RUN locale-gen C.UTF-8 || true && update-locale LANG=C.UTF-8 LC_ALL=C.UTF-8
 # Phase 4 Plan 04-06: copy the pre-built CLI dist/ + production-pruned
 # node_modules/ + package.json from the builder stage. See the 24.04 sibling
 # for the full rationale (run.sh splices these into the staged source tree).
-COPY --from=cli-builder /build/cli/dist /opt/cli-prebuilt/dist
-COPY --from=cli-builder /build/cli/node_modules /opt/cli-prebuilt/node_modules
-COPY --from=cli-builder /build/cli/package.json /opt/cli-prebuilt/package.json
 
 # cgroup bind + SIGRTMIN+3 graceful-stop required by systemd-as-PID-1 recipe.
 VOLUME /sys/fs/cgroup

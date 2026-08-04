@@ -19,8 +19,8 @@
 #     `load 'helpers/distro'` (and by brownfield.bash); strict mode inside a
 #     sourced library leaks into the test framework and breaks TAP output.
 #   - Container-side, STANDALONE: dispatches on /etc/os-release ID inside the
-#     test container WITHOUT sourcing any product lib (plugin/lib/*). This keeps
-#     distro.bash usable in places where no product lib is loaded (e.g. the
+#     test container WITHOUT invoking the product binary. This keeps
+#     distro.bash usable in places where no product code is available (e.g. the
 #     10-installer INST-02 snapshot test).
 #   - Family is cached in `_AGENTLINUX_TEST_FAMILY` after the first read;
 #     override it (export `_AGENTLINUX_TEST_FAMILY=rhel|debian`) for unit
@@ -31,8 +31,8 @@
 # distro_family
 # Prints `rhel` (AlmaLinux/EL9) or `debian` (Ubuntu) by reading the in-image
 # /etc/os-release ID. Cached. Mirrors the product-side detect_distro
-# (plugin/lib/distro_detect.sh) but reads os-release directly so no product lib
-# is required.
+# (rust/crates/agentlinux/src/distro.rs::detect_distro) but reads os-release
+# directly so no product code is required.
 distro_family() {
   [[ -n "${_AGENTLINUX_TEST_FAMILY:-}" ]] && {
     printf '%s' "$_AGENTLINUX_TEST_FAMILY"
@@ -71,9 +71,9 @@ distro_assert_locale() {
 
 # distro_nodesource_repo_paths
 # Prints the family's NodeSource repo-definition path. Consumer: INST-02
-# idempotency snapshot file-list (10-installer), container-side where no product
-# lib is sourced. Where a product lib IS sourced, prefer the product
-# nodesource_repo_paths verb (plugin/lib/pkg.sh) — the single source of truth.
+# idempotency snapshot file-list (10-installer), container-side. Mirrors the
+# product's `pkg::nodesource_repo_paths` (rust/crates/agentlinux/src/pkg.rs) —
+# the single source of truth; keep the two in sync.
 distro_nodesource_repo_paths() {
   case "$(distro_family)" in
     rhel) printf '%s\n' \
@@ -141,7 +141,8 @@ distro_sudoers_pkg_line() {
 
 # distro_wrong_shell
 # Prints a login shell that is GENUINELY non-bash on the family — i.e. one that
-# reuse::user_decision (plugin/lib/reuse/user.sh) rejects as `wrong-shell` after
+# the provisioner's user remediation (provision/remediate.rs::decide_core)
+# rejects as `wrong-shell` after
 # its `readlink -f` symlink resolution against {/bin/bash, /usr/bin/bash} — AND
 # is a FUNCTIONAL login shell, so the detection probes that run via as_user_login
 # (`sudo -u agent -i -- …`, e.g. the npm-prefix probe) still complete BEFORE the

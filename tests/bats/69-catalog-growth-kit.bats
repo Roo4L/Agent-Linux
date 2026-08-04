@@ -14,13 +14,13 @@ load 'helpers/invoke_modes'
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
-PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 SRC=/opt/agentlinux-src
 
 setup_file() {
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
 }
 
@@ -97,9 +97,10 @@ teardown() {
   # template-only-add round trip) in the sibling @tests.
   #
   # Gate on tests/docker/run.sh — a full-repo-only sentinel that QEMU never stages. Do NOT gate
-  # on "$SRC/docs" existing: the release-gate test 52 (capture_transcript_to) mkdir's a RELATIVE
-  # docs/audits/… path while bats' CWD is /opt/agentlinux-src, so a stray $SRC/docs appears
-  # in-guest whenever that CDN-gated test runs — an unreliable, order-dependent sentinel.
+  # on a directory's mere existence: the release-gate test 52 (capture_transcript_to) mkdir's a
+  # RELATIVE .planning/audits/… path while bats' CWD is /opt/agentlinux-src, so a stray
+  # $SRC/.planning appears in-guest whenever that CDN-gated test runs — an unreliable,
+  # order-dependent sentinel.
   [[ -f "${SRC}/tests/docker/run.sh" ]] ||
     skip "full repo not staged in-guest (QEMU ships only tests/bats + packaging; this published-artifacts check runs under Docker/pre-commit)"
 

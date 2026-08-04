@@ -3,6 +3,7 @@
 # tests/docker/rc-sandbox.sh — interactive local sandbox for hand-testing a
 # release candidate you built yourself, without publishing anything to GitHub.
 #
+# >>> USAGE >>>
 # Three-step workflow:
 #
 #   tests/docker/rc-sandbox.sh up          # 1. spin up a systemd Ubuntu container
@@ -47,6 +48,7 @@
 #
 # Environment:
 #   AGENTLINUX_RC_CONTAINER   container name (default: agentlinux-rc)
+# <<< USAGE <<<
 
 set -euo pipefail
 IFS=$'\n\t'
@@ -63,8 +65,12 @@ die() {
   exit 1
 }
 
+# Print the header block between the two USAGE sentinels, de-commented. Keyed on
+# sentinels rather than line numbers so adding a line to the header cannot
+# silently truncate `--help`.
 usage() {
-  sed -n '6,49p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+  sed -n '/^# >>> USAGE >>>$/,/^# <<< USAGE <<<$/p' "${BASH_SOURCE[0]}" \
+    | sed -e '1d' -e '$d' -e 's/^# \{0,1\}//'
 }
 
 container_running() {
@@ -131,7 +137,7 @@ cmd_install() {
   fi
   [[ -n "$tarball" && -f "$tarball" ]] \
     || die "no RC tarball found — build one first, e.g.:
-    SKIP_DEB=1 scripts/build-release.sh v0.3.6-rc1 --no-deb
+    scripts/build-release.sh v0.4.0-rc1
   (then re-run: $(basename "$0") install)"
   [[ -f "${tarball}.sha256" ]] \
     || die "missing sidecar ${tarball}.sha256 (rebuild via scripts/build-release.sh)"

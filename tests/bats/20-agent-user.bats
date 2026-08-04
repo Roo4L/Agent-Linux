@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # tests/bats/20-agent-user.bats — BHV-01..BHV-06.
 #
-# Every @test name starts with the requirement ID (BHV-XX:) so
-# behavior-coverage-auditor's TST-07 gate greps pass.
+# Every @test name starts with the requirement ID (BHV-XX:) so a failure in
+# bats output names the behavior that broke.
 #
 # Preconditions (set up by tests/docker/run.sh before bats runs):
 #   - agentlinux-install has already been invoked once. Agent user, PATH
@@ -29,6 +29,13 @@ setup() {
   if [[ ! -f /root/.ssh/id_ed25519 ]]; then
     install -d -m 0700 -o root -g root /root/.ssh
     ssh-keygen -t ed25519 -N '' -f /root/.ssh/id_ed25519 -q
+  fi
+  # Separate guard: the keypair existing does NOT mean the agent can be reached.
+  # The Docker harness seeds the keypair before bats runs, at which point the
+  # agent user does not exist yet — so authorized_keys was skipped there, and
+  # short-circuiting here on keypair-presence meant it was never installed at
+  # all. BHV-02 then failed with `Permission denied (publickey,password)`.
+  if [[ ! -f /home/agent/.ssh/authorized_keys ]] && id agent >/dev/null 2>&1; then
     install -d -m 0700 -o agent -g agent /home/agent/.ssh
     install -m 0600 -o agent -g agent \
       /root/.ssh/id_ed25519.pub /home/agent/.ssh/authorized_keys
@@ -39,17 +46,18 @@ setup() {
     # `:` on Debian. SELinux enforcement is never disabled — the guarded
     # restorecon is the only sanctioned fix.
     distro_restore_ssh_context /home/agent/.ssh
-    # Best-effort sshd start. On a systemd container this brings the family
-    # ssh unit (sshd on EL9, ssh on Debian) up; on a non-systemd container it
-    # silently fails — individual BHV-02 tests will then observe ssh connection
-    # errors and diagnose.
-    systemctl start "$(distro_ssh_unit)" >/dev/null 2>&1 || true
-    # Wait up to 5s for sshd to accept connections.
-    for _ in $(seq 1 5); do
-      if ss -lnt 2>/dev/null | grep -q ':22 '; then break; fi
-      sleep 1
-    done
   fi
+  # Best-effort sshd start, OUTSIDE the seeding guard: whether the keys needed
+  # installing says nothing about whether sshd is up, and on re-entry the guard
+  # is false. On a systemd container this brings the family ssh unit (sshd on
+  # EL9, ssh on Debian) up; on a non-systemd container it silently fails and the
+  # individual BHV-02 tests diagnose the connection error.
+  systemctl start "$(distro_ssh_unit)" >/dev/null 2>&1 || true
+  # Wait up to 5s for sshd to accept connections.
+  for _ in $(seq 1 5); do
+    if ss -lnt 2>/dev/null | grep -q ':22 '; then break; fi
+    sleep 1
+  done
 }
 
 # --- BHV-01 ------------------------------------------------------------------

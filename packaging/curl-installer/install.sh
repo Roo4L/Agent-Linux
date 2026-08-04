@@ -38,10 +38,25 @@ IFS=$'\n\t'
 # AGENTLINUX_RELEASE_BASE is the test-mode seam consumed by 60-curl-installer.bats;
 # when set it REPLACES the github.com base URL entirely, including the path.
 # ------------------------------------------------------------------------------
-: "${ORG:=Roo4L}"
-: "${AGENTLINUX_ORG:=$ORG}" # alias for readability in docs
+# The GitHub org releases are fetched from. `AGENTLINUX_ORG` is the documented
+# knob (matching every other AGENTLINUX_* override); bare `ORG` is still honored
+# so existing invocations keep working. Both resolve into `ORG`, which is what
+# the URL builders read — previously `AGENTLINUX_ORG` was assigned and never
+# read, so the documented override silently installed from the default org.
+: "${AGENTLINUX_ORG:=${ORG:-Roo4L}}"
+ORG="$AGENTLINUX_ORG"
 : "${AGENTLINUX_RELEASE_BASE:=}"
 : "${AGENTLINUX_VERSION:=}"
+# The install user the provisioner sets up (DIST-01). Overridable for test forks;
+# defaults to `agent` — the canonical AgentLinux install user.
+# SECURITY: this value is NOT regex-gated here (unlike ORG/VERSION) because it only
+# ever crosses to the Rust bin as a discrete `provision --user <value>` argv element
+# (never shell text). The Rust side is the LOAD-BEARING validator: it rejects a
+# malformed/reserved name (`^[a-z][a-z0-9_-]*$` + reserved-name denylist,
+# cmd/provision.rs) with EX_USAGE. If a future change ever routes AGENTLINUX_USER
+# into a path or shell context in THIS installer before that guard runs, add a
+# mirror regex here.
+: "${AGENTLINUX_USER:=agent}"
 
 readonly VERSION_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
 readonly ORG_REGEX='^[A-Za-z0-9][A-Za-z0-9-]{0,38}$'
@@ -69,10 +84,11 @@ check_root() {
 # Parse /etc/os-release; die unless it declares a supported distro: Ubuntu
 # 22.04 / 24.04 / 26.04 or AlmaLinux 9.x.
 # Source: 06-RESEARCH.md lines 920-936 (Example: Ubuntu version detection).
-# Keep this allowlist in LOCKSTEP with plugin/lib/distro_detect.sh — both gate
-# the same ubuntu|almalinux support matrix (ID-exact, never the looser
-# similarity field) and the curl-installer test fixture exercises this path
-# before handing off to the staged installer.
+# Keep this allowlist in LOCKSTEP with the Rust provisioner's distro gate
+# (rust/crates/agentlinux-core distro detection) — both gate the same
+# ubuntu|almalinux support matrix (ID-exact, never the looser similarity field)
+# and the curl-installer test fixture exercises this path before handing off to
+# the staged installer.
 # ------------------------------------------------------------------------------
 detect_supported_distro() {
   local id version
@@ -84,7 +100,7 @@ detect_supported_distro() {
   id=${ID:-unknown}
   version=${VERSION_ID:-unknown}
   # Match ID exactly so Rocky/RHEL/CentOS/Fedora and AlmaLinux 8/10 stay refused
-  # — mirrors the two-arm case in plugin/lib/distro_detect.sh.
+  # — mirrors the two-arm distro gate in the Rust provisioner.
   case "$id" in
     ubuntu)
       case "$version" in
@@ -145,8 +161,8 @@ main() {
   check_root
   detect_supported_distro
 
-  # Org sanity — even though the default is hardcoded, AGENTLINUX_ORG env may
-  # override it (e.g. for test forks). Refuse arbitrary path injection.
+  # Org sanity — AGENTLINUX_ORG (or bare ORG) may override the default, e.g. for
+  # a test fork. Regex-gated: refuse arbitrary path injection into the URL.
   [[ "$ORG" =~ $ORG_REGEX ]] \
     || die "ORG fails regex ${ORG_REGEX}: '${ORG}'"
 
@@ -221,12 +237,22 @@ main() {
     --no-same-owner \
     || die "tar extraction failed for ${tarball} into ${inst}"
 
-  local exe="${inst}/plugin/bin/agentlinux-install"
+  # DIST-01: the shipped artifact is the static musl `agentlinux` bin. Hand off
+  # to its `provision` verb directly — NO Node bootstrap before the bin runs
+  # (the static bin reaches + runs `provision` pre-Node; `nodejs.rs` provisions
+  # Node INSIDE provision, for the recipes only). `provision` routes through
+  # require_root (main.rs), so this privileged exec is the correct entrypoint.
+  local exe="${inst}/plugin/bin/agentlinux"
   [[ -x "$exe" ]] \
-    || die "extracted tarball missing executable ${exe} — corrupt release?"
+    || die "extracted tarball missing agentlinux binary ${exe} — corrupt release?"
 
-  printf 'agentlinux-install: verified and extracted %s — handing off to agentlinux-install\n' "$tarball"
-  exec "$exe" "$@"
+  # --yes: grant non-TTY consent for the inherently non-interactive pipe-to-bash
+  # path (matches the harness invocation in tests/docker/run.sh). The consent is
+  # scoped to the install the operator explicitly initiated by piping the
+  # installer into `sudo bash`. The provision target user is AGENTLINUX_USER.
+  local target_user="${AGENTLINUX_USER:-agent}"
+  printf 'agentlinux-install: verified and extracted %s — handing off to agentlinux provision\n' "$tarball"
+  exec "$exe" provision --user "$target_user" --yes "$@"
 }
 
 main "$@"

@@ -28,10 +28,14 @@ jobs:
   # Detect whether this push/PR touches actual AgentLinux code (installer,
   # tests, packaging, CLI, or CI config) vs. dev-only files (docs/, .claude/,
   # .codex/, AGENTS.md, CLAUDE.md, .planning/). The expensive jobs below
-  # (bats-docker matrix, cli-unit) read `code` and skip their costly *steps*
+  # (bats-docker matrix, rust) read `code` and skip their costly *steps*
   # when it is 'false' — the jobs still run and report green in seconds, so the
-  # required checks (bats-docker (ubuntu-22.04/24.04), cli-unit) always report
-  # success and the merge gate stays intact. We gate steps rather than the whole
+  # required checks always report success and the merge gate stays intact. Those
+  # are, on master branch protection: pre-commit, gitleaks, bats-docker
+  # (ubuntu-24.04), and rust (added at the v0.4.0 cutover — the musl binary is
+  # the product, so nothing may merge without it). The other bats-docker arms
+  # run and must be read, but are not required contexts. We gate steps
+  # rather than the whole
   # job on purpose: a matrix job skipped by a job-level `if:` can leave its
   # per-arm required contexts unreported and block the PR forever — the same
   # trap as trigger-level paths-ignore. Website files (index.html, assets/**, …)
@@ -59,6 +63,7 @@ jobs:
               - 'packaging/**'
               - 'tests/**'
               - 'scripts/**'
+              - 'rust/**'
               - '.github/workflows/**'
               - '.pre-commit-config.yaml'
               - '.gitleaks.toml'
@@ -70,61 +75,198 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: Install pre-commit
         run: pip install pre-commit==4.0.1
-      # The catalog-schema-validate hook runs `node plugin/cli/scripts/
-      # validate-catalog.mjs` which imports `ajv`. Install plugin/cli deps so
-      # the hook can resolve its imports.
-      - name: Enable pnpm via corepack
-        run: corepack enable
-      - name: Install plugin/cli deps (ajv for catalog-schema-validate hook)
-        working-directory: plugin/cli
-        run: pnpm install --frozen-lockfile
+      # All hooks are bash/jq/python-based post-cutover (the TS biome hook and the
+      # node ajv catalog validator were removed with plugin/cli/), so no Node/pnpm
+      # setup is needed here.
       - name: Run pre-commit
         run: pre-commit run --all-files --show-diff-on-failure
 
-  cli-unit:
+  # RUST-02: the Rust job. The job always runs and reports (so its required check
+  # context stays reported), but its costly steps are gated behind a guard that
+  # sets ready=false when no AgentLinux code changed — a docs-only PR has no Rust
+  # to test. The pre-cutover "or rust/ is absent" arm of that guard is gone: the
+  # musl binary is now the shipped product, not an additive revertible track, so
+  # a missing workspace fails the job instead of skipping it (see the guard step).
+  # The per-distro in-container musl build is Phase 59's GATE-02 endgame,
+  # explicitly out of scope here.
+  rust:
     needs: changes
     runs-on: ubuntu-24.04
+    # 300, not 15: `--in-diff` is scoped to the lines a PR changes, and until the
+    # v0.4.0 cutover lands on master EVERY branch diff is the entire Rust tree —
+    # 1181 mutants where an ordinary PR yields a few dozen. 120 was sized from an
+    # estimate of ~977 and proved too small: the gate hit its own 6600s bound and
+    # reported "a timed-out run is not a pass", so the cutover branch could not be
+    # scored at all. Measured, a shard of ~296 takes ~25-45 min, which puts the
+    # serial whole-tree run near three hours. The cap is for that one merge; every
+    # PR after it is back to minutes, and the gate's own bound below is what
+    # actually stops a runaway.
+    timeout-minutes: 300
+    permissions:
+      contents: read
     steps:
+      # W1 (TEST-02 --in-diff): full history so the mutation gate's diff base
+      # (origin/master) resolves. The default fetch-depth: 1 shallow clone leaves
+      # no origin/master ref, so `git diff origin/master...HEAD` would error or
+      # silently no-op the gate on a real PR. fetch-depth: 0 + an explicit fetch
+      # below guarantee the merge-base is present.
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
         with:
-          node-version: '22'
-      - name: Skip if no AgentLinux code changed or plugin/cli has no source yet
+          fetch-depth: 0
+      # rust/Cargo.toml missing is a HARD FAILURE, not a skip. Pre-cutover it was
+      # a legitimate escape hatch (the Rust track was additive and revertible, so
+      # its absence meant "the spike isn't here yet"). Post-cutover the musl binary
+      # IS the product, so an absent manifest means the workspace is gone or the
+      # checkout is broken — and treating that as ready=false would report this
+      # job green having compiled, tested and mutation-scored nothing.
+      # CODE_CHANGED stays a skip: a docs-only PR legitimately has no Rust to test.
+      - name: Skip if no AgentLinux code changed (rust/ absent is a hard failure)
         id: guard
         env:
           CODE_CHANGED: ${{ needs.changes.outputs.code }}
         run: |
-          if [ "$CODE_CHANGED" != "true" ]; then
-            echo "has_tests=false" >> "$GITHUB_OUTPUT"
-            echo "No AgentLinux code changed — skipping CLI tests (dev-only change)"
-          elif compgen -G "plugin/cli/test/*.test.*" > /dev/null || compgen -G "plugin/cli/test/**/*.test.*" > /dev/null; then
-            echo "has_tests=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_tests=false" >> "$GITHUB_OUTPUT"
-            echo "No CLI tests yet — skipping (Phase 1 skeleton)"
+          if [ ! -f rust/Cargo.toml ]; then
+            echo "RUST-02 FAIL: rust/Cargo.toml is absent — the Rust workspace is the"
+            echo "shipped product post-cutover; refusing to report green without it."
+            exit 1
           fi
-      - name: Enable pnpm via corepack
-        if: steps.guard.outputs.has_tests == 'true'
-        run: corepack enable
-      - name: Install deps
-        if: steps.guard.outputs.has_tests == 'true'
-        working-directory: plugin/cli
-        run: pnpm install --frozen-lockfile
-      - name: Compile CLI tests
-        if: steps.guard.outputs.has_tests == 'true'
-        working-directory: plugin/cli
-        run: pnpm exec tsc -p tsconfig.test.json
-      # Use explicit *.test.js glob — see release.yml for rationale.
-      - name: Run tests
-        if: steps.guard.outputs.has_tests == 'true'
-        working-directory: plugin/cli
-        shell: bash
-        run: pnpm exec node --test dist-test/test/*.test.js
+          if [ "$CODE_CHANGED" != "true" ]; then
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "No AgentLinux code changed — skipping Rust steps"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install Rust toolchain (pinned via rust-toolchain.toml)
+        if: steps.guard.outputs.ready == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+        if: steps.guard.outputs.ready == 'true'
+        with:
+          workspaces: rust
+      - name: rustfmt --check
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: cargo fmt --all -- --check
+      - name: clippy (deny warnings)
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: cargo clippy --all-targets -- -D warnings
+      - name: unit tests
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: cargo test --all
+      # TEST-02: mutation gate on the WHOLE workspace. Pinned +
+      # --locked (T-54-SC: a silent upstream bump cannot change the mutation
+      # set mid-milestone). Swatinem/rust-cache above caches ~/.cargo incl. this
+      # binary, so warm runs are a no-op.
+      - name: Install cargo-mutants (pinned, cached)
+        if: steps.guard.outputs.ready == 'true'
+        run: cargo install --locked --version 27.1.0 cargo-mutants
+      # The gate's own suite runs HERE, not in the bats-docker matrix, and that
+      # placement is the point. Thirteen of its cases stub `cargo`, so together
+      # they pin the gate against a schema this repo wrote; MUT-14 is the one
+      # that runs the real pinned cargo-mutants and asserts outcomes.json still
+      # has the fields the gate reads. In the bats container that case always
+      # SKIPPED — `CI` is not in run.sh's env allowlist and no bats image ships
+      # cargo — so the contract test reported green without ever running, which
+      # is precisely the class this gate exists to eliminate. On this runner
+      # `CI=true` and the pinned binary is already installed and cached.
+      - name: mutation-gate self-test (incl. the real-tool contract, MUT-14)
+        if: steps.guard.outputs.ready == 'true'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bats
+          bats tests/harness/80-mutation-gate.bats
+      # W1: assert the diff base resolves BEFORE the gate runs, so a shallow
+      # clone (or a missing origin/master) fails loudly here instead of letting
+      # `--in-diff` silently mutate an empty diff (a false-green gate). fetch-depth: 0
+      # above should make this a no-op, but the explicit fetch + assertion keep
+      # the gate honest on any runner.
+      - name: Ensure mutation diff base (origin/master) is available (W1)
+        if: steps.guard.outputs.ready == 'true'
+        run: |
+          git fetch --no-tags --depth=0 origin master || git fetch --no-tags origin master
+          if ! git rev-parse --verify --quiet origin/master >/dev/null; then
+            echo "TEST-02 FAIL: origin/master not resolvable — cannot compute --in-diff base"; exit 1
+          fi
+          if git merge-base origin/master HEAD >/dev/null 2>&1; then
+            echo "diff base OK: $(git merge-base origin/master HEAD)"
+          else
+            echo "TEST-02 FAIL: no merge-base between origin/master and HEAD"; exit 1
+          fi
+      # TEST-02 GATE (enforcing): mutate only diff-touched lines; a surviving
+      # un-skipped mutant FAILS. Scoped to BOTH crates, not just the pure one:
+      # the bin crate carries every sudo, chown, useradd, file-mode and
+      # orchestration decision, and while the gate skipped it, delete-the-function
+      # mutants survived on install_or_overwrite, resolve_argv and visudo_validate.
+      #
+      # The diff goes to a FILE, not `<(git diff …)`. Process substitution
+      # discards git's exit status, so a bad pathspec or an unresolvable ref
+      # produced an empty stream, and an empty --in-diff is a documented
+      # cargo-mutants no-op that exits 0 — a false green. With `set -o pipefail`
+      # and an explicit file, a git failure fails the step, and
+      # scripts/mutation-gate.sh distinguishes "empty diff" (a legitimate skip it
+      # names out loud) from "the file never appeared" (a hard failure).
+      #
+      # --relative is REQUIRED: the step runs from rust/, but `git diff` emits
+      # repo-root-relative paths and cargo-mutants matches --in-diff against the
+      # WORKSPACE root. Without it nothing matches and the gate passes every PR.
+      # The gate script's "0 mutants tested is never a pass" check is the backstop
+      # for exactly that class of mistake.
+      #
+      # --in-place is REQUIRED: two agentlinux-core tests read sibling files at
+      # CARGO_MANIFEST_DIR/../../../plugin/catalog/*, OUTSIDE the rust/ workspace,
+      # so cargo-mutants' default copy-tree isolation aborts the baseline.
+      # --in-place forbids --jobs, so this run is serial; the cost is bounded by
+      # --in-diff (one bin file ≈ 10-35 mutants ≈ 1-3 min). A PR whose diff is the
+      # whole workspace — the Rust cutover itself — produces ~1000 mutants and will
+      # exceed the job cap. Shard it like the nightly for that merge rather than
+      # narrowing the gate back.
+      - name: cargo-mutants gate (changed lines, --in-diff)
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: |
+          set -euo pipefail
+          # `.` (from working-directory: rust), not 'crates/**': a new or
+          # relocated crate outside crates/ would otherwise produce an empty
+          # diff and a silent skip. Non-Rust lines simply match no mutants.
+          # -c core.quotePath=false: git's DEFAULT octal-escapes non-ASCII paths
+          # ("b/src/caf\303\251.rs"), which the gate refuses because it cannot
+          # verify them. Turning it off at the one place that generates the diff
+          # makes that refusal unreachable in the merge path.
+          git -c core.quotePath=false diff --relative origin/master...HEAD -- . \
+            > "$RUNNER_TEMP/rust.diff"
+          echo "diff: $(wc -l < "$RUNNER_TEMP/rust.diff") lines"
+          # Below this job's timeout-minutes (300). The gate SIGTERMs cargo-mutants
+          # so an --in-place run restores its mutated source; the job cap would
+          # SIGKILL it and leave the tree rewritten. The inner bound must fire
+          # first for that to mean anything.
+          MUTATION_GATE_TIMEOUT=17400 ../scripts/mutation-gate.sh enforce \
+            --in-place --minimum-test-timeout 20 --in-diff "$RUNNER_TEMP/rust.diff"
+      - name: static musl build + ldd assertion (RUST-01)
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        run: |
+          # Transient apt mirror hiccups shouldn't fail the whole gate — retry.
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+          cargo build --release --target x86_64-unknown-linux-musl -p agentlinux
+          BIN=target/x86_64-unknown-linux-musl/release/agentlinux
+          # Authoritative static check: no dynamic NEEDED entries. `ldd` wording is
+          # libc-version-dependent — "not a dynamic executable" on a musl host but
+          # "statically linked" for a static-pie binary on glibc 2.39+ (the CI runner) —
+          # so gate on readelf and accept either ldd phrasing.
+          if readelf -d "$BIN" 2>/dev/null | grep -q 'NEEDED'; then
+            echo "RUST-01 FAIL: binary has dynamic NEEDED entries"; readelf -d "$BIN"; exit 1
+          fi
+          ldd "$BIN" 2>&1 | grep -Eq "not a dynamic executable|statically linked" \
+            || { echo "RUST-01 FAIL: ldd did not confirm static linkage"; ldd "$BIN"; exit 1; }
 
   # SEC-05 (v0.4.0 Phase 8): full-history gitleaks gate. The pre-commit job
   # above runs gitleaks against staged files only (fast-feedback path). This
@@ -180,9 +322,7 @@ jobs:
       fail-fast: false
       matrix:
         target:
-          - ubuntu-22.04
           - ubuntu-24.04
-          - ubuntu-26.04
           - almalinux-9
     steps:
       - uses: actions/checkout@v5
@@ -204,6 +344,29 @@ jobs:
             echo "has_bats=false" >> "$GITHUB_OUTPUT"
             echo "No bats suite yet — skipping (lands in Phase 2)"
           fi
+      # tests/docker/run.sh builds the static-musl `agentlinux` bin ON THE HOST
+      # runner (host_build_musl) before staging it into the container, so this job
+      # needs the same musl toolchain the `rust` job installs — the musl target +
+      # the `musl-gcc` linker (musl-tools). Without them the host build fails
+      # `linker musl-gcc not found` and run.sh aborts loud (refusing to bats a
+      # missing artifact), which is the correct fail — the fix is to provide the
+      # toolchain here, not to silence it.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        if: steps.guard.outputs.has_bats == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        if: steps.guard.outputs.has_bats == 'true'
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        if: steps.guard.outputs.has_bats == 'true'
+        with:
+          workspaces: rust
       - name: Run Docker bats matrix
         if: steps.guard.outputs.has_bats == 'true'
         run: bash tests/docker/run.sh ${{ matrix.target }}

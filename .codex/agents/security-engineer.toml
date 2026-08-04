@@ -20,6 +20,12 @@ Ask of the change:
   file?
 - Are permissions and privilege boundaries checked at the correct layer, and is
   privilege dropped as early as it can be?
+- When a `sudoers` drop-in is written or modified, is it installed mode `0440`
+  (`root:root`, group- and other-readable but not writable) as `visudo`/`sudo`
+  require, and does its `NOPASSWD` grant stay as narrowly scoped as the task
+  allows rather than a blanket `ALL=(ALL) NOPASSWD: ALL` (per ADR-012)? A
+  drop-in that is group- or world-writable, or wider in scope than needed, is a
+  privilege-escalation finding.
 - Could malformed or oversized input consume unbounded CPU or memory, or hang?
 - Could a partial failure corrupt state or silently lose data — and are
   destructive operations reversible or at least auditable?

@@ -7,10 +7,9 @@
 
 `agentlinux install <name>` could be a thin wrapper that shells out to `sudo -u
 agent -H npm install -g <npm-package>` and accepts whatever version npm serves
-at the moment. This was the implicit assumption behind ADR-008 and the earlier
-version of the Phase 4 plan.
+at the moment. This was the implicit assumption we started from.
 
-Two problems surfaced during Phase 4 smart-discuss (2026-04-19):
+Two problems surfaced while planning the registry CLI (2026-04-19):
 
 1. **It provides no value over what users could do themselves.** A user who
    could run `sudo -u agent npm install -g @anthropic-ai/claude-code` by hand
@@ -23,7 +22,7 @@ Two problems surfaced during Phase 4 smart-discuss (2026-04-19):
    A thin-wrapper AgentLinux always pulls the latest, exposing users to every
    upstream regression the moment it publishes.
 
-Alternatives considered (see `docs/research/v0.3.0/stability-model-reconsideration.md`):
+Alternatives considered (see `docs/research/stability-model-reconsideration.md`):
 
 - **A'. Custom CLI + version-locked catalog** — ship a `pinned_version` field
   per catalog entry; `agentlinux install` honors the pin; `agentlinux upgrade`
@@ -31,9 +30,10 @@ Alternatives considered (see `docs/research/v0.3.0/stability-model-reconsiderati
   `agentlinux pin` sets sticky overrides.
 - **B'. Private apt/dpkg repo** — each agent is an AgentLinux-published `.deb`
   served from a PPA. Rejected: `apt upgrade` creates a split-brain with Claude
-  Code's npm-based self-updater (AGT-02 regression), PPA infra (INF-01) pulled
-  forward from v0.4+, `.deb` doesn't port to Fedora/Arch (DST-01..03 would need
-  parallel `.rpm`/pacman tracks), 10× submitter friction vs JSON+shell.
+  Code's npm-based self-updater, breaking the no-sudo self-update invariant. It
+  also needs public PPA infrastructure we do not have, needs parallel
+  `.rpm`/pacman tracks for Fedora and Arch, and costs a submitter roughly ten
+  times the effort of a JSON entry plus a shell recipe.
 - **C'. Nix-flavored symlink profiles + lockfile** — reproducible, atomic swap,
   per-agent pinning. More elegant; adds novel symlink-swap semantics and GC
   machinery. Deferred to v0.4+ as a UX upgrade on top of A'.
@@ -65,29 +65,26 @@ Concrete implications:
    ahead of the curated set aren't re-nagged on every release. Cleared
    automatically on `pin <name>=curated`. Precedent: Homebrew's `brew pin`.
 
-4. **AGT-02 remains a permission invariant, not a version invariant.** When a
-   user runs `claude update` and escapes our pin, the test still verifies
-   no-sudo / no-EACCES on the self-update path. Companion test **AGT-02b**
-   verifies "install pinned version produces exactly that version on disk."
+4. **The self-update invariant is about permissions, not versions.** When a user
+   runs `claude update` and escapes our pin, the acceptance test still verifies
+   no sudo and no EACCES on the self-update path. A companion test verifies the
+   other half: installing the pinned version produces exactly that version on
+   disk.
 
-5. **Six new requirement IDs** are introduced in `REQUIREMENTS.md`:
-   - CAT-04: Every catalog entry declares `pinned_version` validated by JSON
-     Schema.
-   - CAT-05: Release artifact includes a catalog snapshot sibling to the
-     tarball and `.sha256`.
-   - CLI-06: `agentlinux upgrade` detects per-agent divergence and offers
-     per-agent reconcile.
-   - CLI-07: `agentlinux pin <name>=<curated|latest|x.y.z>` sets persistent
-     override semantics.
-   - TST-08: CI installs the pinned combo and runs the full bats suite before
-     the release tag is published (Phase 6 release-gate).
-   - AGT-02b: Installing the pinned version produces exactly that version;
+5. **Six new behaviors become testable**, and each gets bats coverage:
+   - Every catalog entry declares `pinned_version`, validated by JSON Schema.
+   - The release artifact includes a catalog snapshot sibling to the tarball
+     and its `.sha256`.
+   - `agentlinux upgrade` detects per-agent divergence and offers a per-agent
+     reconcile.
+   - `agentlinux pin <name>=<curated|latest|x.y.z>` sets persistent override
+     semantics.
+   - CI installs the pinned combo and runs the full bats suite before the
+     release tag is published.
+   - Installing the pinned version produces exactly that version;
      `claude --version` matches `pinned_version`.
 
-6. **Phase 4 plan count grows from 5 to 7.** New plans 04-06 (`upgrade` verb
-   + reconcile flow) and 04-07 (catalog snapshot + `pin` verb).
-
-7. **Escape hatch is supported, not fought.** When a user runs `claude update`
+6. **Escape hatch is supported, not fought.** When a user runs `claude update`
    or `npm install -g <pkg>@latest`, AgentLinux records the divergence via
    sentinel inspection; the next `agentlinux upgrade` surfaces the diff rather
    than silently overwriting the user's choice.
@@ -96,7 +93,15 @@ Concrete implications:
 
 - **Release cadence bottleneck moves to CI.** Continuous flow is preserved
   (PR edits one JSON line, CI green, tag ships in ~1 hour) but gated on the
-  pinned-combo suite passing. Broken upstream combos cannot ship.
+  release pipeline's Docker + QEMU gates passing, which install the curated
+  combo end-to-end. Broken upstream combos cannot ship.
+
+  A dedicated "pinned-combo" gate was written for this and later deleted: it
+  ran the ordinary Docker suite with no pinned-combo mode set — no such mode
+  exists in `tests/docker/run.sh` or the bats suite — so it was a second copy
+  of a gate already running, not an extra signal. The guarantee above is real
+  and unchanged; it is carried by the Docker and QEMU gates, which install the
+  catalog's `pinned_version` entries as any user would.
 - **`agentlinux install` is no longer a trivial `npm install -g` shim.** It
   writes `installed.json` with `{version, source: curated|override|latest}`
   and this file is the source of truth for divergence detection.
@@ -109,27 +114,27 @@ Concrete implications:
 - **v0.4+ migration to Nix-style profiles (Option C') stays open.** A' is a
   strict subset of what C' enables; moving to symlink profiles later reuses
   the same catalog schema, lockfile concept, and reconcile UX; only the
-  install mechanism changes. ADR-012 (when authored) will capture that
-  migration if it proves necessary.
+  install mechanism changes.
 - **CLI complexity grows.** `upgrade` and `pin` are non-trivial: the reconcile
   UX, sticky-override semantics, sentinel read/write, and snapshot manifest
   handling are real surface. Review-loop + bats coverage must be thorough.
-- **Release pipeline (Phase 6) gains one step.** Publish `catalog-<version>.json`
+- **The release pipeline gains one step.** Publish `catalog-<version>.json`
   as a sibling of the release tarball + `.sha256`. The installer reads this
   snapshot; the CLI persists a copy under `/opt/agentlinux/catalog/`.
-- **Phase 5 AGT-02 test grows one assertion** (AGT-02b verifies
-  `claude --version == pinned_version`).
+- **The self-update acceptance test grows one assertion** — `claude --version`
+  must equal `pinned_version` after a pinned install.
 
 ## References
 
-- `docs/research/v0.3.0/cli-vs-apt-advisor.md` — earlier (2026-04-18) advisor
+- `docs/research/cli-vs-apt-advisor.md` — earlier (2026-04-18) advisor
   research comparing custom CLI to apt/dnf/dpkg. Recommended Option A; did not
   yet consider the stability-first criterion.
-- `docs/research/v0.3.0/stability-model-reconsideration.md` — this ADR's
+- `docs/research/stability-model-reconsideration.md` — this ADR's
   primary justification; reversal-analysis section explains why the earlier
   research's conclusion extends to A' rather than flipping to B'.
 - ADR-004 — per-user npm prefix (the substrate this ADR builds on).
-- ADR-008 — Commander.js for the CLI (unchanged; A' just adds more verbs).
+- ADR-008 — Commander.js for the CLI (since superseded by the Rust rewrite;
+  this decision only added verbs).
 - Nix flakes (`flake.lock`), Homebrew (`brew pin` + `brew outdated`), mise
   (`mise.lock`), npm (`package-lock.json` + `overrides`) — prior art; all
   cited in the reconsideration research.

@@ -1,0 +1,43 @@
+[package]
+name = "agentlinux"
+# The USER-FACING product version (mirrors plugin/cli/package.json → CLI-01
+# and plugin/catalog/catalog.json; the three-way lock in build-release.sh
+# enforces they stay equal). `agentlinux --version` emits CARGO_PKG_VERSION,
+# and bats CLI-01 derives the expected string from package.json (`jq -r
+# .version`). Bumped 0.3.6 → 0.4.0 at the v0.4.0-rc1 cut (the Rust-rewrite
+# milestone's product renumber); package.json + catalog.json bump in lockstep.
+version = "0.4.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "AgentLinux CLI binary (static musl). Thin adapter over agentlinux-core."
+
+[[bin]]
+name = "agentlinux"
+path = "src/main.rs"
+
+[dependencies]
+agentlinux-core = { path = "../agentlinux-core" }
+# clap 4.6 (derive) — the Commander → clap arg-parse port (VERB-01). Package
+# Legitimacy Gate: verdict OK (source-backed, high-download, no postinstall).
+clap = { version = "4.6", features = ["derive"] }
+# nix 0.31 (signal + process) — SIGTERM-then-SIGKILL escalation that std's
+# Child::kill() (SIGKILL-only) cannot express, plus getuid/User for the
+# invoker==target short-circuit. Package Legitimacy Gate: verdict OK.
+nix = { version = "0.31", features = ["signal", "process", "user", "fs"] }
+# serde/serde_json — the Wave-1 file adapters (catalog/sentinel/cache) deserialize
+# the SAME catalog.json / installed.d/<id>.json / detect-cache JSON the TS reads,
+# and the list/adopt verbs serialize the Row/AdoptResult arrays (`--json`).
+# serde_json is already a normal (non-dev) dep of agentlinux-core.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# thiserror — typed adapter errors (CatalogError) mirroring the pure core's
+# convention (agentlinux-core already uses thiserror 1).
+thiserror = "1"
+
+[dev-dependencies]
+mutants = "0.0.4"
+# tempfile — per-adapter unit tests inject tmp dirs for the AGENTLINUX_STATE_DIR /
+# AGENTLINUX_CATALOG_DIR / AGENTLINUX_DETECT_CACHE seams (sentinel atomic
+# round-trip, catalog load, cache dual-shape parse).
+tempfile = "3"

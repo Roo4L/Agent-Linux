@@ -1,20 +1,29 @@
 name: release
-# Phase 6 Plan 06-04 — full 4-gate release pipeline + build + publish.
+# Phase 6 Plan 06-04 — the release pipeline: gates + build + publish.
+# (Authored as four gates; gate-4 was deleted as a duplicate — see below.)
 # Replaces the Phase 1 single-job scaffold. See 06-RESEARCH.md Pattern 6 and
 # .planning/phases/06-distribution-release-pipeline/06-04-PLAN.md for the
-# authoritative design. Gate sequence is enforced by `needs:` — any red gate
-# short-circuits the pipeline before publish.
+# authoritative design. Every gate is a prerequisite of `build`, so any red gate
+# stops the pipeline before publish. They no longer run in SEQUENCE: gates 2-4
+# test disjoint things and each waited on the previous purely to short-circuit
+# early, which cost ~60 minutes of wall-clock on every tag, red or green. They
+# now fan out from gate-1 and `build` joins on both. The trade: a red gate no
+# longer cancels its siblings, so a bad tag burns more runner-minutes.
 #
-# Gates in order:
+# gate-4-pinned-combo was DELETED, not disabled. It ran
+# `tests/docker/run.sh ubuntu-24.04` with no env and no flags — byte-identical
+# work to gate-2's ubuntu-24.04 leg — while its name claimed a pinned-catalog
+# combo (TST-08). No such mode exists in run.sh or the bats suite, so there was
+# nothing to repair: it was a second copy of a gate we already run.
+#
+# Gates (2 and 3 run concurrently):
 #   gate-1-precommit       (pre-commit + CLI unit tests — cheapest/fastest)
-#   gate-2-docker          (tests/docker/run.sh × {ubuntu-22.04, ubuntu-24.04}
+#   gate-2-docker          (tests/docker/run.sh × {ubuntu-24.04, almalinux-9}
 #                           — includes 51-*.bats → TST-05 inside Docker)
-#   gate-3-qemu            (tests/qemu/boot.sh × {22.04, 24.04} with /dev/kvm
+#   gate-3-qemu            (tests/qemu/boot.sh × {24.04, almalinux-9} w/ /dev/kvm
 #                           — includes 51-*.bats → TST-05 inside QEMU)
-#   gate-4-pinned-combo    (tests/docker/run.sh ubuntu-24.04 with pinned catalog
-#                           combo — 50-agents.bats + 51-*.bats → TST-08)
-#   build                  (scripts/build-release.sh <tag> — tarball + .sha256
-#                           + catalog snapshot + optional .deb; uploads dist/)
+#   build                  (scripts/build-release.sh <tag> — reproducible musl
+#                           tarball + .sha256 + catalog snapshot; uploads dist/)
 #   publish                (softprops/action-gh-release@v2.6.2 — Node-20 pin;
 #                           only runs on tag push, skipped on workflow_dispatch)
 
@@ -77,46 +86,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - name: Install pre-commit
         run: pip install pre-commit==4.0.1
-      # The catalog-schema-validate hook runs `node plugin/cli/scripts/
-      # validate-catalog.mjs` which imports `ajv`. Without these deps the hook
-      # fails with "Cannot find package 'ajv'". Install via pnpm (project's
-      # lockfile is pnpm-lock.yaml) so the hook can resolve its imports.
-      - name: Enable pnpm via corepack
-        run: corepack enable
-      - name: Install plugin/cli deps (ajv for catalog-schema-validate hook)
-        working-directory: plugin/cli
-        run: pnpm install --frozen-lockfile
+      # Post-cutover all hooks are bash/jq/python-based (the TS biome hook and the
+      # node ajv catalog validator were removed with plugin/cli/); the Rust CLI's
+      # own tests run in the test.yml `rust` job + the cargo build gate below.
       - name: Run pre-commit on all files
         run: pre-commit run --all-files --show-diff-on-failure
-      # Use pnpm (canonical lockfile); deps already installed in the step above.
-      # CLAUDE.md convention is `cd plugin/cli && pnpm test`. Steps are split so
-      # tsc compile errors are visible separately from test execution failures.
-      - name: Compile CLI tests
-        working-directory: plugin/cli
-        run: pnpm exec tsc -p tsconfig.test.json
-      - name: Verify test compilation
-        working-directory: plugin/cli
-        run: |
-          set -euxo pipefail
-          if [ ! -d dist-test/test ] || [ -z "$(ls -A dist-test/test 2>/dev/null)" ]; then
-            echo "::error::dist-test/test missing or empty after tsc compile"
-            ls -la dist-test 2>/dev/null || echo "(dist-test does not exist)"
-            exit 1
-          fi
-          ls dist-test/test/
-      # Use explicit *.test.js glob — Node v22+ does not auto-discover test
-      # files when given a bare directory path; it tries to resolve the dir as
-      # a module and fails with MODULE_NOT_FOUND. Glob expansion at the shell
-      # level passes explicit file args, which works universally.
-      - name: Run CLI unit tests
-        working-directory: plugin/cli
-        shell: bash
-        run: pnpm exec node --test dist-test/test/*.test.js
 
   # Gate 2 — Docker matrix. Runs tests/docker/run.sh on every supported Ubuntu
   # LTS image. The Docker harness executes the full tests/bats/ suite INCLUDING
@@ -144,9 +120,30 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [ubuntu-22.04, ubuntu-24.04, ubuntu-26.04, almalinux-9]
+        target: [ubuntu-24.04, almalinux-9]
     steps:
       - uses: actions/checkout@v5
+      # The Rust cutover made every job below build a static-musl binary —
+      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
+      # workflow's build job via scripts/build-release.sh. None of them can do
+      # that without the musl TARGET and the musl-gcc LINKER, and this workflow
+      # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
+      # gate-2-docker legs with `linker musl-gcc not found` before any gate had
+      # a chance to test anything. test.yml's bats-docker job already carries
+      # these two steps for the same reason; they are copied verbatim.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Docker bats matrix (incl. 51-*.bats — TST-05 inside Docker)
         run: bash tests/docker/run.sh ${{ matrix.target }}
 
@@ -155,7 +152,7 @@ jobs:
   # boot.sh runs the full bats suite inside the guest INCLUDING
   # tests/bats/51-*.bats — satisfies the "AGT-02 inside QEMU" half of TST-05.
   gate-3-qemu:
-    needs: gate-2-docker
+    needs: gate-1-precommit
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     # almalinux-9 is a HARD release gate (REL-01). The EL9 QEMU row is proven
@@ -169,7 +166,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ['22.04', '24.04', '26.04', 'almalinux-9']
+        target: ['24.04', 'almalinux-9']
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -180,6 +177,27 @@ jobs:
       # user is NOT in the kvm group. A udev rule with MODE=0666 exposes the
       # device without group membership. Fail fast if the device is still
       # inaccessible — TCG fallback would silently blow past the timeout.
+      # The Rust cutover made every job below build a static-musl binary —
+      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
+      # workflow's build job via scripts/build-release.sh. None of them can do
+      # that without the musl TARGET and the musl-gcc LINKER, and this workflow
+      # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
+      # gate-2-docker legs with `linker musl-gcc not found` before any gate had
+      # a chance to test anything. test.yml's bats-docker job already carries
+      # these two steps for the same reason; they are copied verbatim.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Enable /dev/kvm access (Pitfall 4)
         run: |
           set -euo pipefail
@@ -236,30 +254,8 @@ jobs:
           path: tests/qemu/artifacts/
           if-no-files-found: ignore
           retention-days: 14
-
-  # Gate 4 — pinned-combo (TST-08). Exercises the full pinned catalog on
-  # Ubuntu 24.04 Docker (our pinned dev env): every catalog agent installed at
-  # its pinned_version + tests/bats/50-agents.bats + tests/bats/51-*.bats.
-  # tests/docker/run.sh already drives this end-to-end (Phase 4+5 provisioners
-  # install the pinned combo). Re-running it here as a named gate makes the
-  # TST-08 signal observable as a distinct green box in the Actions UI.
-  gate-4-pinned-combo:
-    needs: gate-3-qemu
-    runs-on: ubuntu-24.04
-    # Re-runs the full Docker suite (~19-21 min cold) with the pinned catalog
-    # combo; 60 matches gate-2 / test.yml so a slow runner can't flake the gate.
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v5
-      - name: Pinned catalog combo + 50-agents.bats + 51-*.bats (TST-08)
-        run: bash tests/docker/run.sh ubuntu-24.04
-
-  # Build — only after all 4 gates green. Reproducible tarball + sha256 sidecar
-  # + catalog snapshot + optional .deb (SKIP_DEB=1 if fpm install fails).
-  # Uploads dist/ as an Actions artifact so the publish job can download it
-  # without re-running the build (matches download-artifact@v4 major).
   build:
-    needs: [resolve, gate-4-pinned-combo]
+    needs: [resolve, gate-2-docker, gate-3-qemu]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -268,20 +264,27 @@ jobs:
         with:
           node-version: '22'
 
-      # fpm is optional per ADR-006 — .deb is a nice-to-have for v0.3.0, not a
-      # release-blocker. Install failure falls back to SKIP_DEB=1 with a
-      # ::warning so the build proceeds with just the tarball + sha256 +
-      # catalog snapshot. build-release.sh honors SKIP_DEB.
-      - name: Install fpm (optional .deb — ADR-006, Pitfall 6)
+      # The Rust cutover made every job below build a static-musl binary —
+      # tests/docker/run.sh via host_build_musl, tests/qemu/boot.sh and this
+      # workflow's build job via scripts/build-release.sh. None of them can do
+      # that without the musl TARGET and the musl-gcc LINKER, and this workflow
+      # was never updated for the cutover: the v0.4.0-rc1 tag failed all four
+      # gate-2-docker legs with `linker musl-gcc not found` before any gate had
+      # a chance to test anything. test.yml's bats-docker job already carries
+      # these two steps for the same reason; they are copied verbatim.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
         run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ruby-dev build-essential
-          if ! sudo gem install --no-document fpm; then
-            echo "::warning::fpm install failed — proceeding with SKIP_DEB=1 (.deb will not be published)"
-            echo "SKIP_DEB=1" >> "$GITHUB_ENV"
-          fi
-
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
       - name: Build release artifacts
         env:
           TAG: ${{ needs.resolve.outputs.tag }}
@@ -319,10 +322,9 @@ jobs:
   # upgrade after Actions' Node-24 migration completes.
   #
   # The files glob uploads every asset type produced by the build:
-  #   - agentlinux-*.tar.gz            (canonical distribution tarball)
+  #   - agentlinux-*.tar.gz            (canonical distribution tarball — the sole channel)
   #   - agentlinux-*.tar.gz.sha256     (INST-03 — required sibling for curl-installer)
   #   - catalog-*.json                 (CAT-05 — versioned catalog snapshot)
-  #   - agentlinux_*.deb               (optional — absent if SKIP_DEB=1; glob tolerates)
   publish:
     needs: [resolve, build]
     if: startsWith(github.ref, 'refs/tags/v')
@@ -353,5 +355,4 @@ jobs:
             dist/agentlinux-*.tar.gz
             dist/agentlinux-*.tar.gz.sha256
             dist/catalog-*.json
-            dist/agentlinux_*.deb
             dist/VERSION

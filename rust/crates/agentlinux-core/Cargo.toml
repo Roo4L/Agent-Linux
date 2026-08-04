@@ -1,0 +1,28 @@
+[package]
+name = "agentlinux-core"
+version = "0.4.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Pure, I/O-free core logic for the AgentLinux CLI (classify, divergence, semver shim)."
+
+[dependencies]
+# Pinned exactly per RESEARCH §"node-semver → Rust semver Parity" — 1.0.28 is the
+# empirically-validated version whose divergences the semver_shim reproduces.
+# DO NOT bump: the semver_shim reproduces THIS version's divergences (TEST-04).
+semver = "=1.0.28"
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+# Staged in Plan 54-01 so Plan 54-02 (schema-gen, TEST-03) touches no shared
+# manifest. The `#[derive(JsonSchema)]` on the catalog types lands in Plan 02;
+# an unused dep does not fail the build, so carrying it now is inert.
+schemars = { version = "1.2.2", features = ["derive"] }
+# Plan 54-02: schema_gen::schema_json() pretty-prints the generated schema in
+# NON-test code, so serde_json must be a normal dependency (it is already a
+# transitive dep of schemars, so this adds nothing to the build graph). The
+# TEST-04 golden case + drift-check test reuse it.
+serde_json = "1"
+
+[dev-dependencies]
+# TEST-01: property tests + shrinking + regression persistence over the pure core.
+proptest = "1.11"

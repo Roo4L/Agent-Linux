@@ -13,15 +13,13 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: 'Target(s) to run (22.04 / 24.04 / 26.04 / almalinux-9 / all)'
+        description: 'Target(s) to run (24.04 / almalinux-9 / all)'
         required: false
         default: all
         type: choice
         options:
           - all
-          - '22.04'
           - '24.04'
-          - '26.04'
           - almalinux-9
 
 permissions:
@@ -35,7 +33,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: ['22.04', '24.04', '26.04', 'almalinux-9']
+        target: ['24.04', 'almalinux-9']
     steps:
       - uses: actions/checkout@v5
 
@@ -111,6 +109,29 @@ jobs:
           key: cloud-image-${{ matrix.target }}-${{ hashFiles('tests/qemu/cloud-images.txt') }}
           restore-keys: |
             cloud-image-${{ matrix.target }}-
+
+      # boot.sh builds the release tarball via scripts/build-release.sh, which
+      # links a static-musl binary — so this job needs the musl target and the
+      # musl-gcc linker. Latent rather than currently-red: this workflow runs on
+      # master, which does not yet carry the Rust cutover, so it would fail on
+      # the first nightly AFTER PR #59 merges. Same two steps as test.yml's
+      # bats-docker and release.yml's gates.
+      - name: Install Rust toolchain + musl target (pinned via rust-toolchain.toml)
+        if: steps.decide.outputs.run == 'true'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - name: Install musl-tools (musl-gcc linker for the static build)
+        if: steps.decide.outputs.run == 'true'
+        run: |
+          for i in 1 2 3; do
+            sudo apt-get update -qq && sudo apt-get install -y musl-tools && break
+            echo "apt-get attempt $i failed; retrying in 5s"; sleep 5
+          done
+      - uses: Swatinem/rust-cache@v2
+        if: steps.decide.outputs.run == 'true'
+        with:
+          workspaces: rust
 
       - name: QEMU boot + installer + bats
         if: steps.decide.outputs.run == 'true'

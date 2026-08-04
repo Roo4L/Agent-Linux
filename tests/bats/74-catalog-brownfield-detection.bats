@@ -2,7 +2,7 @@
 # tests/bats/74-catalog-brownfield-detection.bats — DET-04 generalized beyond the
 # original three agents (v0.3.6 catalog expansion).
 #
-# The detect probe (plugin/lib/detect/agents.sh) derives its tool list from the
+# The detect probe (rust/crates/agentlinux/src/detect.rs) derives its tool list from the
 # catalog, so a manually-installed CLI catalog tool (no AgentLinux sentinel) is
 # reported present instead of invisible. MCP entries (registration-based, no PATH
 # binary) are excluded from the PATH probe. Runs on the post-installer Docker host
@@ -11,13 +11,21 @@
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 # Brownfield fixture: a real catalog binary id (rtk) placed on the agent's login
 # PATH with NO sentinel and NO AgentLinux install. rtk is not in the CI base, so
 # detection of it is unambiguous. Emits a semver on --version so the generic
 # version probe classifies it healthy.
 FAKE_BIN=/home/agent/.local/bin/rtk
+
+# The same fixture at the OTHER agent-owned bin dir. `~/.local/bin` is a poor
+# regression guard on its own: EL9's stock ~/.bash_profile puts it on PATH
+# independently of anything AgentLinux writes, so a probe whose login shell
+# never ran /etc/profile.d/agentlinux.sh still finds it. `~/.npm-global/bin`
+# has no such fallback and is therefore the honest test of whether the profile
+# actually loaded. See the AGENTLINUX_PROFILE_SOURCED test below.
+FAKE_NPM_BIN=/home/agent/.npm-global/bin/rtk
 
 # Scoped sentinel store so the adopt/pin management tests don't pollute the real
 # /opt/agentlinux/state — agent-owned (under $HOME), auto-created by writeSentinel,
@@ -42,13 +50,55 @@ SH
 }
 
 teardown() {
-  rm -f "$FAKE_BIN" 2>/dev/null || true
+  rm -f "$FAKE_BIN" "$FAKE_NPM_BIN" 2>/dev/null || true
   rm -rf /home/agent/.al-brownfield-test 2>/dev/null || true
+}
+
+# AL-124 regression guard.
+#
+# /etc/profile.d/agentlinux.sh opens with a re-source guard:
+#
+#   [ -n "${AGENTLINUX_PROFILE_SOURCED:-}" ] && return
+#
+# and only AFTER that prepends ~/.npm-global/bin and ~/.local/bin. detect's
+# probe forwarded every AGENTLINUX_* var into its login-shell child, so a
+# provisioner running with the guard already in its own environment handed the
+# probe a shell that returned before wiring PATH — and every tool installed at
+# ~/.npm-global/bin reported `absent` on a host where it was plainly present.
+#
+# This went undiagnosed through two wrong hypotheses and four QEMU cycles
+# because the only tests that caught it were the four REMEDIATE-04 brownfield
+# E2E cases, and they caught it ONLY on almalinux-9 — on Ubuntu the probe's own
+# PATH survives sudo, so the profile bailing costs nothing. That is an accident
+# of distro, not a specification. This test pins the contract directly on every
+# platform: the probe must see the agent's bin dirs no matter what the
+# provisioner inherited.
+@test "DET-04: an inherited profile re-source guard does not blind the probe (AL-124)" {
+  # REQ: DET-04
+  install -d -m 0755 -o agent -g agent /home/agent/.npm-global/bin
+  cp "$FAKE_BIN" "$FAKE_NPM_BIN"
+  chown agent:agent "$FAKE_NPM_BIN"
+  # Remove the canonical copy so ~/.bash_profile's independent PATH entry
+  # cannot mask a profile that never loaded — ~/.npm-global/bin is reachable
+  # ONLY via /etc/profile.d/agentlinux.sh.
+  rm -f "$FAKE_BIN"
+
+  # `env` rather than a `VAR=1 run ...` prefix: `run` is a shell function, and a
+  # prefix assignment on a function is not reliably exported to the process it
+  # spawns. If the variable failed to reach the installer this test would pass
+  # whether or not the bug was fixed — which is worse than no test.
+  run env AGENTLINUX_PROFILE_SOURCED=1 "$INSTALLER" provision --report-only --report-format=json
+  assert_exit_zero "DET-04/profile-guard"
+  printf '%s' "$output" \
+    | jq -e '(.components.agents // .agents) | map(select(.id == "rtk" and .status == "healthy")) | length == 1' >/dev/null \
+    || __fail "DET-04/profile-guard" \
+      "rtk at ~/.npm-global/bin is still detected when the provisioner inherits AGENTLINUX_PROFILE_SOURCED=1" \
+      "$output" "$LOG"
 }
 
 @test "DET-04: a brownfield catalog CLI tool (rtk) is detected healthy with its version" {
   # REQ: DET-04
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/brownfield-cli"
   printf '%s' "$output" \
     | jq -e '(.components.agents // .agents) | map(select(.id == "rtk" and .status == "healthy" and .version == "0.42.4")) | length == 1' >/dev/null \
@@ -59,7 +109,7 @@ teardown() {
   # REQ: DET-04 — MCP entries register into client configs; they have no binary to
   # resolve, so the PATH probe must skip them (detection of registration is a
   # separate concern).
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/mcp-excluded"
   printf '%s' "$output" \
     | jq -e '(.components.agents // .agents) | map(select(.id == "github-mcp")) | length == 0' >/dev/null \
@@ -71,7 +121,7 @@ teardown() {
   # cache at /run/agentlinux-detect.json; `agentlinux list` reads that same cache
   # and its presence overlay must render the brownfield rtk as "present" with the
   # adopt hint (it sits at the managed ~/.local/bin), not "not-installed".
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/list-refresh"
   run sudo -u agent -H bash --login -c 'agentlinux list 2>&1'
   assert_exit_zero "DET-04/list-e2e"
@@ -83,7 +133,7 @@ teardown() {
 
 @test "DET-04: the original three agents still appear in the probe (no regression)" {
   # REQ: DET-04 — generalization must not drop the original hardcoded set.
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/legacy-preserved"
   printf '%s' "$output" \
     | jq -e '(.components.agents // .agents) | map(.id) | (index("claude-code") and index("gsd") and index("playwright-cli"))' >/dev/null \
@@ -93,7 +143,7 @@ teardown() {
 @test "DET-04: agentlinux upgrade surfaces the brownfield tool as present (not not-installed)" {
   # REQ: DET-04 — `upgrade` must agree with `list`: a detected-but-unmanaged tool
   # reads 'present', never 'not-installed' (the reported inconsistency).
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/upgrade-refresh"
   run al_agent upgrade
   assert_exit_zero "DET-04/upgrade-present"
@@ -104,7 +154,7 @@ teardown() {
 @test "DET-04: pin on a present brownfield tool directs to adopt, not install" {
   # REQ: DET-04 — pin must route a present-but-unmanaged tool to `adopt` (records
   # the existing bits), not `install` (a fresh copy over them).
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/pin-refresh"
   run al_agent pin rtk=curated
   [ "$status" -eq 1 ] \
@@ -119,7 +169,7 @@ teardown() {
   # REQ: DET-04 — the keystone: adopt a non-canonical catalog tool, then list
   # reads it managed (reused/synced) and pin succeeds. This closes the loop the
   # user hit — present in `list` but un-adoptable / un-pinnable.
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/adopt-refresh"
 
   run al_agent adopt rtk
@@ -154,7 +204,7 @@ exit 0
 SH
   chmod 0755 "$FAKE_BIN"; chown agent:agent "$FAKE_BIN"
 
-  run bash "$INSTALLER" --report-only --report-format=json
+  run "$INSTALLER" provision --report-only --report-format=json
   assert_exit_zero "DET-04/oow-refresh"
 
   run al_agent list

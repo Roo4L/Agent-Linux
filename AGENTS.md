@@ -18,14 +18,17 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
 
 ## Where Things Live
 
-- `plugin/` — shippable installer code (bash entrypoint, lib helpers, provisioner
-  steps, catalog, registry CLI in `plugin/cli/`)
+- `plugin/` — shippable code: the catalog (`plugin/catalog/` — catalog.json + the
+  per-agent Bash recipes) and the shipped musl bin path (`plugin/bin/agentlinux`).
+  The provisioner + registry CLI are the Rust workspace under `rust/`.
 - `tests/bats/` — behavior-contract suite (BHV-XX / RT-XX / AGT-XX / CLI-XX / CAT-XX / INST-XX)
-- `tests/harness/` — harness meta-tests (Phase 1 acceptance gate)
-- `tests/docker/` — fast CI harness (Ubuntu 22.04 + 24.04 + 26.04 matrix, every PR)
+- `tests/harness/` — repo-level gate self-tests (the `.planning/` hygiene gate, the mutation gate); run on the CI runner, never in a container or guest
+- `tests/docker/` — fast CI harness (Ubuntu 24.04 + AlmaLinux 9 matrix, every PR). The
+  matrix is a COST choice, not a support statement: the installer still accepts
+  22.04 and 26.04, they are just no longer exercised on every push.
 - `tests/qemu/` — release-gate harness (fresh cloud images, nightly + release)
-- `packaging/` — curl-pipe-bash installer + optional fpm .deb wrapper
-- `docs/` — reference documentation (`HARNESS.md`, `codex.md`, `decisions/`, `research/`, `proposals/`, `reviews/`)
+- `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (the sole distribution channel; the optional fpm .deb wrapper was removed in Phase 58 / DIST-02)
+- `docs/` — reference documentation (`HARNESS.md`, `codex.md`, `decisions/`, `research/`, `internals/`)
 - `.planning/` — GSD workflow state (PLAN.md, STATE.md, ROADMAP.md) — not documentation
 - `.claude/agents/` — portable project-scoped reviewer role prompts used by the
   shared `$review` skill (kept here for Claude Code compatibility)
@@ -95,20 +98,20 @@ before stopping — `.claude/hooks/session-tracker-reminder.sh` for Claude Code,
 
 ```bash
 ./tests/docker/run.sh ubuntu-24.04        # Run bats inside Docker (Ubuntu 24.04)
-cd plugin/cli && pnpm test                 # CLI unit tests (node:test)
-pre-commit run --all-files                 # Lint bash + TS + catalog schema
+cd rust && cargo test --workspace          # Rust unit tests (provisioner + CLI)
+pre-commit run --all-files                 # Lint bash + catalog schema + version lock
 ./scripts/build-release.sh vX.Y.Z          # Build the release tarball + .sha256
-bash tests/harness/run.sh                  # Run harness meta-tests (Phase 1)
+bats tests/harness/70-planning-clean-gate.bats  # Self-test the .planning/ hygiene gate
 ```
 
 ## Pointers
 
 - `@.planning/ROADMAP.md` — phase plan (1 Harness → 2 Installer → 3 Node → 4 CLI → 5 Agents → 6 Release)
-- `@.planning/REQUIREMENTS.md` — behavior contract (BHV/RT/AGT/CLI/CAT/INST/HRN/TST/DOC)
+- `@.planning/milestones/` — per-milestone behavior contracts (BHV/RT/AGT/CLI/CAT/INST/TST/DOC)
 - `@docs/HARNESS.md` — authoritative harness spec (§1 layout, §2 docs, §3 systems, §4 review, §5 skills, §6 this file, §7 checklist, §8 criteria)
 - `@docs/codex.md` — Codex CLI support (install, AGENTS.md, skills, Stop hooks)
-- `@docs/research/v0.3.0/SUMMARY.md` — v0.3.0 research synthesis
-- `@docs/decisions/` — ADR-001..ADR-016 (ADR-016: developer internals docs)
+- `@docs/research/` — long-lived research, one document per question
+- `@docs/decisions/` — the ADR set; `docs/decisions/README.md` is the index
 - `@docs/internals/` — developer documentation (what each AgentLinux component
   does and why; product-perspective lens; insight source for blog/email/website)
 - Skills: `.claude/skills/agentlinux-installer/`,

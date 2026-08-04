@@ -2,11 +2,10 @@
 
 **Status:** Accepted
 **Date:** 2026-04-26
-**Drives:** v0.4.0 LIC-01, LIC-02, LIC-03
 
 ## Context
 
-v0.4.0 (Open-Source Release) flips the AgentLinux repository from private to public — issue AGE-6. A licensing decision is a hard prerequisite: an unlicensed public repo defaults to "all rights reserved" under copyright law and is effectively unusable by anyone who would otherwise install or contribute to it.
+Opening the AgentLinux repository to the public required a licensing decision first. That decision is a hard prerequisite: an unlicensed public repo defaults to "all rights reserved" under copyright law and is effectively unusable by anyone who would otherwise install or contribute to it.
 
 Three OSI-approved options were on the table:
 
@@ -38,7 +37,7 @@ Rationale, in priority order:
 ### SPDX header policy
 
 - **New files going forward** (post-2026-04-26) include an SPDX identifier line as the first non-shebang comment line. For bash: `# SPDX-License-Identifier: MIT`; for TypeScript: `// SPDX-License-Identifier: MIT`; for JSON files: skipped (JSON has no comment syntax — license is documented at repo level only).
-- **Existing source files**: get the SPDX identifier added in a one-time backfill commit during Phase 7 for files that are clearly first-party AgentLinux source (`plugin/bin/*`, `plugin/lib/*`, `plugin/cli/src/*`, `scripts/*`, `tests/bats/*`, `tests/harness/run.sh`). Existing third-party content (vendored dependencies, generated files like `plugin/cli/dist/*`, anything under `node_modules/`) is **not** retrofitted — those carry their own upstream licenses.
+- **Existing source files**: get the SPDX identifier added in a one-time backfill across files that are clearly first-party AgentLinux source. Third-party content — vendored dependencies, generated files, anything under `node_modules/` — is **not** retrofitted; those carry their own upstream licenses.
 - **Generated files** (`dist/`, `*.lock`, `package.json`'s ephemeral fields) carry no SPDX identifier; the repo-level LICENSE applies and adding identifiers to lockfiles would be churn.
 
 ### Patent posture

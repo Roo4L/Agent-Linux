@@ -4,7 +4,7 @@
 load 'helpers/assertions'
 
 SOURCE_ROOT=${AGENTLINUX_SOURCE_ROOT:-/opt/agentlinux-src}
-CATALOG=${AGENTLINUX_CATALOG:-/opt/agentlinux/catalog/$(jq -r .version "$SOURCE_ROOT/plugin/cli/package.json")/catalog.json}
+CATALOG=${AGENTLINUX_CATALOG:-/opt/agentlinux/catalog/$(jq -r .version "$SOURCE_ROOT/plugin/catalog/catalog.json")/catalog.json}
 LOG=/var/log/agentlinux-install.log
 
 @test "AGT-04: catalog pins the Open GSD package and its package-native command" {
@@ -27,14 +27,14 @@ LOG=/var/log/agentlinux-install.log
     __fail "AGT-04/no-shim" "Open GSD recipe has no legacy package or /usr/local shim" "$output" "$LOG"
 }
 
-@test "AGT-04: detection, reuse, and Node remediation identify gsd-core as canonical" {
-  run grep -En 'gsd-core|@opengsd/gsd-core' \
-    "$SOURCE_ROOT/plugin/cli/src/detect.ts" \
-    "$SOURCE_ROOT/plugin/lib/detect/agents.sh" \
-    "$SOURCE_ROOT/plugin/lib/reuse/agents.sh" \
-    "$SOURCE_ROOT/plugin/lib/remediate/nodejs.sh"
-  assert_exit_zero "AGT-04/canonical-surfaces"
-}
+# The canonical-path map used to be "covered" here by
+# `grep -Ern 'gsd-core' main.rs detect_gates.rs reuse.rs; assert_exit_zero` —
+# which grep satisfies from a match in ANY of the three files, and the only
+# occurrences in the two gate modules are #[cfg(test)] constants. The map could
+# have been deleted from both and it stayed green. It now lives where it can be
+# asserted: `canonical_path_map_pins_each_id` (rust/crates/agentlinux/src/main.rs)
+# pins the map, and `gsd_system_version_path_reuses` (agentlinux-core/src/reuse.rs)
+# covers the decision that path drives.
 
 @test "AGT-04: GSD removal preserves Open GSD user-owned dev-preferences" {
   local home

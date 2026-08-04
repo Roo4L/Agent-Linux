@@ -31,7 +31,7 @@ load 'helpers/invoke_modes'
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
-PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+PKG_VERSION=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
 CATALOG=/opt/agentlinux/catalog/${PKG_VERSION}/catalog.json
 
 # Absolute agent-owned paths (hermes installs the launcher under ~/.local/bin and the code
@@ -60,7 +60,7 @@ _user_systemd_up() {
 
 setup_file() {
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
   _scrub_hermes
 }

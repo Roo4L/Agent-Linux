@@ -7,7 +7,8 @@
 # needs that agent present. So order-independence needs TWO mechanisms:
 #   (a) installing the provider fans its wiring out to every agent present THEN;
 #   (b) installing an agent LATER re-wires every installed provider into it —
-#       driven by the CLI post-install reconcile (plugin/cli/src/rewire.ts) +
+#       driven by the CLI post-install reconcile
+#       (rust/crates/agentlinux/src/rewire.rs::reconcile_cross_wiring) +
 #       the provider's rewire_recipe_path (rtk -> agents/rtk/rewire.sh).
 # Both directions must converge to the same wired set; `remove` unwires all.
 #
@@ -22,7 +23,7 @@ LOG=/var/log/agentlinux-install.log
 
 setup_file() {
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
 }
 

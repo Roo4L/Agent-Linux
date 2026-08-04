@@ -26,7 +26,7 @@
 load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 TTY_DRIVER=/opt/agentlinux-src/tests/bats/helpers/tty-driver.py
 ALT_USER=claude
 
@@ -46,9 +46,9 @@ setup_file() {
 # shared installer-placed files), then re-run the default installer to recreate
 # the agent-owned artefacts. Mirrors 15-preflight-ux.bats's teardown_file.
 teardown_file() {
-  bash "$INSTALLER" --purge --user="$ALT_USER" >/dev/null 2>&1 || true
+  "$INSTALLER" provision --purge --user="$ALT_USER" >/dev/null 2>&1 || true
   rm -f /tmp/agentlinux-test-dummy.marker || true
-  bash "$INSTALLER" >/dev/null 2>&1 || true
+  "$INSTALLER" provision >/dev/null 2>&1 || true
   # SSH keypair recovery (mirrors 50-agents.bats): the AC3 test runs
   # `--purge` (no --user) to reach a greenfield state, and that `userdel -r
   # agent` deletes /home/agent including ~/.ssh/authorized_keys. The reinstall
@@ -73,7 +73,7 @@ teardown_file() {
 # explicit consent (it otherwise bails exit 65). AL-50 adds --user; it does not
 # relax that consent gate.
 _install_alt_user() {
-  run bash "$INSTALLER" --user="$ALT_USER" --yes
+  run "$INSTALLER" provision --user="$ALT_USER" --yes
   assert_exit_zero "INST-07"
 }
 
@@ -99,7 +99,7 @@ _install_alt_user() {
 @test "INST-07: AC5 invalid usernames rejected with exit 64 and zero mutation" {
   local bad
   for bad in root www-data daemon nobody "Bad" "a b" "../x" "0bad"; do
-    run bash "$INSTALLER" --user="$bad"
+    run "$INSTALLER" provision --user="$bad"
     [[ "$status" -eq 64 ]] \
       || __fail "INST-07" "exit 64 for --user='${bad}'" "status=${status}; output: ${output}" "$LOG"
     # No NEW user created for the non-existent bad names.
@@ -130,7 +130,7 @@ _install_alt_user() {
   fi
   [[ "$(id -u svcacct)" -lt 1000 ]] \
     || __fail "INST-07" "svcacct is a uid<1000 system account" "uid=$(id -u svcacct)" "$LOG"
-  run bash "$INSTALLER" --user=svcacct
+  run "$INSTALLER" provision --user=svcacct
   [[ "$status" -eq 64 ]] \
     || __fail "INST-07" "exit 64 adopting uid<1000 svcacct" "status=${status}; output: ${output}" "$LOG"
   # The gate fires before mutation: sudoers was not granted to svcacct.
@@ -192,7 +192,7 @@ _install_alt_user() {
 # AC2 — AGENTLINUX_USER=NAME env (no flag) honored identically.
 # ---------------------------------------------------------------------------
 @test "INST-07: AC2 AGENTLINUX_USER env (no flag) honored identically to --user" {
-  run env AGENTLINUX_USER="$ALT_USER" bash "$INSTALLER" --yes
+  run env AGENTLINUX_USER="$ALT_USER" "$INSTALLER" provision --yes
   assert_exit_zero "INST-07"
   grep -Fxq "AGENTLINUX_USER=${ALT_USER}" /etc/agentlinux.env \
     || __fail "INST-07" "env-driven install wrote AGENTLINUX_USER=${ALT_USER}" "$(cat /etc/agentlinux.env)" /etc/agentlinux.env
@@ -233,8 +233,8 @@ _install_alt_user() {
   # greenfield, then drive a TTY with no --user/env so main() fires
   # prompt::choose_install_user; feed the alt name. Greenfield needs no --yes
   # (fresh create, nothing to remediate).
-  bash "$INSTALLER" --purge >/dev/null 2>&1 || true
-  run python3 "$TTY_DRIVER" "${ALT_USER}\n" -- bash "$INSTALLER"
+  "$INSTALLER" provision --purge >/dev/null 2>&1 || true
+  run python3 "$TTY_DRIVER" "${ALT_USER}\n" -- "$INSTALLER" provision
   [[ "$status" -eq 0 ]] \
     || __fail "INST-07" "interactive install exit 0" "status=${status}; output: ${output}" "$LOG"
   printf '%s' "$output" | grep -q 'Install AgentLinux under which user?' \
@@ -245,8 +245,8 @@ _install_alt_user() {
 
 # ---------------------------------------------------------------------------
 # AC4 — catalog op DISPATCHES recipes as the configured user (closes the
-# runner.ts dispatch-user gap). Install a test-dummy recipe as claude and assert
-# the recipe ran AS claude (marker owned by claude), traversing dispatchRecipe.
+# dispatch-user gap). Install a test-dummy recipe as claude and assert
+# the recipe ran AS claude (marker owned by claude), traversing dispatch_recipe.
 # A regression to dispatcher("agent", …) would run as agent (marker owned by
 # agent) or fail with `sudo: unknown user: agent` on an agent-less host.
 # ---------------------------------------------------------------------------

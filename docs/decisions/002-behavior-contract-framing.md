@@ -21,8 +21,7 @@ may change freely while the suite stays green.
 
 ## Consequences
 
-- Each requirement maps to ≥1 bats test (enforced by the `behavior-coverage-auditor`
-  review subagent at every phase transition).
+- Each requirement maps to at least one bats test.
 - Implementation choices (curl vs apt, sudo vs no-sudo, npm vs native) are not
   requirements — they are free variables bounded only by the behavior contract.
 - Test-authoring convention and helpers (`assert_agent_can_run`,

@@ -4,9 +4,9 @@
 
 This document specifies the project structure, tooling, and review processes required to run AgentLinux v0.3.0 development through supported coding-agent hosts, including Claude Code and Codex. Goal: agents run longer, produce better results, and ship faster — while humans retain decision authority over irreversible actions (releases, destructive migrations, schema breaks).
 
-**Scope:** Project organization, code quality infrastructure, documentation structure, and the automated review feedback loop. Not the installer design itself (that's `.planning/REQUIREMENTS.md` + `.planning/ROADMAP.md`).
+**Scope:** Project organization, code quality infrastructure, documentation structure, and the automated review feedback loop. Not the installer design itself (that's the per-milestone behavior contracts under `.planning/milestones/` + `.planning/ROADMAP.md`).
 
-**Reference template:** Adapted from the ELS-OS-Migration-to-PatchFlow HARNESS.md (Python/API/DB) for AgentLinux's stack (bash installer + Node.js/TypeScript registry CLI, no database, minimal external APIs).
+**Reference template:** Adapted from the ELS-OS-Migration-to-PatchFlow HARNESS.md (Python/API/DB) for AgentLinux's stack (Rust provisioner + registry CLI, bash install recipes, no database, minimal external APIs).
 
 ---
 
@@ -23,28 +23,18 @@ agent-linux/                            # Workspace root
 ├── AGENTS.md                           # Shared project context and critical rules
 ├── CLAUDE.md                           # Claude Code host adapter (< 150 lines)
 ├── README.md                           # User-facing README
-├── plugin/                             # The installable plugin — bash installer + Node CLI
-│   ├── bin/
-│   │   └── agentlinux-install          # Installer entrypoint (bash)
-│   ├── lib/                            # Shared bash helpers (logging, idempotency, as_user)
-│   │   ├── log.sh
-│   │   ├── idempotency.sh
-│   │   ├── as_user.sh
-│   │   └── distro_detect.sh
-│   ├── provisioner/                    # Ordered installer steps (bash)
-│   │   ├── 10-agent-user.sh
-│   │   ├── 30-nodejs.sh
-│   │   ├── 40-path-wiring.sh
-│   │   └── 50-registry-cli.sh
-│   ├── cli/                            # Node.js/TS registry CLI — `agentlinux`
-│   │   ├── package.json
-│   │   ├── tsconfig.json
-│   │   ├── src/
-│   │   │   ├── index.ts                # Entry — Commander.js setup
-│   │   │   ├── commands/               # list / adopt / install / remove / upgrade / pin
-│   │   │   ├── catalog.ts              # JSON Schema-validated catalog reader
-│   │   │   └── runner.ts               # Dispatches to catalog/agents/<name>/install.sh
-│   │   └── test/                       # node:test unit tests for the CLI
+├── rust/                               # Cargo workspace — provisioner + registry CLI
+│   ├── Cargo.toml                      # Workspace root; Cargo.lock is committed
+│   └── crates/
+│       ├── agentlinux/                 # The `agentlinux` bin (static x86_64-musl)
+│       │   └── src/
+│       │       ├── cli.rs              # clap arg definitions
+│       │       ├── cmd/                # list / adopt / install / remove / upgrade / pin / provision
+│       │       ├── catalog.rs          # JSON Schema-validated catalog reader
+│       │       └── dispatcher.rs       # Dispatches to catalog/agents/<name>/install.sh
+│       └── agentlinux-core/            # I/O-free logic (classify, divergence, semver shim)
+├── plugin/                             # Shippable non-Rust assets
+│   ├── bin/agentlinux                  # Build output — staged into the tarball, not in git
 │   └── catalog/                        # Agent recipe catalog
 │       ├── schema.json                 # JSON Schema 2020-12 contract
 │       ├── catalog.json                # Curated catalog entries (none installed by default)
@@ -52,10 +42,9 @@ agent-linux/                            # Workspace root
 │           ├── claude-code/install.sh
 │           ├── gsd/install.sh
 │           └── playwright-cli/install.sh         # Browser-access tool for agents
-├── packaging/                          # Distribution wrappers
-│   ├── curl-installer/
-│   │   └── install.sh                  # SHA256-verified downloader; execs plugin/bin/agentlinux-install
-│   └── deb/                            # Optional fpm wrapper for .deb distribution
+├── packaging/                          # Distribution wrapper (sole channel)
+│   └── curl-installer/
+│       └── install.sh                  # SHA256-verified downloader for the reproducible musl tarball
 ├── tests/                              # Behavior-contract test suite (primary v0.3.0 deliverable)
 │   ├── bats/                           # Behavior-contract files (IDs in test names)
 │   │   └── helpers/                    # Shared assertions and fixtures
@@ -67,17 +56,13 @@ agent-linux/                            # Workspace root
 │   └── qemu/                           # Definitive release-gate harness — cloud-image VMs
 │       ├── boot.sh                     # Fresh Ubuntu cloud image → SSH → install → bats
 │       └── cloud-init/
-├── website/                            # (existing v0.1.0) Landing page — agentlinux.org
-│   ├── index.html
-│   └── assets/
+├── index.html, assets/                 # Landing page — agentlinux.org, served from repo root
 ├── docs/                               # All reference documentation (see §2)
 │   ├── README.md                       # Index
 │   ├── HARNESS.md                      # This file
 │   ├── decisions/                      # ADRs
-│   ├── research/                       # Archived + active research outputs
-│   ├── proposals/                      # Design proposals pre-ADR
-│   ├── analysis/                       # SUMMARY.md, gap analyses
-│   └── reviews/                        # Review-loop outputs worth preserving
+│   ├── research/                       # Long-lived research — flat, one file per question
+│   └── internals/                      # Developer docs, one per component (ADR-015)
 ├── .planning/                          # GSD operational state (not reference material)
 ├── .claude/                            # Claude Code project config
 │   ├── agents/                         # Portable reviewer role prompts (§4)
@@ -87,34 +72,29 @@ agent-linux/                            # Workspace root
 │   └── workflows/
 │       ├── test.yml                    # Docker test matrix on every PR
 │       ├── nightly-qemu.yml            # QEMU release-gate suite
-│       └── release.yml                 # Tag → build tarball + .deb → GitHub Release
-└── packer/                             # (existing v0.2.0 — retired with pivot, keep for reference)
+│       └── release.yml                 # Tag → build reproducible musl tarball → GitHub Release
 ```
 
 **Key decisions:**
 
-- **Root is a workspace, not a single Node project.** No `package.json` or `tsconfig.json` at the root. Those live inside `plugin/cli/` so `pnpm install` in that directory only touches the CLI. This keeps the root clean for peer repos we may clone during development (Claude Code repo, example installers, scratch Ubuntu test images).
-- **`plugin/` is the shippable artifact.** Everything in `plugin/` is what goes into the release tarball. `packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux-install`.
+- **Root is a workspace, not a single Cargo project.** No `Cargo.toml` at the root; the cargo workspace lives under `rust/`. This keeps the root clean for peer repos we may clone during development (Claude Code repo, example installers, scratch Ubuntu test images).
+- **`plugin/` is the shippable artifact.** Everything in `plugin/` is what goes into the release tarball. `packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux provision`.
 - **`tests/` is separate from `plugin/`.** Tests never ship. Black-box: they run against an *installed* `plugin/`, not against source.
 - **`docs/` for reference, `.planning/` for workflow state.** Identical routing rule to the reference: if the output of a task is a document intended to be read later (ADR, research report, design proposal, review summary), it goes in `docs/`, even as a draft. `.planning/` holds PLAN.md, STATE.md, config — workflow machinery, not documentation.
-- **Existing `packer/` stays in-tree as read-only reference** until v0.3.1 when we can decide whether to delete it. It documents the retired distro path and contains provisioner scripts that inform the plugin's installer logic.
 
 ### 1.2 Code Quality: Pre-commit
 
-Three languages in this project: **bash** (installer + provisioner scripts), **TypeScript/JavaScript** (registry CLI), and **JSON** (catalog + config). One toolchain per language.
+Three languages in this project: **Rust** (provisioner + registry CLI), **bash** (per-agent install recipes), and **JSON** (catalog + config). One toolchain per language.
 
 | Language | Lint | Format | Notes |
 |---------|------|--------|-------|
-| Bash | `shellcheck` | `shfmt` | `--language-dialect bash` (not POSIX); `-i 2` for 2-space indent |
-| TS/JS | `biome` | `biome` | One tool instead of eslint+prettier; fast; Rust-based |
-| JSON | `biome` + JSON Schema validation | `biome` | Catalog entries validated against `plugin/catalog/schema.json` in pre-commit |
+| Rust | `cargo clippy` | `cargo fmt` | Enforced in the `rust` CI job, a required status check |
+| Bash | `shellcheck` | `shfmt` | `--shell=bash` (not POSIX); `-i 2` for 2-space indent |
+| JSON | jq structural gate | — | Pre-commit checks catalog shape; full JSON-Schema validation is the schemars drift-check in `cargo test -p agentlinux-core schema` |
 | Bats | (bats-core has no lint) | `shfmt` | Treat `.bats` files as bash for formatting |
 
 ```yaml
 # .pre-commit-config.yaml
-default_language_version:
-  node: '22'
-
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -139,20 +119,21 @@ repos:
       - id: shfmt
         args: [-i, '2', -ci, -bn]
 
-  - repo: https://github.com/biomejs/pre-commit
-    rev: v1.9.4
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
     hooks:
-      - id: biome-check
-        files: ^plugin/cli/
+      - id: gitleaks
 
   - repo: local
     hooks:
       - id: catalog-schema-validate
         name: Validate catalog.json against schema
-        entry: node plugin/cli/scripts/validate-catalog.mjs
+        entry: scripts/check-catalog-schema.sh
         language: system
-        files: ^plugin/catalog/(catalog|agents/.*/recipe)\.json$
+        files: ^plugin/catalog/catalog\.json$
         pass_filenames: false
+      # plus: check-version-lockstep, check-distro-leak, and
+      # sync-codex-agents --check — see the real file for their filters.
 ```
 
 ### 1.3 Testing
@@ -161,30 +142,26 @@ Four test layers. Each answers a different question. Mutation testing is the met
 
 | Layer | Tool | Question Answered | Run When |
 |-------|------|-------------------|----------|
-| CLI unit | `node:test` (built-in, no deps) | "Does the registry CLI parse args, read the catalog, and dispatch correctly?" | Pre-commit, every PR |
-| Behavior (bats) | `bats-core` 1.11.x | "Does an installed AgentLinux meet every BHV/RT/AGT/CLI/CAT/INST requirement?" | Docker matrix on every PR; QEMU nightly + release gate |
+| Unit + property | `cargo test` (incl. `proptest`) | "Does the CLI parse args, read the catalog, and dispatch correctly? Does the pure core hold under generated input?" | The `rust` CI job on every PR |
+| Behavior (bats) | `bats-core` (the distro package; 22.04 ships 1.2.1) | "Does an installed AgentLinux meet every BHV/RT/AGT/CLI/CAT/INST requirement?" | Docker matrix on every PR; QEMU nightly + release gate |
 | Release smoke | Shell script over SSH | "Does a fresh install on a fresh Ubuntu cloud image succeed?" | Release-gate job only |
-| **Mutation** | `stryker-mutator` (Node CLI) + custom bash mutator (installer) | **"Are our tests actually testing something? Would they catch a real regression?"** | Nightly + before any release branch is cut |
+| **Mutation** | `cargo-mutants` (the pure core only) | **"Are our tests actually testing something? Would they catch a real regression?"** | `--in-diff` gate on every PR; full-crate score nightly |
 
 **Why mutation testing.** Without it, "100% behavior-test coverage" can be a green-bar lie: tests that execute every line but assert nothing meaningful. Mutation testing introduces small intentional faults into the source (`>` → `>=`, `&&` → `||`, delete a `set -e`, flip a sudoers permission bit) and checks that *the test suite catches the mutation*. Mutation score (mutants killed / mutants generated) is the truth-meter for test quality.
 
-**For the Node.js CLI:** [`stryker-mutator`](https://stryker-mutator.io/) is mature and well-supported. Target: **mutation score ≥ 75%** for `plugin/cli/src/`. Equivalent mutants (mutations that produce identical behavior) are reviewed manually and excluded.
+**Scope: the pure core only.** Both mutation jobs run `--package agentlinux-core`. On every PR the `rust` job adds `--in-diff` against the diff of `crates/agentlinux-core/**` — only mutants introduced by that diff must be killed, which keeps the gate fast enough to be *blocking*. Nightly, `nightly-mutation.yml` scores the whole core crate and is advisory. Both pin the same `cargo-mutants` version so the merge gate and the nightly score share one mutant set.
 
-**For bash (installer + provisioner + bats helpers):** mature mutation tooling for bash does not exist. We ship a minimal in-house mutator at `tests/mutation/bash-mutator.sh` that performs a small, audit-friendly set of mutations (negation flip, comparison-operator swap, `set -e` removal, sudoers mode bit flip, `as_user` → direct invocation) and runs the bats suite against each mutant. Target: **mutation score ≥ 60%** for `plugin/lib/`, `plugin/provisioner/`, `plugin/bin/`. Lower target than the CLI because the mutator is intentionally narrow — false-negatives are expected and acceptable; the value is catching the high-impact mutations (security-relevant flips, idempotency breaks) early.
+**Nothing outside `agentlinux-core` is mutation-tested.** The `agentlinux` bin crate — the I/O adapters, the dispatcher, the provisioner — yields zero mutants, so new logic there passes the gate untested. That is the price of keeping the gate fast; the bats behavior suite is what covers it.
 
-**Mutation results are advisory, not blocking, in v0.3.0.** A regression that drops the mutation score significantly opens a follow-up issue; it does not block the release. We promote mutation score to a release gate in v0.4 once we have a baseline and false-positive rate.
+**The per-agent Bash recipes are not mutation-tested.** Mature mutation tooling for bash does not exist, and the in-house scaffold that once stood in was removed along with the Bash provisioner. The recipes are covered by the bats behavior suite instead.
 
-**CLI unit tests:**
-```json
-// plugin/cli/package.json (excerpt)
-{
-  "scripts": {
-    "test": "node --test --experimental-test-coverage test/",
-    "lint": "biome check src/ test/",
-    "format": "biome format --write src/ test/"
-  }
-}
+**Running the unit + property suite:**
+```bash
+cd rust && cargo test --workspace          # all crates
+cargo test -p agentlinux-core parity       # the node-semver parity goldens
 ```
+
+Proptest counterexample seeds under `rust/**/proptest-regressions/` are **committed** — a failure found once must replay on every future run, so that directory is deliberately not gitignored.
 
 **Bats assertions:** one file per requirement category (see layout above). Tests execute inside the target environment (a container or a QEMU guest), not on the developer's host. A shared `tests/bats/helpers/` provides assertion helpers (`assert_agent_can_run`, `assert_no_eacces_in_log`, `assert_self_update_succeeds`, etc.) so individual tests stay short and readable.
 
@@ -194,11 +171,11 @@ Four test layers. Each answers a different question. Mutation testing is the met
 
 ### 1.4 Build Configuration
 
-- **Plugin bash scripts:** no build step. `plugin/bin/` and `plugin/lib/` ship as-is (after `shfmt` check).
-- **Registry CLI:** `plugin/cli/` builds to a single JS bundle via `esbuild --bundle --platform=node --target=node22`. Output goes to `plugin/cli/dist/index.cjs`. The release tarball includes `dist/`, not `src/` — no `node_modules/` ships.
-- **Release tarball:** `scripts/build-release.sh` assembles `plugin/bin/`, `plugin/lib/`, `plugin/provisioner/`, `plugin/catalog/`, `plugin/cli/dist/`, and a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`.
-- **.deb (optional):** `packaging/deb/build.sh` wraps the same tarball with `fpm -s dir -t deb` (carries forward from v0.2.0).
-- **GitHub Releases workflow:** tag `vX.Y.Z` → build tarball + .deb → upload both + sha256 to the release.
+- **Catalog Bash recipes:** no build step. `plugin/catalog/agents/*/{install,uninstall}.sh` + `plugin/catalog/lib/` ship as-is (after `shfmt` check).
+- **Provisioner + registry CLI:** the Rust workspace under `rust/` (built to a static x86_64-musl `agentlinux` bin). The TypeScript CLI + Bash provisioner/entrypoint were retired at the cutover; the shipped `agentlinux` is the Rust musl bin and `cargo test` is the unit-test oracle alongside the bats behavior suite.
+- **Release tarball:** `scripts/build-release.sh` builds the static `x86_64-unknown-linux-musl` `agentlinux` bin and assembles `plugin/bin/agentlinux` (the bin) + `plugin/catalog/` (catalog.json + the ~25 Bash recipes) + a generated `VERSION` file into `agentlinux-vX.Y.Z.tar.gz`, then emits a sibling `.sha256`. The tarball is byte-reproducible (SOURCE_DATE_EPOCH-pinned tar + `strip`/`--remap-path-prefix`/`--build-id=none` on the bin).
+- **Distribution channel:** the reproducible musl tarball + `.sha256` is the **sole** channel. The optional fpm `.deb` wrapper was removed at the Rust cutover (ADR-006 is flagged superseded-in-part).
+- **GitHub Releases workflow:** tag `vX.Y.Z` → build tarball → upload tarball + sha256 + catalog snapshot to the release.
 
 ---
 
@@ -221,20 +198,21 @@ docs/
 │   ├── 002-behavior-contract-framing.md
 │   ├── 003-no-default-agents-installed.md
 │   └── ...
-├── research/                       # Research outputs (active + promoted from .planning)
-│   ├── v0.3.0/
-│   │   ├── STACK.md
-│   │   ├── FEATURES.md
-│   │   ├── ARCHITECTURE.md
-│   │   ├── PITFALLS.md
-│   │   └── SUMMARY.md
-│   └── v0.2.0/                     # Archived for carry-forward reference
-├── proposals/                      # Design proposals in flight (pre-ADR)
-├── analysis/                       # Gap analyses, comparison studies
-└── reviews/                        # Review-loop outputs worth preserving across sessions
+└── research/                       # Long-lived research — flat, one file per question
+    ├── stack-reconsideration.md
+    ├── stability-model-reconsideration.md
+    └── cli-vs-apt-advisor.md
 ```
 
-**Routing rule:** If the output of a task is a document (analysis, decision, proposal, review, any reference material), it goes in `docs/` from the start — draft or finished. `.planning/` retains only GSD operational artifacts: phase plans (PLAN.md), execution state (STATE.md), config, todos, notes. Research outputs produced by GSD's research phase may start under `.planning/research/` but should graduate into `docs/research/` once the milestone locks.
+**Routing rule:** If the output of a task is a document (analysis, decision, proposal, review, any reference material), it goes in `docs/` from the start — draft or finished. `.planning/` retains only GSD operational artifacts: phase plans (PLAN.md), execution state (STATE.md), config, todos, notes.
+
+**Promoting research into `docs/research/`.** Most research is scaffolding for one decision; it stays in `.planning/research/`. Promote only when the document holds what the ADR drops — the options that were rejected and why they lost. If the document's content *is* the conclusion, the ADR is the record. Unsure: ask, don't promote.
+
+A promoted document must be usable by someone with no access to `.planning/`:
+
+- **Flat.** `docs/research/<question>.md`. No milestone or version subdirectories.
+- **Header:** `Date`, `Question`, `Scope`, `Outcome`. `Outcome` names the decision, links the ADR if there is one, and says what actually shipped — including where the implementation diverged from the design.
+- **No workspace vocabulary.** No phase numbers, plan filenames, requirement IDs, GSD terms, or "what to do next" lists. Name the behavior instead of citing its ID. A dated document's option-comparison table may keep the IDs it was argued with — rewriting those cells rewrites the argument — but its prose may not.
 
 ### 2.3 Decision Records (ADRs)
 
@@ -250,14 +228,16 @@ Each non-trivial decision gets a lightweight ADR in `docs/decisions/`:
 **Consequences:** What changes as a result; what trade-off was accepted
 ```
 
-Decisions to seed immediately (already captured in `.planning/PROJECT.md` Key Decisions table or implicit from the v0.2.0 retrospective):
+**Superseding.** When a later ADR replaces this one, `Status` is `Superseded by NNN`. When a decision is overtaken by something that is *not* a numbered ADR — a rewrite, a dropped channel — `Status` reads `Accepted (DATE) — Superseded[-in-part] (VERSION):` followed by what changed, and a closing `## Superseded[-in-part] (VERSION)` section carries the detail: what replaced it, which parts of the original reasoning survive, and where the real record lives. ADR-006 and ADR-008 are the worked examples. Never edit the original Context/Decision — an ADR is a record of what was decided then, not a description of the system now.
+
+The current, authoritative ADR index is [`decisions/README.md`](decisions/README.md) — statuses and supersessions live there, not here. The list below is the original seed set as it was written, recorded for the §7 checklist item that produced it; several of these have since been superseded in whole or in part:
 
 - ADR-001: Pivot from custom distro to installable Ubuntu plugin (v0.2.0 → v0.3.0)
 - ADR-002: Behavior-contract framing — requirements are BHV-XX, not INST-XX; tests are the spec
 - ADR-003: No default agents installed in v0.3.0
 - ADR-004: Per-user npm prefix (`~/.npm-global`) as the keystone ownership decision
 - ADR-005: System Node.js (NodeSource) over version managers (nvm/fnm/volta)
-- ADR-006: curl-pipe-bash primary + optional `.deb` distribution
+- ADR-006: curl-pipe-bash distribution + optional `.deb`
 - ADR-007: Docker (fast) + QEMU (release gate) test harness; Docker-only is disqualified
 - ADR-008: Commander.js for the registry CLI
 - ADR-009: Snap is structurally disqualified as a distribution mechanism
@@ -412,11 +392,11 @@ This section originally noted the project had no CLAUDE.md at the repo root — 
 - **Review loop rule:** "Before reporting any task complete, run the review feedback loop on all changed files" (link to `/review` skill and §4 of this file).
 - **Commands:**
   - Run bats locally inside Docker: `./tests/docker/run.sh ubuntu-24.04`
-  - Run CLI unit tests: `cd plugin/cli && pnpm test`
-  - Lint bash + TS: `pre-commit run --all-files`
+  - Run Rust unit tests: `cd rust && cargo test --workspace`
+  - Lint bash + catalog: `pre-commit run --all-files`
   - Build release tarball: `./scripts/build-release.sh vX.Y.Z`
   - Preview docs: (none yet; docs are plain markdown)
-- **Pointers:** `@.planning/ROADMAP.md`, `@.planning/REQUIREMENTS.md`, `@docs/HARNESS.md` (this file), `@docs/research/v0.3.0/SUMMARY.md`, relevant skills (§5).
+- **Pointers:** `@.planning/ROADMAP.md`, `@.planning/milestones/`, `@docs/HARNESS.md` (this file), `@docs/research/`, relevant skills (§5).
 
 Everything else — installer internals, schema details, historical v0.2.0 lessons — stays in skills and docs where it loads on demand.
 
@@ -431,15 +411,15 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 ### Phase A: Project Infrastructure (do first)
 
 - [ ] Create directory skeleton: `plugin/`, `tests/`, `packaging/`, `docs/` (structure only, empty files or READMEs)
-- [ ] Create `plugin/cli/package.json`, `plugin/cli/tsconfig.json`, `plugin/cli/biome.json` — Commander.js + node:test baseline, no real CLI code yet
-- [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, biome, catalog-schema-validate; run `pre-commit install`
+- [ ] Create the `rust/` cargo workspace — `agentlinux` bin + `agentlinux-core` lib, no real logic yet
+- [ ] Create `.pre-commit-config.yaml` covering shellcheck, shfmt, catalog-schema-validate; run `pre-commit install`
 - [x] Create `CLAUDE.md` (< 150 lines) per §6
 - [ ] Create `docs/README.md` index + `docs/decisions/000-template.md` ADR template
-- [ ] Move `.planning/research/` → `docs/research/v0.3.0/` (and archive v0.2.0 research already sitting in `.planning/milestones/v0.2.0-research/` into `docs/research/v0.2.0/`)
+- [x] Flatten `docs/research/` and promote the three keepers (§2.2)
 - [ ] Seed ADR-001 through ADR-010 from the list in §2.3
-- [ ] Set up `.github/workflows/test.yml` — run pre-commit + CLI unit tests + Docker bats matrix on every PR
-- [ ] Add stryker-mutator config to `plugin/cli/` (`stryker.config.json`) targeting `src/` with mutation score threshold of 75 (warning, non-blocking in v0.3.0)
-- [ ] Create `tests/mutation/bash-mutator.sh` (minimal in-house mutator) + `.github/workflows/nightly-mutation.yml` — runs both stryker and bash-mutator nightly, posts a report to Actions summary
+- [ ] Set up `.github/workflows/test.yml` — run pre-commit + `cargo test` + Docker bats matrix on every PR
+- [ ] Wire `cargo-mutants --in-diff` into the `rust` CI job as a blocking gate
+- [ ] Create `.github/workflows/nightly-mutation.yml` — full-crate `cargo-mutants` score on the pure core, advisory, warning-annotated on survivors
 
 ### Phase B: Review Infrastructure
 
@@ -447,7 +427,6 @@ Ordered by dependency. Each item a concrete deliverable. Maps cleanly onto a "Ha
 - [x] Write portable `node-engineer` role definition
 - [x] Write portable `security-engineer` role definition
 - [x] Write portable `qa-engineer` role definition
-- [x] Write portable `behavior-coverage-auditor` role definition
 - [x] Write portable `catalog-auditor` role definition
 - [x] Write portable `ai-deslop`, `dev-docs-auditor`, `technical-writer`,
   `fact-checker`, and `external-audience-auditor` role definitions
@@ -480,9 +459,8 @@ Measurable signals that the harness is working.
 | First-pass review accuracy | > 80% of outputs pass reviewers on first attempt | Review-loop iterations before the agent triages "good enough" |
 | Review catch rate | > 90% of errors caught before reaching human review | Count of errors caught by automated review vs. errors human reviewer flags on the PR |
 | Pre-commit pass rate | > 95% on first commit attempt | Pre-commit hook failure rate from git history |
-| Behavior-test coverage | 100% of BHV/RT/AGT/CLI/CAT/INST requirements have at least one bats test | `behavior-coverage-auditor` report across every phase end |
-| Mutation score (Node CLI) | ≥ 75% — proves CLI tests assert real behavior, not just execute lines | `stryker-mutator` nightly report on `plugin/cli/src/` |
-| Mutation score (bash) | ≥ 60% — proves bats tests catch real installer regressions | Custom `tests/mutation/bash-mutator.sh` nightly report |
+| Behavior-test coverage | Every behavior the product promises has at least one bats test | `qa-engineer` review on any change under `tests/` |
+| Mutation score (Rust core) | Zero surviving mutants in the diff — proves new pure-core code is covered by assertions, not just executed | `cargo-mutants --in-diff --package agentlinux-core` on every PR; full-crate score nightly |
 | CI green rate on first push | > 85% of PRs pass CI on first push | GitHub Actions pass/fail on `pr-opened` event |
 | Release-gate QEMU pass rate | 100% — any red QEMU run blocks release | Release workflow dashboard |
 
@@ -490,5 +468,5 @@ The harness improves iteratively. After each milestone, audit which review loops
 
 ---
 
-*Created: 2026-04-18 — adapted from ELS-OS-Migration HARNESS.md v3 template for AgentLinux's bash + Node.js stack*
+*Created: 2026-04-18 — adapted from ELS-OS-Migration HARNESS.md v3 template; retargeted to the Rust provisioner + CLI at the v0.4.0 cutover*
 *Next review: After Phase A implementation*

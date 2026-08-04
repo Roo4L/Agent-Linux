@@ -53,7 +53,8 @@ echo "rtk: installed at ${dest}/rtk"
 
 # WIRE-02: auto-wire rtk into every installed coding agent. `hash -r` so the
 # just-installed binary resolves on PATH for the wire step (dest is on the
-# AgentLinux PATH). The reconcile in the CLI (plugin/cli/src/rewire.ts) handles
+# AgentLinux PATH). The reconcile in the CLI
+# (rust/crates/agentlinux/src/rewire.rs) handles
 # agents installed later via rtk's rewire.sh.
 hash -r
 # shellcheck source=../../lib/rtk-wire.sh

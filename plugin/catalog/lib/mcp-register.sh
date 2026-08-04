@@ -18,7 +18,7 @@
 # all of them. Currently targeted: claude-code, codex, antigravity-cli, opencode,
 # qwen-code (the five shipped agents with remote-http MCP support).
 #
-# Thin-installer keystone (ADR-017 / CAT-02): an MCP entry registers the BARE
+# Thin-installer keystone (ADR-018 / CAT-02): an MCP entry registers the BARE
 # server (URL only) into each client and bakes NO credential — no literal token,
 # no env-var reference, no auth header. The user authenticates IN-CLIENT afterwards
 # (the client's own OAuth prompt on first use for a remote server). There is thus
@@ -104,7 +104,7 @@ _al_mcp_claude_cfg() { printf '%s/.claude.json' "$(_al_mcp_home)"; }
 _al_mcp_claude_register() { # <server> <url>
   local server=$1 url=$2
   # remove-then-add → idempotent AND guarantees the pinned url wins. Bare URL, no
-  # --header (ADR-017): the user completes OAuth in-client on first use.
+  # --header (ADR-018): the user completes OAuth in-client on first use.
   claude mcp remove "$server" --scope user >/dev/null 2>&1 || true
   claude mcp add --transport http "$server" "$url" --scope user >/dev/null 2>&1 \
     || return 1
@@ -138,7 +138,7 @@ _al_mcp_codex_deregister() { # <server>
   fi
 }
 _al_mcp_codex_register() { # <server> <url>
-  # `url` selects codex's StreamableHTTP transport. Thin installer (ADR-017): we
+  # `url` selects codex's StreamableHTTP transport. Thin installer (ADR-018): we
   # register only the bare URL — no token/bearer field. The user authenticates
   # in-client (codex `codex mcp login`, or the browser OAuth the server drives).
   # Confirmed against codex source at tag rust-v0.142.3: HTTP MCP has graduated
@@ -167,7 +167,7 @@ _al_mcp_antigravity_cfg() { printf '%s/.gemini/config/mcp_config.json' "$(_al_mc
 _al_mcp_qwen_present() { command -v qwen >/dev/null 2>&1; }
 _al_mcp_qwen_cfg() { printf '%s/.qwen/settings.json' "$(_al_mcp_home)"; }
 
-# Antigravity's modern remote-MCP schema uses serverUrl (no auth — ADR-017).
+# Antigravity's modern remote-MCP schema uses serverUrl (no auth — ADR-018).
 _al_mcp_antigravity_obj() { # <url>
   jq -n --arg u "$1" '{serverUrl: $u}'
 }
@@ -187,7 +187,7 @@ _al_mcp_opencode_obj() { # <url>
 # ---- public API -------------------------------------------------------------
 
 # al_mcp_register_http <server> <url>
-# Fan out a BARE remote MCP registration (URL only, NO credential — ADR-017 thin
+# Fan out a BARE remote MCP registration (URL only, NO credential — ADR-018 thin
 # installer) to every present MCP-capable agent. The user authenticates in-client
 # afterwards. Echoes one "<server>: registered into <agent>" line per target and
 # sets AL_MCP_TARGETS to the space-separated agent list. Returns non-zero if a
@@ -259,6 +259,49 @@ al_mcp_register_http() {
   # space-separated token list consumed by the caller; drop the trailing separator.
   AL_MCP_TARGETS="${AL_MCP_TARGETS% }"
   [[ -n "$AL_MCP_TARGETS" ]]
+}
+
+# al_mcp_install_http <server> <url> <display>
+# The whole install-side arc for a hosted remote MCP server: announce, fan out,
+# and turn a failure into the right diagnostic. Every hosted-MCP recipe is this
+# call plus its own vendor-specific auth NOTE.
+#
+# The two failure modes al_mcp_register_http conflates behind one non-zero exit
+# are separated here, because they need different advice: NO agent installed
+# (nothing to register into — tell the user to install one) versus a present
+# agent that failed (a real error — name the targets). Each recipe used to carry
+# a byte-identical copy of this branching.
+al_mcp_install_http() {
+  local server=$1 url=$2 display=$3
+
+  echo "${server}: registering the ${display} (${url}) into installed MCP-capable agents"
+
+  if ! al_mcp_register_http "$server" "$url"; then
+    if [[ -z "${AL_MCP_TARGETS:-}" ]]; then
+      echo "${server} install: no MCP-capable coding agent is installed." >&2
+      echo "${server} install: install one first, e.g.  agentlinux install claude-code" >&2
+      return 1
+    fi
+    echo "${server} install: registration failed for one of: ${AL_MCP_TARGETS}" >&2
+    return 1
+  fi
+
+  echo "${server}: registered into: ${AL_MCP_TARGETS}"
+  # ADR-018: auth is completed IN-CLIENT — AgentLinux stores no token.
+  echo "${server}: NOTE — authenticate from within your coding agent on first use"
+}
+
+# al_mcp_uninstall_http <server> <display>
+# The whole uninstall-side arc: deregister from every present agent, then assert
+# no residue. Deregistration IS the uninstall — nothing was installed to a
+# prefix, and AgentLinux never stored a credential (ADR-018), so there is
+# nothing else to remove.
+al_mcp_uninstall_http() {
+  local server=$1 display=$2
+  echo "${server}: deregistering the ${display} from all present agents"
+  al_mcp_deregister "$server"
+  al_mcp_assert_absent "$server"
+  echo "${server}: deregistered (no residue in any agent config)"
 }
 
 # al_mcp_deregister <server>

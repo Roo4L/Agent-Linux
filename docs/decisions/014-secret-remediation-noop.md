@@ -2,14 +2,10 @@
 
 **Status:** Accepted
 **Date:** 2026-04-26
-**Drives:** v0.4.0 SEC-04
-**Companion to:** SEC-01-gitleaks-report.md, SEC-02-trufflehog-report.md, SEC-03-targeted-audit.md
 
 ## Context
 
-v0.4.0 SEC-04 specifies the remediation path for any secret found in git history during Phase 8 scans:
-
-> For every secret found by SEC-01..03 that was real (not a false positive), the secret is rotated upstream (new token issued, old token revoked) AND the decision between "accept rotation as the remediation" vs. "rewrite history with `git filter-repo`" is recorded in this ADR.
+Before opening the repository, we scanned its full history for credentials and committed to a remediation rule up front: every real secret found (as opposed to a false positive) gets rotated upstream — new token issued, old token revoked — and the choice between accepting rotation as sufficient versus rewriting history with `git filter-repo` gets recorded here.
 
 After running gitleaks (1 finding, triaged false positive — OpenNebula API hostname matching the `generic-api-key` regex), trufflehog (0 verified + 0 unverified findings), and an explicit targeted audit covering Buttondown / GitHub / Anthropic / npm tokens plus credential-shaped filenames and Bearer headers (8 patterns, all 0 matches), the repository's git history is verifiably free of credentials.
 
@@ -33,7 +29,7 @@ The single false-positive flagged by gitleaks (`generic-api-key` matching the li
 
 ### Decision rule for future leaks
 
-If a future audit (or the SEC-05 gitleaks gate) flags a *real* secret:
+If a future audit — or the gitleaks gate on every commit — flags a *real* secret:
 
 1. **Default action: rotate without rewriting history.** Rotation invalidates the leaked credential immediately. History rewriting is destructive (breaks every existing clone, fork, and PR ref) and only adds value if the secret cannot be revoked from upstream — e.g. a long-lived API key on a service that does not let the owner invalidate keys.
 2. **Escalate to history rewrite only when:**
@@ -43,11 +39,17 @@ If a future audit (or the SEC-05 gitleaks gate) flags a *real* secret:
 
 ### Pre-flip posture
 
-The Phase 11 pre-flip checklist (PUB-01) cites this ADR as the SEC-04 closure. The visibility flip can proceed without secret-remediation overhead.
+The pre-flip checklist cites this ADR as the secret-remediation closure. The visibility flip can proceed without remediation overhead.
 
 ## References
 
-- `docs/audits/v0.4.0/SEC-01-gitleaks-report.md` — full gitleaks output and false-positive triage
-- `docs/audits/v0.4.0/SEC-02-trufflehog-report.md` — trufflehog clean signal (0 verified + 0 unverified)
-- `docs/audits/v0.4.0/SEC-03-targeted-audit.md` — 8 targeted patterns, 0 matches
+Raw scanner output is not committed; the findings are stated inline above.
+To reproduce them against current history:
+
+```bash
+gitleaks detect --no-banner --redact --source . --log-opts="--all"
+trufflehog git file://. --since-commit="$(git rev-list --max-parents=0 HEAD)" --only-verified
+```
+
 - `.gitleaks.toml` — allowlist scoping `.planning/*.md` plus the specific false-positive fingerprint
+- `.pre-commit-config.yaml` + `.github/workflows/test.yml` — the gitleaks gate that keeps this baseline enforced

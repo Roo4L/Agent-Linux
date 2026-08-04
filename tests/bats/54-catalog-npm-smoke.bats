@@ -13,9 +13,10 @@
 #     credential-free CI and contributors stay green;
 #   - no-auth tools (ccusage) run unconditionally on seeded local data.
 #
-# Run with credentials via tests/docker/run-smoke.sh (forwards the provider
-# vars to the in-container bats process). Absent a credential, the matching
-# @test skips — the file is safe in credential-free CI.
+# Run with credentials via tests/docker/run.sh — its SECRET_ALLOWLIST forwards
+# the provider vars to the in-container bats process, sourced from .env.local or
+# the ambient environment (see docs/internals/test-secrets.md). Absent a
+# credential, the matching @test skips, so credential-free CI stays green.
 #
 # Provider routing (Appendix C): codex→OpenAI (required; OpenAI-only),
 # antigravity-cli→Google Sign-In/keyring, opencode→Anthropic, qwen-code→Anthropic
@@ -36,7 +37,7 @@ EXPECT='paris'
 
 setup_file() {
   if [[ ! -L /home/agent/.npm-global/bin/agentlinux ]]; then
-    bash /opt/agentlinux-src/plugin/bin/agentlinux-install >/dev/null 2>&1
+    /opt/agentlinux-src/plugin/bin/agentlinux provision --user agent --yes >/dev/null 2>&1
   fi
   sudo --preserve-env=ANTIGRAVITY_CLI_QA -u agent -H bash --login -c '
     rm -rf ~/.codex ~/.qwen ~/.config/opencode ~/.local/share/opencode 2>/dev/null

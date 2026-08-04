@@ -130,9 +130,8 @@ The generator reads each canonical `.claude/agents/<role>.md` (YAML frontmatter
 `sandbox_mode = "read-only"` — which is what enforces the skill's read-only
 reviewer contract on the spawned agent. `.claude/agents/` stays the single
 source of truth; the `.codex/agents/` TOMLs are a committed build product, kept
-honest by the `--check` gate (wired into `.pre-commit-config.yaml` and the
-`tests/harness/50-agents-and-skills.bats` HRN-07 tests). After editing a role
-prompt, rerun the generator and commit both.
+honest by the `--check` gate wired into `.pre-commit-config.yaml`. After editing
+a role prompt, rerun the generator and commit both.
 
 > Schema note: this repo targets the `spawn_agent` schema that carries an
 > `agent_type` field. If a future/older Codex build exposes only the generic

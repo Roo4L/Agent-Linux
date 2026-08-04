@@ -2,12 +2,12 @@
 set -euo pipefail
 # claude-code install.sh — real native installer body (Phase 5 AGT-02 / AGT-02b).
 #
-# Runs as the `agent` user via as_user dispatch from the Node CLI.
-# Expected env (injected by plugin/cli/src/runner.ts):
+# Runs as the `agent` user via as_user dispatch from the registry CLI.
+# Expected env (injected by rust/crates/agentlinux/src/recipe_env.rs):
 #   AGENTLINUX_PINNED_VERSION  — e.g. 2.1.98 (required; :? guard below)
 #   AGENTLINUX_SOURCE_KIND     — "script" for this entry
 #   AGENTLINUX_AGENT_HOME      — /home/agent
-#   HOME, PATH, NPM_CONFIG_PREFIX inherited from runner.ts per /etc/agentlinux.env
+#   HOME, PATH, NPM_CONFIG_PREFIX supplied by the recipe env per /etc/agentlinux.env
 #
 # Refs:
 #   - docs/decisions/011-stability-first-version-pinning.md (AGT-02b)

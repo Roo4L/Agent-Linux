@@ -474,18 +474,18 @@ if [[ "$FAMILY" == rhel ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 9. Build the plugin tarball via Plan 06-01's build-release.sh.
-#    The three-way version lock (tag == plugin/cli/package.json.version ==
-#    plugin/catalog/catalog.json.version) is sacred — do NOT invent a
-#    v0.0.0-qemu tag; use the current repo version so the lock passes.
-#    SKIP_DEB=1 because fpm is optional and the QEMU harness only needs the
-#    .tar.gz (the .deb path is validated in release.yml, not here).
+# 9. Build the plugin tarball via build-release.sh.
+#    The version lock (tag == plugin/catalog/catalog.json.version ==
+#    plugin/catalog/catalog.json.version == rust/crates/agentlinux/Cargo.toml
+#    version) is sacred — do NOT invent a v0.0.0-qemu tag; use the current repo
+#    version so the lock passes. The reproducible musl tarball + .sha256 is the
+#    sole channel (Phase 58 DIST-02 removed the optional fpm .deb path).
 # ---------------------------------------------------------------------------
 REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
-VERSION=$(jq -r .version "${REPO_ROOT}/plugin/cli/package.json")
+VERSION=$(jq -r .version "${REPO_ROOT}/plugin/catalog/catalog.json")
 TAG="v${VERSION}"
 printf 'building release tarball for tag=%s via scripts/build-release.sh\n' "$TAG"
-SKIP_DEB=1 bash "${REPO_ROOT}/scripts/build-release.sh" "$TAG" --no-deb
+bash "${REPO_ROOT}/scripts/build-release.sh" "$TAG"
 
 TARBALL="${REPO_ROOT}/dist/agentlinux-${TAG}.tar.gz"
 if [[ ! -f "$TARBALL" ]]; then
@@ -515,12 +515,28 @@ scp "${SCP_OPTS[@]}" "$TARBALL" "root@localhost:/tmp/"
 scp "${SCP_OPTS[@]}" "$TESTS_TAR" "root@localhost:/tmp/tests.tar.gz"
 
 # ---------------------------------------------------------------------------
-# 11. Install AgentLinux in-guest (over SSH).
-#     `ssh ... bash -s -- "$TAG"` sends the remote script over stdin so we
-#     never have to quote-escape the script body through two shells. The
-#     positional arg "$TAG" becomes $1 inside the remote script.
+# 11. Install AgentLinux in-guest (over SSH) — via the RUST musl `provision`.
+#
+#     GATE-02 wiring status (Phase 59 Wave 2 — self-documenting for auditors):
+#       - Docker gates (test.yml bats-docker, release.yml gate-2/gate-4) run the
+#         Rust musl `provision` by default via tests/docker/run.sh's default path
+#         (folded in Phase 58) — no override needed.
+#       - QEMU gates (nightly-qemu.yml, release.yml gate-3) run the Rust musl
+#         `provision` via THIS script's install invocation below; a static-musl
+#         provisioner-IDENTITY assertion guards it.
+#
+#     The release tarball (build-release.sh) ships the static x86_64-musl bin at
+#     `plugin/bin/agentlinux`; boot.sh already `tar -xzf`'s it into
+#     /opt/agentlinux-src, so after extraction the musl bin sits at
+#     /opt/agentlinux-src/plugin/bin/agentlinux — the swap invokes THAT (no
+#     separate host-build/scp of the bin; that is the transport difference from
+#     run.sh's docker-cp Docker path).
+#
+#     `ssh ... bash -s -- "$TAG"` sends the remote script over stdin
+#     so we never have to quote-escape the body through two shells; the tag
+#     becomes $1 inside the remote script.
 # ---------------------------------------------------------------------------
-printf 'running plugin/bin/agentlinux-install inside the guest\n'
+printf 'running the Rust musl `agentlinux provision` inside the guest [default]\n'
 ssh "${SSH_OPTS[@]}" root@localhost bash -s -- "$TAG" <<'REMOTE_INSTALL'
 set -euo pipefail
 TAG=$1
@@ -528,7 +544,76 @@ mkdir -p /opt/agentlinux-src
 cd /opt/agentlinux-src
 tar -xzf "/tmp/agentlinux-${TAG}.tar.gz"
 tar -xzf /tmp/tests.tar.gz
-bash plugin/bin/agentlinux-install
+
+# PROVISIONER-IDENTITY assertion (T-59-04 / Risk #1 — a false GATE-02 green if
+# the gate silently runs a Bash path): PROVE the artifact being run IS the
+# static-musl bin BEFORE invoking `provision`. A shebang'd script or a
+# dynamically-linked `agentlinux` FAILS the run non-zero here.
+#
+# This overlaps build-release.sh's own static-link assertion, deliberately: that
+# one runs on the BUILD HOST against `target/.../agentlinux` before packaging,
+# this one runs INSIDE THE GUEST against the bin that actually came out of
+# `tar -xzf`. They are the same bytes in the happy path, which is exactly why a
+# packaging or transport fault is invisible without both. Do not drop this one on
+# the grounds that build-release already checked — it checked a different file on
+# a different machine.
+BIN=plugin/bin/agentlinux
+if [[ ! -f $BIN ]]; then
+  echo "ERROR: the staged musl bin ($BIN) is absent in the extracted tarball — refusing to run bats against a missing artifact and report false-green" >&2
+  exit 1
+fi
+# A shell-script entrypoint starts with a `#!` shebang; the static musl ELF
+# does not. Reject a shebang'd entrypoint outright.
+if head -c2 "$BIN" | grep -q '#!'; then
+  echo "ERROR: provisioner-identity guard FAILED — $BIN is a shebang'd script, NOT the static musl bin. Refusing to false-green GATE-02 (Risk #1)." >&2
+  exit 1
+fi
+  # Assert statically-linked ELF via readelf (no PT_INTERP) — fall back to
+  # `file` (reports 'statically linked' or 'static-pie linked') or `ldd`
+  # ('not a dynamic executable')
+  # on a minimal image where readelf is absent.
+IDENTITY_OK=0
+if command -v readelf >/dev/null 2>&1; then
+  if readelf -l "$BIN" 2>/dev/null | grep -q 'INTERP'; then
+    echo "ERROR: provisioner-identity guard FAILED — $BIN has a PT_INTERP segment (dynamically linked), NOT a static musl bin. Refusing to false-green GATE-02 (Risk #1)." >&2
+    exit 1
+  fi
+  echo "provisioner-identity: readelf confirms $BIN has NO PT_INTERP (statically linked)"
+  IDENTITY_OK=1
+elif command -v file >/dev/null 2>&1; then
+  # `statically linked` OR `static-pie linked`: rustc's x86_64-unknown-linux-musl
+  # target emits a static-PIE, which file(1) labels `static-pie linked` — no
+  # PT_INTERP, exactly the property the readelf tier above asserts, so accepting
+  # it is not a weakening of the guard. scripts/build-release.sh's own
+  # static-link assertion already matches both; this copy was never updated, so
+  # the guard rejected every correctly-built binary the moment it fell through
+  # to the file(1) tier — which is what happens in a cloud guest with no
+  # binutils, i.e. every QEMU gate run.
+  if ! file "$BIN" | grep -qE 'statically linked|static-pie'; then
+    echo "ERROR: provisioner-identity guard FAILED — file(1) does not report '$BIN' as statically linked. Refusing to false-green GATE-02 (Risk #1). file output: $(file "$BIN")" >&2
+    exit 1
+  fi
+  echo "provisioner-identity: file(1) confirms $BIN is statically linked"
+  IDENTITY_OK=1
+elif command -v ldd >/dev/null 2>&1; then
+  if ! ldd "$BIN" 2>&1 | grep -q 'not a dynamic executable'; then
+    echo "ERROR: provisioner-identity guard FAILED — ldd(1) does not report '$BIN' as 'not a dynamic executable'. Refusing to false-green GATE-02 (Risk #1)." >&2
+    exit 1
+  fi
+  echo "provisioner-identity: ldd(1) confirms $BIN is not a dynamic executable"
+  IDENTITY_OK=1
+fi
+if [[ $IDENTITY_OK -ne 1 ]]; then
+  echo "ERROR: provisioner-identity guard could not run — none of readelf/file/ldd is available in the guest to prove $BIN is the static musl bin. Refusing to false-green GATE-02 (Risk #1)." >&2
+  exit 1
+fi
+
+# Invoke the `provision` verb as ROOT (the guest ssh user is root; the Rust
+# `provision` uses require_root, not the CLI-05 guard — parity with run.sh).
+# Pass `--user agent` explicitly.
+echo "== run Rust provisioner (agentlinux provision) [default] =="
+chmod +x "$BIN"
+plugin/bin/agentlinux provision --user agent --yes
 REMOTE_INSTALL
 
 # ---------------------------------------------------------------------------

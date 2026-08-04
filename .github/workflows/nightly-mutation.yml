@@ -8,36 +8,85 @@ permissions:
   contents: read
 
 jobs:
-  stryker:
+  # (The TypeScript `stryker` mutation job was removed at the Rust cutover — the
+  # TS CLI it mutated is gone; the Rust mutation score is `rust-mutants` below.)
+  # TEST-02: full-WORKSPACE cargo-mutants score, sharded across four runners.
+  # Advisory: a surviving mutant warns rather than blocking. The ENFORCING merge
+  # gate is the per-PR --in-diff step in test.yml's rust job; this job reports
+  # the full score that bounded run cannot, so a module nobody edits is still
+  # re-scored.
+  rust-mutants:
     runs-on: ubuntu-24.04
-    continue-on-error: true
+    # A shard is ~296 mutants at ~8s each — roughly 45 minutes. 120 caps the job
+    # above that with headroom, matching test.yml's rust job.
+    timeout-minutes: 120
+    # NOT continue-on-error. Advisory means "a surviving mutant warns"; it does
+    # NOT mean "a broken gate is fine". The previous version combined
+    # continue-on-error with `|| echo "::warning::"`, so an invalid flag pair
+    # (`--in-place` with `--jobs`, which cargo-mutants rejects) reported a
+    # mutation score for a run that generated zero mutants. scripts/mutation-gate.sh
+    # draws its verdict from mutants.out/outcomes.json precisely so "nothing
+    # survived" and "nothing ran" cannot be confused.
+    strategy:
+      fail-fast: false
+      matrix:
+        # Sharding, not --jobs: cargo-mutants refuses `--in-place --jobs N`, and
+        # --in-place is required (see the gate step). --shard IS compatible, and
+        # one shard per runner gives real parallelism with a private checkout.
+        #
+        # ZERO-INDEXED: cargo-mutants rejects `k/n` unless k < n. This read
+        # `[1, 2, 3, 4]`, so shard 4/4 errored on every nightly run while shard
+        # 0's mutants were never dispatched — 245 of the workspace's 978, a
+        # quarter of it, silently unscored, with the gate unable to notice
+        # because advisory mode tolerates a subset by design. MUT-20 now loops
+        # these exact values through the tool so the matrix cannot drift again.
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-      - name: Skip if CLI has no source yet
+      - name: Skip if rust/ absent
         id: guard
         run: |
-          if compgen -G "plugin/cli/src/*.ts" > /dev/null; then
+          if [ -f rust/Cargo.toml ]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
-            echo "plugin/cli/src is empty — skipping stryker (advisory)"
+            echo "rust/Cargo.toml absent — skipping rust-mutants (advisory)"
           fi
-      - name: Install CLI deps
+      - name: Install Rust toolchain
         if: steps.guard.outputs.ready == 'true'
-        working-directory: plugin/cli
-        run: npm install --no-audit --no-fund
-      - name: Run stryker
+        uses: dtolnay/rust-toolchain@stable
+      # Pinned + --locked: same version as the per-PR gate so the nightly
+      # full-workspace score and the merge gate share one mutation set.
+      - name: Install cargo-mutants (pinned)
         if: steps.guard.outputs.ready == 'true'
-        working-directory: plugin/cli
-        run: npx stryker run || echo "::warning::stryker below threshold (advisory in v0.3.0)"
-
-  bash-mutator:
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    steps:
-      - uses: actions/checkout@v5
-      - name: Run bash mutator
-        run: bash tests/mutation/bash-mutator.sh || echo "::warning::bash-mutator below target (advisory in v0.3.0)"
+        run: cargo install --locked --version 27.1.0 cargo-mutants
+      # --in-place is REQUIRED: two agentlinux-core tests read sibling files
+      # under plugin/catalog/, outside the rust/ workspace, so cargo-mutants'
+      # default copy-tree isolation fails the baseline. Safe here — the runner
+      # checkout is disposable and cargo-mutants restores each mutation.
+      # MUTATION_GATE_TIMEOUT is REQUIRED here, not optional. The gate defaults to
+      # 600s, which is a per-PR `--in-diff` figure — a full-workspace shard needs
+      # ~45 minutes, so every shard was killed mid-run and reported
+      # "a timed-out run is not a pass". That went unnoticed because this job had
+      # never executed: the schedule fires on master, master predates the Rust
+      # cutover, and the `rust/` guard above skipped the step every night. The
+      # first manual dispatch against a branch that HAS the Rust tree failed all
+      # four shards. Kept below the job cap so the gate's own SIGTERM wins and
+      # renders a verdict, rather than the runner killing the job silently.
+      - name: Full-workspace mutation score (shard ${{ matrix.shard }}/4)
+        if: steps.guard.outputs.ready == 'true'
+        working-directory: rust
+        env:
+          MUTATION_GATE_TIMEOUT: 6600
+        run: |
+          ../scripts/mutation-gate.sh advisory \
+            --in-place --shard ${{ matrix.shard }}/4 --minimum-test-timeout 20
+      # The score is worthless if nobody can read it: keep the surviving-mutant
+      # list so a nightly warning can be acted on instead of just observed.
+      - name: Upload mutants.out
+        if: always() && steps.guard.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-shard-${{ matrix.shard }}
+          path: rust/mutants.out/
+          if-no-files-found: warn

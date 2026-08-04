@@ -1,10 +1,9 @@
 #!/usr/bin/env bats
 # tests/bats/22-agent-sudo.bats — INST-06 + BHV-07 per ADR-012.
 #
-# Every @test name starts with the requirement ID (INST-XX: / BHV-XX:) so
-# behavior-coverage-auditor's TST-07 gate greps pass. Phase 5.1 ships
-# exactly one provisioner (20-sudoers.sh) plus this suite; closing this
-# plan closes Phase 5.1 as a whole.
+# Every @test name starts with the requirement ID (INST-XX: / BHV-XX:) so a
+# failure in bats output names the behavior that broke. ADR-012 ships one
+# provisioner (20-sudoers.sh) plus this suite.
 #
 # Preconditions (set up by tests/docker/run.sh before bats runs):
 #   - agentlinux-install has already been invoked once, so
@@ -21,7 +20,7 @@ load 'helpers/assertions'
 
 LOG=/var/log/agentlinux-install.log
 SUDOERS_FILE=/etc/sudoers.d/agentlinux
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
+INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux
 
 # --- BHV-07: file integrity --------------------------------------------------
 
@@ -108,7 +107,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     "sha256sum returned non-empty hash for pre-snapshot" \
     "empty" "$LOG"
 
-  run bash "$INSTALLER"
+  run "$INSTALLER" provision
   assert_exit_zero "BHV-07"
 
   post=$(sha256sum "$SUDOERS_FILE" | cut -d' ' -f1)

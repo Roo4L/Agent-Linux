@@ -84,9 +84,9 @@ Phase 1 ships `plugin/cli/scripts/validate-catalog.mjs` — a zero-dep structura
 
 Phase 4 upgrades it to ajv-based JSON Schema 2020-12 validation, with a separate check that every catalog entry has a matching `plugin/catalog/agents/<name>/install.sh` on disk and that the `install.sh` grep-passes the "no `sudo npm install -g`" rule. The `catalog-auditor` subagent runs those greps at review time.
 
-## The CAT-02 invariant (no default agents)
+## No default agents installed
 
-**A fresh install of AgentLinux installs zero agents.** Every entry in the catalog is opt-in via `agentlinux install <name>`. This is non-negotiable — it's the point of the pivot from v0.2.0 (where Claude Code was baked into the image) to v0.3.0 (where the user chooses). Tests that assert "Claude Code is already installed after `agentlinux-install`" are bugs — the `behavior-coverage-auditor` flags them on every phase close.
+**A fresh install of AgentLinux installs zero agents.** Every entry in the catalog is opt-in via `agentlinux install <name>`. This is non-negotiable — it's the point of the pivot from v0.2.0 (where Claude Code was baked into the image) to v0.3.0 (where the user chooses). Tests that assert "Claude Code is already installed after `agentlinux-install`" are bugs.
 
 ## Growth plan
 

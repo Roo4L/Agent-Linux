@@ -1,8 +1,8 @@
 #!/usr/bin/env bats
 # tests/bats/10-installer.bats — INST-01, INST-02, INST-05, DOC-02.
 #
-# Every @test name starts with the requirement ID (INST-XX: or DOC-XX:) so
-# behavior-coverage-auditor's TST-07 gate greps pass.
+# Every @test name starts with the requirement ID (INST-XX: or DOC-XX:) so a
+# failure in bats output names the behavior that broke.
 #
 # Preconditions (set up by tests/docker/run.sh before bats runs):
 #   - agentlinux-install has already been invoked once, writing
@@ -15,7 +15,6 @@ load 'helpers/assertions'
 load 'helpers/distro'
 
 LOG=/var/log/agentlinux-install.log
-INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 
 @test "INST-01: installer log file exists after initial run" {
   # The harness (tests/docker/run.sh) runs the installer BEFORE bats, so the
@@ -55,7 +54,8 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   #                 /opt/agentlinux/catalog/${AGENTLINUX_VERSION}/agents/test-dummy/install.sh.
   #   Phase 4 (+2 SEPARATE byte-stability checks with their own __fail paths):
   #      - symlink TARGET (readlink /home/agent/.npm-global/bin/agentlinux)
-  #      - CLI entrypoint SHEBANG (first line of /opt/agentlinux/cli/*/dist/index.js)
+  #      - CLI entrypoint byte-stability (DIST-01: sha256 of the staged musl bin;
+  #        legacy TS regime: sha256 of the dist/index.js shebang first line)
   #
   # LOCKED deterministic strategy — four Phase 4 items chosen to avoid
   # whole-tree recursion on /opt/agentlinux/cli/ or /opt/agentlinux/catalog/.
@@ -67,10 +67,22 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   #   - test-dummy/install.sh: cp -R of a checked-in shell script → byte-stable.
   # And we separately verify:
   #   - readlink target: a string, byte-stable by construction.
-  #   - first line of dist/index.js: the #!/usr/bin/env node shebang — stable
-  #     regardless of any internal tsc reordering of the generated body.
+  #   - CLI entrypoint byte-stability: DIST-01 re-point. The shipped artifact is
+  #     now the static musl bin (plugin/bin/agentlinux) with no shebang, so we
+  #     hash the ENTIRE staged bin (equal-or-stronger than the old first-line
+  #     shebang hash: whole-artifact byte-stability across a re-run, not just the
+  #     shebang).
   local version
-  version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)}
+  version=${AGENTLINUX_VERSION:-$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)}
+
+  # The staged CLI is the musl bin (DIST-01). The legacy-TS regime it used to
+  # fall back to was deleted with plugin/cli/, and the fallback was worse than
+  # useless: with no staged bin, cli_pre and cli_post both became the sha256 of
+  # EMPTY STDIN, so the INST-02 idempotency assertion below passed vacuously on
+  # exactly the failure it exists to catch.
+  local staged_bin="/opt/agentlinux/cli/${version}/bin/agentlinux"
+  [[ -f "$staged_bin" ]] \
+    || __fail "INST-02" "provisioner staged the CLI bin at ${staged_bin}" "not found" "$LOG"
   # distro_nodesource_repo_paths emits one path PER LINE (the rhel arm now emits
   # both nodesource-nodejs.repo AND nodesource-nsolid.repo, mirroring the product
   # nodesource_repo_paths). Read into an array so each path is a SEPARATE find
@@ -96,14 +108,18 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   local sym_pre
   sym_pre=$(readlink /home/agent/.npm-global/bin/agentlinux 2>/dev/null || echo MISSING)
 
-  # CLI entrypoint shebang hash — hashes ONLY the first line to avoid
-  # tsc-output-ordering false positives. A drift here means the shebang
-  # line itself rotated (which would break Node dispatch under the
-  # /usr/bin/env node convention).
-  local shebang_pre
-  shebang_pre=$(head -1 "/opt/agentlinux/cli/${version}/dist/index.js" 2>/dev/null | sha256sum)
+  # CLI entrypoint byte-stability hash. musl regime (DIST-01): sha256 of the
+  # whole staged static bin — a drift means the staged artifact changed across
+  # the re-run (an idempotency break). ts regime (legacy rollback): sha256 of
+  # the dist/index.js shebang first line, as before.
+  local cli_pre
+  cli_pre=$(sha256sum "$staged_bin")
 
-  run bash "$INSTALLER"
+  # Re-run the SAME provisioner that produced the state (regime-matched). musl:
+  # the staged musl bin's `provision` verb (the DIST-01 default install path);
+  # ts: the Bash agentlinux-install entrypoint (the legacy rollback path). Both
+  # are idempotent — the second run must be byte-stable against the first.
+  run "$staged_bin" provision --user agent --yes
   assert_exit_zero "INST-02"
 
   find \
@@ -118,9 +134,9 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     "/opt/agentlinux/catalog/${version}/agents/test-dummy/install.sh" \
     -type f -exec sha256sum {} + >"$post" 2>/dev/null
 
-  local sym_post shebang_post
+  local sym_post cli_post
   sym_post=$(readlink /home/agent/.npm-global/bin/agentlinux 2>/dev/null || echo MISSING)
-  shebang_post=$(head -1 "/opt/agentlinux/cli/${version}/dist/index.js" 2>/dev/null | sha256sum)
+  cli_post=$(sha256sum "$staged_bin")
 
   if ! diff -q "$pre" "$post" >/dev/null 2>&1; then
     local delta
@@ -134,9 +150,9 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
     || __fail "INST-02" "agentlinux symlink target stable across re-run" \
          "before=${sym_pre} after=${sym_post}" "$LOG"
 
-  [[ "$shebang_pre" == "$shebang_post" ]] \
-    || __fail "INST-02" "CLI dist/index.js shebang (first line) stable across re-run" \
-         "before=${shebang_pre} after=${shebang_post}" "$LOG"
+  [[ "$cli_pre" == "$cli_post" ]] \
+    || __fail "INST-02" "staged CLI bin byte-stable across re-run" \
+         "before=${cli_pre} after=${cli_post}" "$LOG"
 }
 
 @test "INST-05: installer log has no apt 'no installation candidate' / 'unable to locate package' (AL-37 regression guard)" {
@@ -153,8 +169,8 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   # candidate` or `E: Unable to locate package <name>`. AL-37 is also
   # exercised structurally by tests/docker/Dockerfile.dogfood's empty-cache
   # start state; this @test adds the named negative assertion at the bats
-  # layer so a future regression is visible in the bats output (and in the
-  # behavior-coverage-auditor grep trail) instead of only in dogfood log
+  # layer so a future regression is visible in the bats output instead of only
+  # in dogfood log
   # scrollback.
   #
   # Naming convention follows tests/bats/60-curl-installer.bats:206
@@ -219,12 +235,12 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
 # ---------------------------------------------------------------------------
 
 @test "CAT-05: catalog snapshot staged at /opt/agentlinux/catalog/<version>/catalog.json" {
-  # Resolve the version from the source-of-truth (plugin/cli/package.json) so
+  # Resolve the version from the source-of-truth (plugin/catalog/catalog.json) so
   # this @test does not hardcode v0.3.0 — a v0.3.1 bump rebuilds the image and
   # this test tracks automatically. The source is available via the bind-mount
   # at /opt/agentlinux-src (see tests/docker/run.sh line 150).
   local pkg_version
-  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
   local staged="/opt/agentlinux/catalog/${pkg_version}/catalog.json"
   if [[ ! -s "$staged" ]]; then
     __fail "CAT-05" \
@@ -242,7 +258,7 @@ INSTALLER=/opt/agentlinux-src/plugin/bin/agentlinux-install
   # provisioner side of that contract (50-registry-cli.sh uses `cp -R` too,
   # so a drift here means either provisioner or release-script regressed).
   local pkg_version
-  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/cli/package.json)
+  pkg_version=$(jq -r .version /opt/agentlinux-src/plugin/catalog/catalog.json)
   local staged="/opt/agentlinux/catalog/${pkg_version}/catalog.json"
   local source="/opt/agentlinux-src/plugin/catalog/catalog.json"
   local sha_source sha_staged

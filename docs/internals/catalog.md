@@ -325,7 +325,7 @@ signal that the user must sign in, not a value AgentLinux carries. How the
 user signs in depends on the entry's shape. For the **hosted (remote-http)
 servers** the answer is uniform and is described just below: the entry is a
 thin installer that registers a bare URL and the user completes OAuth
-in-client (the governing convention, [ADR-017](../decisions/017-mcp-thin-installer-in-client-auth.md)).
+in-client (the governing convention, [ADR-018](../decisions/018-mcp-thin-installer-in-client-auth.md)).
 The earlier **locally-launched (npx-stdio) servers** predate that
 convention and carry a lighter variant: `chrome-devtools-mcp` is keyless
 (needs nothing), while `context7` names an *optional* key with

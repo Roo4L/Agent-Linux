@@ -129,3 +129,88 @@ assert_user_prefix_in_home() {
       ;;
   esac
 }
+
+# assert_detect_cache_has <agent-id> <provision-output>
+#
+# The REMEDIATE-04 / REUSE-03 E2E tests all depend on one precondition: the
+# provision that ran just before them re-ran detect and RECORDED the brownfield
+# binary in the detect cache. When that does not happen the CLI is correct to do
+# a plain install — so the test fails several assertions later, on a missing
+# `[REMEDIATE-04]` marker, describing a symptom rather than the cause.
+#
+# Written after four such tests failed on almalinux-9 under QEMU while passing
+# on the same distro under Docker and on Ubuntu under QEMU. The provision output
+# that would have explained it was being sent to /dev/null by the tests
+# themselves, so the transcript held no evidence at all. Hence both halves here:
+# name the missing precondition, AND quote the provision run that was supposed
+# to establish it.
+#
+# `$AGENTLINUX_DETECT_CACHE` else the /run default, matching cache.rs.
+assert_detect_cache_has() {
+  local id=$1 prov_out=${2:-<not captured>} want_path=${3:-}
+  local cache=${AGENTLINUX_DETECT_CACHE:-/run/agentlinux-detect.json}
+
+  [[ -f $cache ]] || __fail "REMEDIATE-04" \
+    "detect cache $cache exists after provision" \
+    "absent — provision did not persist it; its output was:
+$prov_out" "$cache"
+
+  grep -qF "\"$id\"" "$cache" || __fail "REMEDIATE-04" \
+    "detect cache records '$id' (the brownfield binary detect was meant to find)" \
+    "not in $cache. cache=$(cat "$cache" 2>&1). provision output was:
+$prov_out" "$cache"
+
+  # The PATH is the whole point, not merely the id. REMEDIATE-04 fires on a
+  # MISMATCH between the detected path and the canonical one, so a cache that
+  # records the agent at its canonical location is indistinguishable from a
+  # clean install — the CLI then correctly declines to remediate and the marker
+  # assertion downstream fails with nothing to explain it. Checking only the id
+  # let exactly that through on almalinux-9/QEMU.
+  if [[ -n $want_path ]]; then
+    grep -qF "$want_path" "$cache" && return 0
+
+    # Built up step by step rather than interpolated into one multi-line
+    # string: a wall of `$(...)` inside a single quoted argument is fragile and
+    # unreadable, and the first version of this silently rendered nothing.
+    local probe_path probe_cmdv probe_exec ctx enforce
+    probe_path=$(sudo -u agent -H bash --login -c 'printf %s "$PATH"' 2>&1)
+    probe_cmdv=$(sudo -u agent -H bash --login -c 'command -v claude' 2>&1)
+    if sudo -u agent -H test -x /home/agent/.npm-global/bin/claude 2>/dev/null; then
+      probe_exec="agent CAN execute it"
+    else
+      probe_exec="agent CANNOT execute it"
+    fi
+    ctx=$(ls -Zd /home/agent/.npm-global/bin 2>&1)
+    enforce=$(getenforce 2>/dev/null || echo "n/a")
+
+    # The two probes above are NOT what detect runs, and believing they were
+    # cost a wrong diagnosis: they inherit the caller's environment and omit
+    # `-E`. detect goes through dispatcher::as_user, which env_clear()s to just
+    # PATH/HOME/AGENTLINUX_* and adds `-E --` (see dispatcher::resolve_argv_for
+    # and detect::probe_env). Reproduce THAT argv byte-for-byte, and keep its
+    # stderr — login_run used to discard it, so an environmental refusal (sudo
+    # declining to preserve the environment, a missing shell, a killed child)
+    # was indistinguishable from "the binary is not installed".
+    local exact_path exact_out exact_rc
+    exact_path="/home/agent/.npm-global/bin:/home/agent/.local/bin:/usr/local/bin:/usr/bin:/bin"
+    exact_out=$(env -i "PATH=$exact_path" HOME=/home/agent \
+      sudo -u agent -H -E -- bash --login -c 'command -v claude' 2>&1)
+    exact_rc=$?
+
+    __fail "REMEDIATE-04" \
+      "detect cache records '$id' at the BROWNFIELD path '$want_path'" \
+      "not recorded there — REMEDIATE-04 cannot fire without a path mismatch.
+cache=$(cat "$cache" 2>&1)
+on host: .local/bin/claude=$(ls -l /home/agent/.local/bin/claude 2>&1)
+         .npm-global/bin/claude=$(ls -l /home/agent/.npm-global/bin/claude 2>&1)
+a plain login shell (NOT detect's argv — inherits env, no -E):
+  login PATH = $probe_path
+  command -v claude = ${probe_cmdv:-<empty>}
+  $probe_exec
+  selinux: $ctx (enforce=$enforce)
+detect's ACTUAL argv (env_clear + sudo -u agent -H -E --), stderr kept:
+  rc=$exact_rc out=${exact_out:-<empty>}
+provision output was:
+$prov_out" "$cache"
+  fi
+}

@@ -26,7 +26,7 @@ rounds of maintainer dogfood UX fixes and a Codex-driven QA remediation pass.
 - **Codex QA campaign (phases 50–52):** OpenAI's Codex CLI ran the black-box
   `qa-testing` skill against the full catalog — 129 test ideas, 5 confirmed product
   bugs fixed (incl. F-006 Playwright silent exit-0, remediated with a status
-  adapter). Documented in `CODEX-QA-HACKATHON-REPORT.md` (referenced from README).
+  adapter). Documented in `docs/CODEX-QA-HACKATHON-REPORT.md` (referenced from README).
 - **Passive-autoupdate freeze (ENABLE-08):** background self-update paths for
   opencode/gemini-class tools are frozen via each tool's own config, preserving the
   AgentLinux self-update-without-sudo invariant.
@@ -178,7 +178,14 @@ MCP-05/06/WORK-04/05 candidates dropped on the source-selection gate.
 
 ---
 
-## v0.4.0 Open-Source Release — Shipped: 2026-05-09
+## Open-Source Release — Shipped: 2026-05-09  _(legacy "v0.4.0" tag; renamed 2026-07-27)_
+
+> **Renumber note (2026-07-27):** the `v0.4.0` tag was reassigned to the **Rust
+> Rewrite** milestone at the owner's direction (latest shipped is v0.3.6, so v0.4.0
+> was the next number). This Open-Source Release shipped 2026-05-09 —
+> chronologically before v0.3.4/3.5/3.6 — so its canonical number is deferred to
+> the numbering-reconciliation pass. Archived planning filenames remain
+> `.planning/milestones/v0.4.0-*` until that pass renames them.
 
 **Started:** 2026-04-26 | **Phases completed:** 5 (Phases 7–11) | **Anchor:** Issue AGE-6
 
