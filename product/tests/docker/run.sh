@@ -239,7 +239,12 @@ done
 # keep them separate.
 echo "== stage sources into container =="
 docker exec "$CID" bash -c '
-  set -e
+  # pipefail is required, not stylistic: `set -e` alone takes a pipeline s
+  # status from its LAST command, so a failing source tar (unreadable file,
+  # disk full mid-stream) would be masked by the extracting tar exiting 0 and
+  # stage a SILENTLY INCOMPLETE tree. The bats suite would then run against a
+  # partial source and report on whatever happened to survive.
+  set -euo pipefail
   mkdir -p /opt/agentlinux-src
   tar -C /workspace/product --exclude=./rust/target -cf - . \
     | tar -C /opt/agentlinux-src -xf -
