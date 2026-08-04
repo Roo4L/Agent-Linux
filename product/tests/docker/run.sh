@@ -220,16 +220,26 @@ done
 #      target/ before this runs — so it must be excluded UP FRONT, not copied
 #      and then removed.
 #
-#      This is not micro-optimisation. `cp -R` + `rm -rf` writes every one of
-#      those gigabytes into the container's writable overlay layer and then
-#      deletes them, and the deletion does not give the space back cheaply.
-#      Master never paid it: its staging copied the whole /workspace, but its
-#      rust-cache step logged "No cache found", so target/ was empty at copy
-#      time. On a branch where the cache HITS, the same code copies a warm
-#      multi-GB target/ on every run. Measured on this branch vs master, with
-#      the cache hit: the in-container musl build went 38s -> 372s and the
-#      docker step 30s -> 150s, and the ubuntu bats arm stopped finishing
-#      inside its 60-minute cap while almalinux was unaffected.
+#      Excluding beats copy-then-delete on its own merits: `cp -R` + `rm -rf`
+#      writes ~720 MB (measured: product/ is 723 MB, of which rust/target is
+#      720 MB) into the container's writable overlay and then deletes it,
+#      producing whiteouts for the whole subtree. Not writing it is strictly
+#      less I/O than writing and unwinding it.
+#
+#      Do NOT read this as the diagnosed cause of the ubuntu-24.04 bats arm
+#      exceeding its 60-minute cap on this branch. That correlates with this
+#      branch (5/5 here, 0 on master) but the mechanism is NOT established,
+#      and the obvious story is refuted: master stages `cp -R /workspace`
+#      with no exclude and no rm, so it copies rust/target too, and
+#      pre-restructure runs that logged "Cache hit for" — i.e. a warm,
+#      fully-populated target/ — still finished in 29-30 min (runs
+#      30838694777, 30825442154, 30821992383). A warm-cache copy of target/
+#      is therefore demonstrably NOT sufficient to blow the cap.
+#      Symptoms seen on this branch, for whoever picks this up: setup to
+#      first bats test 1m45s -> 9m46s, host musl build (host_build_musl runs
+#      cargo on the RUNNER, not in-container) 38s -> 372s, docker step
+#      30s -> 150s, and per-test times inflating uniformly with no network
+#      error signatures. almalinux-9 is unaffected throughout.
 #
 #      tar|tar rather than cp because cp -R has no --exclude. `./rust/target`
 #      and not `rust/target`: GNU tar's --exclude is --no-anchored by default,
