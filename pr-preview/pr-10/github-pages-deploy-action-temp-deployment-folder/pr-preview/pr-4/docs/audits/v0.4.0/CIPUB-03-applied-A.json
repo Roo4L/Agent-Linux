@@ -1,0 +1,16 @@
+{
+  "enforce_admins": true,
+  "linear": true,
+  "force_pushes": false,
+  "deletions": false,
+  "reviews": 1,
+  "dismiss": true,
+  "strict": true,
+  "contexts": [
+    "pre-commit",
+    "cli-unit",
+    "bats-docker (ubuntu-22.04)",
+    "bats-docker (ubuntu-24.04)",
+    "gitleaks"
+  ]
+}

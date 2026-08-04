@@ -1,0 +1,58 @@
+{
+  "version": "0.3.0",
+  "agents": [
+    {
+      "id": "claude-code",
+      "display_name": "Claude Code",
+      "description": "Anthropic's agentic CLI for software engineering tasks (canonical AGT-02 target).",
+      "homepage": "https://docs.claude.com/en/docs/claude-code",
+      "license": "Proprietary",
+      "source_kind": "script",
+      "pinned_version": "2.1.98",
+      "version_constraint": "^2.1",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v claude && claude --version",
+      "tags": ["agent", "anthropic"]
+    },
+    {
+      "id": "gsd",
+      "display_name": "Get Shit Done",
+      "description": "GSD workflow CLI for Claude Code (phase/plan/execute automation).",
+      "homepage": "https://github.com/gsd-build/get-shit-done",
+      "license": "MIT",
+      "source_kind": "npm",
+      "npm_package_name": "get-shit-done-cc",
+      "pinned_version": "1.37.1",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "command -v get-shit-done-cc",
+      "tags": ["workflow", "productivity"]
+    },
+    {
+      "id": "playwright",
+      "display_name": "Playwright",
+      "description": "Browser automation framework (canonical browser-access tool per ADR; replaces v0.2.0's chrome-devtools-mcp).",
+      "homepage": "https://playwright.dev/",
+      "license": "Apache-2.0",
+      "source_kind": "npm",
+      "npm_package_name": "playwright",
+      "pinned_version": "1.59.1",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "post_install_verify": "npx playwright --version",
+      "tags": ["browser", "automation"]
+    },
+    {
+      "id": "test-dummy",
+      "display_name": "Test Dummy (CI-only)",
+      "description": "Shell-based fixture for bats; never a real agent.",
+      "source_kind": "script",
+      "pinned_version": "0.0.1",
+      "install_recipe_path": "install.sh",
+      "uninstall_recipe_path": "uninstall.sh",
+      "test_only": true,
+      "tags": ["test-only"]
+    }
+  ]
+}

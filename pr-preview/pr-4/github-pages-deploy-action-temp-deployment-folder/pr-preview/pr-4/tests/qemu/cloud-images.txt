@@ -1,0 +1,16 @@
+# Phase 6 Plan 06-03: Ubuntu cloud image manifest for tests/qemu/boot.sh.
+# Format: <ubuntu-version> <image-url> <sha256sums-url>
+#
+# boot.sh reads this file at startup and looks up the row for the requested
+# Ubuntu version. It downloads <image-url> into $AGENTLINUX_QEMU_CACHE, then
+# always re-downloads <sha256sums-url> and runs `sha256sum --ignore-missing
+# --check` (Pitfall 10 — verify on EVERY cache hit, not just on first fetch).
+#
+# The .github/workflows/nightly-qemu.yml `actions/cache` step keys on
+# hashFiles('tests/qemu/cloud-images.txt'). Rotating any URL here therefore
+# invalidates the CI cache automatically — no manual key bump needed.
+#
+# One row per supported Ubuntu LTS. Add a row (and a matrix entry in the
+# workflow + a Docker mirror) when a new LTS becomes a support target.
+22.04 https://cloud-images.ubuntu.com/releases/jammy/release/ubuntu-22.04-server-cloudimg-amd64.img https://cloud-images.ubuntu.com/releases/jammy/release/SHA256SUMS
+24.04 https://cloud-images.ubuntu.com/releases/noble/release/ubuntu-24.04-server-cloudimg-amd64.img https://cloud-images.ubuntu.com/releases/noble/release/SHA256SUMS
