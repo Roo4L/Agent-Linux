@@ -16,6 +16,10 @@ size, weight, and whitespace, not hue. The one moment of character is the pixel-
 mascot, used sparingly. Mood: precise, calm, confident — developer-tool seriousness with
 dry wit.
 
+The website hero additionally runs a one-off illustration — a small terracotta crab arriving
+at the house. That crab is scene-only set dressing, not the mark: it never appears in the
+favicon, the OG card, or the deck.
+
 ## Colors
 
 | Role | Hex | Notes |
@@ -28,11 +32,13 @@ dry wit.
 | Text — secondary | `#A8A8A8` | captions, secondary copy (~7:1 on bg) |
 | Text — body | `#E0E0E0` | body text (~13:1 on bg) |
 | Accent (one only) | `#FFFFFF` | pure white — the single emphasis color |
+| Hero-scene warm | `#D97757` | terracotta; the website hero crab only — never in the deck |
 
 **Color scheme:** dark
 **Accent rule:** one accent per surface, and it is **white**. The system is strictly
 monochrome, mascot included — never introduce a hue for emphasis; use weight/size/whitespace
-and the white highlight. Split roughly 60-30-10 (background / grays / white).
+and the white highlight. `#D97757` is confined to the website hero illustration; it is not
+available to the deck or to any mark. Split roughly 60-30-10 (background / grays / white).
 
 ## Typography
 
@@ -79,11 +85,11 @@ labels are UPPERCASE with wide letter-spacing, often prefixed `// ` like a code 
 ## Motif
 
 Chunky **pixel art** (`shape-rendering: crispEdges`). A little **house** = an environment
-that's already set up and maintained for you (grayscale, same geometry as
-`site/assets/house-mascot.svg`). It is the sole mascot — there is no character mascot and no
-second motif. Repeat it sparingly — a cover, a hero moment, a small footer mark — never on
-every element. A blinking block cursor (`█`) and `$`/`#` terminal prompts are on-brand
-accents.
+that's already set up and maintained for you (grayscale, same geometry as the house in
+`site/assets/hero-scene.svg`). It is the sole mascot and the only motif that carries the
+mark — the favicon and the OG card are the house alone. Repeat it sparingly — a cover, a
+hero moment, a small footer mark — never on every element. A blinking block cursor (`█`)
+and `$`/`#` terminal prompts are on-brand accents.
 
 ## Quick Reference (for Claude)
 
