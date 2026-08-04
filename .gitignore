@@ -137,3 +137,7 @@ __pycache__/
 # durable belongs in docs/audits/ or an ADR, not the repo root.
 /CODE-QUALITY-REVIEW.md
 /CODE-QUALITY-REVIEW-APPENDIX.md
+
+# scripts/make-site-icons.sh stages renders here so the final mv is an atomic
+# same-filesystem rename; the trap removes it, this catches a hard kill.
+.site-icons.*/
