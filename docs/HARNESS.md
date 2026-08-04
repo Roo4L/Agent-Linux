@@ -39,7 +39,7 @@ agent-linux/                            # Workspace root
 │       ├── schema.json                 # JSON Schema 2020-12 contract
 │       ├── catalog.json                # Curated catalog entries (none installed by default)
 │       └── agents/
-│           ├── claude-code/install.sh
+│           ├── claude-code/install.sh            # ~28 recipes; one directory each
 │           ├── gsd/install.sh
 │           └── playwright-cli/install.sh         # Browser-access tool for agents
 ├── packaging/                          # Distribution wrapper (sole channel)
@@ -48,15 +48,21 @@ agent-linux/                            # Workspace root
 ├── tests/                              # Behavior-contract test suite (primary v0.3.0 deliverable)
 │   ├── bats/                           # Behavior-contract files (IDs in test names)
 │   │   └── helpers/                    # Shared assertions and fixtures
-│   ├── docker/                         # Fast CI harness — Dockerfile per Ubuntu version
-│   │   ├── Dockerfile.ubuntu-22.04
-│   │   ├── Dockerfile.ubuntu-24.04
+│   ├── docker/                         # Fast CI harness — one Dockerfile per distro
+│   │   ├── Dockerfile.ubuntu-24.04     # gated on every PR, with almalinux-9
+│   │   ├── Dockerfile.almalinux-9
+│   │   ├── Dockerfile.ubuntu-22.04     # supported, not exercised on every push
 │   │   ├── Dockerfile.ubuntu-26.04
 │   │   └── run.sh                      # Orchestrates: build image → run installer → run bats
-│   └── qemu/                           # Definitive release-gate harness — cloud-image VMs
-│       ├── boot.sh                     # Fresh Ubuntu cloud image → SSH → install → bats
-│       └── cloud-init/
-├── index.html, assets/                 # Landing page — agentlinux.org, served from repo root
+│   ├── qemu/                           # Definitive release-gate harness — cloud-image VMs
+│   │   ├── boot.sh                     # Fresh cloud image → SSH → install → bats
+│   │   └── cloud-init/
+│   └── harness/                        # Repo-level gate self-tests (run on the CI runner)
+├── site/                               # Landing page — agentlinux.org (see Key decisions below)
+├── deck/                               # Presentation design code + pptx generator (standalone)
+├── scripts/                            # Release build, repo gates, mutation gate
+├── agents/                             # Contracts for the coding agents we develop WITH
+│                                       #   (not shipped product)
 ├── docs/                               # All reference documentation (see §2)
 │   ├── README.md                       # Index
 │   ├── HARNESS.md                      # This file
@@ -68,11 +74,14 @@ agent-linux/                            # Workspace root
 │   ├── agents/                         # Portable reviewer role prompts (§4)
 │   ├── skills/                         # Project-scoped skills (§5)
 │   └── settings.json
+├── .codex/                             # Codex host config — generated projection of .claude/
 ├── .github/
 │   └── workflows/
 │       ├── test.yml                    # Docker test matrix on every PR
 │       ├── nightly-qemu.yml            # QEMU release-gate suite
-│       └── release.yml                 # Tag → build reproducible musl tarball → GitHub Release
+│       ├── release.yml                 # Tag → build reproducible musl tarball → GitHub Release
+│       ├── deploy.yml                  # master → assemble _site/ → gh-pages (agentlinux.org)
+│       └── pr-preview.yml              # PR touching site/ → /pr-preview/pr-N/
 ```
 
 **Key decisions:**
@@ -80,6 +89,7 @@ agent-linux/                            # Workspace root
 - **Root is a workspace, not a single Cargo project.** No `Cargo.toml` at the root; the cargo workspace lives under `rust/`. This keeps the root clean for peer repos we may clone during development (Claude Code repo, example installers, scratch Ubuntu test images).
 - **`plugin/` is the shippable artifact.** Everything in `plugin/` is what goes into the release tarball. `packaging/curl-installer/install.sh` downloads that tarball and execs `plugin/bin/agentlinux provision`.
 - **`tests/` is separate from `plugin/`.** Tests never ship. Black-box: they run against an *installed* `plugin/`, not against source.
+- **The website and the deck are separate top-level concerns, and only `site/` is published.** `_site/` is assembled from two sources: `site/` copied wholesale, plus `packaging/curl-installer/install.sh` copied last — the same Pattern 5 anti-drift rule the deploy workflow enforces, so the `curl | bash` one-liner has exactly one editable source. Two consequences: adding a page or asset needs no CI edit, and nothing may be committed under `site/` that is not meant to be served (a `site/.gitignore` would ship to gh-pages and break the `install.sh` publish).
 - **`docs/` for reference, `.planning/` for workflow state.** Identical routing rule to the reference: if the output of a task is a document intended to be read later (ADR, research report, design proposal, review summary), it goes in `docs/`, even as a draft. `.planning/` holds PLAN.md, STATE.md, config — workflow machinery, not documentation.
 
 ### 1.2 Code Quality: Pre-commit
