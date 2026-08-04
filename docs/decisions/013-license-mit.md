@@ -50,7 +50,7 @@ MIT is explicitly non-copyleft. Downstream consumers may distribute AgentLinux (
 
 ### Trademark posture
 
-The "AgentLinux" name and the crab mascot SVG are **not** licensed under MIT. They remain controlled by the project maintainer for naming-clarity reasons (forks should pick their own name to avoid implying maintainer endorsement). This is a future ADR if/when forks materially exist; for v0.4.0 we note it here and add a one-line clarification in CONTRIBUTING.md.
+The "AgentLinux" name and the house mascot SVG are **not** licensed under MIT. They remain controlled by the project maintainer for naming-clarity reasons (forks should pick their own name to avoid implying maintainer endorsement). This is a future ADR if/when forks materially exist; for v0.4.0 we note it here and add a one-line clarification in CONTRIBUTING.md.
 
 ### Reversibility
 

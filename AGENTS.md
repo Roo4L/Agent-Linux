@@ -37,7 +37,7 @@ under `packaging/`, never under `site/`.
 - `scripts/` — release build (`build-release.sh`), repo gates (`check-*.sh`), mutation gate
 - `site/` — everything served at agentlinux.org; adding a page or asset needs no CI edit
 - `deck/` — `brand-style.md` (the reusable brand DNA) plus the pptxgenjs generator.
-  Its house motif was hand-derived from `site/assets/crab-mascot.svg`, but the
+  Its house motif shares geometry with `site/assets/house-mascot.svg`, but the
   build reads only its own committed `deck-house.png` — editing the SVG does not
   change the deck.
 - `docs/` — reference documentation (`HARNESS.md`, `codex.md`, `decisions/`, `research/`, `internals/`)
