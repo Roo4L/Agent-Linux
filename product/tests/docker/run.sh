@@ -231,7 +231,35 @@ done
 #      docker step 30s -> 150s, and the ubuntu bats arm stopped finishing
 #      inside its 60-minute cap while almalinux was unaffected.
 #
-#      tar|tar rather than cp because cp -R has no --exclude.
+#      tar|tar rather than cp because cp -R has no --exclude. `./rust/target`
+#      and not `rust/target`: GNU tar's --exclude is --no-anchored by default,
+#      so the bare form would also match at any / boundary and silently eat a
+#      future ./plugin/rust/target. The leading ./ can only match at the
+#      archive root, because the operand is `.`.
+#
+#      --no-same-owner --no-same-permissions are NOT optional. Extracting as
+#      root, GNU tar defaults to --same-owner AND --same-permissions, so it
+#      would restore the HOST's uid/gid and modes. cp -R did neither: it made
+#      the tree root:root with modes masked by umask. In CI, actions/checkout
+#      runs as runner = uid 1001, and in the ubuntu-24.04 image `agent` is
+#      also uid 1001 (the base image already holds `ubuntu` at 1000) — so
+#      without these flags the whole staged source tree becomes agent-owned
+#      and agent-WRITABLE, including plugin/catalog/**, the curl-installer,
+#      and plugin/bin/. INST-05 (10-installer.bats) and RT-02 (30-runtime.bats)
+#      assert the ABSENCE of EACCES, so loosening permissions on the staged
+#      source can only ever hide an EACCES regression, never manufacture one:
+#      a false-green direction on the suite's flagship gate. The flags also
+#      keep the two matrix arms identical (almalinux has no uid 1000, so
+#      `agent` lands at 1000 there and the tree would be an orphan 1001) and
+#      keep a umask-002 developer machine matching CI.
+#
+#      pipefail is required, not stylistic: `set -e` alone takes a pipeline's
+#      status from its LAST command, so a source tar that fails after emitting
+#      a valid stream would be masked by the extracting tar exiting 0 and stage
+#      a SILENTLY INCOMPLETE tree.
+#
+#      Keep prose OUT of the single-quoted bash -c body below — an apostrophe
+#      in there is a shell parse error whose cause is nowhere near the symptom.
 # docs/ is staged for 69-catalog-growth-kit.bats ENABLE-07, which reads
 # $SRC/docs/CATALOG-CONTRIBUTING.md. Its skip-sentinel is $SRC/tests/docker/run.sh,
 # which now arrives via product/. — so dropping the docs copy makes that @test
@@ -239,15 +267,16 @@ done
 # keep them separate.
 echo "== stage sources into container =="
 docker exec "$CID" bash -c '
-  # pipefail is required, not stylistic: `set -e` alone takes a pipeline s
-  # status from its LAST command, so a failing source tar (unreadable file,
-  # disk full mid-stream) would be masked by the extracting tar exiting 0 and
-  # stage a SILENTLY INCOMPLETE tree. The bats suite would then run against a
-  # partial source and report on whatever happened to survive.
   set -euo pipefail
   mkdir -p /opt/agentlinux-src
   tar -C /workspace/product --exclude=./rust/target -cf - . \
-    | tar -C /opt/agentlinux-src -xf -
+    | tar -C /opt/agentlinux-src --no-same-owner --no-same-permissions -xf -
+  if [ -d /opt/agentlinux-src/rust/target ]; then
+    echo "staging FAIL: --exclude did not match; rust/target was staged." >&2
+    echo "Left unfixed this degrades silently to a multi-GB copy and resurfaces" >&2
+    echo "as an opaque 60-minute bats timeout, not an error." >&2
+    exit 1
+  fi
   mkdir -p /opt/agentlinux-src/docs
   cp -R /workspace/docs/. /opt/agentlinux-src/docs/
 '
