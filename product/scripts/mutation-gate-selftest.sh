@@ -52,7 +52,8 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
-readonly GATE="product/scripts/mutation-gate.sh"
+# CWD is product/ (cd .. from product/scripts/), so these stay product-relative.
+readonly GATE="scripts/mutation-gate.sh"
 readonly SUITE="tests/harness/80-mutation-gate.bats"
 readonly PRISTINE=".mutation-gate-selftest-pristine"
 readonly LOCKDIR=".mutation-gate-selftest-lock"
