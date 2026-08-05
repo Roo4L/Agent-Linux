@@ -58,8 +58,9 @@ agent-linux/                            # Workspace root
 │   └── scripts/                        # build-release.sh, product gates, mutation gate
 ├── site/                               # Landing page — agentlinux.org (see Key decisions)
 ├── deck/                               # Presentation design code + pptx generator (standalone)
-├── scripts/                            # Everything that does not ship: repo-harness gates
-│                                       #   (planning hygiene, codex-agent sync) + site tooling
+├── scripts/                            # Repo-wide gates (planning hygiene, codex-agent sync)
+│                                       #   + site tooling, which cannot live in the published
+│                                       #   site/ tree (see Key decisions)
 ├── agents/                             # Contracts for the coding agents we develop WITH
 │                                       #   (not shipped product)
 ├── docs/                               # All reference documentation (see §2)
@@ -91,7 +92,9 @@ agent-linux/                            # Workspace root
 - **The staging root is the contract, not the repo path.** The bats suite hardcodes `/opt/agentlinux-src/{plugin,tests,packaging}`; three of the five directories under `product/` carry those names, which is what lets the harnesses stage `product/` directly. Renaming one of those three breaks every test that hardcodes it — rename the staging path and the source directory together, or not at all.
 - **`product/tests/` is separate from `product/plugin/`.** Tests never ship. Black-box: they run against an *installed* `product/plugin/`, not against source.
 - **The website and the deck are separate top-level concerns, and only `site/` is published.** `_site/` is assembled from two sources: `site/` copied wholesale, plus `product/packaging/curl-installer/install.sh` copied last — the same Pattern 5 anti-drift rule the deploy workflow enforces, so the `curl | bash` one-liner has exactly one editable source. Two consequences: adding a page or asset needs no CI edit, and nothing may be committed under `site/` that is not meant to be served (a `site/.gitignore` would ship to gh-pages and break the `install.sh` publish).
-- **`product/scripts/` vs root `scripts/`.** A script goes under `product/` if it builds, validates, or tests the shipped artifact; at the root otherwise. "Otherwise" covers two kinds: repo/agent-harness maintenance (`check-planning-clean.sh`, `sync-codex-agents.sh`) and tooling for the other two concerns (`make-site-icons.sh` rasterises `site/` icons). The dividing line is *ships or does not ship*, not *product or harness* — a site build tool is neither harness nor shipped artifact, and root is still its place. `product/tests/harness/` is the known exception — those gate self-tests live next to the bats runner for tooling reasons, not because their subjects ship.
+- **Where a script lives: with the concern it serves.** `product/scripts/` for anything whose subject is under `product/` — the shipped artifact *and* the things that gate it (`check-distro-leak.sh` polices the bats suite; `mutation-gate-selftest.sh` polices the mutation gate; neither ships, both serve `product/`). `deck/` keeps its own generators (`make-house.js`, `make-viz.js`) beside the deck they build.
+  **`site/` is the one concern that cannot hold its tooling**, because `deploy.yml` publishes it verbatim (`cp -r site/. _site/`) — a script placed there would be served from agentlinux.org. So site tooling goes to root `scripts/` (`make-site-icons.sh`), alongside the genuinely repo-wide gates (`check-planning-clean.sh`, `sync-codex-agents.sh`). Root is where a script goes when it has nowhere better, not a category in its own right.
+  Do not restate this as "ships or does not ship": no script ships, including every file in `product/scripts/`. `product/tests/harness/` is a placement exception — those gate self-tests sit next to the bats runner for tooling reasons — but it is about location, not about this rule.
 - **`docs/` for reference, `.planning/` for workflow state.** Identical routing rule to the reference: if the output of a task is a document intended to be read later (ADR, research report, design proposal, review summary), it goes in `docs/`, even as a draft. `.planning/` holds PLAN.md, STATE.md, config — workflow machinery, not documentation.
 
 ### 1.2 Code Quality: Pre-commit
