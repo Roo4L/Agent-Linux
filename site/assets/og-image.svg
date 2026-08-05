@@ -4,34 +4,39 @@
       .bg { fill: #0a0a0a; }
       .title { fill: #ffffff; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 72px; font-weight: 700; }
       .subtitle { fill: #a0a0a0; font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: 32px; font-weight: 400; }
-      .o { fill: #d97757; }
       .w { fill: #ffffff; }
+      .e { fill: #111111; }
+      .r { fill: #888888; }
+      .wl { fill: #4a4a4a; }
+      .rf { fill: #aaaaaa; }
     </style>
   </defs>
   <!-- Background -->
   <rect class="bg" width="1200" height="630"/>
-  <!-- Crab mascot (pixel art, scaled up) -->
-  <g transform="translate(480, 80) scale(8)">
-    <!-- Claws -->
-    <rect class="o" x="0" y="4" width="2" height="2"/>
-    <rect class="o" x="28" y="4" width="2" height="2"/>
-    <!-- Arms -->
-    <rect class="o" x="2" y="4" width="2" height="2"/>
-    <rect class="o" x="26" y="4" width="2" height="2"/>
-    <!-- Body top -->
-    <rect class="o" x="8" y="2" width="14" height="2"/>
-    <!-- Body with eyes -->
-    <rect class="o" x="4" y="4" width="22" height="2"/>
-    <rect class="w" x="8" y="4" width="2" height="2"/>
-    <rect class="w" x="20" y="4" width="2" height="2"/>
-    <!-- Body middle -->
-    <rect class="o" x="4" y="6" width="22" height="2"/>
-    <!-- Body taper -->
-    <rect class="o" x="8" y="8" width="14" height="2"/>
-    <!-- Feet -->
-    <rect class="o" x="8" y="10" width="2" height="2"/>
-    <rect class="o" x="14" y="10" width="2" height="2"/>
-    <rect class="o" x="20" y="10" width="2" height="2"/>
+  <!-- House mascot (pixel art, scaled up — same motif as house-mascot.svg) -->
+  <g transform="translate(488, 80) scale(16)" shape-rendering="crispEdges">
+    <!-- Chimney -->
+    <rect class="r" x="9" y="0" width="2" height="3"/>
+    <!-- Roof triangle -->
+    <rect class="rf" x="6" y="2" width="2" height="1"/>
+    <rect class="rf" x="5" y="3" width="4" height="1"/>
+    <rect class="rf" x="4" y="4" width="6" height="1"/>
+    <rect class="rf" x="3" y="5" width="8" height="1"/>
+    <rect class="rf" x="2" y="6" width="10" height="1"/>
+    <rect class="rf" x="1" y="7" width="12" height="1"/>
+    <!-- Eaves -->
+    <rect class="r" x="0" y="8" width="14" height="1"/>
+    <!-- Walls -->
+    <rect class="wl" x="1" y="9" width="12" height="5"/>
+    <rect class="r" x="1" y="9" width="1" height="5"/>
+    <rect class="r" x="12" y="9" width="1" height="5"/>
+    <rect class="r" x="1" y="9" width="12" height="1"/>
+    <!-- Windows -->
+    <rect class="w" x="2" y="10" width="2" height="2"/>
+    <rect class="w" x="10" y="10" width="2" height="2"/>
+    <!-- Door -->
+    <rect class="e" x="6" y="12" width="2" height="2"/>
+    <rect class="r" x="7" y="13" width="1" height="1"/>
   </g>
   <!-- Title -->
   <text class="title" x="600" y="420" text-anchor="middle">AgentLinux</text>

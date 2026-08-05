@@ -2,7 +2,7 @@
 
 The reusable **design code** for AgentLinux presentations, plus the generator that renders it
 to slides. Strict-monochrome, terminal-styled: JetBrains Mono / Consolas, a near-black canvas,
-one white accent, and the pixel-art house from [`../site/assets/crab-mascot.svg`](../site/assets/crab-mascot.svg).
+one white accent, and the pixel-art house from [`../site/assets/hero-scene.svg`](../site/assets/hero-scene.svg).
 
 - **[`brand-style.md`](brand-style.md)** — the reusable brand DNA in
   [power-design](https://github.com/ItsssssJack/power-design) format (colors, type, spacing,
@@ -46,7 +46,7 @@ See `brand-style.md` for the full spec. In short:
   borders `#2A2A2A`; the single accent per slide is pure white `#FFFFFF`.
 - **Type** — Consolas / JetBrains Mono (monospace), one modular scale (base 24, ratio 1.25),
   presenter-mode sparseness (one idea/slide).
-- **Motif** — the pixel-art house (grayscale, from `../site/assets/crab-mascot.svg`) recurs on the
+- **Motif** — the pixel-art house (grayscale, from `../site/assets/hero-scene.svg`) recurs on the
   cover, the solution slide, the close, and as the footer mark.
 - **Restraint** — no accent stripes, under-title rules, gradients, or shadows; structure comes
   from tint panels and whitespace. `footer()` auto-numbers slides — set `TOTAL` when adding/removing.

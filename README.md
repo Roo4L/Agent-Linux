@@ -111,5 +111,5 @@ Codex in this repo is covered in [docs/codex.md](docs/codex.md).
 
 ## License
 
-[MIT](LICENSE). The "AgentLinux" name and crab mascot are not covered by the
+[MIT](LICENSE). The "AgentLinux" name and house mascot are not covered by the
 license — forks should pick their own name so they don't imply endorsement.

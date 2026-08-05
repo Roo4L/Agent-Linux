@@ -34,7 +34,7 @@ the `curl | bash` one-liner is edited under `product/`, never under `site/`.
   Which directory a new script belongs in: `docs/HARNESS.md` §1.1 Key decisions.
 - `site/` — everything served at agentlinux.org; adding a page or asset needs no CI edit
 - `deck/` — `brand-style.md` (the reusable brand DNA) plus the pptxgenjs generator.
-  Its house motif was hand-derived from `site/assets/crab-mascot.svg`, but the
+  Its house motif shares geometry with `site/assets/hero-scene.svg`, but the
   build reads only its own committed `deck-house.png` — editing the SVG does not
   change the deck.
 - `docs/` — reference documentation (`HARNESS.md`, `codex.md`, `decisions/`, `research/`, `internals/`)
