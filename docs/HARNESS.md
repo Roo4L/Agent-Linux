@@ -54,13 +54,13 @@ agent-linux/                            # Workspace root
 │   │   ├── qemu/                       # Release-gate harness — cloud-image VMs
 │   │   │   ├── boot.sh                 # Fresh cloud image → SSH → install → bats
 │   │   │   └── cloud-init/
-│   │   └── harness/                    # Repo-gate self-tests (run on the CI runner)
+│   │   └── harness/                    # Gate self-tests (run on the CI runner)
 │   └── scripts/                        # build-release.sh, product gates, mutation gate
 ├── site/                               # Landing page — agentlinux.org (see Key decisions)
 ├── deck/                               # Presentation design code + pptx generator (standalone)
-├── scripts/                            # Repo-wide gates (planning hygiene, codex-agent sync)
-│                                       #   + site tooling, which cannot live in the published
-│                                       #   site/ tree (see Key decisions)
+├── scripts/                            # Tooling with nowhere better to live — see Key
+│                                       #   decisions. Not a category: planning hygiene,
+│                                       #   codex-agent sync, site-icon generation
 ├── agents/                             # Contracts for the coding agents we develop WITH
 │                                       #   (not shipped product)
 ├── docs/                               # All reference documentation (see §2)
@@ -92,7 +92,7 @@ agent-linux/                            # Workspace root
 - **The staging root is the contract, not the repo path.** The bats suite hardcodes `/opt/agentlinux-src/{plugin,tests,packaging}`; three of the five directories under `product/` carry those names, which is what lets the harnesses stage `product/` directly. Renaming one of those three breaks every test that hardcodes it — rename the staging path and the source directory together, or not at all.
 - **`product/tests/` is separate from `product/plugin/`.** Tests never ship. Black-box: they run against an *installed* `product/plugin/`, not against source.
 - **The website and the deck are separate top-level concerns, and only `site/` is published.** `_site/` is assembled from two sources: `site/` copied wholesale, plus `product/packaging/curl-installer/install.sh` copied last — the same Pattern 5 anti-drift rule the deploy workflow enforces, so the `curl | bash` one-liner has exactly one editable source. Two consequences: adding a page or asset needs no CI edit, and nothing may be committed under `site/` that is not meant to be served (a `site/.gitignore` would ship to gh-pages and break the `install.sh` publish).
-- **Where a *tooling* script lives — the `product/scripts/` vs root `scripts/` question.** Scoped to build/gate/generate tooling. Scripts that are part of a component's own tree are not in scope and stay with it: the catalog recipes, `plugin/catalog/lib/`, `packaging/curl-installer/install.sh`, the bats helpers, `tests/docker/run.sh`, `tests/qemu/boot.sh`.
+- **Where a *tooling* script lives — the `product/scripts/` vs root `scripts/` question.** Scoped to build/gate/generate tooling. Scripts that are part of a component's own tree are not in scope and stay with it — the catalog recipes, `plugin/catalog/lib/`, `packaging/curl-installer/install.sh`, and everything under `tests/` (the bats helpers, all of `tests/docker/`, `tests/qemu/boot.sh`). That list is illustrative, not exhaustive.
   Within that scope, a tooling script lives **with the concern it serves**. `product/scripts/` for anything gating `product/`, including its tests and its own gates — `check-distro-leak.sh` polices the bats suite, `mutation-gate-selftest.sh` polices the mutation gate; both serve `product/`. `deck/` keeps its generators (`build_pptx.js` builds the deck; `make-house.js` and `make-viz.js` rasterise its committed assets).
   Root `scripts/` takes what is left over, in two flavours: a concern that **cannot** host its own tooling, and a script that spans concerns. Two concerns cannot host tooling, for the same structural reason but different mechanisms — `site/` is published verbatim by `deploy.yml` (`cp -r site/. _site/`), so a script there would be served from agentlinux.org (`make-site-icons.sh`); and `.planning/` is policed by `check-planning-clean.sh`'s own allowlist, which would reject a script sitting inside it. `sync-codex-agents.sh` is the spanning case: it projects `.claude/agents/` into `.codex/agents/`, so neither is its home. Root is the residue, not a category.
   Do not restate this as "ships or does not ship". Plenty of scripts ship — the 27 catalog `install.sh`/`uninstall.sh` pairs and `plugin/catalog/lib/` go into the tarball, and `packaging/curl-installer/install.sh` is served as `agentlinux.org/install.sh`. What is true is narrower: no script in *either* `scripts/` directory ships. Placement here is about ownership, not shipping.
