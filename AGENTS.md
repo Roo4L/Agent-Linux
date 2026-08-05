@@ -30,10 +30,12 @@ the `curl | bash` one-liner is edited under `product/`, never under `site/`.
   - `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (sole distribution channel)
   - `tests/` — `bats/` behavior contract (BHV/RT/AGT/CLI/CAT/INST) · `docker/` fast CI (Ubuntu 24.04 + AlmaLinux 9 every PR; 22.04/26.04 supported, not gated) · `qemu/` release gate · `harness/` gate self-tests, CI runner only, never in a container or guest
   - `scripts/` — `build-release.sh`, the product gates, the mutation gate
-- `scripts/` — repo-wide gates (`check-planning-clean.sh`, `sync-codex-agents.sh`)
-  plus `make-site-icons.sh`, which lives here only because `deploy.yml` publishes
-  `site/` verbatim, so site tooling cannot sit in `site/`. Otherwise a script
-  lives with the concern it serves — see `docs/HARNESS.md` §1.1 Key decisions.
+- `scripts/` — the leftovers: tooling for a concern that cannot host it
+  (`make-site-icons.sh`, because `site/` is published verbatim;
+  `check-planning-clean.sh`, because its own allowlist would reject a script
+  under `.planning/`) and tooling that spans concerns (`sync-codex-agents.sh`).
+  Otherwise a tooling script lives with the concern it serves —
+  see `docs/HARNESS.md` §1.1 Key decisions.
 - `site/` — everything served at agentlinux.org; adding a page or asset needs no CI edit
 - `deck/` — `brand-style.md` (the reusable brand DNA) plus the pptxgenjs generator.
   Its house motif shares geometry with `site/assets/hero-scene.svg`, but the

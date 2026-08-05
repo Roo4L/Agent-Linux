@@ -20,11 +20,12 @@ tie to `product/`, so edit the `curl | bash` one-liner there, never under `site/
 the maintainer's roadmap and planning notes; contributions never need to touch
 it. `agents/`, `.claude/` and `.codex/` configure the coding agents we develop
 *with* — they are not part of the shipped product. Root `scripts/` holds the
-repo-wide gates, plus the site-icon generator, which lives there only because
-the website is published verbatim and so cannot host its own tooling.
-(Root `scripts/` vs `product/scripts/`: a script lives with the concern it
-serves, so anything gating `product/` — including its tests — goes under
-`product/scripts/`.)
+tooling that has nowhere better to live: generators for a directory that is
+published verbatim, gates whose own rules forbid them from sitting inside
+their subject, and scripts that span two concerns.
+(Root `scripts/` vs `product/scripts/`: a tooling script lives with the
+concern it serves, so anything gating `product/` — including its tests —
+goes under `product/scripts/`.)
 
 A fuller annotated tree is in
 [`docs/HARNESS.md` §1.1](docs/HARNESS.md#11-repository-structure) — that
