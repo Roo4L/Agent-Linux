@@ -59,7 +59,7 @@ Pass `transition.id` (not the status name) to `transitionJiraIssue`.
 
 ## Board visibility
 
-AL is team-managed and board 2 keeps its backlog, so board membership is a list separate from status — creating an issue and transitioning it does not by itself put a card on the board. A Jira automation rule closes that gap: it fires on the transition to `In Progress` and moves the issue onto the board. So that transition is what makes a session visible, and a tracked issue left in `Backlog` misreports it as not started. Every AL transition is global, so `Backlog → In Review` is a legal single hop — never take it, or the issue skips the promotion edge and gets no card at all. Deliberate parking is the one exception to leaving `Backlog` — that is what the long-lived-block row below is for.
+AL is team-managed and board 2 keeps its backlog, so board membership is a list separate from status — creating an issue and transitioning it does not by itself put a card on the board. A Jira automation rule closes that gap: it fires on the transition to `In Progress` and moves the issue onto the board. So that transition is what makes a session visible, and a tracked issue left in `Backlog` misreports it as not started. **The watched issue must pass through `In Progress` before any later state.** Every transition in the table above is global, so `Backlog → In Review` and `Backlog → Done` are legal single hops — either one skips the promotion edge, and the issue then has no card even once the work is finished. Deliberate parking is the one exception to leaving `Backlog` — that is what the long-lived-block row below is for.
 
 The board renders parent-level work items only, so Subtasks are not cards and the rule skips them. Exactly one issue per session is **the watched issue**: the lone Task in a single-issue session, the anchor Task in a multi-deliverable one, the Task under the Epic in a milestone session. Drive its status too, not just its Subtasks'; **State-change triggers** says when.
 
@@ -80,7 +80,7 @@ In a single-issue session, apply the Subtask rows to the lone Task — but close
 | New deliverable scoped mid-session | Add a Subtask under the watched issue. It starts in `Backlog`; leave the watched issue where it is. |
 | PR merged or work accepted | Subtask → `Done` (41). |
 | Every Subtask is `In Review` or `Done`, and at least one is not `Done` | Watched issue → `In Review` (31). |
-| All Subtasks Done | Watched issue → `Done` (41) after the user confirms. |
+| All Subtasks Done | Watched issue → `Done` (41) after the user confirms. If it never reached `In Progress`, take it there first — closing straight from `Backlog` leaves finished work with no card. |
 
 ## Naming
 
