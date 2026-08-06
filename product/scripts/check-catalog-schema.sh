@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# scripts/check-catalog-schema.sh — commit-time structural gate for the catalog.
+# product/scripts/check-catalog-schema.sh — commit-time structural gate for the catalog.
 #
 # Replaces the pre-cutover `node plugin/cli/scripts/validate-catalog.mjs` (ajv)
 # hook, deleted with the TypeScript CLI.
@@ -24,7 +24,10 @@
 
 set -euo pipefail
 
-CAT_JSON=plugin/catalog/catalog.json
+# Resolved from this script's own location, not the caller's CWD: pre-commit
+# invokes it from the repo root while the tree it checks lives under product/.
+product_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+CAT_JSON="${product_root}/plugin/catalog/catalog.json"
 
 command -v jq >/dev/null 2>&1 || {
   printf 'check-catalog-schema: jq is required on PATH but not found\n' >&2

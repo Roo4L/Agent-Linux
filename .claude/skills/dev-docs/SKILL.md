@@ -1,6 +1,6 @@
 ---
 name: dev-docs
-description: Use when the task touches plugin/bin/, plugin/lib/, plugin/provisioner/, plugin/cli/src/, plugin/catalog/, or packaging/curl-installer/ — verify the matching docs/internals/<component>.md is still accurate. Documents the four-section contract (problem -> answer -> value vs naive -> related), the source-path -> doc-path dispatch table, the product-perspective lens (the AL-22 litmus question), and the explicit decision to NOT add a stop-hook for docs sync. Grows when new top-level surfaces land under plugin/ in future milestones.
+description: Use when the task touches product/plugin/bin/, product/plugin/lib/, product/plugin/provisioner/, product/plugin/cli/src/, product/plugin/catalog/, or product/packaging/curl-installer/ — verify the matching docs/internals/<component>.md is still accurate. Documents the four-section contract (problem -> answer -> value vs naive -> related), the source-path -> doc-path dispatch table, the product-perspective lens (the AL-22 litmus question), and the explicit decision to NOT add a stop-hook for docs sync. Grows when new top-level surfaces land under product/plugin/ in future milestones.
 ---
 
 # dev-docs — docs/internals/ contract for AgentLinux developer docs
@@ -14,15 +14,15 @@ Requirements this skill helps enforce: DOC-01 (index doc), DOC-02 (component doc
 
 Use when the task touches any file under:
 
-- `plugin/bin/agentlinux-install` — installer entrypoint -> `docs/internals/installer.md`.
-- `plugin/lib/*.sh` — shared bash helpers -> `docs/internals/nodejs-runtime.md` (PATH/as_user) or `installer.md` (logging/idempotency).
-- `plugin/provisioner/*.sh` — ordered installer steps -> dispatch by step (see table below).
-- `plugin/cli/src/**` — the registry CLI source -> `docs/internals/registry-cli.md`.
-- `plugin/catalog/{schema,catalog}.json` — the catalog data model -> `docs/internals/catalog.md`.
-- `plugin/catalog/agents/<name>/*` — per-agent recipes -> `docs/internals/<name>.md`.
-- `plugin/catalog/lib/*` — shared catalog recipe helpers -> the affected
+- `product/plugin/bin/agentlinux-install` — installer entrypoint -> `docs/internals/installer.md`.
+- `product/plugin/lib/*.sh` — shared bash helpers -> `docs/internals/nodejs-runtime.md` (PATH/as_user) or `installer.md` (logging/idempotency).
+- `product/plugin/provisioner/*.sh` — ordered installer steps -> dispatch by step (see table below).
+- `product/plugin/cli/src/**` — the registry CLI source -> `docs/internals/registry-cli.md`.
+- `product/plugin/catalog/{schema,catalog}.json` — the catalog data model -> `docs/internals/catalog.md`.
+- `product/plugin/catalog/agents/<name>/*` — per-agent recipes -> `docs/internals/<name>.md`.
+- `product/plugin/catalog/lib/*` — shared catalog recipe helpers -> the affected
   component doc (for example `browser-deps.sh` -> `docs/internals/playwright.md`).
-- `packaging/curl-installer/install.sh` — the curl-pipe-bash entrypoint -> `docs/internals/installer.md`.
+- `product/packaging/curl-installer/install.sh` — the curl-pipe-bash entrypoint -> `docs/internals/installer.md`.
 
 Or when authoring or reviewing any file under `docs/internals/`.
 
@@ -49,19 +49,19 @@ The `dev-docs-auditor` reviewer reads this table to decide which component doc a
 
 | Source path glob | Component doc |
 |---|---|
-| `packaging/curl-installer/install.sh`, `plugin/bin/agentlinux-install` | `docs/internals/installer.md` |
-| `plugin/provisioner/10-agent-user.sh` | `docs/internals/agent-user.md` |
-| `plugin/provisioner/20-sudoers.sh` | `docs/internals/sudo-drop-in.md` |
-| `plugin/provisioner/30-nodejs.sh`, `plugin/provisioner/40-path-wiring.sh`, `plugin/lib/as_user.sh` | `docs/internals/nodejs-runtime.md` |
-| `plugin/catalog/agents/claude-code/*` | `docs/internals/claude-code.md` |
-| `plugin/catalog/agents/gsd/*` | `docs/internals/gsd.md` |
-| `plugin/catalog/agents/playwright-cli/*`, `plugin/catalog/agents/playwright/*` | `docs/internals/playwright.md` |
-| `plugin/cli/src/**`, `plugin/provisioner/50-registry-cli.sh` | `docs/internals/registry-cli.md` |
-| `plugin/catalog/schema.json`, `plugin/catalog/catalog.json` | `docs/internals/catalog.md` |
-| `plugin/catalog/lib/browser-deps.sh` | `docs/internals/playwright.md` |
-| `plugin/lib/log.sh`, `plugin/lib/idempotency.sh`, `plugin/lib/distro_detect.sh` | `docs/internals/installer.md` (shared installer infrastructure) |
+| `product/packaging/curl-installer/install.sh`, `product/plugin/bin/agentlinux-install` | `docs/internals/installer.md` |
+| `product/plugin/provisioner/10-agent-user.sh` | `docs/internals/agent-user.md` |
+| `product/plugin/provisioner/20-sudoers.sh` | `docs/internals/sudo-drop-in.md` |
+| `product/plugin/provisioner/30-nodejs.sh`, `product/plugin/provisioner/40-path-wiring.sh`, `product/plugin/lib/as_user.sh` | `docs/internals/nodejs-runtime.md` |
+| `product/plugin/catalog/agents/claude-code/*` | `docs/internals/claude-code.md` |
+| `product/plugin/catalog/agents/gsd/*` | `docs/internals/gsd.md` |
+| `product/plugin/catalog/agents/playwright-cli/*`, `product/plugin/catalog/agents/playwright/*` | `docs/internals/playwright.md` |
+| `product/plugin/cli/src/**`, `product/plugin/provisioner/50-registry-cli.sh` | `docs/internals/registry-cli.md` |
+| `product/plugin/catalog/schema.json`, `product/plugin/catalog/catalog.json` | `docs/internals/catalog.md` |
+| `product/plugin/catalog/lib/browser-deps.sh` | `docs/internals/playwright.md` |
+| `product/plugin/lib/log.sh`, `product/plugin/lib/idempotency.sh`, `product/plugin/lib/distro_detect.sh` | `docs/internals/installer.md` (shared installer infrastructure) |
 
-When a new top-level surface lands under `plugin/` (a new provisioner step, a new CLI command class, a new catalog backend), this table grows AND a new `docs/internals/<surface>.md` ships in the same PR.
+When a new top-level surface lands under `product/plugin/` (a new provisioner step, a new CLI command class, a new catalog backend), this table grows AND a new `docs/internals/<surface>.md` ships in the same PR.
 
 ## When to update
 
@@ -76,7 +76,7 @@ When a new top-level surface lands under `plugin/` (a new provisioner step, a ne
 - Pure refactors that don't change observable behavior (rename, extract function, reformat).
 - Comment-only or typo-only changes.
 - Whitespace / formatting-only diffs.
-- Test-only changes that don't touch `plugin/` source paths.
+- Test-only changes that don't touch `product/plugin/` source paths.
 - `.planning/`-only changes.
 - `docs/`-only changes (covered by `technical-writer` and `fact-checker`).
 
@@ -97,12 +97,12 @@ Concretely:
 
 AgentLinux already has two reminder hooks (`.claude/hooks/review-reminder.sh` and `.claude/hooks/session-tracker-reminder.sh`), both wired per the ADR-010 2026-05-02 refinement (reminder hooks with a `stop_hook_active` one-shot guard are allowed; reviewer-invoking hooks remain rejected).
 
-Adding a third hook for docs/internals/ sync would multiply reminder noise without adding value: the existing host-specific `review-reminder.sh` hooks already nudge agents to run the shared review loop, and that loop routes relevant `plugin/` changes to `dev-docs-auditor` per its portable dispatch table. The dev-docs check rides inside the existing review loop; no new hook is needed. ADR-016 records this decision in full.
+Adding a third hook for docs/internals/ sync would multiply reminder noise without adding value: the existing host-specific `review-reminder.sh` hooks already nudge agents to run the shared review loop, and that loop routes relevant `product/plugin/` changes to `dev-docs-auditor` per its portable dispatch table. The dev-docs check rides inside the existing review loop; no new hook is needed. ADR-016 records this decision in full.
 
 ## Growth plan
 
 - **Phase 13 (this phase):** Skill ships alongside the 9 initial component docs and the `dev-docs-auditor` reviewer. This skill carries the dispatch table and the four-section contract.
-- **Future milestones — new components added under `plugin/`:** Each new top-level surface (a new provisioner step, a new CLI command class, a new catalog backend, a new agent in the catalog) ships its own `docs/internals/<surface>.md` in the same PR and adds a row to the dispatch table here.
+- **Future milestones — new components added under `product/plugin/`:** Each new top-level surface (a new provisioner step, a new CLI command class, a new catalog backend, a new agent in the catalog) ships its own `docs/internals/<surface>.md` in the same PR and adds a row to the dispatch table here.
 - **Future milestones — if drift becomes a real problem:** The skill may absorb a stronger link discipline (e.g. mandated ADR cross-references in the Related footer). Currently out of scope per CONTEXT §"Deferred Ideas."
 - **Future milestones — if the docs grow:** Consider a documentation site (mdBook, Docusaurus). Currently out of scope per CONTEXT §"Deferred Ideas" — markdown in the repo is sufficient for the project owner's stated goal.
 

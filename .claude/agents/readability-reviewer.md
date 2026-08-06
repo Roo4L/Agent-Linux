@@ -1,6 +1,6 @@
 ---
 name: readability-reviewer
-description: Reviews changed code for readability — whether someone opening it cold can quickly tell what a unit does, what goes in and out, what can fail, and where to change it. Focuses on intent-revealing names, single-abstraction-level functions, control flow that is not hidden in callbacks or implicit state, and comments that explain why rather than compensate for unclear code. Use on any source change under plugin/, packaging/, or tests/ helpers.
+description: Reviews changed code for readability — whether someone opening it cold can quickly tell what a unit does, what goes in and out, what can fail, and where to change it. Focuses on intent-revealing names, single-abstraction-level functions, control flow that is not hidden in callbacks or implicit state, and comments that explain why rather than compensate for unclear code. Use on any source change under product/plugin/, product/packaging/, or product/tests/ helpers.
 tools: Read, Grep, Glob, Bash
 ---
 

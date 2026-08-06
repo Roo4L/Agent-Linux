@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/qemu/boot.sh — Phase 6 Plan 06-03. QEMU release-gate harness.
+# product/tests/qemu/boot.sh — Phase 6 Plan 06-03. QEMU release-gate harness.
 #
 # End-to-end: download + SHA256-verify Ubuntu cloud image → generate per-run
 # ed25519 keypair under mktemp 0700 → render cloud-init seed ISO (user-data +
@@ -21,9 +21,9 @@
 #   T-06-06    — per-run SSH keypair in mktemp 0700, destroyed by EXIT trap.
 #
 # Usage:
-#   tests/qemu/boot.sh <22.04|24.04>
-#   tests/qemu/boot.sh ubuntu-22.04            # ubuntu- prefix accepted
-#   tests/qemu/boot.sh --help
+#   product/tests/qemu/boot.sh <22.04|24.04>
+#   product/tests/qemu/boot.sh ubuntu-22.04            # ubuntu- prefix accepted
+#   product/tests/qemu/boot.sh --help
 #
 # Environment (all optional):
 #   AGENTLINUX_QEMU_CACHE   cache dir for cloud images
@@ -106,7 +106,7 @@ selftest_checksum_guard() {
 # ---------------------------------------------------------------------------
 usage() {
   cat <<'EOF'
-usage: tests/qemu/boot.sh <22.04|24.04|26.04|almalinux-9>
+usage: product/tests/qemu/boot.sh <22.04|24.04|26.04|almalinux-9>
 
 Runs the AgentLinux QEMU release-gate harness against a fresh cloud image
 (Ubuntu LTS or AlmaLinux 9). Exits 0 on a fully green run (cloud-init seed →
@@ -123,9 +123,9 @@ Environment:
   AGENTLINUX_QEMU_PORT    host port forwarded to guest:22 (default 2222)
 
 Examples:
-  tests/qemu/boot.sh 22.04
-  tests/qemu/boot.sh ubuntu-24.04
-  AGENTLINUX_QEMU_CACHE=/tmp/qemu tests/qemu/boot.sh 24.04
+  product/tests/qemu/boot.sh 22.04
+  product/tests/qemu/boot.sh ubuntu-24.04
+  AGENTLINUX_QEMU_CACHE=/tmp/qemu product/tests/qemu/boot.sh 24.04
 
 Invariants:
   - /dev/kvm MUST be readable+writable (Pitfall 4 — TCG fallback refused).
@@ -475,17 +475,17 @@ fi
 
 # ---------------------------------------------------------------------------
 # 9. Build the plugin tarball via build-release.sh.
-#    The version lock (tag == plugin/catalog/catalog.json.version ==
-#    plugin/catalog/catalog.json.version == rust/crates/agentlinux/Cargo.toml
-#    version) is sacred — do NOT invent a v0.0.0-qemu tag; use the current repo
+#    The version lock (tag == product/plugin/catalog/catalog.json.version ==
+#    product/rust/crates/agentlinux/Cargo.toml version) is sacred — do NOT invent a v0.0.0-qemu tag; use the current repo
 #    version so the lock passes. The reproducible musl tarball + .sha256 is the
 #    sole channel (Phase 58 DIST-02 removed the optional fpm .deb path).
 # ---------------------------------------------------------------------------
 REPO_ROOT=$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)
-VERSION=$(jq -r .version "${REPO_ROOT}/plugin/catalog/catalog.json")
+PRODUCT_ROOT="${REPO_ROOT}/product"
+VERSION=$(jq -r .version "${PRODUCT_ROOT}/plugin/catalog/catalog.json")
 TAG="v${VERSION}"
-printf 'building release tarball for tag=%s via scripts/build-release.sh\n' "$TAG"
-bash "${REPO_ROOT}/scripts/build-release.sh" "$TAG"
+printf 'building release tarball for tag=%s via product/scripts/build-release.sh\n' "$TAG"
+bash "${PRODUCT_ROOT}/scripts/build-release.sh" "$TAG"
 
 TARBALL="${REPO_ROOT}/dist/agentlinux-${TAG}.tar.gz"
 if [[ ! -f "$TARBALL" ]]; then
@@ -504,11 +504,15 @@ fi
 ## in the plugin/ release tarball (06-01 locked decision: tarball ships
 ## ONLY plugin/). Bundle packaging/ alongside tests/ so the in-guest layout
 ## matches what the bats helper expects.
+## -C "$PRODUCT_ROOT" keeps the archived member paths at tests/bats and packaging,
+## so the extracted in-guest layout under /opt/agentlinux-src is byte-identical to
+## before the product/ carve-out — which is what 60-curl-installer.bats's hardcoded
+## /opt/agentlinux-src/packaging/curl-installer/install.sh depends on.
 TESTS_TAR="${RUN_DIR}/tests.tar.gz"
-tar --create --gzip --file="$TESTS_TAR" -C "$REPO_ROOT" \
+tar --create --gzip --file="$TESTS_TAR" -C "$PRODUCT_ROOT" \
   tests/bats packaging \
-  node_modules/bats 2>/dev/null || tar --create --gzip --file="$TESTS_TAR" \
-  -C "$REPO_ROOT" tests/bats packaging
+  -C "$REPO_ROOT" node_modules/bats 2>/dev/null || tar --create --gzip --file="$TESTS_TAR" \
+  -C "$PRODUCT_ROOT" tests/bats packaging
 
 printf 'scp-ing release tarball + tests into the guest\n'
 scp "${SCP_OPTS[@]}" "$TARBALL" "root@localhost:/tmp/"
@@ -584,7 +588,7 @@ elif command -v file >/dev/null 2>&1; then
   # `statically linked` OR `static-pie linked`: rustc's x86_64-unknown-linux-musl
   # target emits a static-PIE, which file(1) labels `static-pie linked` — no
   # PT_INTERP, exactly the property the readelf tier above asserts, so accepting
-  # it is not a weakening of the guard. scripts/build-release.sh's own
+  # it is not a weakening of the guard. product/scripts/build-release.sh's own
   # static-link assertion already matches both; this copy was never updated, so
   # the guard rejected every correctly-built binary the moment it fell through
   # to the file(1) tier — which is what happens in a cloud guest with no
@@ -648,7 +652,7 @@ REMOTE_BATS
 # 13. Artifacts on failure — copy serial.log into tests/qemu/artifacts/.
 # ---------------------------------------------------------------------------
 if ((BATS_STATUS != 0)); then
-  ARTIFACTS="${REPO_ROOT}/tests/qemu/artifacts"
+  ARTIFACTS="$ARTIFACTS_DIR"
   mkdir -p "$ARTIFACTS"
   TIMESTAMP=$(date -u +%Y%m%dT%H%M%SZ)
   cp -f "${RUN_DIR}/serial.log" \

@@ -13,8 +13,8 @@ AgentLinux is an installable Ubuntu plugin that provisions an `agent` user
 with a correctly-owned Node.js runtime + a registry CLI for installing agent
 tools. The most common claim categories are: requirement IDs (BHV/RT/AGT/CLI/
 CAT/INST/HRN/TST/DOC/EXPL/STRAT/SITE), ADR statements (`docs/decisions/0XX-*.md`),
-catalog recipes (`plugin/catalog/agents/*/install.sh`), bats tests
-(`tests/bats/*.bats`), research synthesis (`.planning/research/*.md`), and
+catalog recipes (`product/plugin/catalog/agents/*/install.sh`), bats tests
+(`product/tests/bats/*.bats`), research synthesis (`.planning/research/*.md`), and
 release-gate artefacts (`.github/workflows/release.yml`).
 
 ## What Counts as a Factual Claim
@@ -26,8 +26,8 @@ Anything that can be true or false. Specifically:
 - **System behavior** — "AGT-02 self-updates against the live Anthropic CDN
   with zero EACCES", "the curated combo runs in QEMU before every release",
   "`agentlinux upgrade` reconciles divergence"
-- **Code / file existence** — "`tests/bats/51-agt02-release-gate.bats` exists
-  and is the AGT-02 release gate", "`plugin/catalog/agents/claude-code/install.sh`
+- **Code / file existence** — "`product/tests/bats/51-agt02-release-gate.bats` exists
+  and is the AGT-02 release gate", "`product/plugin/catalog/agents/claude-code/install.sh`
   uses the native installer"
 - **ADR statements** — "ADR-003 mandates no agents are installed by default",
   "ADR-011 names the curated-combo stability model", "ADR-012 grants
@@ -52,8 +52,8 @@ Check claims against sources in this priority order:
 1. **Source code & tests** — If a claim is about system behavior, find the
    actual code. Grep for function names, file paths, bats `@test` blocks,
    or recipe steps. Read the implementation, not just comments. The
-   `plugin/`, `tests/bats/`, `tests/qemu/`, `.github/workflows/`, and
-   `packaging/` trees are authoritative.
+   `product/plugin/`, `product/tests/bats/`, `product/tests/qemu/`, `.github/workflows/`, and
+   `product/packaging/` trees are authoritative.
 2. **ADRs and Decision artefacts** — `docs/decisions/0XX-*.md` are the
    authoritative ADR set. Each one is dated and Accepted/Superseded.
    Reference by ADR number. If a claim cites "ADR-NNN says X", read
@@ -165,7 +165,7 @@ After the per-section tables, add a consolidated issues section:
 1. Read the target document end to end. Build a list of every factual claim.
 2. For each claim, identify the best verification source (code, ADR, test, research, ROADMAP).
 3. Check claims in order. Don't skip claims because they "look right."
-4. For numeric claims: count the actual artefacts (`ls plugin/catalog/agents/ | wc -l`, `grep -c '^@test' tests/bats/foo.bats`). Don't estimate from document descriptions.
+4. For numeric claims: count the actual artefacts (`ls product/plugin/catalog/agents/ | wc -l`, `grep -c '^@test' product/tests/bats/foo.bats`). Don't estimate from document descriptions.
 5. For code claims: read the actual file. Don't rely on documentation about the code.
 6. For ADR claims: open the ADR and confirm the claim word-for-word.
 7. Write the report. Every claim gets a row in a table. No exceptions.

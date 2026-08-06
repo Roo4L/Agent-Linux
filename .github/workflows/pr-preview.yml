@@ -6,7 +6,7 @@ on:
     types: [opened, reopened, synchronize, closed]
     paths:
       - 'site/**'
-      - 'packaging/curl-installer/install.sh'
+      - 'product/packaging/curl-installer/install.sh'
       - '.github/workflows/pr-preview.yml'
       - '.github/workflows/deploy.yml'
 
@@ -42,7 +42,7 @@ jobs:
         run: |
           mkdir -p _site
           cp -r site/. _site/
-          cp packaging/curl-installer/install.sh _site/install.sh
+          cp product/packaging/curl-installer/install.sh _site/install.sh
           # Mirrors deploy.yml's assertions — see the rationale there. Both live
           # in the assemble step so the preview fails on a PR that would break
           # production, which is the whole point of previews.

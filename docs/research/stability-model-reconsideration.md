@@ -170,7 +170,7 @@ playwright     [not installed]       1.55.0      —
 ## What shipped
 
 Option A' was adopted and built: ADR-011 records the decision;
-`plugin/catalog/schema.json` carries `pinned_version`, `npm_package_name`, and
+`product/plugin/catalog/schema.json` carries `pinned_version`, `npm_package_name`, and
 the optional `version_constraint`; the CLI gained `upgrade` and `pin` (sticky
 override); releases publish a catalog snapshot alongside the tarball; and
 [`docs/STABILITY-MODEL.md`](../STABILITY-MODEL.md) is the user-facing "we lag on

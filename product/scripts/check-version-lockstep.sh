@@ -29,8 +29,11 @@
 
 set -euo pipefail
 
-CAT_JSON=plugin/catalog/catalog.json
-CARGO_TOML=rust/crates/agentlinux/Cargo.toml
+# Resolved from this script's own location, not the caller's CWD: pre-commit
+# invokes it from the repo root while the tree it checks lives under product/.
+product_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+CAT_JSON="${product_root}/plugin/catalog/catalog.json"
+CARGO_TOML="${product_root}/rust/crates/agentlinux/Cargo.toml"
 
 if [[ ! -r "$CAT_JSON" ]]; then
   printf 'check-version-lockstep: %s missing or unreadable\n' "$CAT_JSON" >&2

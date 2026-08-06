@@ -84,9 +84,9 @@ reaffirmed in this exploration 2026-05-10).
 - **T-1 — zero-EACCES self-update.** The curated `claude` binary
   self-updates against the live Anthropic CDN with zero EACCES and zero sudo
   prompts. Release-gated; the self-update acceptance test
-  (`tests/bats/51-agt02-release-gate.bats`) is the evidence and runs against
+  (`product/tests/bats/51-agt02-release-gate.bats`) is the evidence and runs against
   the live CDN every release. Recipe:
-  `plugin/catalog/agents/claude-code/install.sh`.
+  `product/plugin/catalog/agents/claude-code/install.sh`.
 - **T-2 — ADR-011 stability model.** `pinned_version` per catalog agent +
   curated combo (claude-code + gsd + playwright-cli) + the release pipeline
   (pre-commit, then the Docker and QEMU matrices concurrently, then build and

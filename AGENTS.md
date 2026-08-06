@@ -18,23 +18,24 @@ Pivoted from custom distro (v0.2.0) on 2026-04-18. See
 
 ## Where Things Live
 
-Three concerns share this repo — the product (`rust/` `plugin/` `packaging/`
-`tests/` `scripts/`), the website (`site/`), and the slide deck (`deck/`) —
-plus the docs and agent harness they all use. Start from the concern, not from
-a file search. Their one coupling: the published site bundle includes
-`packaging/curl-installer/install.sh`, so the `curl | bash` one-liner is edited
-under `packaging/`, never under `site/`.
+Three concerns share this repo — the product (`product/`), the website (`site/`),
+and the slide deck (`deck/`) — plus the docs and agent harness they all use.
+Start from the concern, not from a file search. Their one coupling: the
+published site bundle includes `product/packaging/curl-installer/install.sh`, so
+the `curl | bash` one-liner is edited under `product/`, never under `site/`.
 
-- `rust/` — Cargo workspace: the `agentlinux` bin (provisioner + registry CLI) and the I/O-free `agentlinux-core` logic crate
-- `plugin/` — shippable non-Rust assets: the catalog (`plugin/catalog/` — catalog.json + the
-  per-agent Bash recipes) and the shipped musl bin path (`plugin/bin/agentlinux`,
-  a build output, not in git)
-- `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (sole distribution channel)
-- `tests/bats/` — behavior-contract suite (BHV-XX / RT-XX / AGT-XX / CLI-XX / CAT-XX / INST-XX)
-- `tests/harness/` — repo-level gate self-tests (the `.planning/` hygiene gate, the mutation gate); run on the CI runner, never in a container or guest
-- `tests/docker/` — fast CI harness (Ubuntu 24.04 + AlmaLinux 9 every PR; 22.04 and 26.04 are still supported, just not exercised on every push)
-- `tests/qemu/` — release-gate harness (fresh cloud images, nightly + release)
-- `scripts/` — release build (`build-release.sh`), repo gates (`check-*.sh`), mutation gate
+- `product/` — everything that ships, or tests what ships
+  - `rust/` — Cargo workspace: the `agentlinux` bin (provisioner + registry CLI) and the I/O-free `agentlinux-core` crate
+  - `plugin/` — shippable non-Rust assets: `catalog/` (catalog.json + the per-agent Bash recipes). `bin/agentlinux` is a build output, not in git
+  - `packaging/` — curl-pipe-bash installer for the reproducible musl tarball (sole distribution channel)
+  - `tests/` — `bats/` behavior contract (BHV/RT/AGT/CLI/CAT/INST) · `docker/` fast CI (Ubuntu 24.04 + AlmaLinux 9 every PR; 22.04/26.04 supported, not gated) · `qemu/` release gate · `harness/` gate self-tests, CI runner only, never in a container or guest
+  - `scripts/` — `build-release.sh`, the product gates, the mutation gate
+- `scripts/` — the leftovers: tooling for a concern that cannot host it
+  (`make-site-icons.sh`, because `site/` is published verbatim;
+  `check-planning-clean.sh`, because its own allowlist would reject a script
+  under `.planning/`) and tooling that spans concerns (`sync-codex-agents.sh`).
+  Otherwise a tooling script lives with the concern it serves —
+  see `docs/HARNESS.md` §1.1 Key decisions.
 - `site/` — everything served at agentlinux.org; adding a page or asset needs no CI edit
 - `deck/` — `brand-style.md` (the reusable brand DNA) plus the pptxgenjs generator.
   Its house motif shares geometry with `site/assets/hero-scene.svg`, but the
@@ -58,7 +59,7 @@ under `packaging/`, never under `site/`.
 
 - **Never `sudo npm install -g` anywhere.** Always `sudo -u agent -H npm install -g`.
   This is the bug class AgentLinux exists to eliminate (EACCES + recursive-shim).
-- **Behavior tests in `tests/bats/` are the spec.** Implementation may change freely
+- **Behavior tests in `product/tests/bats/` are the spec.** Implementation may change freely
   while the suite stays green. Do not pin implementation choices (npm vs native
   installer, sudo vs no-sudo) as requirements.
 - **No agent is installed by default.** Claude Code, GSD, and Playwright are
@@ -66,7 +67,7 @@ under `packaging/`, never under `site/`.
 - **Docker-only test runs are insufficient.** QEMU suite must be green before any
   release — Docker can't reproduce systemd, locale generation, cloud-init paths.
 - **Every release tarball ships with a sibling `.sha256`.** The curl-installer at
-  `packaging/curl-installer/install.sh` must verify it before executing.
+  `product/packaging/curl-installer/install.sh` must verify it before executing.
 - **No wrapper shims at `/usr/local/bin/`** pointing to agent-owned binaries — the
   exact anti-pattern that breaks Claude Code self-update.
 
@@ -109,11 +110,11 @@ before stopping — `.claude/hooks/session-tracker-reminder.sh` for Claude Code,
 ## Commands
 
 ```bash
-./tests/docker/run.sh ubuntu-24.04        # Run bats inside Docker (Ubuntu 24.04)
-cd rust && cargo test --workspace          # Rust unit tests (provisioner + CLI)
-pre-commit run --all-files                 # Lint bash + catalog schema + version lock
-./scripts/build-release.sh vX.Y.Z          # Build the release tarball + .sha256
-bats tests/harness/70-planning-clean-gate.bats  # Self-test the .planning/ hygiene gate
+./product/tests/docker/run.sh ubuntu-24.04   # Run bats inside Docker (Ubuntu 24.04)
+cd product/rust && cargo test --workspace    # Rust unit tests (provisioner + CLI)
+pre-commit run --all-files                   # Lint bash + catalog schema + version lock
+./product/scripts/build-release.sh vX.Y.Z    # Build the release tarball + .sha256
+bats product/tests/harness/70-planning-clean-gate.bats  # Self-test the .planning/ hygiene gate
 ```
 
 ## Pointers
@@ -133,4 +134,4 @@ bats tests/harness/70-planning-clean-gate.bats  # Self-test the .planning/ hygie
   `.claude/skills/qa-testing/`, `.claude/skills/workspace-cleanup/`
 
 ---
-*Last updated: 2026-07-18 — added Codex CLI support alongside Claude Code.*
+*Last updated: 2026-08-04 — repo restructured into `product/`, `site/`, `deck/`.*

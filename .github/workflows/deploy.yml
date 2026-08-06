@@ -40,8 +40,8 @@ jobs:
       #   2. Repo bloat (plugin/, .planning/, docs/, etc.) does not get
       #      published at agentlinux.org/<dir>/.
       # Pattern 5 (Pitfall 7 anti-drift): install.sh comes from the single
-      # editable source at packaging/curl-installer/install.sh. It is copied
-      # LAST so packaging/ always wins over anything staged under site/.
+      # editable source at product/packaging/curl-installer/install.sh. It is copied
+      # LAST so product/packaging/ always wins over anything staged under site/.
       #
       # Two assertions below, because the two ways this publish has broken are
       # not the same failure:
@@ -62,7 +62,7 @@ jobs:
         run: |
           mkdir -p _site
           cp -r site/. _site/
-          cp packaging/curl-installer/install.sh _site/install.sh
+          cp product/packaging/curl-installer/install.sh _site/install.sh
           for f in index.html CNAME install.sh; do
             [ -s "_site/$f" ] || {
               echo "deploy FAIL: _site/$f missing or empty — refusing to publish" >&2

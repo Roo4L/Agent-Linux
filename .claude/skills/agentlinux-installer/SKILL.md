@@ -1,11 +1,11 @@
 ---
 name: agentlinux-installer
-description: Use when writing or modifying bash code under plugin/bin/, plugin/lib/, or plugin/provisioner/. Codifies AgentLinux's installer conventions — set -euo pipefail, idempotency primitives, as_user helper, distro detection, logging, error propagation, and the PATH-wiring contract across six invocation modes (interactive login, non-interactive SSH, cron, systemd, sudo -u, sudo -u -i). Grows as installer patterns stabilize in Phase 2+.
+description: Use when writing or modifying bash code under product/plugin/bin/, product/plugin/lib/, or product/plugin/provisioner/. Codifies AgentLinux's installer conventions — set -euo pipefail, idempotency primitives, as_user helper, distro detection, logging, error propagation, and the PATH-wiring contract across six invocation modes (interactive login, non-interactive SSH, cron, systemd, sudo -u, sudo -u -i). Grows as installer patterns stabilize in Phase 2+.
 ---
 
 # agentlinux-installer — Bash installer conventions
 
-**Status:** Skeleton. This skill documents the intended shape of the AgentLinux bash installer. Phase 2 lands the real primitives under `plugin/lib/`; this skill will absorb them as they stabilize. For Phase 1 the non-negotiable rules are already fixed and will not drift.
+**Status:** Skeleton. This skill documents the intended shape of the AgentLinux bash installer. Phase 2 lands the real primitives under `product/plugin/lib/`; this skill will absorb them as they stabilize. For Phase 1 the non-negotiable rules are already fixed and will not drift.
 
 Authoritative spec: `docs/HARNESS.md` §5.2 (skill table) and §1.1 (plugin layout). Decisions: ADR-004 (per-user npm prefix), ADR-005 (NodeSource over version managers). Requirements this skill helps satisfy: INST-01, INST-02, INST-05, BHV-01..BHV-06, RT-01..RT-04.
 
@@ -13,10 +13,10 @@ Authoritative spec: `docs/HARNESS.md` §5.2 (skill table) and §1.1 (plugin layo
 
 Use when the task touches any `.sh` file under:
 
-- `plugin/bin/` — the `agentlinux-install` entrypoint.
-- `plugin/lib/` — shared bash libraries (`log.sh`, `idempotency.sh`, `as_user.sh`, `distro_detect.sh`).
-- `plugin/provisioner/` — ordered numbered scripts (`10-agent-user.sh`, `30-nodejs.sh`, `40-path-wiring.sh`, `50-registry-cli.sh`).
-- `packaging/curl-installer/install.sh` — the curl-pipe-bash entrypoint.
+- `product/plugin/bin/` — the `agentlinux-install` entrypoint.
+- `product/plugin/lib/` — shared bash libraries (`log.sh`, `idempotency.sh`, `as_user.sh`, `distro_detect.sh`).
+- `product/plugin/provisioner/` — ordered numbered scripts (`10-agent-user.sh`, `30-nodejs.sh`, `40-path-wiring.sh`, `50-registry-cli.sh`).
+- `product/packaging/curl-installer/install.sh` — the curl-pipe-bash entrypoint.
 
 Skip for bats test files (use the `behavior-test-contract` skill instead).
 
@@ -32,13 +32,13 @@ Skip for bats test files (use the `behavior-test-contract` skill instead).
    - `ensure_symlink <src> <dst>` — remove-then-create only if target differs.
    - `ensure_dir <path> <mode> <owner>` — stat-then-create.
    Re-running the installer MUST converge (INST-02).
-5. **Structured logging.** Use `log_info`, `log_warn`, `log_error` from `plugin/lib/log.sh`. Colored to stderr. Never `echo` directly for user-facing messages.
-6. **No curl-pipe-bash inside provisioners.** Curl-pipe-bash is acceptable at the outermost entrypoint (`packaging/curl-installer/install.sh`) with SHA256 verification; downstream provisioner scripts fetch pinned artifacts only.
+5. **Structured logging.** Use `log_info`, `log_warn`, `log_error` from `product/plugin/lib/log.sh`. Colored to stderr. Never `echo` directly for user-facing messages.
+6. **No curl-pipe-bash inside provisioners.** Curl-pipe-bash is acceptable at the outermost entrypoint (`product/packaging/curl-installer/install.sh`) with SHA256 verification; downstream provisioner scripts fetch pinned artifacts only.
 
-## Intended plugin/ layout (copy from HARNESS.md §1.1)
+## Intended product/plugin/ layout (copy from HARNESS.md §1.1)
 
 ```
-plugin/
+product/plugin/
 ├── bin/agentlinux-install          # Entrypoint. Parses args, dispatches to provisioners.
 ├── lib/
 │   ├── log.sh                      # log_info / log_warn / log_error
@@ -70,7 +70,7 @@ The single hardest part of the installer. Each invocation mode reads PATH from a
 | `sudo -u agent` (BHV-05) | `env_keep` + target user's env | `/etc/sudoers.d/agentlinux` with `Defaults env_keep+=PATH` (mode **0440**, validated by `visudo -cf`) |
 | `sudo -u agent -i` (BHV-05) | Target user's login env (`~/.profile`) | Same as BHV-06; also `~agent/.profile` entry |
 
-Every provisioner change that adds a new binary MUST update `40-path-wiring.sh` and the corresponding bats coverage in `tests/bats/20-agent-user.bats`.
+Every provisioner change that adds a new binary MUST update `40-path-wiring.sh` and the corresponding bats coverage in `product/tests/bats/20-agent-user.bats`.
 
 ## Sudoers minimalism (security-engineer rubric)
 
@@ -80,10 +80,10 @@ Every provisioner change that adds a new binary MUST update `40-path-wiring.sh` 
 
 ## Growth plan
 
-- **Phase 2:** Lands `plugin/lib/{log.sh,idempotency.sh,as_user.sh,distro_detect.sh}` and `plugin/provisioner/10-agent-user.sh` + `40-path-wiring.sh`. This skill absorbs the final primitive signatures and the real PATH-wiring diff.
+- **Phase 2:** Lands `product/plugin/lib/{log.sh,idempotency.sh,as_user.sh,distro_detect.sh}` and `product/plugin/provisioner/10-agent-user.sh` + `40-path-wiring.sh`. This skill absorbs the final primitive signatures and the real PATH-wiring diff.
 - **Phase 3:** Adds `30-nodejs.sh` (NodeSource + per-user npm prefix). Extends this skill with the exact Node/npm invocations (RT-01..RT-04).
 - **Phase 4:** Adds `50-registry-cli.sh` (installs the agentlinux CLI). Adds the "no wrapper shims" sub-rule here.
-- **Phase 6:** Adds `packaging/curl-installer/install.sh` (SHA256 verification). Skill gains the curl-pipe-bash hardening patterns.
+- **Phase 6:** Adds `product/packaging/curl-installer/install.sh` (SHA256 verification). Skill gains the curl-pipe-bash hardening patterns.
 
 ## Related
 

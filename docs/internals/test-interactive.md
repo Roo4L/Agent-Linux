@@ -32,8 +32,8 @@ expect-driven prompt-parsing helper is brittle by construction.
 Interactive bats tests need a real pty plus a wait that keeps the pty
 attached while CLI background loops fire. AgentLinux uses `expect` —
 the canonical Tcl-based pty driver — to own the terminal pair. A single
-standalone `.exp` script lives under `tests/bats/helpers/expect/`; a
-thin bash wrapper at `tests/bats/helpers/interactive.bash` exposes one
+standalone `.exp` script lives under `product/tests/bats/helpers/expect/`; a
+thin bash wrapper at `product/tests/bats/helpers/interactive.bash` exposes one
 function to bats tests via `load 'helpers/interactive'`:
 
 - `claude_idle_for <seconds>` — holds an interactive `claude` session
@@ -86,10 +86,10 @@ for per-PR CI by design).
 
 - [Test secrets](test-secrets.md) — where `ANTHROPIC_API_KEY` lives, how
   it reaches the bats container / VM, and how to add a new secret.
-- `tests/bats/helpers/interactive.bash` — the bash wrapper API.
-- `tests/bats/helpers/expect/claude-idle.exp` — the standalone expect
+- `product/tests/bats/helpers/interactive.bash` — the bash wrapper API.
+- `product/tests/bats/helpers/expect/claude-idle.exp` — the standalone expect
   script.
-- `tests/bats/51-cc-no-autoupdate.bats` — first consumer; observes the
+- `product/tests/bats/51-cc-no-autoupdate.bats` — first consumer; observes the
   Claude Code background auto-updater's behavior across a 90s idle
   window (with and without the `DISABLE_AUTOUPDATER` stamp).
 - [Claude Code](claude-code.md) — the agent these helpers drive today.
@@ -114,13 +114,13 @@ for per-PR CI by design).
    the prompt copy without warning).
 
 3. **Write the standalone `.exp` script under
-   `tests/bats/helpers/expect/`** — start with `claude-idle.exp` as a
+   `product/tests/bats/helpers/expect/`** — start with `claude-idle.exp` as a
    template. Two mandatory invariants:
    - `log_user 0` at the top.
    - Every `expect` has explicit `timeout` and `eof` arms that exit
      with a distinct non-zero code and a stderr diagnostic.
 
-4. **Add a thin wrapper to `tests/bats/helpers/interactive.bash`** —
+4. **Add a thin wrapper to `product/tests/bats/helpers/interactive.bash`** —
    one bash function that resolves the `.exp` path and calls
    `sudo --preserve-env=VAR -u agent -H expect "${__interactive_expect_dir}/<name>.exp"`.
    The explicit `--preserve-env=VAR` is the only correct form for the

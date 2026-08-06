@@ -47,7 +47,7 @@ reconciliation verbs.
 
 Concrete implications:
 
-1. **Catalog schema extension.** Every entry in `plugin/catalog/catalog.json`
+1. **Catalog schema extension.** Every entry in `product/plugin/catalog/catalog.json`
    declares a `pinned_version` field (required, semver). Each release bundles
    a catalog snapshot at `/opt/agentlinux/catalog/<version>/catalog.json` that
    AgentLinux CI has end-to-end-tested against the full Docker+QEMU matrix
@@ -98,7 +98,7 @@ Concrete implications:
 
   A dedicated "pinned-combo" gate was written for this and later deleted: it
   ran the ordinary Docker suite with no pinned-combo mode set — no such mode
-  exists in `tests/docker/run.sh` or the bats suite — so it was a second copy
+  exists in `product/tests/docker/run.sh` or the bats suite — so it was a second copy
   of a gate already running, not an extra signal. The guarantee above is real
   and unchanged; it is carried by the Docker and QEMU gates, which install the
   catalog's `pinned_version` entries as any user would.

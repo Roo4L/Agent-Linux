@@ -1,6 +1,6 @@
 ---
 name: testability-reviewer
-description: Reviews production code for design-for-testability — visible side effects, substitutable dependencies, deterministic behaviour, and separation of pure logic from I/O — plus places where property-based, mutation, or contract testing would pay off. Reviews the code under test, not the tests themselves. Use on changes to production code under plugin/cli/src/, plugin/lib/, plugin/provisioner/, or plugin/catalog/.
+description: Reviews production code for design-for-testability — visible side effects, substitutable dependencies, deterministic behaviour, and separation of pure logic from I/O — plus places where property-based, mutation, or contract testing would pay off. Reviews the code under test, not the tests themselves. Use on changes to production code under product/plugin/cli/src/, product/plugin/lib/, product/plugin/provisioner/, or product/plugin/catalog/.
 tools: Read, Grep, Glob, Bash
 ---
 
