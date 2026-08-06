@@ -37,7 +37,7 @@ uploaded to each GitHub Release.
 The v0.4.0 Rust rewrite makes the static x86_64-musl `agentlinux` binary the shipped
 artifact and removes the optional fpm `.deb` channel entirely:
 
-- **Channel (2) removed.** `packaging/deb/` (the fpm postinst bridge), the
+- **Channel (2) removed.** `product/packaging/deb/` (the fpm postinst bridge), the
   `build-release.sh` fpm branch (`--no-deb`/`SKIP_DEB`), the `release.yml` "Install fpm"
     step + `agentlinux_*.deb` publish glob are all deleted. The `.deb` was best-effort and unused; a single
   reproducible channel avoids drift.

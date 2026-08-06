@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/mutation-gate.sh — run cargo-mutants and report a verdict from its
+# product/scripts/mutation-gate.sh — run cargo-mutants and report a verdict from its
 # RESULTS FILE, never from its exit code alone.
 #
 # Why a script instead of a `run:` one-liner: the previous inline gate was

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# tests/docker/dogfood.sh — one-command dogfood retest of the curl-pipe-bash
+# product/tests/docker/dogfood.sh — one-command dogfood retest of the curl-pipe-bash
 # install path. AL-36.
 #
 # Builds the minimal Dockerfile.dogfood image with curl + ca-certificates
@@ -9,10 +9,10 @@
 # self-update probe end-to-end.
 #
 # Usage:
-#   tests/docker/dogfood.sh                          # ubuntu 24.04, latest stable RC
-#   tests/docker/dogfood.sh ubuntu-22.04             # 22.04, latest
-#   tests/docker/dogfood.sh ubuntu-26.04 v0.4.0-rc1  # 26.04, pinned RC
-#   tests/docker/dogfood.sh -h | --help              # usage
+#   product/tests/docker/dogfood.sh                          # ubuntu 24.04, latest stable RC
+#   product/tests/docker/dogfood.sh ubuntu-22.04             # 22.04, latest
+#   product/tests/docker/dogfood.sh ubuntu-26.04 v0.4.0-rc1  # 26.04, pinned RC
+#   product/tests/docker/dogfood.sh -h | --help              # usage
 #
 # Environment overrides:
 #   AGENTLINUX_KEEP_CONTAINER=1   skip teardown (interactive `docker exec`
@@ -33,7 +33,7 @@ IFS=$'\n\t'
 
 usage() {
   cat >&2 <<'EOF'
-usage: tests/docker/dogfood.sh [<ubuntu-22.04|ubuntu-24.04|ubuntu-26.04>] [<vX.Y.Z[-suffix]>]
+usage: product/tests/docker/dogfood.sh [<ubuntu-22.04|ubuntu-24.04|ubuntu-26.04>] [<vX.Y.Z[-suffix]>]
 
 Defaults to ubuntu-24.04 and whatever release is currently latest — the path a
 real user takes. Pass a tag to install a specific release instead.
@@ -70,7 +70,7 @@ UBUNTU_VERSION=${1:-ubuntu-24.04}
 case "$UBUNTU_VERSION" in
   ubuntu-22.04 | ubuntu-24.04 | ubuntu-26.04) ;;
   *)
-    printf 'tests/docker/dogfood.sh: unsupported ubuntu version: %s\n' "$UBUNTU_VERSION" >&2
+    printf 'product/tests/docker/dogfood.sh: unsupported ubuntu version: %s\n' "$UBUNTU_VERSION" >&2
     usage
     exit 64
     ;;
@@ -90,7 +90,7 @@ readonly UBUNTU_NUM=${UBUNTU_VERSION#ubuntu-}
 readonly TAG=${2:-${AGENTLINUX_DOGFOOD_TAG:-}}
 readonly TAG_REGEX='^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9.]+)?$'
 if [[ -n "$TAG" && ! "$TAG" =~ $TAG_REGEX ]]; then
-  printf 'tests/docker/dogfood.sh: tag fails regex %s: %q\n' "$TAG_REGEX" "$TAG" >&2
+  printf 'product/tests/docker/dogfood.sh: tag fails regex %s: %q\n' "$TAG_REGEX" "$TAG" >&2
   exit 64
 fi
 
@@ -99,7 +99,7 @@ fi
 # project's bash entrypoint uses for BIN_DIR/LIB_DIR/PROV_DIR.
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 readonly HERE
-REPO_ROOT=$(cd "$HERE/../.." && pwd)
+REPO_ROOT=$(cd "$HERE/../../.." && pwd)
 readonly REPO_ROOT
 readonly IMG="agentlinux-dogfood:${UBUNTU_VERSION}"
 

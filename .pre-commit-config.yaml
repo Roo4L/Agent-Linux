@@ -42,34 +42,34 @@ repos:
         # jq structural gate (replaced the deleted TS ajv validator at the Rust
         # cutover). Full JSON-Schema validation is the Rust schemars drift-check
         # (`cargo test -p agentlinux-core schema`, TEST-03) in the rust CI job.
-        entry: scripts/check-catalog-schema.sh
+        entry: product/scripts/check-catalog-schema.sh
         language: system
-        files: ^plugin/catalog/(catalog|agents/.*/recipe)\.json$
+        files: ^product/plugin/catalog/(catalog|agents/.*/recipe)\.json$
         pass_filenames: false
 
       # AL-25: shift the build-release.sh version-lock gate from release-time to
-      # commit-time. Fails fast on drift between plugin/catalog/catalog.json
-      # ::version and rust/crates/agentlinux/Cargo.toml [package] version (the
+      # commit-time. Fails fast on drift between product/plugin/catalog/catalog.json
+      # ::version and product/rust/crates/agentlinux/Cargo.toml [package] version (the
       # post-cutover two-way lock). Pure bash plus sed; no jq dependency.
       - id: check-version-lockstep
         name: Check catalog.json/Cargo.toml version lockstep
-        entry: scripts/check-version-lockstep.sh
+        entry: product/scripts/check-version-lockstep.sh
         language: system
-        files: ^(plugin/catalog/catalog\.json|rust/crates/agentlinux/Cargo\.toml)$
+        files: ^product/(plugin/catalog/catalog\.json|rust/crates/agentlinux/Cargo\.toml)$
         pass_filenames: false
 
       # Phase 20 (PAR-01 / EL-08): cross-suite distro-leak guard. Fails if any
       # bats test/helper inlines an EXECUTED Debian-hardcoded package operation
       # (dpkg-query / deb.nodesource / apt-get <subcommand>) instead of routing
-      # through tests/bats/helpers/distro.bash — the 52-agt02-brownfield-gate
+      # through product/tests/bats/helpers/distro.bash — the 52-agt02-brownfield-gate
       # `dpkg-query: command not found` class that broke on AlmaLinux 9. The
       # script scans the whole bats tree (Plan 20-02's manual grep covered only
       # brownfield.bash, which is why the sibling-file leak survived).
       - id: check-distro-leak
         name: Check bats suite for inline Debian package operations (EL9 leak)
-        entry: scripts/check-distro-leak.sh
+        entry: product/scripts/check-distro-leak.sh
         language: system
-        files: ^tests/bats/([^/]+\.bats|helpers/[^/]+\.bash)$
+        files: ^product/tests/bats/([^/]+\.bats|helpers/[^/]+\.bash)$
         pass_filenames: false
       - id: sync-codex-agents
         name: Check .codex/agents/ is in sync with .claude/agents/ reviewer roles

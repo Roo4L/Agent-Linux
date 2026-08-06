@@ -1,6 +1,6 @@
 ---
 name: behavior-test-contract
-description: Use when authoring or modifying bats tests under tests/bats/. Documents how to write BHV/RT/AGT/CLI/CAT/INST tests, shared assertion helpers, the six invocation modes (interactive bash login, non-interactive SSH, cron, systemd User=agent, sudo -u agent, sudo -u agent -i), and the no-EACCES contract. Every @test references the behavior it defends.
+description: Use when authoring or modifying bats tests under product/tests/bats/. Documents how to write BHV/RT/AGT/CLI/CAT/INST tests, shared assertion helpers, the six invocation modes (interactive bash login, non-interactive SSH, cron, systemd User=agent, sudo -u agent, sudo -u agent -i), and the no-EACCES contract. Every @test references the behavior it defends.
 ---
 
 # behavior-test-contract — Bats test authoring
@@ -13,26 +13,26 @@ Authoritative spec: `docs/HARNESS.md` §1.3 (testing) and §5.2 (skill table). D
 
 Use when the task touches any file under:
 
-- `tests/bats/*.bats` — the behavior suite.
-- `tests/bats/helpers/*.bash` — shared assertion helpers.
-- `tests/docker/run.sh` or `tests/qemu/boot.sh` — the harness that *executes* the bats suite.
+- `product/tests/bats/*.bats` — the behavior suite.
+- `product/tests/bats/helpers/*.bash` — shared assertion helpers.
+- `product/tests/docker/run.sh` or `product/tests/qemu/boot.sh` — the harness that *executes* the bats suite.
 
-Skip for unit tests in `plugin/cli/test/` — those are Node `node:test` and follow the `node-engineer` rubric, not this one.
+Skip for unit tests in `product/plugin/cli/test/` — those are Node `node:test` and follow the `node-engineer` rubric, not this one.
 
 ## Core contract
 
-Behavior tests in `tests/bats/` **are the spec** (ADR-002). Implementation may change freely as long as the suite stays green. Requirements (BHV-XX, RT-XX, AGT-XX, CLI-XX, CAT-XX, INST-XX) are what tests assert — not implementation details. A requirement that is not covered by a `@test` does not exist in the release-gate sense.
+Behavior tests in `product/tests/bats/` **are the spec** (ADR-002). Implementation may change freely as long as the suite stays green. Requirements (BHV-XX, RT-XX, AGT-XX, CLI-XX, CAT-XX, INST-XX) are what tests assert — not implementation details. A requirement that is not covered by a `@test` does not exist in the release-gate sense.
 
 ## File layout (from HARNESS.md §1.1)
 
 | File | Covers |
 |---|---|
-| `tests/bats/10-installer.bats` | INST-01..INST-05 (installer idempotency, exit codes, no EACCES) |
-| `tests/bats/20-agent-user.bats` | BHV-01..BHV-06 (agent user, six invocation modes, UTF-8 locale, bash shell) |
-| `tests/bats/30-runtime.bats` | RT-01..RT-04 (Node.js LTS, per-user npm prefix, install/uninstall round-trip) |
-| `tests/bats/40-agent-tools.bats` | AGT-01..AGT-05 (including the canonical AGT-02 Claude Code self-update test) |
-| `tests/bats/50-registry-cli.bats` | CLI-01..CLI-05 + CAT-01..CAT-03 (catalog list/install/remove, schema validation) |
-| `tests/bats/helpers/*.bash` | Shared assertion helpers, sourced via `load 'helpers/<file>'` |
+| `product/tests/bats/10-installer.bats` | INST-01..INST-05 (installer idempotency, exit codes, no EACCES) |
+| `product/tests/bats/20-agent-user.bats` | BHV-01..BHV-06 (agent user, six invocation modes, UTF-8 locale, bash shell) |
+| `product/tests/bats/30-runtime.bats` | RT-01..RT-04 (Node.js LTS, per-user npm prefix, install/uninstall round-trip) |
+| `product/tests/bats/40-agent-tools.bats` | AGT-01..AGT-05 (including the canonical AGT-02 Claude Code self-update test) |
+| `product/tests/bats/50-registry-cli.bats` | CLI-01..CLI-05 + CAT-01..CAT-03 (catalog list/install/remove, schema validation) |
+| `product/tests/bats/helpers/*.bash` | Shared assertion helpers, sourced via `load 'helpers/<file>'` |
 
 ## The six invocation modes
 
@@ -53,7 +53,7 @@ Each must see: the correct PATH (agent's npm prefix + agentlinux CLI), a UTF-8 l
 
 Zero occurrences of `EACCES` or `permission denied` on stdout or stderr during the entire installer run, during every BHV/RT test, and especially during AGT-02 (Claude Code self-update). This is the single hardest acceptance criterion. The helper `assert_no_eacces_in_log` is the gate.
 
-## Assertion helpers (land in Phase 2 under `tests/bats/helpers/`)
+## Assertion helpers (land in Phase 2 under `product/tests/bats/helpers/`)
 
 - `assert_agent_can_run <mode> <cmd>` — dispatches on the six invocation modes; asserts exit 0 AND no EACCES in combined output.
 - `assert_no_eacces_in_log <logfile>` — `! grep -E 'EACCES|permission denied' <logfile>` (case-sensitive on `EACCES`, case-insensitive on the second form).

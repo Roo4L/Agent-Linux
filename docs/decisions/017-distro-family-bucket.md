@@ -68,14 +68,14 @@ operation through **one** dispatch layer.
    its name; only the *probe binary* branches (`/usr/bin/apt-get --help` on debian,
    `/usr/bin/dnf --version` on rhel, both absolute-path anchored).
 
-5. **The curl-installer pre-gate stays in lockstep.** `packaging/curl-installer/install.sh`
+5. **The curl-installer pre-gate stays in lockstep.** `product/packaging/curl-installer/install.sh`
    (`detect_supported_distro`) mirrors the same two-arm `case` so the pre-gate and the
    in-installer gate accept and reject the same set.
 
 ## Consequences
 
 - **One auditable branch point.** The apt↔dnf fork lives once per verb in `pkg.sh`;
-  a CI grep guard (`grep -rn 'apt-get\|dpkg' plugin/`) should match only inside the
+  a CI grep guard (`grep -rn 'apt-get\|dpkg' product/plugin/`) should match only inside the
   debian arms of `pkg.sh`. Reviewers reason about the divergence in one file instead
   of chasing 13 sites across five files.
 
@@ -135,5 +135,5 @@ operation through **one** dispatch layer.
 - ADR-012 — agent-user full sudo (`20-sudoers.sh` routes only its `sudo`-package
   install through `pkg_install`; the 0440 root:root drop-in install/validate path is
   untouched).
-- `plugin/lib/distro_detect.sh`, `plugin/lib/pkg.sh` — the files this ADR documented
+- `product/plugin/lib/distro_detect.sh`, `product/plugin/lib/pkg.sh` — the files this ADR documented
   at the time. The logic now lives in the Rust provisioner (`distro.rs`, `pkg.rs`).

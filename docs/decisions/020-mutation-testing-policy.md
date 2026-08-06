@@ -41,7 +41,7 @@ undetected.
 
 ### 2. The verdict comes from the results file, never from the exit code
 
-Both call `scripts/mutation-gate.sh`, which reads `mutants.out/outcomes.json`.
+Both call `product/scripts/mutation-gate.sh`, which reads `mutants.out/outcomes.json`.
 A missing outcomes file, or a run that tested **zero** mutants, is a hard
 failure **in both modes** — with one narrowly-conditioned exception for a diff
 that genuinely had nothing mutable in it, spelled out below. "Nothing survived" and "nothing ran" must not be
@@ -107,7 +107,7 @@ Corollaries, each of which was a real false-green:
   neither could ever see the config file. Delegating to the tool needs no model
   of its grammar and survives flags it has not shipped yet.
 
-The gate script has its own bats suite (`tests/harness/80-mutation-gate.bats`).
+The gate script has its own bats suite (`product/tests/harness/80-mutation-gate.bats`).
 Testing the thing that judges the tests is not ceremony here: an untested gate
 is precisely what failed.
 
@@ -117,7 +117,7 @@ mutations were applied to the gate, killed 6. The number to report when changing
 this gate is **its own mutation score**:
 
 ```bash
-scripts/mutation-gate-selftest.sh          # exits non-zero if anything survives
+product/scripts/mutation-gate-selftest.sh          # exits non-zero if anything survives
 ```
 
 It currently reports **89/89**.
@@ -180,8 +180,8 @@ there. They recur, so they are named:
 
 ### 3. `--in-place` is required, and therefore `--shard`, not `--jobs`
 
-Two `agentlinux-core` tests read fixtures under `plugin/catalog/`, outside the
-`rust/` workspace, so `cargo-mutants`' default copy-tree isolation fails the
+Two `agentlinux-core` tests read fixtures under `product/plugin/catalog/`, outside the
+`product/rust/` workspace, so `cargo-mutants`' default copy-tree isolation fails the
 baseline. `--in-place` fixes that and is safe on a disposable runner, but it
 forbids `--jobs`. `--shard i/N` is compatible, so the nightly parallelises across
 runners instead of threads. Shards are ZERO-indexed — cargo-mutants rejects
@@ -222,7 +222,7 @@ together, they still match, and the gate reports PASS. In the enforcing per-PR
 gate that makes it self-licensing: an author facing a red mutant can grant the
 exemption inside the very diff being scored. So when a `--in-diff` is given, the
 gate refuses any file whose diff ADDS a skip line if any skip in that file has no
-comment on the three lines above it (`scripts/mutation-gate.sh`'s `check_diff`, MUT-21).
+comment on the three lines above it (`product/scripts/mutation-gate.sh`'s `check_diff`, MUT-21).
 
 Deliberately a shape check, not a judgement. It makes an *unannotated* skip
 unmergeable; whether the stated reason is any good — and whether it carries the
@@ -290,4 +290,4 @@ skipped it, delete-the-function mutants survived on `install_or_overwrite`,
 
 - ADR-002 — behavior contract framing; bats remains the spec, this is the check on the checkers
 - ADR-019 — the provisioner seams that make the bin crate mutable-and-testable at all
-- `scripts/mutation-gate.sh`, `tests/harness/80-mutation-gate.bats`
+- `product/scripts/mutation-gate.sh`, `product/tests/harness/80-mutation-gate.bats`

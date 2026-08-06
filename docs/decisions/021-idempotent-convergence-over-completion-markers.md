@@ -86,7 +86,7 @@ time.
 ## Related
 
 - BHV-01 (agent user + `LANG`/`LC_ALL=C.UTF-8`), verified by
-  `tests/bats/20-agent-user.bats`
+  `product/tests/bats/20-agent-user.bats`
 - ADR-011 (stability model — `upgrade` reconciles divergence rather than tracking
   it, the same convergent instinct one layer up)
 - `provision/agent_user.rs` — the step whose gate this ADR narrowed

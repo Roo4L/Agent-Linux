@@ -17,12 +17,12 @@ subcommands but predictably turns into a re-implementation of Commander).
 ## Decision
 
 Use Commander.js `^12.x` for the v0.3.0 registry CLI. Entry point at
-`plugin/cli/src/index.ts`; subcommand handlers under `plugin/cli/src/commands/`.
+`product/plugin/cli/src/index.ts`; subcommand handlers under `product/plugin/cli/src/commands/`.
 No other CLI framework.
 
 ## Consequences
 
-- `plugin/cli/package.json` pins `commander` as a runtime dependency; the release
+- `product/plugin/cli/package.json` pins `commander` as a runtime dependency; the release
   tarball bundles via `esbuild` so end users don't install Commander separately.
 - `node-engineer` review subagent enforces Commander idioms (use `.command()`
   chains, not positional-arg parsing; use `.action()` handlers, not
@@ -34,25 +34,25 @@ No other CLI framework.
 ## Superseded (v0.4.0)
 
 The v0.4.0 Rust rewrite replaced the TypeScript CLI with a static x86_64-musl
-binary. Commander.js, `plugin/cli/`, and the Node runtime dependency for the CLI
+binary. Commander.js, `product/plugin/cli/`, and the Node runtime dependency for the CLI
 itself are gone.
 
 - **What replaces it.** `clap` 4 with the derive API, declared in
-  `rust/crates/agentlinux/Cargo.toml` and defined in
-  `rust/crates/agentlinux/src/cli.rs`. Verb handlers live under
-  `rust/crates/agentlinux/src/cmd/`.
+  `product/rust/crates/agentlinux/Cargo.toml` and defined in
+  `product/rust/crates/agentlinux/src/cli.rs`. Verb handlers live under
+  `product/rust/crates/agentlinux/src/cmd/`.
 - **The reasoning held.** The choice here was "a maintained parser over a
   hand-rolled one, because five subcommands predictably grows into a
   re-implementation." That argument transferred intact; `clap` is the same bet in
   a different language, and the CLI did grow past five verbs.
 - **The reversal-cost claim held for the CLI.** This ADR predicted that swapping
   frameworks would rewrite `src/` but not the bats tests. For the registry-CLI
-  surface it governs, that is what happened: `tests/bats/40-registry-cli.bats`
+  surface it governs, that is what happened: `product/tests/bats/40-registry-cli.bats`
   changed exactly one line (the `INSTALLER` path), and `15-preflight-ux.bats` /
   `23-install-user.bats` were pure re-pointing with no assertion edits.
 
   The claim does **not** generalise to the whole rewrite. The provisioner cutover
-  did move specs — `tests/bats/14-remediate.bats:217` relaxed a locked
+  did move specs — `product/tests/bats/14-remediate.bats:217` relaxed a locked
   `exit 64` (EX_USAGE) assertion to "non-zero" because clap rejects an unknown
   flag with exit 2, and the `--help` "Exit codes:" test was dropped. Those are
   provisioner-surface behaviors, outside what this ADR decided, but they are the

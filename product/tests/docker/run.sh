@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# tests/docker/run.sh — build + run the Docker bats harness for one target.
+# product/tests/docker/run.sh — build + run the Docker bats harness for one target.
 #
 # Invoked by .github/workflows/test.yml and developers locally. This is the
 # single CI entrypoint for Phase 2's acceptance gate: it builds the matching
@@ -15,7 +15,7 @@
 #   - ADR-007 (Docker fast-path + QEMU release-gate two-layer harness)
 #
 # Debugging escape hatch:
-#   AGENTLINUX_DOCKER_KEEP_CONTAINER=1 bash tests/docker/run.sh ubuntu-24.04
+#   AGENTLINUX_DOCKER_KEEP_CONTAINER=1 bash product/tests/docker/run.sh ubuntu-24.04
 # leaves the container running after the script exits so you can
 # `docker exec -it $CID bash` and poke at state. The container is named
 # agentlinux-test-<target> so the ID is easy to find via `docker ps`.
@@ -23,7 +23,7 @@ set -euo pipefail
 
 usage() {
   cat >&2 <<'EOF'
-usage: tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9> [bats-file]
+usage: product/tests/docker/run.sh <ubuntu-22.04|ubuntu-24.04|ubuntu-26.04|almalinux-9> [bats-file]
 
 Builds the matching Docker image, runs agentlinux-install inside, runs the
 bats suite inside, and exits with the bats exit code.
@@ -63,7 +63,7 @@ case "$TARGET" in
     exit 0
     ;;
   *)
-    printf 'tests/docker/run.sh: unsupported target: %s\n' "$TARGET" >&2
+    printf 'product/tests/docker/run.sh: unsupported target: %s\n' "$TARGET" >&2
     usage
     exit 64
     ;;
@@ -85,12 +85,17 @@ if [[ -n $BATS_FILE ]]; then
 fi
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-REPO_ROOT=$(cd "$HERE/../.." && pwd)
+# REPO_ROOT is the /workspace mount root and the docker build context. Both
+# product/ AND docs/ must be reachable under it — the staging step below copies
+# from each, and narrowing this to PRODUCT_ROOT would make ENABLE-07 skip.
+# PRODUCT_ROOT is only the host-side path to the Rust build tree.
+PRODUCT_ROOT=$(cd "$HERE/../.." && pwd)
+REPO_ROOT=$(cd "$HERE/../../.." && pwd)
 IMG="agentlinux-test:${TARGET}"
 DF="$HERE/Dockerfile.${TARGET}"
 
 if [[ ! -f $DF ]]; then
-  printf 'tests/docker/run.sh: missing Dockerfile %s\n' "$DF" >&2
+  printf 'product/tests/docker/run.sh: missing Dockerfile %s\n' "$DF" >&2
   exit 64
 fi
 
@@ -205,10 +210,88 @@ done
 # can place its own files under /etc, /home/agent without cross-mount permission
 # surprises. The bind mount under /workspace is deliberately :ro — it's the
 # repo root on the host, and we don't want container writes leaking back.
+#
+# Staged explicitly rather than `cp -R /workspace`, for two reasons:
+#   1. product/'s members ARE the layout the bats suite hardcodes, so copying
+#      product/. keeps every /opt/agentlinux-src/{plugin,tests,packaging} path
+#      byte-identical after the product/ carve-out — no test churn.
+#   2. .git/ and .planning/ are repo-root siblings, so product/. never sees
+#      them. rust/target IS under product/, and rust-cache restores a multi-GB
+#      target/ before this runs — so it must be excluded UP FRONT, not copied
+#      and then removed.
+#
+#      Excluding beats copy-then-delete on its own merits: `cp -R` + `rm -rf`
+#      writes ~720 MB (measured: product/ is 723 MB, of which rust/target is
+#      720 MB) into the container's writable overlay and then deletes it,
+#      producing whiteouts for the whole subtree. Not writing it is strictly
+#      less I/O than writing and unwinding it.
+#
+#      Do NOT read this as the diagnosed cause of the ubuntu-24.04 bats arm
+#      exceeding its 60-minute cap on this branch. That correlates with this
+#      branch (5/5 here, 0 on master) but the mechanism is NOT established,
+#      and the obvious story is refuted: master stages `cp -R /workspace`
+#      with no exclude and no rm, so it copies rust/target too, and
+#      pre-restructure runs that logged "Cache hit for" — i.e. a warm,
+#      fully-populated target/ — still finished in 29-30 min (runs
+#      30838694777, 30825442154, 30821992383). A warm-cache copy of target/
+#      is therefore demonstrably NOT sufficient to blow the cap.
+#      Symptoms seen on this branch, for whoever picks this up: setup to
+#      first bats test 1m45s -> 9m46s, host musl build (host_build_musl runs
+#      cargo on the RUNNER, not in-container) 38s -> 372s, docker step
+#      30s -> 150s, and per-test times inflating uniformly with no network
+#      error signatures. almalinux-9 is unaffected throughout.
+#
+#      tar|tar rather than cp because cp -R has no --exclude. `./rust/target`
+#      and not `rust/target`: GNU tar's --exclude is --no-anchored by default,
+#      so the bare form would also match at any / boundary and silently eat a
+#      future ./plugin/rust/target. The leading ./ can only match at the
+#      archive root, because the operand is `.`.
+#
+#      --no-same-owner --no-same-permissions are NOT optional. Extracting as
+#      root, GNU tar defaults to --same-owner AND --same-permissions, so it
+#      would restore the HOST's uid/gid and modes. cp -R did neither: it made
+#      the tree root:root with modes masked by umask. In CI, actions/checkout
+#      runs as runner = uid 1001, and in the ubuntu-24.04 image `agent` is
+#      also uid 1001 (the base image already holds `ubuntu` at 1000) — so
+#      without these flags the whole staged source tree becomes agent-owned
+#      and agent-WRITABLE, including plugin/catalog/**, the curl-installer,
+#      and plugin/bin/. INST-05 (10-installer.bats) and RT-02 (30-runtime.bats)
+#      assert the ABSENCE of EACCES, so loosening permissions on the staged
+#      source can only ever hide an EACCES regression, never manufacture one:
+#      a false-green direction on the suite's flagship gate. The flags also
+#      keep the two matrix arms identical (almalinux has no uid 1000, so
+#      `agent` lands at 1000 there and the tree would be an orphan 1001) and
+#      keep a umask-002 developer machine matching CI.
+#
+#      pipefail is required, not stylistic: `set -e` alone takes a pipeline's
+#      status from its LAST command, so a source tar that fails after emitting
+#      a valid stream would be masked by the extracting tar exiting 0 and stage
+#      a SILENTLY INCOMPLETE tree.
+#
+#      Keep prose OUT of the single-quoted bash -c body below — an apostrophe
+#      in there is a shell parse error whose cause is nowhere near the symptom.
+# docs/ is staged for 69-catalog-growth-kit.bats ENABLE-07, which reads
+# $SRC/docs/CATALOG-CONTRIBUTING.md. Its skip-sentinel is $SRC/tests/docker/run.sh,
+# which now arrives via product/. — so dropping the docs copy makes that @test
+# FAIL loud rather than skip green. Splitting the two sources hardened the gate;
+# keep them separate.
 echo "== stage sources into container =="
-docker exec "$CID" bash -c 'cp -R /workspace /opt/agentlinux-src'
+docker exec "$CID" bash -c '
+  set -euo pipefail
+  mkdir -p /opt/agentlinux-src
+  tar -C /workspace/product --exclude=./rust/target -cf - . \
+    | tar -C /opt/agentlinux-src --no-same-owner --no-same-permissions -xf -
+  if [ -d /opt/agentlinux-src/rust/target ]; then
+    echo "staging FAIL: --exclude did not match; rust/target was staged." >&2
+    echo "Left unfixed this degrades silently to a multi-GB copy and resurfaces" >&2
+    echo "as an opaque 60-minute bats timeout, not an error." >&2
+    exit 1
+  fi
+  mkdir -p /opt/agentlinux-src/docs
+  cp -R /workspace/docs/. /opt/agentlinux-src/docs/
+'
 
-HOST_MUSL_BIN="$REPO_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
+HOST_MUSL_BIN="$PRODUCT_ROOT/rust/target/x86_64-unknown-linux-musl/release/agentlinux"
 RUST_PROVISION_BIN_IN_CONTAINER=/usr/local/lib/agentlinux/provision/agentlinux
 
 # host_build_musl — ensure the static-musl `agentlinux` bin exists on the host
@@ -232,7 +315,7 @@ host_build_musl() {
     # shellcheck disable=SC1091  # optional, path checked
     [[ -f "$HOME/.cargo/env" ]] && . "$HOME/.cargo/env"
     echo "-- building/refreshing host musl binary (cargo incremental) --"
-    if ! (cd "$REPO_ROOT/rust" \
+    if ! (cd "$PRODUCT_ROOT/rust" \
       && cargo build --release --target x86_64-unknown-linux-musl -p agentlinux); then
       echo "ERROR: host musl build FAILED — refusing to run bats against a possibly stale binary" >&2
       exit 1

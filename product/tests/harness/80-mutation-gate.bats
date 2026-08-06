@@ -803,7 +803,7 @@ RS
   # is the only structural check that the four shards cover the workspace, and
   # putting it behind cargo-mutants made it skip in every self-test run — where
   # `[0, 1, 2, 2]` and `[1, 2, 3, 4]` then both survived.
-  local wf="${BATS_TEST_DIRNAME}/../../.github/workflows/nightly-mutation.yml"
+  local wf="${BATS_TEST_DIRNAME}/../../../.github/workflows/nightly-mutation.yml"
   [ -f "$wf" ]
 
   # The matrix line, and the /N the step actually divides by.
@@ -1309,7 +1309,7 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
   # gate MEANS: one word at test.yml — enforce -> advisory — turns the merge gate
   # into a warning, with the whole suite still green and the change reading in
   # review as a plausible "reduce PR friction" edit.
-  local root="${BATS_TEST_DIRNAME}/../.."
+  local root="${BATS_TEST_DIRNAME}/../../.."
   local pr="$root/.github/workflows/test.yml"
   local nightly="$root/.github/workflows/nightly-mutation.yml"
   [ -f "$pr" ] && [ -f "$nightly" ]
@@ -1371,7 +1371,7 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
   # to the enforcing step, or replacing its `if:` with `false`, leaves the merge
   # gate switched off with all 67 cases green. ADR-020 §2 names
   # `continue-on-error` explicitly as something advisory mode does NOT license.
-  local root="${BATS_TEST_DIRNAME}/../.."
+  local root="${BATS_TEST_DIRNAME}/../../.."
   local wf step
   for wf in "$root/.github/workflows/test.yml" "$root/.github/workflows/nightly-mutation.yml"; do
     # The step block: from the `- name:` line that mentions the gate, up to the
@@ -1403,7 +1403,7 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
   # but not SIGKILL, so the gate's timeout must fire BEFORE the job cap does.
   # With the gate defaulting to 3600s inside a 15-minute job, the inner bound was
   # unreachable in the only path where the argument matters.
-  local root="${BATS_TEST_DIRNAME}/../.."
+  local root="${BATS_TEST_DIRNAME}/../../.."
   local pr="$root/.github/workflows/test.yml"
   local job_min gate_secs
   job_min="$(awk '/^  rust:/{f=1} f && /timeout-minutes:/{print $2; exit}' "$pr")"
@@ -1425,7 +1425,7 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
   # what the per-PR gate never revisits. That only holds if both run the same
   # tool. Nothing compared the two pins, and MUT-14 validates the schema against
   # whatever is on PATH — which in the nightly job no test ever exercises.
-  local root="${BATS_TEST_DIRNAME}/../.."
+  local root="${BATS_TEST_DIRNAME}/../../.."
   local pr nightly
   pr="$(grep -hoE 'cargo-mutants@[0-9.]+|cargo-mutants --version [0-9.]+|--version [0-9.]+' \
     "$root/.github/workflows/test.yml" | head -1)"
@@ -1443,7 +1443,7 @@ json.dump([{'name': 'stale'}], open('mutants.out/mutants.json','w'))
 @test "MUT-34c: CI runs this whole suite, not a filtered slice of it" {
   # This file is the only thing asserting the gate works. A `--filter` on the CI
   # invocation would leave most of it unrun with the job still green.
-  local root="${BATS_TEST_DIRNAME}/../.."
+  local root="${BATS_TEST_DIRNAME}/../../.."
   local call
   call="$(grep -h '80-mutation-gate.bats' "$root/.github/workflows/test.yml")"
   [ -n "$call" ] || { echo "test.yml no longer runs the gate's own suite"; return 1; }
@@ -2150,13 +2150,14 @@ EOF
   # defaults were pinned by nothing, so `:-600 -> :-6000` and `:-60 -> :-600`
   # both survived — and the script's comment claims the default "must also be
   # below the CI job cap".
-  local root="${BATS_TEST_DIRNAME}/../.."
+  local root="${BATS_TEST_DIRNAME}/../../.."
   local job_min default_to default_grace
   job_min="$(awk '/^  rust:/{f=1} f && /timeout-minutes:/{print $2; exit}' \
     "$root/.github/workflows/test.yml")"
-  default_to="$(grep -oE 'MUTATION_GATE_TIMEOUT:-[0-9]+' "$root/scripts/mutation-gate.sh" |
+  local product_root="${BATS_TEST_DIRNAME}/../.."
+  default_to="$(grep -oE 'MUTATION_GATE_TIMEOUT:-[0-9]+' "$product_root/scripts/mutation-gate.sh" |
     head -1 | sed 's/.*:-//')"
-  default_grace="$(grep -oE 'MUTATION_GATE_KILL_GRACE:-[0-9]+' "$root/scripts/mutation-gate.sh" |
+  default_grace="$(grep -oE 'MUTATION_GATE_KILL_GRACE:-[0-9]+' "$product_root/scripts/mutation-gate.sh" |
     head -1 | sed 's/.*:-//')"
   [ -n "$default_to" ] && [ -n "$default_grace" ] || {
     echo "could not read the gate's default bounds"

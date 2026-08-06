@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# scripts/build-release.sh — Assemble AgentLinux release artifacts.
+# product/scripts/build-release.sh — Assemble AgentLinux release artifacts.
 #   Phase 6 Plan 01 (origin); Phase 58 (DIST-01/02) swapped the payload from the
 #   pnpm TS bundle to the static x86_64-musl `agentlinux` bin and removed the
 #   optional fpm .deb channel — the reproducible tarball + `.sha256` is now the
@@ -8,16 +8,16 @@
 #
 # Produces (under dist/ at repo root):
 #   agentlinux-v<X.Y.Z>.tar.gz        — reproducible tarball, payload plugin/bin/agentlinux
-#                                       (the static musl bin) + plugin/catalog/ (the ~25
+#                                       (the static musl bin) + plugin/catalog/ (the per-agent
 #                                       Bash recipes), SOURCE_DATE_EPOCH-pinned.
 #   agentlinux-v<X.Y.Z>.tar.gz.sha256 — GNU sha256sum sidecar; round-trips via `sha256sum -c`.
 #   catalog-v<X.Y.Z>.json             — byte-for-byte copy of plugin/catalog/catalog.json (CAT-05).
 #   VERSION                           — the tag sentinel the installer's latest-resolution reads.
 #
 # Usage:
-#   scripts/build-release.sh v0.3.0                   # full build
-#   scripts/build-release.sh v0.3.0 --dry-run         # validate + plan only
-#   SOURCE_DATE_EPOCH=123456 scripts/build-release.sh v0.3.0  # pin epoch (CI override)
+#   product/scripts/build-release.sh v0.3.0                   # full build
+#   product/scripts/build-release.sh v0.3.0 --dry-run         # validate + plan only
+#   SOURCE_DATE_EPOCH=123456 product/scripts/build-release.sh v0.3.0  # pin epoch (CI override)
 #
 # Referenced by:
 #   CLAUDE.md §Commands (build-release.sh vX.Y.Z)
@@ -63,7 +63,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 usage() {
   cat >&2 <<'EOF'
-usage: scripts/build-release.sh v<X.Y.Z>[-suffix] [--dry-run]
+usage: product/scripts/build-release.sh v<X.Y.Z>[-suffix] [--dry-run]
 
 Builds the release artifact set under dist/ (reproducible musl tarball — the SOLE channel):
   agentlinux-v<X.Y.Z>.tar.gz         (payload: plugin/bin/agentlinux musl bin + plugin/catalog/)
@@ -123,6 +123,9 @@ VERSION=${TAG#v}
 # ---------------------------------------------------------------------------
 # 2. Resolve repo root (this script is invocable from any cwd).
 # ---------------------------------------------------------------------------
+# Stays REPO-root-anchored, not product/-anchored like the sibling gate scripts:
+# dist/ is a repo-root build output, so every path below is written relative to
+# the repo root and product-tree reads carry an explicit product/ prefix.
 REPO_ROOT=$(git rev-parse --show-toplevel)
 cd "$REPO_ROOT"
 
@@ -142,11 +145,11 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 1
 fi
 
-CAT_V=$(jq -r .version plugin/catalog/catalog.json)
+CAT_V=$(jq -r .version product/plugin/catalog/catalog.json)
 # Cargo.toml has no jq-parseable shape; read the first `version = "X.Y.Z"` line
 # under [package] (the [[bin]]/[dependencies] tables use `version =` too, so
 # anchor on the [package] block being first in the file — Cargo requires it).
-CARGO_TOML="rust/crates/agentlinux/Cargo.toml"
+CARGO_TOML="product/rust/crates/agentlinux/Cargo.toml"
 CARGO_V=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$CARGO_TOML" | head -1)
 
 # Pre-release tags (e.g. v0.3.0-rc1) ship the SAME code as the eventual
@@ -155,7 +158,7 @@ CARGO_V=$(sed -n 's/^version = "\([^"]*\)".*/\1/p' "$CARGO_TOML" | head -1)
 BASE_VERSION=${VERSION%%-*}
 
 if [[ "$CAT_V" != "$BASE_VERSION" ]]; then
-  printf 'version mismatch: plugin/catalog/catalog.json .version=%s ≠ tag=%s (base=%s)\n' \
+  printf 'version mismatch: product/plugin/catalog/catalog.json .version=%s ≠ tag=%s (base=%s)\n' \
     "$CAT_V" "$TAG" "$BASE_VERSION" >&2
   exit 1
 fi
@@ -179,7 +182,7 @@ fi
 if ((DRY_RUN_FLAG == 1)); then
   cat <<EOF
 dry-run: would build for tag=${TAG} version=${VERSION}
-  plugin/catalog/catalog.json .version=${CAT_V} (matches)
+  product/plugin/catalog/catalog.json .version=${CAT_V} (matches)
   ${CARGO_TOML} version=${CARGO_V} (matches)
 planned artifacts under dist/:
   dist/agentlinux-${TAG}.tar.gz   (payload: plugin/bin/agentlinux musl bin + plugin/catalog/)
@@ -226,16 +229,19 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 
 MUSL_TARGET="x86_64-unknown-linux-musl"
-MUSL_BIN="rust/target/${MUSL_TARGET}/release/agentlinux"
+MUSL_BIN="product/rust/target/${MUSL_TARGET}/release/agentlinux"
 CARGO_HOME_DIR="${CARGO_HOME:-$HOME/.cargo}"
 
 # Reproducible RUSTFLAGS — remap every build-host path prefix to a stable token
 # and strip the ELF build-id. --remap-path-prefix is applied left-to-right, so
-# the most-specific ($PWD/rust) mapping is listed before the broader $HOME one.
-REPRO_RUSTFLAGS="--remap-path-prefix=${REPO_ROOT}/rust=. --remap-path-prefix=${REPO_ROOT}=. --remap-path-prefix=${CARGO_HOME_DIR}=/cargo --remap-path-prefix=${HOME}=/home -C link-arg=-Wl,--build-id=none"
+# the most-specific ($PWD/product/rust) mapping is listed before the broader
+# $HOME one. Keep this in step with the crate location: a stale prefix here does
+# not break determinism (both mappings are host-invariant) but it silently stops
+# an older tag from rebuilding byte-identically.
+REPRO_RUSTFLAGS="--remap-path-prefix=${REPO_ROOT}/product/rust=. --remap-path-prefix=${REPO_ROOT}=. --remap-path-prefix=${CARGO_HOME_DIR}=/cargo --remap-path-prefix=${HOME}=/home -C link-arg=-Wl,--build-id=none"
 
 (
-  cd rust
+  cd product/rust
   # Prepend our reproducibility flags to any inherited RUSTFLAGS.
   RUSTFLAGS="${REPRO_RUSTFLAGS}${RUSTFLAGS:+ ${RUSTFLAGS}}" \
     cargo build --release --target "$MUSL_TARGET" -p agentlinux
@@ -289,7 +295,7 @@ trap 'rm -rf "$STAGE_DIR"' EXIT
 install -Dm0755 "$MUSL_BIN" "$STAGE_DIR/plugin/bin/agentlinux"
 # plugin/catalog/ — catalog.json + schema.json + the ~25 Bash recipes, verbatim.
 mkdir -p "$STAGE_DIR/plugin/catalog"
-cp -R plugin/catalog/. "$STAGE_DIR/plugin/catalog/"
+cp -R product/plugin/catalog/. "$STAGE_DIR/plugin/catalog/"
 
 # ---------------------------------------------------------------------------
 # 6. Pin SOURCE_DATE_EPOCH (T-06-01 mitigation — reproducibility).
@@ -356,7 +362,7 @@ tar \
 #    this at install time.
 # ---------------------------------------------------------------------------
 CATALOG_SNAPSHOT="dist/catalog-${TAG}.json"
-cp plugin/catalog/catalog.json "$CATALOG_SNAPSHOT"
+cp product/plugin/catalog/catalog.json "$CATALOG_SNAPSHOT"
 
 # ---------------------------------------------------------------------------
 # 10. VERSION sentinel asset.

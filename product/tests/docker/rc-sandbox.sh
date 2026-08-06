@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: MIT
-# tests/docker/rc-sandbox.sh — interactive local sandbox for hand-testing a
+# product/tests/docker/rc-sandbox.sh — interactive local sandbox for hand-testing a
 # release candidate you built yourself, without publishing anything to GitHub.
 #
 # >>> USAGE >>>
 # Three-step workflow:
 #
-#   tests/docker/rc-sandbox.sh up          # 1. spin up a systemd Ubuntu container
-#   tests/docker/rc-sandbox.sh install     # 2. install the RC tarball from dist/
-#   tests/docker/rc-sandbox.sh shell       # 3. drop into a shell as the agent user
+#   product/tests/docker/rc-sandbox.sh up          # 1. spin up a systemd Ubuntu container
+#   product/tests/docker/rc-sandbox.sh install     # 2. install the RC tarball from dist/
+#   product/tests/docker/rc-sandbox.sh shell       # 3. drop into a shell as the agent user
 #
 # Then, inside the shell, run whatever you like:
 #   agentlinux list
@@ -55,7 +55,10 @@ IFS=$'\n\t'
 
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 readonly HERE
-REPO_ROOT=$(cd "$HERE/../.." && pwd)
+PRODUCT_ROOT=$(cd "$HERE/../.." && pwd)
+readonly PRODUCT_ROOT
+# dist/ is a repo-root build output; the product tree is one level down.
+REPO_ROOT=$(cd "$HERE/../../.." && pwd)
 readonly REPO_ROOT
 readonly CONTAINER=${AGENTLINUX_RC_CONTAINER:-agentlinux-rc}
 readonly UBUNTU_DEFAULT=ubuntu-24.04
@@ -137,10 +140,10 @@ cmd_install() {
   fi
   [[ -n "$tarball" && -f "$tarball" ]] \
     || die "no RC tarball found — build one first, e.g.:
-    scripts/build-release.sh v0.4.0-rc1
+    product/scripts/build-release.sh v0.4.0-rc1
   (then re-run: $(basename "$0") install)"
   [[ -f "${tarball}.sha256" ]] \
-    || die "missing sidecar ${tarball}.sha256 (rebuild via scripts/build-release.sh)"
+    || die "missing sidecar ${tarball}.sha256 (rebuild via product/scripts/build-release.sh)"
 
   local base tag
   base=$(basename "$tarball")          # agentlinux-v0.3.6-rc1.tar.gz
@@ -172,7 +175,7 @@ cmd_install() {
   docker exec -i \
     -e "AGENTLINUX_VERSION=${tag}" \
     -e "AGENTLINUX_RELEASE_BASE=file:///opt/rc" \
-    "$CONTAINER" bash < "$REPO_ROOT/packaging/curl-installer/install.sh"
+    "$CONTAINER" bash < "$PRODUCT_ROOT/packaging/curl-installer/install.sh"
 
   printf '\n== installed — sanity check ==\n'
   docker exec "$CONTAINER" sudo -u agent -H bash -lc \

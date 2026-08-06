@@ -6,7 +6,7 @@
 # merge-gate the same "the test is the spec" coverage as the rest of the suite.
 
 setup() {
-  REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../.." && pwd)"
+  REPO_ROOT="$(cd "$BATS_TEST_DIRNAME/../../.." && pwd)"
   FIXTURE="$(mktemp -d)"
   cd "$FIXTURE" || return 1
   git init -q

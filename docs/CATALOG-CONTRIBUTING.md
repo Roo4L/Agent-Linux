@@ -4,8 +4,8 @@ AgentLinux ships a curated catalog of agent tools (`agentlinux list`). This is t
 contributor guide for **adding a new entry**: the bar an entry must clear, how the CLI
 categorizes it, and the mechanical steps. The design goal is that a new tool is a
 **catalog entry plus a recipe pair — no CLI TypeScript changes**. The
-`plugin/catalog/agents/_template/` recipe skeletons and the
-`plugin/catalog/agents/test-dummy/` entry are the worked examples.
+`product/plugin/catalog/agents/_template/` recipe skeletons and the
+`product/plugin/catalog/agents/test-dummy/` entry are the worked examples.
 
 ## 1. Selection rubric — does the tool belong?
 
@@ -38,7 +38,7 @@ shape. Prefer tools that reuse a shared helper over ones needing bespoke machine
 ## 2. Pick a category
 
 `agentlinux list --by-category` groups entries by a small fixed set. The category is
-**derived from the entry's `tags`** (see `rust/crates/agentlinux-core/src/category.rs`) — you do not
+**derived from the entry's `tags`** (see `product/rust/crates/agentlinux-core/src/category.rs`) — you do not
 set it directly; you choose a canonical category tag. First matching tag wins, in this
 precedence:
 
@@ -62,12 +62,12 @@ one picks the group. An entry with no canonical tag falls under **Other**, never
 
 ## 3. Add the entry (no CLI edits)
 
-1. **Copy the template:** `cp -r plugin/catalog/agents/_template plugin/catalog/agents/<id>`
+1. **Copy the template:** `cp -r product/plugin/catalog/agents/_template product/plugin/catalog/agents/<id>`
    and fill in `install.sh` + `uninstall.sh`. Reuse a shared helper from
-   `plugin/catalog/lib/` where one fits — `prebuilt-binary.sh`, `uv-bootstrap.sh`,
+   `product/plugin/catalog/lib/` where one fits — `prebuilt-binary.sh`, `uv-bootstrap.sh`,
    `mcp-register.sh`, `daemon-lifecycle.sh` — sourced via
    `"${AGENTLINUX_CATALOG_DIR}/lib/<helper>.sh"` (the template header shows the idiom).
-2. **Add the catalog entry** to `plugin/catalog/catalog.json` `agents[]`:
+2. **Add the catalog entry** to `product/plugin/catalog/catalog.json` `agents[]`:
    ```json
    {
      "id": "<id>",
@@ -87,9 +87,9 @@ one picks the group. An entry with no canonical tag falls under **Other**, never
    `requires_secret`/`secret_env` (declare a credential — never bake it), `endpoint_url`
    (hosted MCP), `preserve_paths_file` (config preserved across uninstall),
    `compatibility_window` (version-adoption window), `post_install_verify`. The full field
-   list + validation rules live in `plugin/catalog/schema.json`.
-3. **Validate:** `scripts/check-catalog-schema.sh` (also runs in pre-commit).
-4. **Add a behavior test** in `tests/bats/` that proves the round trip: install →
+   list + validation rules live in `product/plugin/catalog/schema.json`.
+3. **Validate:** `product/scripts/check-catalog-schema.sh` (also runs in pre-commit).
+4. **Add a behavior test** in `product/tests/bats/` that proves the round trip: install →
    `post_install_verify` → symmetric remove, no residue. Copy the shape of the sibling test
    for your source kind: `53-catalog-npm-cluster.bats` (npm), `57-catalog-binary.bats`
    (binary), `59-catalog-mcp.bats` (mcp), `66-catalog-spec-kit.bats` (script/uv).

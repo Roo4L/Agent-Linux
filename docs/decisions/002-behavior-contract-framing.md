@@ -16,7 +16,7 @@ script or package manager runs when.
 
 Express requirements as observable behaviors (BHV-XX / RT-XX / AGT-XX / CLI-XX /
 CAT-XX / INST-XX) that a bats test suite can assert against a running installed
-system. The bats suite in `tests/bats/` is the spec; implementation in `plugin/`
+system. The bats suite in `product/tests/bats/` is the spec; implementation in `product/plugin/`
 may change freely while the suite stays green.
 
 ## Consequences

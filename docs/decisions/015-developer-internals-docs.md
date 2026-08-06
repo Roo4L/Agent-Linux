@@ -10,8 +10,8 @@
 
 Two adjacent decisions had to land alongside the docs themselves:
 
-1. **How to keep the docs in sync with the source.** Documentation that drifts is worse than no documentation — it actively misleads. The codebase already has a review loop (CLAUDE.md "Review Loop" instruction + `.claude/agents/<reviewer>.md` subagents + ADR-010's reminder-hook refinement) that catches plugin/ source changes; it needs to learn about docs/internals/ too.
-2. **Whether to add a third stop-hook.** The codebase has two reminder hooks today — `.claude/hooks/review-reminder.sh` (review-loop nudge) and `.claude/hooks/session-tracker-reminder.sh` (Jira nudge), both wired per the ADR-010 2026-05-02 refinement. A naive solution to docs sync would be a third hook. The maintainer pushed back: a third hook multiplies reminder noise without adding value, because the existing review-reminder already triggers the review loop and the review loop already routes plugin/ changes to reviewers.
+1. **How to keep the docs in sync with the source.** Documentation that drifts is worse than no documentation — it actively misleads. The codebase already has a review loop (CLAUDE.md "Review Loop" instruction + `.claude/agents/<reviewer>.md` subagents + ADR-010's reminder-hook refinement) that catches product/plugin/ source changes; it needs to learn about docs/internals/ too.
+2. **Whether to add a third stop-hook.** The codebase has two reminder hooks today — `.claude/hooks/review-reminder.sh` (review-loop nudge) and `.claude/hooks/session-tracker-reminder.sh` (Jira nudge), both wired per the ADR-010 2026-05-02 refinement. A naive solution to docs sync would be a third hook. The maintainer pushed back: a third hook multiplies reminder noise without adding value, because the existing review-reminder already triggers the review loop and the review loop already routes product/plugin/ changes to reviewers.
 
 ## Decision
 
@@ -29,7 +29,7 @@ Specifically:
 
 ### What changes
 
-- The review loop now flags missing or stale `docs/internals/<component>.md` updates whenever `plugin/bin/`, `plugin/lib/`, `plugin/provisioner/`, `plugin/cli/src/`, `plugin/catalog/`, or `packaging/curl-installer/` changes — without any new orchestration plumbing.
+- The review loop now flags missing or stale `docs/internals/<component>.md` updates whenever `product/plugin/bin/`, `product/plugin/lib/`, `product/plugin/provisioner/`, `product/plugin/cli/src/`, `product/plugin/catalog/`, or `product/packaging/curl-installer/` changes — without any new orchestration plumbing.
 - The internals docs are explicitly *reference material*, not a release gate. The `dev-docs-auditor` does not gate phase close (no `## Exit behavior` section in its body); it documents drift for the main agent to triage.
 - Skip conditions are explicit: pure refactors, comment-only changes, typo fixes, formatting-only diffs, `.planning/`-only changes, and tests-only changes do not require docs updates.
 
@@ -37,7 +37,7 @@ Specifically:
 
 ADR-010's original 2026-04-18 critique — "subjective LLM review in a Stop hook wastes tokens" — applied to hooks that *spawn* reviewers. The 2026-05-02 refinement permits *reminder* hooks (one-shot via `stop_hook_active`, no reviewer spawn). A third reminder hook for docs sync was considered and rejected because:
 
-- The existing `review-reminder.sh` already nudges Claude to run the review loop. Once the review loop runs, the reviewer-by-file-type routing table already routes plugin/ changes through `dev-docs-auditor`. A second nudge for the same loop is redundant.
+- The existing `review-reminder.sh` already nudges Claude to run the review loop. Once the review loop runs, the reviewer-by-file-type routing table already routes product/plugin/ changes through `dev-docs-auditor`. A second nudge for the same loop is redundant.
 - Each reminder hook costs at most one extra "block + re-stop" round-trip per turn (per ADR-010 §"Refinement"). Two reminders cost two round-trips; three cost three. The cost is real even though small.
 - Reminder noise has a usability cost too — Claude reads each reminder reason and decides whether to act. More reasons mean longer reminder text means more turns where the reminder is mostly skipped, which trains the loop to ignore reminders generally.
 - The maintainer drew the line at "no third hook" explicitly. Two hooks is a deliberate stopping point, not an accident.

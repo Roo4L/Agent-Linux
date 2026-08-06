@@ -1,6 +1,6 @@
 ---
 name: qa-engineer
-description: Reviews test suites for quality — whether tests verify observable behavior rather than implementation, assert strongly enough that a real regression fails them, cover failure and edge cases as well as the happy path, stay deterministic and isolated, and trace to the requirement they defend. Points to AgentLinux test specifics rather than embedding them. Use on changes under tests/ or plugin/cli/test/.
+description: Reviews test suites for quality — whether tests verify observable behavior rather than implementation, assert strongly enough that a real regression fails them, cover failure and edge cases as well as the happy path, stay deterministic and isolated, and trace to the requirement they defend. Points to AgentLinux test specifics rather than embedding them. Use on changes under product/tests/ or product/plugin/cli/test/.
 tools: Read, Grep, Glob, Bash
 ---
 
